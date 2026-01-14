@@ -1,0 +1,14 @@
+*.exe
+*.exe~
+*.dll
+*.so
+*.dylib
+*.test
+*.out
+go.work
+vendor/
+.idea/
+.vscode/
+.DS_Store
+.hegel/
+.hypothesis/
