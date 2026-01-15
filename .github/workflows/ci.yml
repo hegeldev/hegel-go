@@ -1,0 +1,45 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+jobs:
+  test:
+    name: Go Tests
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version: '1.22'
+      - run: go test ./...
+
+  conformance:
+    name: Conformance Tests
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version: '1.22'
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.13'
+      - name: Install hegel
+        run: pip install git+https://github.com/antithesishq/hegel.git
+      - name: Build conformance binaries
+        working-directory: tests/conformance/go
+        run: |
+          mkdir -p bin
+          go build -o bin/test_booleans ./cmd/test_booleans
+          go build -o bin/test_integers ./cmd/test_integers
+          go build -o bin/test_floats ./cmd/test_floats
+          go build -o bin/test_text ./cmd/test_text
+          go build -o bin/test_lists ./cmd/test_lists
+          go build -o bin/test_sampled_from ./cmd/test_sampled_from
+      - name: Run conformance tests
+        working-directory: tests/conformance
+        run: pytest test_conformance.py -v
