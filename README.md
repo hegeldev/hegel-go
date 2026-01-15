@@ -2,24 +2,16 @@
 
 A Go SDK for Hegel property-based testing. This SDK allows Go test binaries to communicate with the Hegel server to generate random test data according to JSON schemas.
 
-## Prerequisites
-
-This SDK requires the `hegel` CLI tool to be installed. Install it via pip:
-
-```bash
-pip install git+ssh://git@github.com/antithesishq/hegel.git
-```
-
-Verify installation:
-
-```bash
-hegel --version
-```
-
 ## Requirements
 
 - Go 1.22 or later
-- Hegel CLI installed (see Prerequisites)
+
+The SDK automatically installs the Hegel CLI on first use. It will:
+1. Download [uv](https://github.com/astral-sh/uv) (if not already on PATH)
+2. Create a Python virtual environment in `.hegel/venv`
+3. Install the hegel package into that environment
+
+If you already have `hegel` on your PATH, the SDK will use that instead.
 
 ## Installation
 

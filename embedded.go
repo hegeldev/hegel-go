@@ -45,7 +45,11 @@ func Hegel(testFn func(), options HegelOptions) {
 	// Set defaults
 	hegelPath := options.HegelPath
 	if hegelPath == "" {
-		hegelPath = "hegel"
+		var err error
+		hegelPath, err = ensureHegel()
+		if err != nil {
+			panic(fmt.Sprintf("Failed to ensure hegel is installed: %v", err))
+		}
 	}
 	testCases := options.TestCases
 	if testCases <= 0 {
