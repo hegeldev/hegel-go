@@ -176,9 +176,8 @@ func (g *OptionalGenerator[T]) Generate() *T {
 		}
 
 		var value T
-		if err := json.Unmarshal(result, &value); err != nil {
-			Reject("Optional: failed to unmarshal value")
-		}
+		err := json.Unmarshal(result, &value)
+		Assume(err == nil)
 		return &value
 	}
 

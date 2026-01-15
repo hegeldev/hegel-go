@@ -190,17 +190,15 @@ people := hegel.Slices(
 
 When schemas are unavailable (e.g., after using `Custom()` without a schema), the SDK falls back to compositional generation using multiple requests with proper span labeling.
 
-## Rejection
+## Assumptions
 
-When generated data doesn't meet preconditions that can't be expressed in the schema, use `Reject()`:
+When generated data doesn't meet preconditions that can't be expressed in the schema, use `Assume()`:
 
 ```go
 func testProperty() {
     data := hegel.Make[Input]().Generate()
 
-    if !isValidPrecondition(data) {
-        hegel.Reject("input doesn't satisfy precondition")
-    }
+    hegel.Assume(isValidPrecondition(data))
 
     // Test logic here
 }

@@ -185,17 +185,10 @@ func sendRequest(command string, payload any) json.RawMessage {
 		Error  *string         `json:"error"`
 	}
 
-	if err := json.Unmarshal(line, &response); err != nil {
-		Reject(fmt.Sprintf("failed to parse response: %v", err))
-	}
-
-	if response.ID != id {
-		Reject(fmt.Sprintf("response ID mismatch: expected %d, got %d", id, response.ID))
-	}
-
-	if response.Error != nil {
-		Reject(*response.Error)
-	}
+	err := json.Unmarshal(line, &response)
+	Assume(err == nil)
+	Assume(response.ID == id)
+	Assume(response.Error == nil)
 
 	return response.Result
 }
@@ -227,9 +220,8 @@ func generateFromSchema[T any](schema map[string]any) T {
 	}
 
 	var value T
-	if err := json.Unmarshal(result, &value); err != nil {
-		Reject(fmt.Sprintf("failed to unmarshal result: %v", err))
-	}
+	err := json.Unmarshal(result, &value)
+	Assume(err == nil)
 
 	// Auto-log generated value during final replay (counterexample)
 	if IsLastRun() {
@@ -271,32 +263,31 @@ func Note(message string) {
 	// In embedded mode on non-last runs: silently ignore
 }
 
-// RejectError is a sentinel error used to signal rejection in embedded mode.
-type RejectError struct {
-	Message string
+// AssumeFailedError is a sentinel error used to signal assume(false) in embedded mode.
+type AssumeFailedError struct{}
+
+func (e *AssumeFailedError) Error() string {
+	return "assume failed"
 }
 
-func (e *RejectError) Error() string {
-	return e.Message
-}
-
-// Reject signals that the current test input should be rejected.
+// Assume checks a condition and rejects the test input if false.
 // This tells Hegel to try different input rather than treating it as a failure.
 //
-// In standalone mode, this function exits the process.
-// In embedded mode, this function panics with a RejectError.
-func Reject(message string) {
-	modeMu.Lock()
-	mode := currentMode
-	modeMu.Unlock()
+// In standalone mode, this function exits the process when condition is false.
+// In embedded mode, this function panics with an AssumeFailedError when condition is false.
+func Assume(condition bool) {
+	if !condition {
+		modeMu.Lock()
+		mode := currentMode
+		modeMu.Unlock()
 
-	if mode == ModeEmbedded {
-		panic(&RejectError{Message: message})
+		if mode == ModeEmbedded {
+			panic(&AssumeFailedError{})
+		}
+
+		code := getRejectCode()
+		os.Exit(code)
 	}
-
-	code := getRejectCode()
-	fmt.Fprintf(os.Stderr, "REJECT: %s\n", message)
-	os.Exit(code)
 }
 
 func getRejectCode() int {

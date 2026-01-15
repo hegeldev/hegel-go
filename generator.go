@@ -49,7 +49,7 @@ func (g *FuncGenerator[T]) Schema() map[string]any {
 }
 
 // Filter returns a generator that only produces values satisfying the predicate.
-// If maxAttempts consecutive values fail the predicate, Reject() is called.
+// If maxAttempts consecutive values fail the predicate, Assume(false) is called.
 func Filter[T any](gen Generator[T], predicate func(T) bool, maxAttempts int) Generator[T] {
 	return &FuncGenerator[T]{
 		genFn: func() T {
@@ -59,8 +59,8 @@ func Filter[T any](gen Generator[T], predicate func(T) bool, maxAttempts int) Ge
 					return value
 				}
 			}
-			Reject("filter: failed to generate value satisfying predicate")
-			panic("unreachable") // Reject exits
+			Assume(false)
+			panic("unreachable") // Assume(false) exits
 		},
 		schema: nil, // Filter invalidates schema
 	}

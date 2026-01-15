@@ -172,9 +172,8 @@ func handleGoConnection(conn net.Conn, testFn func(), debug bool) {
 	func() {
 		defer func() {
 			if r := recover(); r != nil {
-				if rejectErr, ok := r.(*RejectError); ok {
+				if _, ok := r.(*AssumeFailedError); ok {
 					resultType = "reject"
-					errorMessage = rejectErr.Message
 				} else {
 					resultType = "fail"
 					errorMessage = fmt.Sprintf("%v", r)

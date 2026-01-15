@@ -143,9 +143,7 @@ func (g *MapGenerator[V]) Generate() map[string]V {
 			attempts++
 		}
 
-		if len(result) < g.minSize {
-			Reject("Maps: failed to generate enough unique keys")
-		}
+		Assume(len(result) >= g.minSize)
 
 		return result
 	})
