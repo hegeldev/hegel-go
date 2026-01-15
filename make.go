@@ -8,9 +8,9 @@ import (
 
 // StructGenerator generates struct values with customizable field generators.
 type StructGenerator[T any] struct {
-	fieldGens map[string]any    // field name -> generator (type erased)
-	schema    map[string]any    // cached schema
-	typeInfo  reflect.Type      // struct type info
+	fieldGens map[string]any // field name -> generator (type erased)
+	schema    map[string]any // cached schema
+	typeInfo  reflect.Type   // struct type info
 }
 
 // Make returns a generator for struct type T.

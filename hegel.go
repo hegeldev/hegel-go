@@ -35,9 +35,9 @@ const (
 // Mode state - goroutine-local simulation using goroutine ID or explicit state.
 // For simplicity, we use global state with the assumption tests run sequentially.
 var (
-	currentMode   Mode
-	isLastRun     bool
-	modeMu        sync.Mutex
+	currentMode Mode
+	isLastRun   bool
+	modeMu      sync.Mutex
 )
 
 // Connection state - protected by mutex.
