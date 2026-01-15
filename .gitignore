@@ -13,3 +13,5 @@ vendor/
 .hegel/
 .hypothesis/
 .claude/settings.local.json
+__pycache__
+bin/
