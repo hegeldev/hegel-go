@@ -12,3 +12,4 @@ vendor/
 .DS_Store
 .hegel/
 .hypothesis/
+.claude/settings.local.json
