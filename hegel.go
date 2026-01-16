@@ -185,7 +185,7 @@ func sendRequest(command string, payload any) json.RawMessage {
 		Error  *string         `json:"error"`
 	}
 
-	err := json.Unmarshal(line, &response)
+	err = json.Unmarshal(line, &response)
 	Assume(err == nil)
 	Assume(response.ID == id)
 	Assume(response.Error == nil)
