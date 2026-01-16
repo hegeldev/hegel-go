@@ -15,8 +15,10 @@ import (
 type HegelOptions struct {
 	// TestCases is the number of test cases to run. Default: 100.
 	TestCases int
-	// Debug enables debug output from hegel.
-	Debug bool
+	// Verbosity controls the output verbosity level.
+	// Valid values: "quiet", "normal", "verbose", "debug".
+	// Default: "normal".
+	Verbosity string
 	// HegelPath is the path to the hegel binary. Default: "hegel".
 	HegelPath string
 }
@@ -55,6 +57,10 @@ func Hegel(testFn func(), options HegelOptions) {
 	if testCases <= 0 {
 		testCases = 100
 	}
+	verbosity := options.Verbosity
+	if verbosity == "" {
+		verbosity = "normal"
+	}
 
 	// Create temp directory with socket
 	tempDir, err := os.MkdirTemp("", "hegel_*")
@@ -76,9 +82,11 @@ func Hegel(testFn func(), options HegelOptions) {
 	listener.(*net.UnixListener).SetDeadline(time.Time{})
 
 	// Build hegel command
-	args := []string{"--client-mode", socketPath, "--no-tui", "--test-cases", fmt.Sprint(testCases)}
-	if options.Debug {
-		args = append(args, "--debug")
+	args := []string{
+		"--client-mode", socketPath,
+		"--no-tui",
+		"--test-cases", fmt.Sprint(testCases),
+		"--verbosity", verbosity,
 	}
 
 	cmd := exec.Command(hegelPath, args...)
@@ -121,12 +129,12 @@ func Hegel(testFn func(), options HegelOptions) {
 		}
 
 		// Handle connection
-		handleGoConnection(conn, testFn, options.Debug)
+		handleGoConnection(conn, testFn, verbosity)
 	}
 }
 
 // handleGoConnection handles a single connection from hegel (one test case).
-func handleGoConnection(conn net.Conn, testFn func(), debug bool) {
+func handleGoConnection(conn net.Conn, testFn func(), verbosity string) {
 	defer conn.Close()
 
 	reader := bufio.NewReader(conn)
@@ -145,7 +153,7 @@ func handleGoConnection(conn net.Conn, testFn func(), debug bool) {
 		return
 	}
 
-	if debug {
+	if verbosity == "debug" {
 		fmt.Fprintf(os.Stderr, "Handshake received: is_last_run=%v\n", handshake.IsLastRun)
 	}
 
@@ -197,7 +205,7 @@ func handleGoConnection(conn net.Conn, testFn func(), debug bool) {
 
 	resultJSON, _ := json.Marshal(result)
 
-	if debug {
+	if verbosity == "debug" {
 		fmt.Fprintf(os.Stderr, "Sending result: %s\n", resultJSON)
 	}
 
