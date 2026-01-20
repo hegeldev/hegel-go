@@ -33,11 +33,11 @@ func (g *TextGenerator) Schema() map[string]any {
 	schema := map[string]any{"type": "string"}
 
 	if g.minSize != nil {
-		schema["min_length"] = *g.minSize
+		schema["min_size"] = *g.minSize
 	}
 
 	if g.maxSize != nil {
-		schema["max_length"] = *g.maxSize
+		schema["max_size"] = *g.maxSize
 	}
 
 	return schema
