@@ -2,10 +2,12 @@ package hegel
 
 // FloatGenerator generates floating-point values with configurable bounds.
 type FloatGenerator[T Float] struct {
-	minValue   *T
-	maxValue   *T
-	excludeMin bool
-	excludeMax bool
+	minValue      *T
+	maxValue      *T
+	excludeMin    bool
+	excludeMax    bool
+	allowNan      bool
+	allowInfinity bool
 }
 
 // Floats returns a new floating-point generator.
@@ -37,6 +39,18 @@ func (g *FloatGenerator[T]) ExcludeMax() *FloatGenerator[T] {
 	return g
 }
 
+// AllowNan allows NaN values to be generated.
+func (g *FloatGenerator[T]) AllowNan() *FloatGenerator[T] {
+	g.allowNan = true
+	return g
+}
+
+// AllowInfinity allows infinity values to be generated.
+func (g *FloatGenerator[T]) AllowInfinity() *FloatGenerator[T] {
+	g.allowInfinity = true
+	return g
+}
+
 // Generate produces a floating-point value within the configured bounds.
 func (g *FloatGenerator[T]) Generate() T {
 	return generateFromSchema[T](g.Schema())
@@ -47,19 +61,25 @@ func (g *FloatGenerator[T]) Schema() map[string]any {
 	schema := map[string]any{"type": "number"}
 
 	if g.minValue != nil {
+		schema["minimum"] = *g.minValue
 		if g.excludeMin {
-			schema["exclusiveMinimum"] = *g.minValue
-		} else {
-			schema["minimum"] = *g.minValue
+			schema["exclude_minimum"] = true
 		}
 	}
 
 	if g.maxValue != nil {
+		schema["maximum"] = *g.maxValue
 		if g.excludeMax {
-			schema["exclusiveMaximum"] = *g.maxValue
-		} else {
-			schema["maximum"] = *g.maxValue
+			schema["exclude_maximum"] = true
 		}
+	}
+
+	if g.allowNan {
+		schema["allow_nan"] = true
+	}
+
+	if g.allowInfinity {
+		schema["allow_infinity"] = true
 	}
 
 	return schema

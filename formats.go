@@ -16,8 +16,7 @@ func (g *EmailGenerator) Generate() string {
 // Schema returns the JSON schema for email addresses.
 func (g *EmailGenerator) Schema() map[string]any {
 	return map[string]any{
-		"type":   "string",
-		"format": "email",
+		"type": "email",
 	}
 }
 
@@ -37,8 +36,7 @@ func (g *URLGenerator) Generate() string {
 // Schema returns the JSON schema for URLs.
 func (g *URLGenerator) Schema() map[string]any {
 	return map[string]any{
-		"type":   "string",
-		"format": "uri",
+		"type": "url",
 	}
 }
 
@@ -67,9 +65,8 @@ func (g *DomainGenerator) Generate() string {
 // Schema returns the JSON schema for domain names.
 func (g *DomainGenerator) Schema() map[string]any {
 	return map[string]any{
-		"type":      "string",
-		"format":    "hostname",
-		"maxLength": g.maxLength,
+		"type":       "domain",
+		"max_length": g.maxLength,
 	}
 }
 
@@ -118,19 +115,17 @@ func (g *IPAddressGenerator) Schema() map[string]any {
 	switch g.version {
 	case IPVersionV4:
 		return map[string]any{
-			"type":   "string",
-			"format": "ipv4",
+			"type": "ipv4",
 		}
 	case IPVersionV6:
 		return map[string]any{
-			"type":   "string",
-			"format": "ipv6",
+			"type": "ipv6",
 		}
 	default:
 		return map[string]any{
-			"anyOf": []map[string]any{
-				{"type": "string", "format": "ipv4"},
-				{"type": "string", "format": "ipv6"},
+			"one_of": []map[string]any{
+				{"type": "ipv4"},
+				{"type": "ipv6"},
 			},
 		}
 	}
@@ -152,8 +147,7 @@ func (g *DateGenerator) Generate() string {
 // Schema returns the JSON schema for dates.
 func (g *DateGenerator) Schema() map[string]any {
 	return map[string]any{
-		"type":   "string",
-		"format": "date",
+		"type": "date",
 	}
 }
 
@@ -173,8 +167,7 @@ func (g *TimeGenerator) Generate() string {
 // Schema returns the JSON schema for times.
 func (g *TimeGenerator) Schema() map[string]any {
 	return map[string]any{
-		"type":   "string",
-		"format": "time",
+		"type": "time",
 	}
 }
 
@@ -194,7 +187,6 @@ func (g *DateTimeGenerator) Generate() string {
 // Schema returns the JSON schema for datetimes.
 func (g *DateTimeGenerator) Schema() map[string]any {
 	return map[string]any{
-		"type":   "string",
-		"format": "date-time",
+		"type": "datetime",
 	}
 }

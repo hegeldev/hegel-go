@@ -1,6 +1,7 @@
 package hegel
 
 import (
+	"encoding/json"
 	"fmt"
 	"reflect"
 	"strings"
@@ -69,11 +70,47 @@ func (g *StructGenerator[T]) With(fieldName string, gen any) *StructGenerator[T]
 // Generate produces a struct value.
 func (g *StructGenerator[T]) Generate() T {
 	if schema := g.Schema(); schema != nil {
-		return generateFromSchema[T](schema)
+		return g.generateFromTupleSchema(schema)
 	}
 
 	// Compositional fallback using reflection
 	return g.generateCompositional()
+}
+
+func (g *StructGenerator[T]) generateFromTupleSchema(schema map[string]any) T {
+	needConnection := !isConnected()
+	if needConnection {
+		openConnection()
+	}
+
+	resultBytes := sendRequest("generate", schema)
+
+	if needConnection {
+		closeConnection()
+	}
+
+	var values []any
+	err := json.Unmarshal(resultBytes, &values)
+	if err != nil {
+		panic(fmt.Sprintf("hegel: failed to deserialize struct values: %v\nValue: %s", err, resultBytes))
+	}
+
+	result := reflect.New(g.typeInfo).Elem()
+	valueIdx := 0
+	for i := 0; i < g.typeInfo.NumField(); i++ {
+		field := g.typeInfo.Field(i)
+		if !field.IsExported() {
+			continue
+		}
+
+		rawValue := values[valueIdx]
+		valueIdx++
+
+		fieldValue := convertValue(rawValue, field.Type)
+		result.Field(i).Set(fieldValue)
+	}
+
+	return result.Interface().(T)
 }
 
 func (g *StructGenerator[T]) generateCompositional() T {
@@ -99,8 +136,7 @@ func (g *StructGenerator[T]) Schema() map[string]any {
 		return g.schema
 	}
 
-	properties := make(map[string]any)
-	required := make([]string, 0)
+	elements := make([]map[string]any, 0)
 
 	for i := 0; i < g.typeInfo.NumField(); i++ {
 		field := g.typeInfo.Field(i)
@@ -108,7 +144,6 @@ func (g *StructGenerator[T]) Schema() map[string]any {
 			continue
 		}
 
-		jsonName := getJSONFieldName(field)
 		gen := g.fieldGens[field.Name]
 
 		fieldSchema := callSchema(gen)
@@ -116,14 +151,12 @@ func (g *StructGenerator[T]) Schema() map[string]any {
 			return nil // Can't compose schema
 		}
 
-		properties[jsonName] = fieldSchema
-		required = append(required, jsonName)
+		elements = append(elements, fieldSchema)
 	}
 
 	g.schema = map[string]any{
-		"type":       "object",
-		"properties": properties,
-		"required":   required,
+		"type":     "tuple",
+		"elements": elements,
 	}
 
 	return g.schema
@@ -234,8 +267,8 @@ func wrapSliceGenerator(elemGen any, elemType reflect.Type) any {
 				return nil
 			}
 			return map[string]any{
-				"type":  "array",
-				"items": elemSchema,
+				"type":     "list",
+				"elements": elemSchema,
 			}
 		}(),
 	}
@@ -264,8 +297,8 @@ func wrapMapGenerator(valueGen any, valueType reflect.Type) any {
 				return nil
 			}
 			return map[string]any{
-				"type":                 "object",
-				"additionalProperties": valueSchema,
+				"type":   "dict",
+				"values": valueSchema,
 			}
 		}(),
 	}
@@ -292,11 +325,69 @@ func wrapOptionalGenerator(innerGen any, innerType reflect.Type) any {
 				return nil
 			}
 			return map[string]any{
-				"anyOf": []map[string]any{
+				"one_of": []map[string]any{
 					{"type": "null"},
 					innerSchema,
 				},
 			}
 		}(),
+	}
+}
+
+// convertValue converts a JSON-decoded value to a reflect.Value of the target type.
+func convertValue(raw any, targetType reflect.Type) reflect.Value {
+	if raw == nil {
+		return reflect.Zero(targetType)
+	}
+
+	switch targetType.Kind() {
+	case reflect.Bool:
+		return reflect.ValueOf(raw.(bool))
+	case reflect.Int:
+		return reflect.ValueOf(int(raw.(float64)))
+	case reflect.Int8:
+		return reflect.ValueOf(int8(raw.(float64)))
+	case reflect.Int16:
+		return reflect.ValueOf(int16(raw.(float64)))
+	case reflect.Int32:
+		return reflect.ValueOf(int32(raw.(float64)))
+	case reflect.Int64:
+		return reflect.ValueOf(int64(raw.(float64)))
+	case reflect.Uint:
+		return reflect.ValueOf(uint(raw.(float64)))
+	case reflect.Uint8:
+		return reflect.ValueOf(uint8(raw.(float64)))
+	case reflect.Uint16:
+		return reflect.ValueOf(uint16(raw.(float64)))
+	case reflect.Uint32:
+		return reflect.ValueOf(uint32(raw.(float64)))
+	case reflect.Uint64:
+		return reflect.ValueOf(uint64(raw.(float64)))
+	case reflect.Float32:
+		return reflect.ValueOf(float32(raw.(float64)))
+	case reflect.Float64:
+		return reflect.ValueOf(raw.(float64))
+	case reflect.String:
+		return reflect.ValueOf(raw.(string))
+	case reflect.Slice:
+		rawSlice := raw.([]any)
+		slice := reflect.MakeSlice(targetType, len(rawSlice), len(rawSlice))
+		for i, elem := range rawSlice {
+			slice.Index(i).Set(convertValue(elem, targetType.Elem()))
+		}
+		return slice
+	case reflect.Map:
+		rawMap := raw.(map[string]any)
+		result := reflect.MakeMap(targetType)
+		for k, v := range rawMap {
+			result.SetMapIndex(reflect.ValueOf(k), convertValue(v, targetType.Elem()))
+		}
+		return result
+	case reflect.Ptr:
+		ptr := reflect.New(targetType.Elem())
+		ptr.Elem().Set(convertValue(raw, targetType.Elem()))
+		return ptr
+	default:
+		panic(fmt.Sprintf("convertValue: unsupported type %v", targetType))
 	}
 }

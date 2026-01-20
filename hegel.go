@@ -186,9 +186,15 @@ func sendRequest(command string, payload any) json.RawMessage {
 	}
 
 	err = json.Unmarshal(line, &response)
-	Assume(err == nil)
-	Assume(response.ID == id)
-	Assume(response.Error == nil)
+	if err != nil {
+		panic(fmt.Sprintf("hegel: failed to parse server response as JSON: %v\nResponse: %s", err, line))
+	}
+	if response.ID != id {
+		panic(fmt.Sprintf("hegel: response ID mismatch: expected %d, got %d", id, response.ID))
+	}
+	if response.Error != nil {
+		panic(fmt.Sprintf("hegel: server returned error: %s", *response.Error))
+	}
 
 	return response.Result
 }
@@ -221,7 +227,9 @@ func generateFromSchema[T any](schema map[string]any) T {
 
 	var value T
 	err := json.Unmarshal(result, &value)
-	Assume(err == nil)
+	if err != nil {
+		panic(fmt.Sprintf("hegel: failed to deserialize server response: %v\nValue: %s", err, result))
+	}
 
 	// Auto-log generated value during final replay (counterexample)
 	if IsLastRun() {

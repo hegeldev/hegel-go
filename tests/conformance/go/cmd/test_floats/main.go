@@ -3,6 +3,7 @@ package main
 import (
 	"encoding/json"
 	"fmt"
+	"math"
 	"os"
 
 	hegel "github.com/antithesishq/hegel-go"
@@ -10,10 +11,12 @@ import (
 )
 
 type params struct {
-	MinValue   float64 `json:"min_value"`
-	MaxValue   float64 `json:"max_value"`
-	ExcludeMin bool    `json:"exclude_min"`
-	ExcludeMax bool    `json:"exclude_max"`
+	MinValue      float64 `json:"min_value"`
+	MaxValue      float64 `json:"max_value"`
+	ExcludeMin    bool    `json:"exclude_min"`
+	ExcludeMax    bool    `json:"exclude_max"`
+	AllowNan      bool    `json:"allow_nan"`
+	AllowInfinity bool    `json:"allow_infinity"`
 }
 
 func main() {
@@ -36,7 +39,17 @@ func main() {
 		if p.ExcludeMax {
 			gen = gen.ExcludeMax()
 		}
+		if p.AllowNan {
+			gen = gen.AllowNan()
+		}
+		if p.AllowInfinity {
+			gen = gen.AllowInfinity()
+		}
 		value := gen.Generate()
-		metrics.Write(map[string]any{"value": value})
+		metrics.Write(map[string]any{
+			"value":       value,
+			"is_nan":      math.IsNaN(value),
+			"is_infinite": math.IsInf(value, 0),
+		})
 	}, hegel.HegelOptions{TestCases: metrics.GetTestCases()})
 }

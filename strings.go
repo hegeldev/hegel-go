@@ -1,7 +1,5 @@
 package hegel
 
-import "strings"
-
 // TextGenerator generates text strings with configurable size bounds.
 type TextGenerator struct {
 	minSize *int
@@ -35,11 +33,11 @@ func (g *TextGenerator) Schema() map[string]any {
 	schema := map[string]any{"type": "string"}
 
 	if g.minSize != nil {
-		schema["minLength"] = *g.minSize
+		schema["min_length"] = *g.minSize
 	}
 
 	if g.maxSize != nil {
-		schema["maxLength"] = *g.maxSize
+		schema["max_length"] = *g.maxSize
 	}
 
 	return schema
@@ -47,20 +45,20 @@ func (g *TextGenerator) Schema() map[string]any {
 
 // RegexGenerator generates strings matching a regular expression.
 type RegexGenerator struct {
-	pattern string
+	pattern   string
+	fullmatch bool
 }
 
-// FromRegex returns a generator for strings matching the given pattern.
-// The pattern is automatically anchored with ^ and $ if not already present.
+// FromRegex returns a generator for strings that contain a match for the given pattern.
+// Use Fullmatch() to require the entire string to match.
 func FromRegex(pattern string) *RegexGenerator {
-	anchored := pattern
-	if !strings.HasPrefix(pattern, "^") {
-		anchored = "^" + anchored
-	}
-	if !strings.HasSuffix(anchored, "$") {
-		anchored = anchored + "$"
-	}
-	return &RegexGenerator{pattern: anchored}
+	return &RegexGenerator{pattern: pattern, fullmatch: false}
+}
+
+// Fullmatch requires the entire string to match the pattern, not just contain a match.
+func (g *RegexGenerator) Fullmatch() *RegexGenerator {
+	g.fullmatch = true
+	return g
 }
 
 // Generate produces a string matching the pattern.
@@ -70,8 +68,12 @@ func (g *RegexGenerator) Generate() string {
 
 // Schema returns the JSON schema for this generator.
 func (g *RegexGenerator) Schema() map[string]any {
-	return map[string]any{
-		"type":    "string",
+	schema := map[string]any{
+		"type":    "regex",
 		"pattern": g.pattern,
 	}
+	if g.fullmatch {
+		schema["fullmatch"] = true
+	}
+	return schema
 }

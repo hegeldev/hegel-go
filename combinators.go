@@ -2,6 +2,7 @@ package hegel
 
 import (
 	"encoding/json"
+	"fmt"
 	"reflect"
 )
 
@@ -88,7 +89,7 @@ func (g *OneOfGenerator[T]) Generate() T {
 }
 
 // Schema returns the JSON schema for this generator.
-// Returns anyOf schema if all generators have schemas, nil otherwise.
+// Returns one_of schema if all generators have schemas, nil otherwise.
 func (g *OneOfGenerator[T]) Schema() map[string]any {
 	schemas := make([]map[string]any, 0, len(g.generators))
 	for _, gen := range g.generators {
@@ -99,7 +100,7 @@ func (g *OneOfGenerator[T]) Schema() map[string]any {
 		schemas = append(schemas, s)
 	}
 
-	return map[string]any{"anyOf": schemas}
+	return map[string]any{"one_of": schemas}
 }
 
 // OneOfAnyGenerator chooses from generators returning different types.
@@ -140,7 +141,7 @@ func (g *OneOfAnyGenerator) Schema() map[string]any {
 		schemas = append(schemas, s)
 	}
 
-	return map[string]any{"anyOf": schemas}
+	return map[string]any{"one_of": schemas}
 }
 
 // AsAny converts a Generator[T] to Generator[any].
@@ -167,7 +168,7 @@ func Optional[T any](gen Generator[T]) *OptionalGenerator[T] {
 // Generate produces either nil or a value.
 func (g *OptionalGenerator[T]) Generate() *T {
 	if schema := g.Schema(); schema != nil {
-		// The schema uses anyOf with null, so result could be null
+		// The schema uses one_of with null, so result could be null
 		result := generateFromSchema[json.RawMessage](schema)
 
 		// Check if the result is null
@@ -177,7 +178,9 @@ func (g *OptionalGenerator[T]) Generate() *T {
 
 		var value T
 		err := json.Unmarshal(result, &value)
-		Assume(err == nil)
+		if err != nil {
+			panic(fmt.Sprintf("hegel: failed to deserialize optional value: %v\nValue: %s", err, result))
+		}
 		return &value
 	}
 
@@ -200,7 +203,7 @@ func (g *OptionalGenerator[T]) Schema() map[string]any {
 	}
 
 	return map[string]any{
-		"anyOf": []map[string]any{
+		"one_of": []map[string]any{
 			{"type": "null"},
 			innerSchema,
 		},
@@ -226,7 +229,7 @@ func reflectSchema(t reflect.Type) map[string]any {
 		if elemSchema == nil {
 			return nil
 		}
-		return map[string]any{"type": "array", "items": elemSchema}
+		return map[string]any{"type": "list", "elements": elemSchema}
 	case reflect.Map:
 		if t.Key().Kind() != reflect.String {
 			return nil // Only string keys supported
@@ -235,14 +238,14 @@ func reflectSchema(t reflect.Type) map[string]any {
 		if valueSchema == nil {
 			return nil
 		}
-		return map[string]any{"type": "object", "additionalProperties": valueSchema}
+		return map[string]any{"type": "dict", "values": valueSchema}
 	case reflect.Ptr:
 		innerSchema := reflectSchema(t.Elem())
 		if innerSchema == nil {
 			return nil
 		}
 		return map[string]any{
-			"anyOf": []map[string]any{
+			"one_of": []map[string]any{
 				{"type": "null"},
 				innerSchema,
 			},

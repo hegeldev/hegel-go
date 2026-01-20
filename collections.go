@@ -67,18 +67,19 @@ func (g *SliceGenerator[T]) Schema() map[string]any {
 		return nil // Fall back to compositional generation
 	}
 
+	schemaType := "list"
+	if g.unique {
+		schemaType = "set"
+	}
+
 	schema := map[string]any{
-		"type":     "array",
-		"items":    elemSchema,
-		"minItems": g.minSize,
+		"type":     schemaType,
+		"elements": elemSchema,
+		"min_size": g.minSize,
 	}
 
 	if g.maxSize != nil {
-		schema["maxItems"] = *g.maxSize
-	}
-
-	if g.unique {
-		schema["uniqueItems"] = true
+		schema["max_size"] = *g.maxSize
 	}
 
 	return schema
@@ -157,13 +158,13 @@ func (g *MapGenerator[V]) Schema() map[string]any {
 	}
 
 	schema := map[string]any{
-		"type":                 "object",
-		"additionalProperties": valueSchema,
-		"minProperties":        g.minSize,
+		"type":     "dict",
+		"values":   valueSchema,
+		"min_size": g.minSize,
 	}
 
 	if g.maxSize != nil {
-		schema["maxProperties"] = *g.maxSize
+		schema["max_size"] = *g.maxSize
 	}
 
 	return schema
