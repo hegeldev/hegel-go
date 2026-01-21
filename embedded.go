@@ -169,7 +169,7 @@ func handleGoConnection(conn net.Conn, testFn func(), verbosity string) {
 	// Send handshake_ack
 	if _, err := conn.Write([]byte(`{"type": "handshake_ack"}` + "\n")); err != nil {
 		clearEmbeddedConnection()
-		setModeStandalone()
+		setModeExternal()
 		return
 	}
 
@@ -212,7 +212,7 @@ func handleGoConnection(conn net.Conn, testFn func(), verbosity string) {
 	conn.Write(append(resultJSON, '\n'))
 
 	// Reset mode
-	setModeStandalone()
+	setModeExternal()
 }
 
 // setEmbeddedConnection sets the main connection for embedded mode.
@@ -232,9 +232,9 @@ func clearEmbeddedConnection() {
 	conn = nil
 }
 
-func setModeStandalone() {
+func setModeExternal() {
 	modeMu.Lock()
 	defer modeMu.Unlock()
-	currentMode = ModeStandalone
+	currentMode = ModeExternal
 	isLastRun = false
 }

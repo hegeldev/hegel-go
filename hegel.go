@@ -24,9 +24,9 @@ const (
 type Mode int
 
 const (
-	// ModeStandalone is the default mode where the test binary runs
+	// ModeExternal is the default mode where the test binary runs
 	// and hegel is an external process that spawned it.
-	ModeStandalone Mode = iota
+	ModeExternal Mode = iota
 	// ModeEmbedded is the mode where the test binary runs hegel as
 	// a subprocess using the Hegel() function.
 	ModeEmbedded
@@ -255,7 +255,7 @@ func IsLastRun() bool {
 }
 
 // Note prints a message to stderr.
-// In standalone mode, always prints.
+// In external mode, always prints.
 // In embedded mode, only prints on the last run.
 func Note(message string) {
 	modeMu.Lock()
@@ -263,7 +263,7 @@ func Note(message string) {
 	last := isLastRun
 	modeMu.Unlock()
 
-	if mode == ModeStandalone {
+	if mode == ModeExternal {
 		fmt.Fprintln(os.Stderr, message)
 	} else if last {
 		fmt.Fprintln(os.Stderr, message)
@@ -281,7 +281,7 @@ func (e *AssumeFailedError) Error() string {
 // Assume checks a condition and rejects the test input if false.
 // This tells Hegel to try different input rather than treating it as a failure.
 //
-// In standalone mode, this function exits the process when condition is false.
+// In external mode, this function exits the process when condition is false.
 // In embedded mode, this function panics with an AssumeFailedError when condition is false.
 func Assume(condition bool) {
 	if !condition {
