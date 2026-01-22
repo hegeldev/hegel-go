@@ -19,7 +19,7 @@ jobs:
         run: test -z $(gofmt -l .)
 
   test:
-    name: Go Tests
+    name: Tests
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -29,7 +29,7 @@ jobs:
       - run: go test ./...
 
   conformance:
-    name: Conformance Tests
+    name: Conformance tests
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
