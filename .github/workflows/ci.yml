@@ -8,7 +8,7 @@ on:
 
 jobs:
   format:
-    name: Format
+    name: format
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -21,7 +21,7 @@ jobs:
           git diff --exit-code
 
   test:
-    name: Tests
+    name: test
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -37,7 +37,7 @@ jobs:
       - run: go test ./...
 
   conformance:
-    name: Conformance tests
+    name: conformance tests
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
