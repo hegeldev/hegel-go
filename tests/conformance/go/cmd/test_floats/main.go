@@ -11,12 +11,12 @@ import (
 )
 
 type params struct {
-	MinValue      float64 `json:"min_value"`
-	MaxValue      float64 `json:"max_value"`
-	ExcludeMin    bool    `json:"exclude_min"`
-	ExcludeMax    bool    `json:"exclude_max"`
-	AllowNan      bool    `json:"allow_nan"`
-	AllowInfinity bool    `json:"allow_infinity"`
+	MinValue      *float64 `json:"min_value"`
+	MaxValue      *float64 `json:"max_value"`
+	ExcludeMin    bool     `json:"exclude_min"`
+	ExcludeMax    bool     `json:"exclude_max"`
+	AllowNan      bool     `json:"allow_nan"`
+	AllowInfinity bool     `json:"allow_infinity"`
 }
 
 func main() {
@@ -32,7 +32,13 @@ func main() {
 	}
 
 	hegel.Hegel(func() {
-		gen := hegel.Floats[float64]().Min(p.MinValue).Max(p.MaxValue)
+		gen := hegel.Floats[float64]()
+		if p.MinValue != nil {
+			gen = gen.Min(*p.MinValue)
+		}
+		if p.MaxValue != nil {
+			gen = gen.Max(*p.MaxValue)
+		}
 		if p.ExcludeMin {
 			gen = gen.ExcludeMin()
 		}

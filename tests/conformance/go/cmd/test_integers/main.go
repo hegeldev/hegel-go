@@ -10,8 +10,8 @@ import (
 )
 
 type params struct {
-	MinValue int `json:"min_value"`
-	MaxValue int `json:"max_value"`
+	MinValue *int `json:"min_value"`
+	MaxValue *int `json:"max_value"`
 }
 
 func main() {
@@ -27,7 +27,14 @@ func main() {
 	}
 
 	hegel.Hegel(func() {
-		value := hegel.Integers[int]().Min(p.MinValue).Max(p.MaxValue).Generate()
+		gen := hegel.Integers[int]()
+		if p.MinValue != nil {
+			gen = gen.Min(*p.MinValue)
+		}
+		if p.MaxValue != nil {
+			gen = gen.Max(*p.MaxValue)
+		}
+		value := gen.Generate()
 		metrics.Write(map[string]any{"value": value})
 	}, hegel.HegelOptions{TestCases: metrics.GetTestCases()})
 }

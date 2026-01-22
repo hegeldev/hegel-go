@@ -11,10 +11,10 @@ import (
 )
 
 type params struct {
-	MinSize  int `json:"min_size"`
-	MaxSize  int `json:"max_size"`
-	MinValue int `json:"min_value"`
-	MaxValue int `json:"max_value"`
+	MinSize  int  `json:"min_size"`
+	MaxSize  *int `json:"max_size"`
+	MinValue *int `json:"min_value"`
+	MaxValue *int `json:"max_value"`
 }
 
 func main() {
@@ -30,8 +30,19 @@ func main() {
 	}
 
 	hegel.Hegel(func() {
-		elemGen := hegel.Integers[int]().Min(p.MinValue).Max(p.MaxValue)
-		value := hegel.Slices(elemGen).MinSize(p.MinSize).MaxSize(p.MaxSize).Generate()
+		elemGen := hegel.Integers[int]()
+		if p.MinValue != nil {
+			elemGen = elemGen.Min(*p.MinValue)
+		}
+		if p.MaxValue != nil {
+			elemGen = elemGen.Max(*p.MaxValue)
+		}
+
+		sliceGen := hegel.Slices(elemGen).MinSize(p.MinSize)
+		if p.MaxSize != nil {
+			sliceGen = sliceGen.MaxSize(*p.MaxSize)
+		}
+		value := sliceGen.Generate()
 
 		m := map[string]any{"size": len(value)}
 		if len(value) > 0 {

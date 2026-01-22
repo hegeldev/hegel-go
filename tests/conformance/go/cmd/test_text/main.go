@@ -11,8 +11,8 @@ import (
 )
 
 type params struct {
-	MinSize int `json:"min_size"`
-	MaxSize int `json:"max_size"`
+	MinSize int  `json:"min_size"`
+	MaxSize *int `json:"max_size"`
 }
 
 func main() {
@@ -28,7 +28,11 @@ func main() {
 	}
 
 	hegel.Hegel(func() {
-		value := hegel.Text().MinSize(p.MinSize).MaxSize(p.MaxSize).Generate()
+		gen := hegel.Text().MinSize(p.MinSize)
+		if p.MaxSize != nil {
+			gen = gen.MaxSize(*p.MaxSize)
+		}
+		value := gen.Generate()
 		// Count Unicode codepoints, not bytes
 		length := utf8.RuneCountInString(value)
 		metrics.Write(map[string]any{"length": length})
