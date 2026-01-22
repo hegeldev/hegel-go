@@ -7,6 +7,17 @@ on:
     branches: [main]
 
 jobs:
+  format:
+    name: Format
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version: '1.22'
+      - name: Check formatting
+        run: test -z $(gofmt -l .)
+
   test:
     name: Go Tests
     runs-on: ubuntu-latest
@@ -28,8 +39,14 @@ jobs:
       - uses: actions/setup-python@v5
         with:
           python-version: '3.13'
+      - name: Setup SSH
+        run: |
+          mkdir -p ~/.ssh
+          echo "${{ secrets.HEGEL_DEPLOY_KEY }}" > ~/.ssh/id_ed25519
+          chmod 600 ~/.ssh/id_ed25519
+          ssh-keyscan github.com >> ~/.ssh/known_hosts
       - name: Install hegel
-        run: pip install git+https://github.com/antithesishq/hegel.git
+        run: pip install git+ssh://git@github.com/antithesishq/hegel.git
       - name: Build conformance binaries
         working-directory: tests/conformance/go
         run: |
