@@ -16,7 +16,9 @@ jobs:
         with:
           go-version: '1.22'
       - name: Check formatting
-        run: test -z $(gofmt -l .)
+        run: |
+          go fmt ./...
+          git diff --exit-code
 
   test:
     name: Tests
