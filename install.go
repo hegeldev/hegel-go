@@ -71,7 +71,7 @@ func ensureUV(hegelDir string) (string, error) {
 	}
 
 	// Check if we already installed it
-	uvBin := filepath.Join(hegelDir, "uv", "bin", "uv")
+	uvBin := filepath.Join(hegelDir, "uv", "uv")
 	if _, err := os.Stat(uvBin); err == nil {
 		return uvBin, nil
 	}
