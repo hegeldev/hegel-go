@@ -46,7 +46,9 @@ jobs:
           chmod 600 ~/.ssh/id_ed25519
           ssh-keyscan github.com >> ~/.ssh/known_hosts
       - name: Install hegel
-        run: pip install git+ssh://git@github.com/antithesishq/hegel.git
+        run: |
+          pip install git+ssh://git@github.com/antithesishq/hegel.git
+          pip install pytest
       - name: Build conformance binaries
         working-directory: tests/conformance/go
         run: |
