@@ -33,20 +33,20 @@ func (g *SampledFromGenerator[T]) Generate() T {
 }
 
 // Schema returns the JSON schema for this generator.
-// Returns an enum schema for primitive types, nil otherwise.
+// Returns a sampled_from schema for primitive types, nil otherwise.
 func (g *SampledFromGenerator[T]) Schema() map[string]any {
-	// Check if all elements are JSON-primitive (can be represented in enum)
+	// Check if all elements are JSON-primitive (can be represented in sampled_from)
 	if !isPrimitiveType[T]() {
 		return nil
 	}
 
-	// Convert elements to JSON values for enum schema
+	// Convert elements to JSON values for sampled_from schema
 	jsonElements := make([]any, len(g.elements))
 	for i, elem := range g.elements {
 		jsonElements[i] = elem
 	}
 
-	return map[string]any{"enum": jsonElements}
+	return map[string]any{"sampled_from": jsonElements}
 }
 
 // isPrimitiveType checks if T is a JSON-primitive type.
