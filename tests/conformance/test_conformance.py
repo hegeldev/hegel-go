@@ -32,3 +32,7 @@ def test_lists():
 
 def test_sampled_from():
     run_conformance_test("sampled_from", BUILD_DIR / "test_sampled_from")
+
+
+def test_binary():
+    run_conformance_test("binary", BUILD_DIR / "test_binary")
