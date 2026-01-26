@@ -1,0 +1,18 @@
+name: 'Base Setup'
+description: 'Configure SSH access for private GitHub repositories'
+
+inputs:
+  ssh-key:
+    description: 'SSH private key for GitHub access'
+    required: true
+
+runs:
+  using: 'composite'
+  steps:
+    - name: Setup SSH
+      shell: bash
+      run: |
+        mkdir -p ~/.ssh
+        echo "${{ inputs.ssh-key }}" > ~/.ssh/id_ed25519
+        chmod 600 ~/.ssh/id_ed25519
+        ssh-keyscan github.com >> ~/.ssh/known_hosts
