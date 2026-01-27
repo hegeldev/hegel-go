@@ -8,7 +8,6 @@ import (
 	"math"
 	"net"
 	"os"
-	"strconv"
 	"sync"
 	"sync/atomic"
 )
@@ -154,7 +153,8 @@ func (r *combinedReader) Read(p []byte) (n int, err error) {
 // - {"$float": "nan"} -> math.NaN()
 // - {"$float": "inf"} -> math.Inf(1)
 // - {"$float": "-inf"} -> math.Inf(-1)
-// - {"$integer": "..."} -> parsed as number
+// - {"$integer": "..."} -> json.Number (preserves precision)
+// - json.Number -> kept as-is (will be converted when unmarshaling to target type)
 func convertSpecialValues(value any) any {
 	switch v := value.(type) {
 	case []any:
@@ -163,6 +163,10 @@ func convertSpecialValues(value any) any {
 			result[i] = convertSpecialValues(elem)
 		}
 		return result
+	case json.Number:
+		// Keep json.Number as-is - it will be properly converted when
+		// unmarshaling to the target type
+		return v
 	case map[string]any:
 		// Check for special single-key objects
 		if len(v) == 1 {
@@ -177,10 +181,8 @@ func convertSpecialValues(value any) any {
 				}
 			}
 			if intVal, ok := v["$integer"].(string); ok {
-				// Parse as float64 (Go's default JSON number type)
-				if n, err := strconv.ParseFloat(intVal, 64); err == nil {
-					return n
-				}
+				// Return as json.Number to preserve precision
+				return json.Number(intVal)
 			}
 		}
 		// Recursively convert map values
@@ -198,13 +200,18 @@ func convertSpecialValues(value any) any {
 func generateFromSchema[T any](schema map[string]any) T {
 	result := sendRequest("generate", schema)
 
-	// First unmarshal to interface{} to convert special values
+	// Use json.Decoder with UseNumber() to preserve numeric precision.
+	// Without this, large integers (near MaxInt64) lose precision when
+	// decoded as float64.
+	decoder := json.NewDecoder(bytes.NewReader(result))
+	decoder.UseNumber()
+
 	var raw any
-	if err := json.Unmarshal(result, &raw); err != nil {
+	if err := decoder.Decode(&raw); err != nil {
 		panic(fmt.Sprintf("hegel: failed to parse server response: %v\nValue: %s", err, result))
 	}
 
-	// Convert special object wrappers
+	// Convert special object wrappers (NaN, Inf, $integer)
 	converted := convertSpecialValues(raw)
 
 	// Re-marshal and unmarshal to target type
