@@ -1,22 +1,29 @@
 from pathlib import Path
 
-import pytest
-
-from hegel.conformance import conformance_tests, run_conformance_test
+from hegel.conformance import (
+    BinaryConformance,
+    BooleanConformance,
+    FloatConformance,
+    IntegerConformance,
+    ListConformance,
+    SampledFromConformance,
+    TextConformance,
+    run_conformance_tests,
+)
 
 BUILD_DIR = Path(__file__).parent / "go" / "bin"
 
-TESTS = conformance_tests({
-    "booleans": BUILD_DIR / "test_booleans",
-    "integers": BUILD_DIR / "test_integers",
-    "floats": BUILD_DIR / "test_floats",
-    "text": BUILD_DIR / "test_text",
-    "binary": BUILD_DIR / "test_binary",
-    "lists": BUILD_DIR / "test_lists",
-    "sampled_from": BUILD_DIR / "test_sampled_from",
-})
 
-
-@pytest.mark.parametrize("test_name,binary_path", TESTS, ids=[t[0] for t in TESTS])
-def test_conformance(test_name, binary_path):
-    run_conformance_test(test_name, binary_path)
+def test_conformance(subtests):
+    run_conformance_tests(
+        [
+            BooleanConformance(BUILD_DIR / "test_booleans"),
+            IntegerConformance(BUILD_DIR / "test_integers"),
+            FloatConformance(BUILD_DIR / "test_floats"),
+            TextConformance(BUILD_DIR / "test_text"),
+            BinaryConformance(BUILD_DIR / "test_binary"),
+            ListConformance(BUILD_DIR / "test_lists"),
+            SampledFromConformance(BUILD_DIR / "test_sampled_from"),
+        ],
+        subtests,
+    )
