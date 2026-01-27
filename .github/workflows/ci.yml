@@ -62,6 +62,7 @@ jobs:
           go build -o bin/test_binary ./cmd/test_binary
           go build -o bin/test_lists ./cmd/test_lists
           go build -o bin/test_sampled_from ./cmd/test_sampled_from
+          go build -o bin/test_hashmaps ./cmd/test_hashmaps
       - name: Run conformance tests
         working-directory: tests/conformance
         run: pytest test_conformance.py -v
