@@ -1,5 +1,7 @@
 package hegel
 
+import "encoding/json"
+
 // SliceGenerator generates slices with configurable size bounds.
 type SliceGenerator[T any] struct {
 	elements Generator[T]
@@ -85,57 +87,71 @@ func (g *SliceGenerator[T]) Schema() map[string]any {
 	return schema
 }
 
-// MapGenerator generates maps with string keys.
-type MapGenerator[V any] struct {
+// MapGenerator generates maps with configurable key and value types.
+type MapGenerator[K comparable, V any] struct {
+	keys    Generator[K]
 	values  Generator[V]
 	minSize int
 	maxSize *int
 }
 
-// Maps returns a generator for maps with string keys.
-// Keys are always strings due to JSON limitations.
-func Maps[V any](values Generator[V]) *MapGenerator[V] {
-	return &MapGenerator[V]{
+// Maps returns a generator for maps with configurable key and value types.
+func Maps[K comparable, V any](keys Generator[K], values Generator[V]) *MapGenerator[K, V] {
+	return &MapGenerator[K, V]{
+		keys:    keys,
 		values:  values,
 		minSize: 0,
 	}
 }
 
 // MinSize sets the minimum number of entries.
-func (g *MapGenerator[V]) MinSize(n int) *MapGenerator[V] {
+func (g *MapGenerator[K, V]) MinSize(n int) *MapGenerator[K, V] {
 	g.minSize = n
 	return g
 }
 
 // MaxSize sets the maximum number of entries.
-func (g *MapGenerator[V]) MaxSize(n int) *MapGenerator[V] {
+func (g *MapGenerator[K, V]) MaxSize(n int) *MapGenerator[K, V] {
 	g.maxSize = &n
 	return g
 }
 
-// Generate produces a map with string keys.
-func (g *MapGenerator[V]) Generate() map[string]V {
+// Generate produces a map.
+func (g *MapGenerator[K, V]) Generate() map[K]V {
 	if schema := g.Schema(); schema != nil {
-		return generateFromSchema[map[string]V](schema)
+		// Wire format is [[key, value], ...]
+		pairs := generateFromSchema[[][2]any](schema)
+		result := make(map[K]V, len(pairs))
+		for _, pair := range pairs {
+			// Both key and value need type conversion from any
+			keyJSON, _ := json.Marshal(pair[0])
+			var key K
+			json.Unmarshal(keyJSON, &key)
+
+			valueJSON, _ := json.Marshal(pair[1])
+			var value V
+			json.Unmarshal(valueJSON, &value)
+			result[key] = value
+		}
+		return result
 	}
 
-	// Compositional fallback when value schema is unavailable
-	return Group(LabelMap, func() map[string]V {
+	// Compositional fallback when schema is unavailable
+	return Group(LabelMap, func() map[K]V {
 		maxSize := 100
 		if g.maxSize != nil {
 			maxSize = *g.maxSize
 		}
 
 		length := Integers[int]().Min(g.minSize).Max(maxSize).Generate()
-		result := make(map[string]V)
+		result := make(map[K]V)
 
-		keyGen := Text().MinSize(1).MaxSize(20)
 		maxAttempts := length * 10
 		attempts := 0
 
 		for len(result) < length && attempts < maxAttempts {
 			Group(LabelMapEntry, func() struct{} {
-				key := keyGen.Generate()
+				key := g.keys.Generate()
 				if _, exists := result[key]; !exists {
 					result[key] = g.values.Generate()
 				}
@@ -151,14 +167,16 @@ func (g *MapGenerator[V]) Generate() map[string]V {
 }
 
 // Schema returns the JSON schema for this generator, or nil if unavailable.
-func (g *MapGenerator[V]) Schema() map[string]any {
+func (g *MapGenerator[K, V]) Schema() map[string]any {
+	keySchema := g.keys.Schema()
 	valueSchema := g.values.Schema()
-	if valueSchema == nil {
+	if keySchema == nil || valueSchema == nil {
 		return nil // Fall back to compositional generation
 	}
 
 	schema := map[string]any{
 		"type":     "dict",
+		"keys":     keySchema,
 		"values":   valueSchema,
 		"min_size": g.minSize,
 	}
