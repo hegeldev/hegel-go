@@ -5,6 +5,7 @@ import (
 	"bytes"
 	"encoding/json"
 	"fmt"
+	"math"
 	"net"
 	"os"
 	"strconv"
@@ -20,24 +21,11 @@ const (
 	ExitCodeSocketError = 134
 )
 
-// Mode represents the execution mode for the Hegel SDK.
-type Mode int
-
-const (
-	// ModeExternal is the default mode where the test binary runs
-	// and hegel is an external process that spawned it.
-	ModeExternal Mode = iota
-	// ModeEmbedded is the mode where the test binary runs hegel as
-	// a subprocess using the Hegel() function.
-	ModeEmbedded
-)
-
-// Mode state - goroutine-local simulation using goroutine ID or explicit state.
+// State - protected by mutex.
 // For simplicity, we use global state with the assumption tests run sequentially.
 var (
-	currentMode Mode
-	isLastRun   bool
-	modeMu      sync.Mutex
+	isLastRun bool
+	modeMu    sync.Mutex
 )
 
 // Connection state - protected by mutex.
@@ -58,57 +46,6 @@ func isDebug() bool {
 		debugMode = os.Getenv("HEGEL_DEBUG") != ""
 	})
 	return debugMode
-}
-
-func isConnected() bool {
-	connMu.Lock()
-	defer connMu.Unlock()
-	return conn != nil
-}
-
-func openConnection() {
-	connMu.Lock()
-	defer connMu.Unlock()
-
-	if conn != nil {
-		panic("hegel: openConnection called while already connected")
-	}
-
-	socketPath := os.Getenv("HEGEL_SOCKET")
-	if socketPath == "" {
-		fmt.Fprintln(os.Stderr, "hegel: HEGEL_SOCKET environment variable not set")
-		os.Exit(ExitCodeSocketError)
-	}
-
-	var err error
-	conn, err = net.Dial("unix", socketPath)
-	if err != nil {
-		fmt.Fprintf(os.Stderr, "hegel: failed to connect to socket %s: %v\n", socketPath, err)
-		os.Exit(ExitCodeSocketError)
-	}
-
-	readBuffer.Reset()
-}
-
-func closeConnection() {
-	connMu.Lock()
-	defer connMu.Unlock()
-
-	if conn == nil {
-		panic("hegel: closeConnection called while not connected")
-	}
-	if spanDepth != 0 {
-		panic(fmt.Sprintf("hegel: closeConnection called with %d unclosed span(s)", spanDepth))
-	}
-
-	conn.Close()
-	conn = nil
-}
-
-func getSpanDepth() int {
-	connMu.Lock()
-	defer connMu.Unlock()
-	return spanDepth
 }
 
 func incrementSpanDepth() {
@@ -212,21 +149,72 @@ func (r *combinedReader) Read(p []byte) (n int, err error) {
 	return r.conn.Read(p)
 }
 
+// convertSpecialValues converts special object wrappers from the server to native Go values.
+// Handles:
+// - {"$float": "nan"} -> math.NaN()
+// - {"$float": "inf"} -> math.Inf(1)
+// - {"$float": "-inf"} -> math.Inf(-1)
+// - {"$integer": "..."} -> parsed as number
+func convertSpecialValues(value any) any {
+	switch v := value.(type) {
+	case []any:
+		result := make([]any, len(v))
+		for i, elem := range v {
+			result[i] = convertSpecialValues(elem)
+		}
+		return result
+	case map[string]any:
+		// Check for special single-key objects
+		if len(v) == 1 {
+			if floatVal, ok := v["$float"].(string); ok {
+				switch floatVal {
+				case "nan":
+					return math.NaN()
+				case "inf":
+					return math.Inf(1)
+				case "-inf":
+					return math.Inf(-1)
+				}
+			}
+			if intVal, ok := v["$integer"].(string); ok {
+				// Parse as float64 (Go's default JSON number type)
+				if n, err := strconv.ParseFloat(intVal, 64); err == nil {
+					return n
+				}
+			}
+		}
+		// Recursively convert map values
+		result := make(map[string]any, len(v))
+		for key, val := range v {
+			result[key] = convertSpecialValues(val)
+		}
+		return result
+	default:
+		return value
+	}
+}
+
 // generateFromSchema generates a value of type T from a JSON schema.
 func generateFromSchema[T any](schema map[string]any) T {
-	needConnection := !isConnected()
-	if needConnection {
-		openConnection()
-	}
-
 	result := sendRequest("generate", schema)
 
-	if needConnection {
-		closeConnection()
+	// First unmarshal to interface{} to convert special values
+	var raw any
+	if err := json.Unmarshal(result, &raw); err != nil {
+		panic(fmt.Sprintf("hegel: failed to parse server response: %v\nValue: %s", err, result))
+	}
+
+	// Convert special object wrappers
+	converted := convertSpecialValues(raw)
+
+	// Re-marshal and unmarshal to target type
+	convertedBytes, err := json.Marshal(converted)
+	if err != nil {
+		panic(fmt.Sprintf("hegel: failed to re-marshal converted value: %v", err))
 	}
 
 	var value T
-	err := json.Unmarshal(result, &value)
+	err = json.Unmarshal(convertedBytes, &value)
 	if err != nil {
 		panic(fmt.Sprintf("hegel: failed to deserialize server response: %v\nValue: %s", err, result))
 	}
@@ -239,15 +227,8 @@ func generateFromSchema[T any](schema map[string]any) T {
 	return value
 }
 
-// CurrentMode returns the current execution mode.
-func CurrentMode() Mode {
-	modeMu.Lock()
-	defer modeMu.Unlock()
-	return currentMode
-}
-
 // IsLastRun returns true if this is the last run (during shrinking).
-// In embedded mode, this indicates when Note() output should be printed.
+// This indicates when Note() output should be printed.
 func IsLastRun() bool {
 	modeMu.Lock()
 	defer modeMu.Unlock()
@@ -255,23 +236,18 @@ func IsLastRun() bool {
 }
 
 // Note prints a message to stderr.
-// In external mode, always prints.
-// In embedded mode, only prints on the last run.
+// Only prints on the last run (final replay for counterexample output).
 func Note(message string) {
 	modeMu.Lock()
-	mode := currentMode
 	last := isLastRun
 	modeMu.Unlock()
 
-	if mode == ModeExternal {
-		fmt.Fprintln(os.Stderr, message)
-	} else if last {
+	if last {
 		fmt.Fprintln(os.Stderr, message)
 	}
-	// In embedded mode on non-last runs: silently ignore
 }
 
-// AssumeFailedError is a sentinel error used to signal assume(false) in embedded mode.
+// AssumeFailedError is a sentinel error used to signal assume(false).
 type AssumeFailedError struct{}
 
 func (e *AssumeFailedError) Error() string {
@@ -280,36 +256,8 @@ func (e *AssumeFailedError) Error() string {
 
 // Assume checks a condition and rejects the test input if false.
 // This tells Hegel to try different input rather than treating it as a failure.
-//
-// In external mode, this function exits the process when condition is false.
-// In embedded mode, this function panics with an AssumeFailedError when condition is false.
 func Assume(condition bool) {
 	if !condition {
-		modeMu.Lock()
-		mode := currentMode
-		modeMu.Unlock()
-
-		if mode == ModeEmbedded {
-			panic(&AssumeFailedError{})
-		}
-
-		code := getRejectCode()
-		os.Exit(code)
+		panic(&AssumeFailedError{})
 	}
-}
-
-func getRejectCode() int {
-	codeStr := os.Getenv("HEGEL_REJECT_CODE")
-	if codeStr == "" {
-		fmt.Fprintln(os.Stderr, "hegel: HEGEL_REJECT_CODE environment variable not set")
-		os.Exit(ExitCodeSocketError)
-	}
-
-	code, err := strconv.Atoi(codeStr)
-	if err != nil {
-		fmt.Fprintf(os.Stderr, "hegel: HEGEL_REJECT_CODE is not a valid integer: %s\n", codeStr)
-		os.Exit(ExitCodeSocketError)
-	}
-
-	return code
 }

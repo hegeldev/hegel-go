@@ -19,25 +19,17 @@ const (
 )
 
 // StartSpan begins a labeled group of generation calls.
-// This opens a connection if not already connected.
 // You must call StopSpan() for each StartSpan().
 func StartSpan(label uint64) {
-	if !isConnected() {
-		openConnection()
-	}
 	incrementSpanDepth()
 	sendRequest("start_span", map[string]any{"label": label})
 }
 
 // StopSpan ends the current generation span.
 // If discard is true, tells Hypothesis that this span's data should be discarded.
-// Closes the connection when the last span is closed.
 func StopSpan(discard bool) {
 	decrementSpanDepth()
 	sendRequest("stop_span", map[string]any{"discard": discard})
-	if getSpanDepth() == 0 {
-		closeConnection()
-	}
 }
 
 // Group runs a function within a labeled span and returns its result.

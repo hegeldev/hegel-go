@@ -157,19 +157,17 @@ func handleGoConnection(conn net.Conn, testFn func(), verbosity string) {
 		fmt.Fprintf(os.Stderr, "Handshake received: is_last_run=%v\n", handshake.IsLastRun)
 	}
 
-	// Set mode state
+	// Set state
 	modeMu.Lock()
-	currentMode = ModeEmbedded
 	isLastRun = handshake.IsLastRun
 	modeMu.Unlock()
 
-	// Set up embedded connection for generate() calls
+	// Set up connection for generate() calls
 	setEmbeddedConnection(conn, reader)
 
 	// Send handshake_ack
 	if _, err := conn.Write([]byte(`{"type": "handshake_ack"}` + "\n")); err != nil {
 		clearEmbeddedConnection()
-		setModeExternal()
 		return
 	}
 
@@ -210,13 +208,9 @@ func handleGoConnection(conn net.Conn, testFn func(), verbosity string) {
 	}
 
 	conn.Write(append(resultJSON, '\n'))
-
-	// Reset mode
-	setModeExternal()
 }
 
-// setEmbeddedConnection sets the main connection for embedded mode.
-// This allows generateFromSchema() to use the connection established by Hegel().
+// setEmbeddedConnection sets the connection for generate() calls.
 func setEmbeddedConnection(c net.Conn, reader *bufio.Reader) {
 	connMu.Lock()
 	defer connMu.Unlock()
@@ -230,11 +224,4 @@ func clearEmbeddedConnection() {
 	connMu.Lock()
 	defer connMu.Unlock()
 	conn = nil
-}
-
-func setModeExternal() {
-	modeMu.Lock()
-	defer modeMu.Unlock()
-	currentMode = ModeExternal
-	isLastRun = false
 }

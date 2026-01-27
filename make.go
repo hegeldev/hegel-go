@@ -78,16 +78,7 @@ func (g *StructGenerator[T]) Generate() T {
 }
 
 func (g *StructGenerator[T]) generateFromTupleSchema(schema map[string]any) T {
-	needConnection := !isConnected()
-	if needConnection {
-		openConnection()
-	}
-
 	resultBytes := sendRequest("generate", schema)
-
-	if needConnection {
-		closeConnection()
-	}
 
 	var values []any
 	err := json.Unmarshal(resultBytes, &values)
