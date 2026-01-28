@@ -65,4 +65,4 @@ jobs:
           go build -o bin/test_hashmaps ./cmd/test_hashmaps
       - name: Run conformance tests
         working-directory: tests/conformance
-        run: pytest test_conformance.py -v
+        run: pytest test_conformance.py --durations=20 --durations-min=1.0
