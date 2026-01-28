@@ -15,7 +15,7 @@ jobs:
       - uses: actions/setup-go@v5
         with:
           go-version: '1.22'
-      - name: Check formatting
+      - name: format
         run: |
           go fmt ./...
           git diff --exit-code
