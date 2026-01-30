@@ -49,11 +49,11 @@ func (g *FuncGenerator[T]) Schema() map[string]any {
 }
 
 // Filter returns a generator that only produces values satisfying the predicate.
-// If maxAttempts consecutive values fail the predicate, Assume(false) is called.
-func Filter[T any](gen Generator[T], predicate func(T) bool, maxAttempts int) Generator[T] {
+// If 3 consecutive values fail the predicate, Assume(false) is called.
+func Filter[T any](gen Generator[T], predicate func(T) bool) Generator[T] {
 	return &FuncGenerator[T]{
 		genFn: func() T {
-			for i := 0; i < maxAttempts; i++ {
+			for i := 0; i < 3; i++ {
 				value := gen.Generate()
 				if predicate(value) {
 					return value

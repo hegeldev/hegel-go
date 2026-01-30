@@ -158,7 +158,6 @@ hegel.Hegel(func() {
     even := hegel.Filter(
         hegel.Integers[int]().Min(0).Max(100),
         func(n int) bool { return n%2 == 0 },
-        10,  // Max attempts
     ).Generate()
 }, hegel.HegelOptions{})
 ```
