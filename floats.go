@@ -1,5 +1,7 @@
 package hegel
 
+import "unsafe"
+
 // FloatGenerator generates floating-point values with configurable bounds.
 type FloatGenerator[T Float] struct {
 	minValue      *T
@@ -11,8 +13,12 @@ type FloatGenerator[T Float] struct {
 }
 
 // Floats returns a new floating-point generator.
+// By default, allows NaN and infinity values.
 func Floats[T Float]() *FloatGenerator[T] {
-	return &FloatGenerator[T]{}
+	return &FloatGenerator[T]{
+		allowNan:      true,
+		allowInfinity: true,
+	}
 }
 
 // Min sets the minimum value.
@@ -39,15 +45,15 @@ func (g *FloatGenerator[T]) ExcludeMax() *FloatGenerator[T] {
 	return g
 }
 
-// AllowNan allows NaN values to be generated.
-func (g *FloatGenerator[T]) AllowNan() *FloatGenerator[T] {
-	g.allowNan = true
+// AllowNan sets whether NaN values can be generated.
+func (g *FloatGenerator[T]) AllowNan(allow bool) *FloatGenerator[T] {
+	g.allowNan = allow
 	return g
 }
 
-// AllowInfinity allows infinity values to be generated.
-func (g *FloatGenerator[T]) AllowInfinity() *FloatGenerator[T] {
-	g.allowInfinity = true
+// AllowInfinity sets whether infinity values can be generated.
+func (g *FloatGenerator[T]) AllowInfinity(allow bool) *FloatGenerator[T] {
+	g.allowInfinity = allow
 	return g
 }
 
@@ -58,28 +64,25 @@ func (g *FloatGenerator[T]) Generate() T {
 
 // Schema returns the JSON schema for this generator.
 func (g *FloatGenerator[T]) Schema() map[string]any {
-	schema := map[string]any{"type": "number"}
+	// Determine width from type size (float32 = 32 bits, float64 = 64 bits)
+	var zero T
+	width := int(unsafe.Sizeof(zero)) * 8
+
+	schema := map[string]any{
+		"type":             "number",
+		"exclude_minimum":  g.excludeMin,
+		"exclude_maximum":  g.excludeMax,
+		"allow_nan":        g.allowNan,
+		"allow_infinity":   g.allowInfinity,
+		"width":            width,
+	}
 
 	if g.minValue != nil {
 		schema["minimum"] = *g.minValue
-		if g.excludeMin {
-			schema["exclude_minimum"] = true
-		}
 	}
 
 	if g.maxValue != nil {
 		schema["maximum"] = *g.maxValue
-		if g.excludeMax {
-			schema["exclude_maximum"] = true
-		}
-	}
-
-	if g.allowNan {
-		schema["allow_nan"] = true
-	}
-
-	if g.allowInfinity {
-		schema["allow_infinity"] = true
 	}
 
 	return schema

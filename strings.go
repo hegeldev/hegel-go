@@ -30,10 +30,14 @@ func (g *TextGenerator) Generate() string {
 
 // Schema returns the JSON schema for this generator.
 func (g *TextGenerator) Schema() map[string]any {
-	schema := map[string]any{"type": "string"}
-
+	minSize := 0
 	if g.minSize != nil {
-		schema["min_size"] = *g.minSize
+		minSize = *g.minSize
+	}
+
+	schema := map[string]any{
+		"type":     "string",
+		"min_size": minSize,
 	}
 
 	if g.maxSize != nil {
@@ -68,12 +72,9 @@ func (g *RegexGenerator) Generate() string {
 
 // Schema returns the JSON schema for this generator.
 func (g *RegexGenerator) Schema() map[string]any {
-	schema := map[string]any{
-		"type":    "regex",
-		"pattern": g.pattern,
+	return map[string]any{
+		"type":      "regex",
+		"pattern":   g.pattern,
+		"fullmatch": g.fullmatch,
 	}
-	if g.fullmatch {
-		schema["fullmatch"] = true
-	}
-	return schema
 }

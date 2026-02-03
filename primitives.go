@@ -34,7 +34,7 @@ func (g *BoolGenerator) Generate() bool {
 
 // Schema returns the JSON schema for boolean values.
 func (g *BoolGenerator) Schema() map[string]any {
-	return map[string]any{"type": "boolean"}
+	return map[string]any{"type": "boolean", "p": 0.5}
 }
 
 // JustGenerator always produces the same value.
