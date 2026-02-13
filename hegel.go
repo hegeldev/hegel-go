@@ -42,7 +42,7 @@ var (
 
 func isDebug() bool {
 	debugOnce.Do(func() {
-		debugMode = os.Getenv("HEGEL_DEBUG") != ""
+		debugMode = os.Getenv("HEGEL_DEBUG") == "1"
 	})
 	return debugMode
 }
