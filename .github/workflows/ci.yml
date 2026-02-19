@@ -6,6 +6,12 @@ on:
   pull_request:
     branches: [main]
 
+# Cancel in-progress PR builds if another commit is pushed.
+# On non-PR builds, fall back to the globally-unique run_id and don't cancel.
+concurrency:
+  group: ${{ github.workflow }}-${{ github.head_ref || github.run_id }}
+  cancel-in-progress: true
+
 jobs:
   format:
     name: format
