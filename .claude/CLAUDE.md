@@ -227,3 +227,28 @@ decisions made and why, things that would have saved time to know up front)*
 
 **`RunHegelTestE` not `RunHegelTestE` — naming is the public API**
 - The public function is `RunHegelTestE` (not `RunHegelTest` + E suffix as a separate thing). `RunHegelTest` panics on error; `RunHegelTestE` returns error. The `E` suffix is a Go convention for "error-returning variant".
+
+### Stage 5: Generator Infrastructure
+
+**BasicGenerator.Map preserves the schema optimization**
+- Mapping a `*BasicGenerator` returns another `*BasicGenerator` with the same schema and a composed transform function. This is the critical optimization: a single `generate` command is sent to the server regardless of how many `.Map()` calls are chained.
+- Mapping a `*MappedGenerator` (non-basic) returns a new `*MappedGenerator` wrapping the original, which sends `start_span`/`stop_span` around each generation.
+
+**`fakeTestEnv` double-handles mark_complete — avoid for span tests**
+- `fakeTestEnv` reads mark_complete after calling `fn(caseCh)`. If `fn` itself loops `for { RecvRequestRaw }` until `mark_complete`, the outer handler will block for 5s waiting for a second mark_complete that never comes.
+- **Fix**: Use `fakeServerConn` directly and read exactly the expected number of messages (e.g., `for i := 0; i < 3; i++ { ... }`).
+
+**CBOR decodes positive integers as uint64 (reminder)**
+- Already documented in Stage 2, but also applies to generator values: `BasicGenerator.Generate()` returns whatever `generateFromSchema` gives, which for positive integers is `uint64`, not `int64`. Use `ExtractInt(v)` in tests, not `v.(int64)`.
+
+**`ch.Request()` error in spans/collection is unreachable in practice**
+- `StartSpan`/`StopSpan`/`NewCollection`/`More`/`Reject` call `ch.Request()`. This can only fail if the channel is closed. Channels are closed after `setAborted()` is already set — so the `s.aborted` early-return check in `StartSpan`/`StopSpan` fires first. Make these `panic("hegel: unreachable: ...")` so the false-positive filter handles them. Same for `NewCollection` and `More` `pending.Get()` non-StopTest errors.
+
+**`error_response` mode covers BasicGenerator.Generate error path**
+- `HEGEL_PROTOCOL_TEST_MODE=error_response` sends a `RequestError` in response to the first `generate` command. When `BasicGenerator.Generate()` is used (not `GenerateBool`/`GenerateInt`), `generateFromSchema` returns the error and `BasicGenerator.Generate` re-panics it. Use this mode to cover the `if err != nil { panic(err) }` line.
+
+**Collection StopTest tests no longer need t.Skip in Stage 5**
+- `TestStopTestOnCollectionMore` and `TestStopTestOnNewCollection` were skipped in Stage 4 (collection not implemented). In Stage 5, remove the skips and implement them using `HEGEL_PROTOCOL_TEST_MODE` with `NewCollection`/`More` calls.
+
+**mark_complete timeout in multi-interesting test: use 10s not 2s**
+- `TestRunTestMultiInterestingCasePasses` uses `caseCh.RecvRequestRaw(2s)` for the mark_complete wait. Under load (race detector, parallel tests), the client may take >2s between sending the test_case ack and the mark_complete. Use 10s to avoid flakiness.

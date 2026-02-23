@@ -422,17 +422,27 @@ func TestWithTestCasesOption(t *testing.T) {
 }
 
 // --- HEGEL_PROTOCOL_TEST_MODE=stop_test_on_collection_more ---
-// (Stage 5: collection commands are not implemented in Stage 4; skip these tests.)
 
 func TestStopTestOnCollectionMore(t *testing.T) {
-	t.Skip("Stage 5: collection_more not yet implemented")
+	hegelBinPath(t)
+	setEnv(t, "HEGEL_PROTOCOL_TEST_MODE", "stop_test_on_collection_more")
+	err := RunHegelTestE(t.Name(), func() {
+		coll := NewCollection(0, 10)
+		_ = coll.More()
+	})
+	_ = err // StopTest causes abort, not necessarily an error return
 }
 
 // --- HEGEL_PROTOCOL_TEST_MODE=stop_test_on_new_collection ---
-// (Stage 5: collection commands are not implemented in Stage 4; skip these tests.)
 
 func TestStopTestOnNewCollection(t *testing.T) {
-	t.Skip("Stage 5: new_collection not yet implemented")
+	hegelBinPath(t)
+	setEnv(t, "HEGEL_PROTOCOL_TEST_MODE", "stop_test_on_new_collection")
+	err := RunHegelTestE(t.Name(), func() {
+		coll := NewCollection(0, 10)
+		_ = coll.More()
+	})
+	_ = err // StopTest causes abort, not necessarily an error return
 }
 
 // --- isFinal context var: Note prints on final run ---
@@ -1982,7 +1992,7 @@ func TestRunTestMultiInterestingCasePasses(t *testing.T) {
 			caseID, _ := testCh.SendRequestRaw(casePayload)
 			testCh.recvResponseRaw(caseID, 5*time.Second) //nolint:errcheck
 			// Wait for mark_complete from client.
-			markID, _, _ := caseCh.RecvRequestRaw(2 * time.Second)
+			markID, _, _ := caseCh.RecvRequestRaw(10 * time.Second)
 			caseCh.SendReplyValue(markID, nil) //nolint:errcheck
 		}
 	})
