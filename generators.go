@@ -921,3 +921,114 @@ func IPAddresses(opts IPAddressOptions) Generator {
 		)
 	}
 }
+
+// --- Tuple generators ---
+
+// CompositeTupleGenerator generates a tuple by generating each element
+// separately inside a TUPLE span. Used when one or more elements are
+// non-basic (cannot be represented as a single schema).
+type CompositeTupleGenerator struct {
+	elements []Generator
+}
+
+// Generate produces a []any tuple by generating each element in sequence
+// inside a TUPLE span.
+func (g *CompositeTupleGenerator) Generate() any {
+	result := make([]any, len(g.elements))
+	Group(LabelTuple, func() {
+		for i, elem := range g.elements {
+			result[i] = elem.Generate()
+		}
+	})
+	return result
+}
+
+// AsBasic returns nil — CompositeTupleGenerator is not a basic generator.
+func (g *CompositeTupleGenerator) AsBasic() *BasicGenerator { return nil }
+
+// Map returns a new MappedGenerator that applies fn to each generated tuple.
+func (g *CompositeTupleGenerator) Map(fn func(any) any) Generator {
+	return &MappedGenerator{inner: g, fn: fn}
+}
+
+// tupleBasic builds a BasicGenerator for a tuple from a slice of BasicGenerators.
+// If all transforms are nil, no transform is attached. Otherwise, a per-position
+// transform is composed.
+func tupleBasic(basics []*BasicGenerator) *BasicGenerator {
+	schemas := make([]any, len(basics))
+	for i, b := range basics {
+		schemas[i] = b.schema
+	}
+	combined := map[string]any{
+		"type":     "tuple",
+		"elements": schemas,
+	}
+	// Check if any element has a transform.
+	hasTransform := false
+	for _, b := range basics {
+		if b.transform != nil {
+			hasTransform = true
+			break
+		}
+	}
+	if !hasTransform {
+		return &BasicGenerator{schema: combined}
+	}
+	// Capture transforms for per-position application.
+	transforms := make([]func(any) any, len(basics))
+	for i, b := range basics {
+		transforms[i] = b.transform
+	}
+	applyTransforms := func(raw any) any {
+		rawSlice, _ := raw.([]any)
+		result := make([]any, len(rawSlice))
+		for i, v := range rawSlice {
+			if transforms[i] != nil {
+				result[i] = transforms[i](v)
+			} else {
+				result[i] = v
+			}
+		}
+		return result
+	}
+	return &BasicGenerator{schema: combined, transform: applyTransforms}
+}
+
+// Tuples2 returns a Generator that produces 2-element tuples ([]any of length 2).
+// If both elements are basic (schema-backed), a single generate command is sent.
+// Otherwise, elements are generated separately inside a TUPLE span.
+func Tuples2(g1, g2 Generator) Generator {
+	b1 := g1.AsBasic()
+	b2 := g2.AsBasic()
+	if b1 != nil && b2 != nil {
+		return tupleBasic([]*BasicGenerator{b1, b2})
+	}
+	return &CompositeTupleGenerator{elements: []Generator{g1, g2}}
+}
+
+// Tuples3 returns a Generator that produces 3-element tuples ([]any of length 3).
+// If all elements are basic (schema-backed), a single generate command is sent.
+// Otherwise, elements are generated separately inside a TUPLE span.
+func Tuples3(g1, g2, g3 Generator) Generator {
+	b1 := g1.AsBasic()
+	b2 := g2.AsBasic()
+	b3 := g3.AsBasic()
+	if b1 != nil && b2 != nil && b3 != nil {
+		return tupleBasic([]*BasicGenerator{b1, b2, b3})
+	}
+	return &CompositeTupleGenerator{elements: []Generator{g1, g2, g3}}
+}
+
+// Tuples4 returns a Generator that produces 4-element tuples ([]any of length 4).
+// If all elements are basic (schema-backed), a single generate command is sent.
+// Otherwise, elements are generated separately inside a TUPLE span.
+func Tuples4(g1, g2, g3, g4 Generator) Generator {
+	b1 := g1.AsBasic()
+	b2 := g2.AsBasic()
+	b3 := g3.AsBasic()
+	b4 := g4.AsBasic()
+	if b1 != nil && b2 != nil && b3 != nil && b4 != nil {
+		return tupleBasic([]*BasicGenerator{b1, b2, b3, b4})
+	}
+	return &CompositeTupleGenerator{elements: []Generator{g1, g2, g3, g4}}
+}

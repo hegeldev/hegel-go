@@ -1225,3 +1225,366 @@ func TestMapSchemaPreservedUnit(t *testing.T) {
 		t.Error("mapping a MappedGenerator should produce AsBasic()=nil")
 	}
 }
+
+// =============================================================================
+// Tuple generator tests
+// =============================================================================
+
+// TestTuples2AllBasicNoTransform verifies that Tuples2 of two basic (no-transform)
+// generators returns a BasicGenerator with schema type=tuple and two elements.
+func TestTuples2AllBasicNoTransform(t *testing.T) {
+	g1 := Integers(0, 10)
+	g2 := Booleans(0.5)
+	gen := Tuples2(g1, g2)
+	bg, ok := gen.(*BasicGenerator)
+	if !ok {
+		t.Fatalf("Tuples2 of basic generators should return *BasicGenerator, got %T", gen)
+	}
+	if bg.schema["type"] != "tuple" {
+		t.Errorf("schema type: expected 'tuple', got %v", bg.schema["type"])
+	}
+	elements, ok := bg.schema["elements"].([]any)
+	if !ok {
+		t.Fatalf("schema 'elements' should be []any, got %T", bg.schema["elements"])
+	}
+	if len(elements) != 2 {
+		t.Errorf("expected 2 elements, got %d", len(elements))
+	}
+	// No transform for no-transform elements.
+	if bg.transform != nil {
+		t.Error("transform should be nil when no elements have transforms")
+	}
+	// AsBasic returns itself.
+	if bg.AsBasic() != bg {
+		t.Error("AsBasic should return itself")
+	}
+}
+
+// TestTuples2AllBasicWithTransforms verifies that Tuples2 of mapped basic generators
+// returns a BasicGenerator with the raw schemas (not transformed), and the combined
+// transform applies per-position transforms.
+func TestTuples2AllBasicWithTransforms(t *testing.T) {
+	g1 := Integers(0, 10).Map(func(v any) any {
+		n, _ := ExtractInt(v)
+		return n * 2
+	})
+	g2 := Just(5).Map(func(v any) any {
+		n, _ := v.(int)
+		return n + 1
+	})
+	// Both g1 and g2 are *BasicGenerator with transforms.
+	if _, ok := g1.(*BasicGenerator); !ok {
+		t.Fatalf("g1 should be *BasicGenerator, got %T", g1)
+	}
+	if _, ok := g2.(*BasicGenerator); !ok {
+		t.Fatalf("g2 should be *BasicGenerator, got %T", g2)
+	}
+	gen := Tuples2(g1, g2)
+	bg, ok := gen.(*BasicGenerator)
+	if !ok {
+		t.Fatalf("Tuples2 of mapped basic generators should return *BasicGenerator, got %T", gen)
+	}
+	if bg.schema["type"] != "tuple" {
+		t.Errorf("schema type: expected 'tuple', got %v", bg.schema["type"])
+	}
+	if bg.transform == nil {
+		t.Error("transform should not be nil when elements have transforms")
+	}
+	// Verify per-position transform: input [4, nil] → [4*2=8, 5+1=6]
+	// (g2 = Just(5).Map(x+1): raw value from server is nil (const), transform of Just gives 5,
+	// then +1 gives 6)
+	raw := []any{uint64(4), nil}
+	result, ok := bg.transform(raw).([]any)
+	if !ok {
+		t.Fatalf("transform result should be []any, got %T", bg.transform(raw))
+	}
+	if len(result) != 2 {
+		t.Fatalf("expected 2 results, got %d", len(result))
+	}
+	// position 0: 4*2=8
+	n0, _ := ExtractInt(result[0])
+	if n0 != 8 {
+		t.Errorf("position 0: expected 8, got %d", n0)
+	}
+	// position 1: Just(5).transform(nil)=5, then +1=6
+	n1, _ := result[1].(int)
+	if n1 != 6 {
+		t.Errorf("position 1: expected 6, got %d", n1)
+	}
+}
+
+// TestTuples2MixedBasicNonBasic verifies that Tuples2 with a non-basic element
+// returns a CompositeTupleGenerator, not a BasicGenerator.
+func TestTuples2MixedBasicNonBasic(t *testing.T) {
+	// Create a non-basic generator by wrapping in MappedGenerator.
+	nonBasic := &MappedGenerator{
+		inner: Integers(0, 10),
+		fn:    func(v any) any { return v },
+	}
+	g2 := Booleans(0.5)
+	gen := Tuples2(nonBasic, g2)
+	if _, ok := gen.(*CompositeTupleGenerator); !ok {
+		t.Fatalf("Tuples2 with non-basic element should return *CompositeTupleGenerator, got %T", gen)
+	}
+	if gen.AsBasic() != nil {
+		t.Error("CompositeTupleGenerator.AsBasic() should return nil")
+	}
+}
+
+// TestTuples3AllBasic verifies that Tuples3 of all-basic generators returns a BasicGenerator
+// with schema type=tuple and three elements.
+func TestTuples3AllBasic(t *testing.T) {
+	gen := Tuples3(Integers(0, 5), Booleans(0.5), Text(1, 5))
+	bg, ok := gen.(*BasicGenerator)
+	if !ok {
+		t.Fatalf("Tuples3 of basic generators should return *BasicGenerator, got %T", gen)
+	}
+	if bg.schema["type"] != "tuple" {
+		t.Errorf("schema type: expected 'tuple', got %v", bg.schema["type"])
+	}
+	elements, ok := bg.schema["elements"].([]any)
+	if !ok {
+		t.Fatalf("schema 'elements' should be []any, got %T", bg.schema["elements"])
+	}
+	if len(elements) != 3 {
+		t.Errorf("expected 3 elements, got %d", len(elements))
+	}
+}
+
+// TestTuples3WithNonBasic verifies that Tuples3 falls back to CompositeTupleGenerator
+// when any element is non-basic.
+func TestTuples3WithNonBasic(t *testing.T) {
+	nonBasic := &MappedGenerator{inner: Integers(0, 5), fn: func(v any) any { return v }}
+	gen := Tuples3(nonBasic, Booleans(0.5), Text(1, 5))
+	if _, ok := gen.(*CompositeTupleGenerator); !ok {
+		t.Fatalf("Tuples3 with non-basic should return *CompositeTupleGenerator, got %T", gen)
+	}
+}
+
+// TestTuples4AllBasic verifies that Tuples4 of all-basic generators returns a BasicGenerator
+// with schema type=tuple and four elements.
+func TestTuples4AllBasic(t *testing.T) {
+	gen := Tuples4(Integers(0, 5), Booleans(0.5), Text(1, 5), IntegersUnbounded())
+	bg, ok := gen.(*BasicGenerator)
+	if !ok {
+		t.Fatalf("Tuples4 of basic generators should return *BasicGenerator, got %T", gen)
+	}
+	elements, ok := bg.schema["elements"].([]any)
+	if !ok {
+		t.Fatalf("schema 'elements' should be []any, got %T", bg.schema["elements"])
+	}
+	if len(elements) != 4 {
+		t.Errorf("expected 4 elements, got %d", len(elements))
+	}
+}
+
+// TestTuples4WithNonBasic verifies that Tuples4 falls back to CompositeTupleGenerator
+// when any element is non-basic.
+func TestTuples4WithNonBasic(t *testing.T) {
+	nonBasic := &MappedGenerator{inner: Integers(0, 5), fn: func(v any) any { return v }}
+	gen := Tuples4(Integers(0, 5), Booleans(0.5), nonBasic, Text(1, 5))
+	if _, ok := gen.(*CompositeTupleGenerator); !ok {
+		t.Fatalf("Tuples4 with non-basic should return *CompositeTupleGenerator, got %T", gen)
+	}
+}
+
+// TestCompositeTupleGeneratorMap verifies that Map on CompositeTupleGenerator returns
+// a MappedGenerator.
+func TestCompositeTupleGeneratorMap(t *testing.T) {
+	nonBasic := &MappedGenerator{inner: Integers(0, 5), fn: func(v any) any { return v }}
+	comp := Tuples2(nonBasic, Booleans(0.5))
+	mapped := comp.Map(func(v any) any { return v })
+	if _, ok := mapped.(*MappedGenerator); !ok {
+		t.Fatalf("Map on CompositeTupleGenerator should return *MappedGenerator, got %T", mapped)
+	}
+}
+
+// TestTuples2AllBasicNoTransformE2E runs Tuples2(Integers, Booleans) against the real server.
+func TestTuples2AllBasicNoTransformE2E(t *testing.T) {
+	hegelBinPath(t)
+	RunHegelTest(t.Name(), func() {
+		gen := Tuples2(Integers(0, 10), Booleans(0.5))
+		v := gen.Generate()
+		result, ok := v.([]any)
+		if !ok {
+			panic(fmt.Sprintf("Tuples2: expected []any, got %T", v))
+		}
+		if len(result) != 2 {
+			panic(fmt.Sprintf("Tuples2: expected len=2, got %d", len(result)))
+		}
+		n, _ := ExtractInt(result[0])
+		if n < 0 || n > 10 {
+			panic(fmt.Sprintf("Tuples2[0]: out of range [0,10]: %d", n))
+		}
+		_, ok = result[1].(bool)
+		if !ok {
+			panic(fmt.Sprintf("Tuples2[1]: expected bool, got %T", result[1]))
+		}
+	}, WithTestCases(50))
+}
+
+// TestTuples2WithTransformsE2E runs Tuples2 with mapped elements against the real server.
+// Property: position 0 is always even; position 1 is always 6.
+func TestTuples2WithTransformsE2E(t *testing.T) {
+	hegelBinPath(t)
+	g1 := Integers(0, 10).Map(func(v any) any {
+		n, _ := ExtractInt(v)
+		return n * 2
+	})
+	g2 := Just(5).Map(func(v any) any {
+		n := v.(int)
+		return n + 1
+	})
+	gen := Tuples2(g1, g2)
+	RunHegelTest(t.Name(), func() {
+		v := gen.Generate()
+		result, ok := v.([]any)
+		if !ok {
+			panic(fmt.Sprintf("Tuples2 mapped: expected []any, got %T", v))
+		}
+		if len(result) != 2 {
+			panic(fmt.Sprintf("Tuples2 mapped: expected len=2, got %d", len(result)))
+		}
+		n0, _ := ExtractInt(result[0])
+		if n0%2 != 0 || n0 < 0 || n0 > 20 {
+			panic(fmt.Sprintf("Tuples2 mapped[0]: expected even in [0,20], got %d", n0))
+		}
+		n1 := result[1].(int)
+		if n1 != 6 {
+			panic(fmt.Sprintf("Tuples2 mapped[1]: expected 6, got %d", n1))
+		}
+	}, WithTestCases(50))
+}
+
+// TestTuples3E2E runs Tuples3(Text, Integers, Floats) against the real server.
+func TestTuples3E2E(t *testing.T) {
+	hegelBinPath(t)
+	falseBool := false
+	gen := Tuples3(Text(1, 5), Integers(0, 5), Floats(floatPtr(0.0), floatPtr(1.0), &falseBool, &falseBool, false, false))
+	RunHegelTest(t.Name(), func() {
+		v := gen.Generate()
+		result, ok := v.([]any)
+		if !ok {
+			panic(fmt.Sprintf("Tuples3: expected []any, got %T", v))
+		}
+		if len(result) != 3 {
+			panic(fmt.Sprintf("Tuples3: expected len=3, got %d", len(result)))
+		}
+		_, ok = result[0].(string)
+		if !ok {
+			panic(fmt.Sprintf("Tuples3[0]: expected string, got %T", result[0]))
+		}
+		n, _ := ExtractInt(result[1])
+		if n < 0 || n > 5 {
+			panic(fmt.Sprintf("Tuples3[1]: expected [0,5], got %d", n))
+		}
+		f, ok := result[2].(float64)
+		if !ok {
+			panic(fmt.Sprintf("Tuples3[2]: expected float64, got %T", result[2]))
+		}
+		if f < 0.0 || f > 1.0 {
+			panic(fmt.Sprintf("Tuples3[2]: expected [0,1], got %v", f))
+		}
+	}, WithTestCases(50))
+}
+
+// TestTuples2NonBasicE2E runs a CompositeTupleGenerator against the real server.
+// Uses a filtered generator so the first element is always generated via span protocol.
+func TestTuples2NonBasicE2E(t *testing.T) {
+	hegelBinPath(t)
+	// MappedGenerator wrapping Integers(0,10) is non-basic.
+	nonBasic := &MappedGenerator{
+		inner: Integers(0, 10),
+		fn:    func(v any) any { n, _ := ExtractInt(v); return n + 100 },
+	}
+	gen := Tuples2(nonBasic, Booleans(0.5))
+	RunHegelTest(t.Name(), func() {
+		v := gen.Generate()
+		result, ok := v.([]any)
+		if !ok {
+			panic(fmt.Sprintf("Tuples2 non-basic: expected []any, got %T", v))
+		}
+		if len(result) != 2 {
+			panic(fmt.Sprintf("Tuples2 non-basic: expected len=2, got %d", len(result)))
+		}
+		n, _ := ExtractInt(result[0])
+		if n < 100 || n > 110 {
+			panic(fmt.Sprintf("Tuples2 non-basic[0]: expected [100,110], got %d", n))
+		}
+		_, ok = result[1].(bool)
+		if !ok {
+			panic(fmt.Sprintf("Tuples2 non-basic[1]: expected bool, got %T", result[1]))
+		}
+	}, WithTestCases(50))
+}
+
+// TestTuples4E2E runs Tuples4 of all-basic generators against the real server.
+func TestTuples4E2E(t *testing.T) {
+	hegelBinPath(t)
+	gen := Tuples4(Integers(0, 5), Booleans(0.5), Text(1, 3), Integers(10, 20))
+	RunHegelTest(t.Name(), func() {
+		v := gen.Generate()
+		result, ok := v.([]any)
+		if !ok {
+			panic(fmt.Sprintf("Tuples4: expected []any, got %T", v))
+		}
+		if len(result) != 4 {
+			panic(fmt.Sprintf("Tuples4: expected len=4, got %d", len(result)))
+		}
+		n0, _ := ExtractInt(result[0])
+		if n0 < 0 || n0 > 5 {
+			panic(fmt.Sprintf("Tuples4[0]: out of range [0,5]: %d", n0))
+		}
+		_, ok = result[1].(bool)
+		if !ok {
+			panic(fmt.Sprintf("Tuples4[1]: expected bool, got %T", result[1]))
+		}
+		_, ok = result[2].(string)
+		if !ok {
+			panic(fmt.Sprintf("Tuples4[2]: expected string, got %T", result[2]))
+		}
+		n3, _ := ExtractInt(result[3])
+		if n3 < 10 || n3 > 20 {
+			panic(fmt.Sprintf("Tuples4[3]: out of range [10,20]: %d", n3))
+		}
+	}, WithTestCases(50))
+}
+
+// TestTuples2BasicOneTransformOneNil verifies that when one element has a transform
+// and the other does not (nil), the nil position passes the raw value through.
+func TestTuples2BasicOneTransformOneNil(t *testing.T) {
+	// g1: BasicGenerator with a transform (doubles)
+	// g2: BasicGenerator without a transform (identity)
+	g1 := Integers(0, 10).Map(func(v any) any {
+		n, _ := ExtractInt(v)
+		return n * 2
+	})
+	g2 := Integers(0, 5) // no transform
+	gen := Tuples2(g1, g2)
+	bg, ok := gen.(*BasicGenerator)
+	if !ok {
+		t.Fatalf("expected *BasicGenerator, got %T", gen)
+	}
+	if bg.transform == nil {
+		t.Fatal("transform should not be nil (g1 has a transform)")
+	}
+	// Apply: raw[0]=3 → 3*2=6; raw[1]=uint64(2) → pass-through=uint64(2)
+	raw := []any{uint64(3), uint64(2)}
+	result, ok := bg.transform(raw).([]any)
+	if !ok {
+		t.Fatalf("transform result should be []any, got %T", bg.transform(raw))
+	}
+	if len(result) != 2 {
+		t.Fatalf("expected 2 results, got %d", len(result))
+	}
+	n0, _ := ExtractInt(result[0])
+	if n0 != 6 {
+		t.Errorf("position 0: expected 6, got %d", n0)
+	}
+	n1, _ := ExtractInt(result[1])
+	if n1 != 2 {
+		t.Errorf("position 1: expected 2 (pass-through), got %d", n1)
+	}
+}
+
+// =============================================================================

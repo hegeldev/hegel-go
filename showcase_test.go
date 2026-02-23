@@ -416,3 +416,65 @@ func TestIPAddressesAreValidFormat(t *testing.T) {
 		}
 	}, WithTestCases(50))
 }
+
+// TestTuples2IntBoolPairs demonstrates Tuples2 by verifying that each generated
+// pair has an integer in [0, 10] and a boolean — an independent co-generation property.
+func TestTuples2IntBoolPairs(t *testing.T) {
+	hegelBinPath(t)
+	gen := Tuples2(Integers(0, 10), Booleans(0.5))
+	RunHegelTest(t.Name(), func() {
+		v := gen.Generate()
+		pair, ok := v.([]any)
+		if !ok || len(pair) != 2 {
+			panic(fmt.Sprintf("Tuples2: expected []any of len 2, got %T len=%d", v, func() int {
+				if s, ok := v.([]any); ok {
+					return len(s)
+				}
+				return -1
+			}()))
+		}
+		n, _ := ExtractInt(pair[0])
+		if n < 0 || n > 10 {
+			panic(fmt.Sprintf("Tuples2[0]: expected integer in [0,10], got %d", n))
+		}
+		_, ok = pair[1].(bool)
+		if !ok {
+			panic(fmt.Sprintf("Tuples2[1]: expected bool, got %T", pair[1]))
+		}
+	}, WithTestCases(50))
+}
+
+// TestTuples3StringIntFloatTriples demonstrates Tuples3 by generating (text, int, float)
+// triples and verifying each element satisfies its type and range constraints.
+// Property: the sum of min-text-length + integer + float is always well-defined.
+func TestTuples3StringIntFloatTriples(t *testing.T) {
+	hegelBinPath(t)
+	falseBool := false
+	gen := Tuples3(
+		Text(1, 10),
+		Integers(0, 100),
+		Floats(floatPtr(0.0), floatPtr(1.0), &falseBool, &falseBool, false, false),
+	)
+	RunHegelTest(t.Name(), func() {
+		v := gen.Generate()
+		triple, ok := v.([]any)
+		if !ok || len(triple) != 3 {
+			panic("Tuples3: expected []any of len 3")
+		}
+		s, ok := triple[0].(string)
+		if !ok || len(s) == 0 {
+			panic(fmt.Sprintf("Tuples3[0]: expected non-empty string, got %T %q", triple[0], triple[0]))
+		}
+		n, _ := ExtractInt(triple[1])
+		if n < 0 || n > 100 {
+			panic(fmt.Sprintf("Tuples3[1]: expected [0,100], got %d", n))
+		}
+		f, ok := triple[2].(float64)
+		if !ok {
+			panic(fmt.Sprintf("Tuples3[2]: expected float64, got %T", triple[2]))
+		}
+		if math.IsNaN(f) || math.IsInf(f, 0) || f < 0.0 || f > 1.0 {
+			panic(fmt.Sprintf("Tuples3[2]: expected finite float in [0,1], got %v", f))
+		}
+	}, WithTestCases(50))
+}
