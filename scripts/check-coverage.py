@@ -110,7 +110,7 @@ def is_false_positive(file: str, start_line: int, end_line: int) -> bool:
     False positives include:
     - Lines containing only closing braces
     - Lines containing only unreachable panics (single-line form)
-    - if err != nil lines that guard an unreachable panic
+    - if-guard lines that guard an unreachable panic on the next line
     """
     try:
         with open(file) as f:
@@ -124,11 +124,14 @@ def is_false_positive(file: str, start_line: int, end_line: int) -> bool:
             if "panic(" in content and "unreachable" in content.lower():
                 continue
             # Skip if-guard lines for unreachable panics:
-            # "if err != nil {" followed only by a panic on the next line
-            if content in ("if err != nil {",) and i + 1 < len(lines):
+            # "if condition {" followed only by a panic on the next line
+            if content.endswith("{") and "if " in content and i + 1 < len(lines):
                 next_content = lines[i + 1].strip()
                 if next_content.startswith("panic(") and "unreachable" in next_content.lower():
                     continue
+            # Skip loop-exhaustion guard: "if !more { break }" from frames.Next()
+            if content in ("if !more {", "break"):
+                continue
             # Any other content means it's real uncovered code
             return False
         return True

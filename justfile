@@ -22,7 +22,7 @@ setup:
 test:
     #!/usr/bin/env bash
     set -euo pipefail
-    export PATH=".venv/bin:$PATH"
+    export PATH="$(pwd)/.venv/bin:$PATH"
     go test -race -coverprofile=coverage.out -covermode=atomic ./...
     python3 scripts/check-coverage.py
 

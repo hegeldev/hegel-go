@@ -11,7 +11,7 @@ just docs    # Build API documentation
 just check   # Run lint + docs + test (full CI check)
 ```
 
-Tests must use `PATH=".venv/bin:$PATH"` so the `hegel` binary is found.
+Tests must use `PATH="$(pwd)/.venv/bin:$PATH"` (absolute path) so the `hegel` binary is found.
 
 ## What This Is
 
@@ -52,16 +52,16 @@ or sessions manually — `run_hegel_test()` is a plain free function.
 ## Testing Philosophy
 
 - **100% code coverage** is mandatory. `just check` fails if any line is uncovered.
-  Use `HEGEL_TEST_MODE` (see below) to cover error paths — do NOT use `# nocov`.
+  Use `HEGEL_PROTOCOL_TEST_MODE` (see below) to cover error paths — do NOT use `# nocov`.
 - **Use the real `hegel` binary** for integration tests. Never write a mock server.
   The real binary runs as a subprocess, so there is zero threading contention.
   In-process mocks with threads cause deadlocks — they have wasted hundreds of
   agent turns in previous SDK generations.
 - **Socket pairs** (`socketpair()`) for unit testing Connection/Channel in isolation.
 
-### HEGEL_TEST_MODE — Error Injection
+### HEGEL_PROTOCOL_TEST_MODE — Error Injection
 
-Set the `HEGEL_TEST_MODE` environment variable before calling `run_hegel_test` to
+Set the `HEGEL_PROTOCOL_TEST_MODE` environment variable before calling `RunHegelTestE` to
 trigger server-side error injection:
 
 | Mode                          | What it does                                      |
@@ -112,7 +112,7 @@ Failing to handle StopTest correctly causes `FlakyStrategyDefinition` errors.
 - **Error handling**: Return `error` for failable operations; `panic()` for truly unreachable code paths
 - **Doc comments**: Every exported symbol must have a doc comment starting with the symbol name
 - **Coverage**: 100% enforced — `scripts/check-coverage.py` runs after tests; false positives (closing braces, unreachable panics) are filtered automatically
-- **Test execution**: Tests use `PATH=".venv/bin:$PATH"` to find the `hegel` binary
+- **Test execution**: Tests use `PATH="$(pwd)/.venv/bin:$PATH"` (absolute path) to find the `hegel` binary — relative paths don't work with `exec.LookPath`
 
 ## Lessons Learned
 
@@ -184,3 +184,46 @@ decisions made and why, things that would have saved time to know up front)*
 
 **TestHandleRequestsStopFnImmediate: stopFn returning true immediately**
 - Use `HandleRequests` with `stopFn = func() bool { return true }` to cover the early-exit path.
+
+### Stage 4: Test Runner and Test Lifecycle
+
+**HEGEL_PROTOCOL_TEST_MODE, not HEGEL_TEST_MODE**
+- The correct env var for activating the hegel test server's error injection modes is `HEGEL_PROTOCOL_TEST_MODE`. The documentation previously said `HEGEL_TEST_MODE` but the actual binary uses the longer form. Always double-check env var names against the source (`hegel/__main__.py`).
+
+**`SendReplyValue` already wraps — do not double-wrap**
+- `ch.SendReplyValue(msgID, v)` encodes `{"result": v}` internally. Test code that calls `SendReplyValue(msgID, map[string]any{"result": v})` will produce `{"result": {"result": v}}` — a double-wrap. The client's decoder extracts `result` and gets a dict instead of the expected type, causing confusing type-assertion failures downstream. Always pass the raw value: `SendReplyValue(msgID, true)`, `SendReplyValue(msgID, int64(42))`.
+
+**Global session + HEGEL_PROTOCOL_TEST_MODE = test isolation problem**
+- The normal hegel server handles multiple `run_test` requests per connection (it loops). The test server (HEGEL_PROTOCOL_TEST_MODE) handles exactly ONE `run_test` then exits. If `RunHegelTestE` uses the global session (which is already connected from a prior test), the test server subprocess is long gone and the socket is dead.
+- **Solution**: In `RunHegelTestE`, detect `HEGEL_PROTOCOL_TEST_MODE != ""` and create a fresh temporary `hegelSession` (with `defer s.cleanup()`), bypassing the global session entirely.
+
+**`exec.LookPath` requires an absolute PATH**
+- The justfile had `export PATH=".venv/bin:$PATH"` (relative). `exec.LookPath("hegel")` uses the actual PATH environment variable and won't resolve relative paths. Integration tests that call `hegelBinPath(t)` (which uses `exec.LookPath`) were silently skipping because hegel wasn't found.
+- **Fix**: Use `export PATH="$(pwd)/.venv/bin:$PATH"` (absolute via `$(pwd)`) in the justfile.
+
+**Shell built-ins not in PATH — use absolute paths in tests**
+- `s.hegelCmd = "false"` doesn't work because `false` is a shell built-in, not a PATH binary on all systems. Use `/usr/bin/false` for tests that need a binary that immediately exits.
+
+**`client.mu` must protect the entire `runTest` call**
+- The `Connection` and `Channel` objects are not goroutine-safe. If multiple goroutines call `client.runTest` concurrently (e.g., `go cli.runTest(...)` × N), they race on the control channel's `responses` map.
+- **Fix**: Move `c.mu.Lock()` to cover the entire `runTest` method body (not just the initial send). The full duration of a test — from `run_test` request through `test_done` receipt and all replay cases — must be serialized.
+
+**Avoid double-checked locking without atomics**
+- An outer `if s.hasWorkingClient() { return nil }` check before acquiring `s.mu` in `start()` is a data race (reading `s.cli` and `s.conn` without the lock). Remove it. Always acquire the lock first, then check `hasWorkingClient()` inside the lock.
+
+**`mkdirTempFn` indirection for testability**
+- `os.MkdirTemp` is called inside `start()`. To test the error path (when mktemp fails), introduce `var mkdirTempFn = os.MkdirTemp` at package level and replace the call-site. Tests can then swap it: `mkdirTempFn = func(...) (string, error) { return "", fmt.Errorf("simulated") }`.
+
+**`fakeServerConn` for unit-testing the runner**
+- Use a `socketpair()` + goroutine pattern for unit tests of `client.runTest` and `client.runTestCase`. The server goroutine runs in a separate goroutine, communicates via the socket, and uses `serverConn.ConnectChannel` to respond to test events.
+- The server goroutine must match the exact protocol: receive `run_test` on control channel → reply → send `test_done` on testCh → wait for reply → send `test_case` events → wait for `mark_complete`.
+
+**StopTest from `stop_test_on_collection_more` / `stop_test_on_new_collection` are Stage 5**
+- These modes require `collection_more` and `new_collection` commands which are part of the collection generator protocol (Stage 5). Tests for these modes must be marked `t.Skip()` in Stage 4 and implemented when Stage 5 adds collection support.
+
+**`is_false_positive` in `check-coverage.py`: new patterns needed for runner.go**
+- The `frames.Next()` loop in `extractPanicOrigin` generates an uncovered `if !more { break }` region. Add `if content in ("if !more {", "break"): continue` to handle this.
+- An `if condition {` line followed on the next line by a `panic(` with "unreachable" should also be filtered. The existing filter only checked for `if err != nil {` patterns by checking `if content.endswith("{") and "if " in content`.
+
+**`RunHegelTestE` not `RunHegelTestE` — naming is the public API**
+- The public function is `RunHegelTestE` (not `RunHegelTest` + E suffix as a separate thing). `RunHegelTest` panics on error; `RunHegelTestE` returns error. The `E` suffix is a Go convention for "error-returning variant".
