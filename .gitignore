@@ -1,0 +1,18 @@
+# Virtual environment
+.venv/
+
+# Hegelator internal directories (removed after pipeline completes)
+.hegelator/
+
+# Test databases (created by hegel/hypothesis during test runs)
+.hegel/
+.hypothesis/
+
+# Python bytecode (from coverage scripts and conformance tests)
+__pycache__/
+*.pyc
+
+# Claude Code transient files
+.claude/plan.md
+
+# Build artifacts (language-specific entries added in Stage 1)
