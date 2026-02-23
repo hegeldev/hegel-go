@@ -17,6 +17,7 @@ __pycache__/
 
 # Build artifacts
 coverage.out
+cover_test.out
 
 # Go build cache
 /bin/

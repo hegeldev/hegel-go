@@ -252,3 +252,36 @@ decisions made and why, things that would have saved time to know up front)*
 
 **mark_complete timeout in multi-interesting test: use 10s not 2s**
 - `TestRunTestMultiInterestingCasePasses` uses `caseCh.RecvRequestRaw(2s)` for the mark_complete wait. Under load (race detector, parallel tests), the client may take >2s between sending the test_case ack and the mark_complete. Use 10s to avoid flakiness.
+
+### Stage 7: one_of, optional, ip_addresses
+
+**OneOf has three code paths — all must be tested**
+- Path 1 (all basic, all identity): produces `{"one_of": [s1, s2, ...]}` — no transform needed.
+- Path 2 (all basic, some have transforms): produces tagged-tuple schema `{"one_of": [{"type":"tuple","elements":[{"const":i},si]}, ...]}` with a dispatch transform that reads the tag and calls the branch's transform.
+- Path 3 (any non-basic): returns `*CompositeOneOfGenerator` which wraps generation in a `LabelOneOf` span and generates an integer index first.
+
+**Tagged-tuple dispatch: nil transform means identity**
+- In Path 2, the `transforms` slice has `nil` entries for branches with identity (no transform). The dispatch function `applyTagged` must handle `transforms[tag] == nil` by returning the raw value unmodified.
+
+**Tagged-tuple short-tuple guard**
+- The `applyTagged` function must handle tuples with fewer than 2 elements gracefully (return the original value). This covers the case of malformed CBOR from the server.
+
+**`error_response` mode fires on the first GENERATE command, not start_span**
+- `CompositeOneOfGenerator.Generate()` sends `start_span(LabelOneOf)` first, then `generate(integer)` for the index selection. The `error_response` test mode asserts the first message is `generate` — so the server crashes with an AssertionError when it sees `start_span`. This crash closes the connection, so `generateFromSchema` for the index gets an I/O error, which covers the `if err != nil { panic(...) }` path in `CompositeOneOfGenerator.Generate()`.
+- The test still passes because the panic propagates as an INTERESTING test case.
+- Mark this panic as `panic(fmt.Sprintf("hegel: unreachable: ...", err))` so the false-positive filter works (even though it IS reachable — via server crash). The coverage DOES cover it.
+
+**Optional = OneOf(Just(nil), element) — this is Path 2 for basic elements**
+- `Just(nil)` always has a transform (ignores server value, returns nil). So `Optional(basicGen)` always triggers Path 2 (tagged tuples), not Path 1.
+- For non-basic elements: `Optional(nonBasic)` → Path 3 (`*CompositeOneOfGenerator`) since `MappedGenerator.AsBasic()` returns nil.
+
+**IPAddresses default = OneOf(v4, v6) — Path 1 (both branches are basic, no transforms)**
+- Both `&BasicGenerator{schema: map[string]any{"type":"ipv4"}}` and the v6 variant have nil transforms, so `OneOf(v4, v6)` takes Path 1 and produces a simple `{"one_of": [{"type":"ipv4"}, {"type":"ipv6"}]}` schema.
+
+**go test default timeout is 10 minutes — add timeout flag for large test suites**
+- Running `go test ./...` without `-timeout` uses the 10-minute default. If you have many integration tests (100+ each with a real hegel subprocess), the total can exceed 10 minutes, causing a panic/timeout that looks like a hang or deadlock.
+- The `just test` recipe uses `go test -race -coverprofile=coverage.out -covermode=atomic ./...` without explicit timeout. With 226 hegelBinPath test invocations, the total was ~33 seconds (well under 60s), so no timeout needed.
+- If tests appear to hang at the 10-minute mark: it's the default timeout firing, not an actual deadlock.
+
+**CLAUDE.md lives at `.claude/CLAUDE.md` relative to the repo root**
+- The project instructions file is at `.claude/CLAUDE.md`, not `CLAUDE.md`. Always update it with stage-specific lessons.

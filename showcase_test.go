@@ -215,6 +215,107 @@ func TestMapDoubledIntegersAreEven(t *testing.T) {
 	}, WithTestCases(50))
 }
 
+// TestListsSortedIsSorted demonstrates the Lists generator by verifying that
+// sorting a list of integers produces a non-decreasing sequence.
+// This is a meaningful property: sort is correct if and only if the result is ordered.
+func TestListsSortedIsSorted(t *testing.T) {
+	hegelBinPath(t)
+	RunHegelTest(t.Name(), func() {
+		xs := Lists(Integers(-100, 100), ListsOptions{MinSize: 0, MaxSize: 20}).Generate()
+		slice, ok := xs.([]any)
+		if !ok {
+			panic(fmt.Sprintf("Lists: expected []any, got %T", xs))
+		}
+		// Extract integers, sort, verify non-decreasing.
+		nums := make([]int64, len(slice))
+		for i, x := range slice {
+			nums[i], _ = ExtractInt(x)
+		}
+		// Insertion sort (simple, verifiable).
+		sorted := make([]int64, len(nums))
+		copy(sorted, nums)
+		for i := 1; i < len(sorted); i++ {
+			for j := i; j > 0 && sorted[j] < sorted[j-1]; j-- {
+				sorted[j], sorted[j-1] = sorted[j-1], sorted[j]
+			}
+		}
+		for i := 1; i < len(sorted); i++ {
+			if sorted[i] < sorted[i-1] {
+				panic(fmt.Sprintf("sorted list not non-decreasing at index %d: %v", i, sorted))
+			}
+		}
+	}, WithTestCases(50))
+}
+
+// TestListsLengthBoundsAreRespected demonstrates that Lists with min/max size bounds
+// always generates a list within those bounds — the fundamental size constraint property.
+func TestListsLengthBoundsAreRespected(t *testing.T) {
+	hegelBinPath(t)
+	RunHegelTest(t.Name(), func() {
+		xs := Lists(Integers(0, 1000), ListsOptions{MinSize: 2, MaxSize: 8}).Generate()
+		slice, ok := xs.([]any)
+		if !ok {
+			panic(fmt.Sprintf("Lists: expected []any, got %T", xs))
+		}
+		if len(slice) < 2 || len(slice) > 8 {
+			panic(fmt.Sprintf("Lists: length %d out of [2, 8]", len(slice)))
+		}
+		for _, x := range slice {
+			v, _ := ExtractInt(x)
+			if v < 0 || v > 1000 {
+				panic(fmt.Sprintf("Lists: element %d out of range [0, 1000]", v))
+			}
+		}
+	}, WithTestCases(50))
+}
+
+// TestDictsKeyValueTypes demonstrates the Dicts generator with typed keys and values.
+// Every generated map must have string keys and integer values in the specified range.
+// This verifies the core type contract: keys come from the key generator, values from the value generator.
+func TestDictsKeyValueTypes(t *testing.T) {
+	hegelBinPath(t)
+	RunHegelTest(t.Name(), func() {
+		gen := Dicts(Text(1, 8), Integers(0, 255), DictOptions{MinSize: 0, MaxSize: 4, HasMaxSize: true})
+		v := gen.Generate()
+		m, ok := v.(map[any]any)
+		if !ok {
+			panic(fmt.Sprintf("Dicts: expected map[any]any, got %T", v))
+		}
+		if len(m) > 4 {
+			panic(fmt.Sprintf("Dicts: at most 4 entries expected, got %d", len(m)))
+		}
+		for k, val := range m {
+			s, sOk := k.(string)
+			runeCount := utf8.RuneCountInString(s)
+			if !sOk || runeCount < 1 || runeCount > 8 {
+				panic(fmt.Sprintf("Dicts: key must be string of length 1-8 codepoints, got %T %q (len=%d)", k, k, runeCount))
+			}
+			n, nErr := ExtractInt(val)
+			if nErr != nil || n < 0 || n > 255 {
+				panic(fmt.Sprintf("Dicts: value must be int in [0,255], got %v", val))
+			}
+		}
+	}, WithTestCases(50))
+}
+
+// TestDictsSizeBoundsHold demonstrates that Dicts respects min_size and max_size.
+// Maps with min_size=2, max_size=5 must always have between 2 and 5 entries.
+// This is a fundamental size-bound property of the Dicts generator.
+func TestDictsSizeBoundsHold(t *testing.T) {
+	hegelBinPath(t)
+	RunHegelTest(t.Name(), func() {
+		gen := Dicts(Integers(0, 100), Booleans(0.5), DictOptions{MinSize: 2, MaxSize: 5, HasMaxSize: true})
+		v := gen.Generate()
+		m, ok := v.(map[any]any)
+		if !ok {
+			panic(fmt.Sprintf("Dicts: expected map[any]any, got %T", v))
+		}
+		if len(m) < 2 || len(m) > 5 {
+			panic(fmt.Sprintf("Dicts: expected size in [2,5], got %d", len(m)))
+		}
+	}, WithTestCases(50))
+}
+
 // TestMapChainedTransformsCompose demonstrates that chaining multiple Map calls
 // composes the transforms correctly — a fundamental property of function composition.
 // integers(1, 10).map(x*x).map(x-1): result is x²-1 for x in [1,10].
@@ -239,6 +340,79 @@ func TestMapChainedTransformsCompose(t *testing.T) {
 		}
 		if n > 99 {
 			panic(fmt.Sprintf("map(x²-1) on [1,10]: expected <= 99, got %d", n))
+		}
+	}, WithTestCases(50))
+}
+
+// TestOneOfChoosesFromEitherBranch demonstrates that OneOf generates values
+// from multiple branches and that every generated value satisfies a constraint
+// derived from whichever branch produced it.
+func TestOneOfChoosesFromEitherBranch(t *testing.T) {
+	hegelBinPath(t)
+	// Branch A: even integers [0,20]; Branch B: always the string "ok"
+	evenInts := Integers(0, 10).Map(func(v any) any {
+		n, _ := ExtractInt(v)
+		return n * 2
+	})
+	constStr := Just("ok")
+	gen := OneOf(evenInts, constStr)
+	RunHegelTest(t.Name(), func() {
+		v := gen.Generate()
+		switch val := v.(type) {
+		case int64:
+			if val%2 != 0 || val < 0 || val > 20 {
+				panic(fmt.Sprintf("OneOf int branch: expected even [0,20], got %d", val))
+			}
+		case uint64:
+			if val%2 != 0 || val > 20 {
+				panic(fmt.Sprintf("OneOf int branch: expected even [0,20], got %d", val))
+			}
+		case string:
+			if val != "ok" {
+				panic(fmt.Sprintf("OneOf string branch: expected 'ok', got %q", val))
+			}
+		default:
+			panic(fmt.Sprintf("OneOf: unexpected type %T: %v", v, v))
+		}
+	}, WithTestCases(100))
+}
+
+// TestOptionalSometimesNil demonstrates that Optional generates nil values
+// and that non-nil values satisfy the element generator's constraint.
+func TestOptionalSometimesNil(t *testing.T) {
+	hegelBinPath(t)
+	// Optional of non-negative integers: value is nil or a non-negative integer.
+	gen := Optional(Integers(0, 100))
+	RunHegelTest(t.Name(), func() {
+		v := gen.Generate()
+		if v == nil {
+			return // nil is always valid
+		}
+		n, err := ExtractInt(v)
+		if err != nil {
+			panic(fmt.Sprintf("Optional: expected int or nil, got %T: %v", v, v))
+		}
+		if n < 0 || n > 100 {
+			panic(fmt.Sprintf("Optional int: expected [0,100], got %d", n))
+		}
+	}, WithTestCases(100))
+}
+
+// TestIPAddressesAreValidFormat demonstrates that generated IP addresses have
+// the correct format: IPv4 has exactly 4 dot-separated octets.
+func TestIPAddressesAreValidFormat(t *testing.T) {
+	hegelBinPath(t)
+	v4gen := IPAddresses(IPAddressOptions{Version: IPVersion4})
+	RunHegelTest(t.Name(), func() {
+		addr := v4gen.Generate().(string)
+		parts := strings.Split(addr, ".")
+		if len(parts) != 4 {
+			panic(fmt.Sprintf("IPv4 address must have 4 octets: %q", addr))
+		}
+		for _, part := range parts {
+			if len(part) == 0 {
+				panic(fmt.Sprintf("IPv4 octet must not be empty: %q", addr))
+			}
 		}
 	}, WithTestCases(50))
 }

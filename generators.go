@@ -527,3 +527,397 @@ func Binary(minSize int, maxSize int) Generator {
 	}
 	return &BasicGenerator{schema: schema}
 }
+
+// --- Lists generator ---
+
+// ListsOptions holds optional size constraints for the Lists generator.
+type ListsOptions struct {
+	// MinSize is the minimum number of elements (inclusive). Defaults to 0.
+	MinSize int
+	// MaxSize is the maximum number of elements (inclusive). Negative means unbounded.
+	MaxSize int
+}
+
+// Lists returns a Generator that produces slices of values from the elements generator.
+//
+// If elements is a BasicGenerator (schema-backed), the list is generated with a single
+// server call using a list schema, and the element transform (if any) is applied to each
+// item in the result. This is the fast path.
+//
+// If elements is a non-basic generator (e.g., filtered), the collection protocol is used:
+// the server controls iteration via new_collection / collection_more, and each element is
+// generated individually inside a LabelList span.
+//
+// opts.MinSize defaults to 0; opts.MaxSize < 0 means no upper bound.
+func Lists(elements Generator, opts ListsOptions) Generator {
+	minSize := opts.MinSize
+	if minSize < 0 {
+		minSize = 0
+	}
+
+	bg := elements.AsBasic()
+	if bg != nil {
+		// Fast path: build a list schema using the element's raw schema.
+		rawSchema := map[string]any{
+			"type":     "list",
+			"elements": bg.schema,
+			"min_size": int64(minSize),
+		}
+		if opts.MaxSize >= 0 {
+			rawSchema["max_size"] = int64(opts.MaxSize)
+		}
+		if bg.transform != nil {
+			t := bg.transform
+			listTransform := func(raw any) any {
+				rawSlice, ok := raw.([]any)
+				if !ok {
+					return raw
+				}
+				result := make([]any, len(rawSlice))
+				for i, x := range rawSlice {
+					result[i] = t(x)
+				}
+				return result
+			}
+			return &BasicGenerator{schema: rawSchema, transform: listTransform}
+		}
+		return &BasicGenerator{schema: rawSchema}
+	}
+
+	// Non-basic path: use collection protocol.
+	return &compositeListGenerator{
+		elements: elements,
+		minSize:  minSize,
+		maxSize:  opts.MaxSize,
+	}
+}
+
+// compositeListGenerator generates a list using the collection protocol.
+// Used when the element generator is non-basic (e.g., filtered).
+type compositeListGenerator struct {
+	elements Generator
+	minSize  int
+	maxSize  int
+}
+
+// Generate produces a list by using the collection protocol inside a LabelList span.
+func (g *compositeListGenerator) Generate() any {
+	var result []any
+	StartSpan(LabelList)
+	panicked := true
+	defer func() {
+		StopSpan(panicked)
+	}()
+	coll := NewCollection(g.minSize, g.maxSize)
+	for coll.More() {
+		result = append(result, g.elements.Generate())
+	}
+	panicked = false
+	return result
+}
+
+// AsBasic returns nil — compositeListGenerator is not a basic generator.
+func (g *compositeListGenerator) AsBasic() *BasicGenerator { return nil }
+
+// Map returns a new MappedGenerator wrapping g.
+func (g *compositeListGenerator) Map(fn func(any) any) Generator {
+	return &MappedGenerator{inner: g, fn: fn}
+}
+
+// --- Dicts generator ---
+
+// DictOptions holds optional parameters for the Dicts generator.
+type DictOptions struct {
+	// MinSize is the minimum number of key-value pairs. Defaults to 0.
+	MinSize int
+	// MaxSize is the maximum number of key-value pairs. Negative means unbounded.
+	MaxSize int
+	// HasMaxSize indicates whether MaxSize should be applied.
+	HasMaxSize bool
+}
+
+// Dicts returns a Generator that produces map[any]any values with keys from
+// the keys generator and values from the values generator.
+//
+// When both keys and values are BasicGenerators, a single schema-based
+// generate command is sent to the server (the fast path). Otherwise, the
+// collection protocol is used to build the map incrementally.
+//
+// Use DictOptions to control MinSize and MaxSize of the generated maps.
+func Dicts(keys, values Generator, opts DictOptions) Generator {
+	keyBasic := keys.AsBasic()
+	valBasic := values.AsBasic()
+	if keyBasic != nil && valBasic != nil {
+		// Fast path: both generators are basic — compose a single schema.
+		rawSchema := map[string]any{
+			"type":     "dict",
+			"keys":     keyBasic.schema,
+			"values":   valBasic.schema,
+			"min_size": int64(opts.MinSize),
+		}
+		if opts.HasMaxSize {
+			rawSchema["max_size"] = int64(opts.MaxSize)
+		}
+		keyTransform := keyBasic.transform
+		valTransform := valBasic.transform
+		if keyTransform == nil && valTransform == nil {
+			return &BasicGenerator{
+				schema: rawSchema,
+				transform: func(v any) any {
+					return pairsToMap(v, nil, nil)
+				},
+			}
+		}
+		return &BasicGenerator{
+			schema: rawSchema,
+			transform: func(v any) any {
+				return pairsToMap(v, keyTransform, valTransform)
+			},
+		}
+	}
+	// Slow path: use the collection protocol.
+	return &compositeDictGenerator{
+		keys:    keys,
+		values:  values,
+		minSize: opts.MinSize,
+		maxSize: opts.MaxSize,
+		hasMax:  opts.HasMaxSize,
+	}
+}
+
+// pairsToMap converts a CBOR-decoded pair list [[k,v], ...] to a map[any]any,
+// applying optional key and value transforms.
+func pairsToMap(v any, keyTransform, valTransform func(any) any) any {
+	result := map[any]any{}
+	pairs, ok := v.([]any)
+	if !ok {
+		return result
+	}
+	for _, pair := range pairs {
+		kv, ok := pair.([]any)
+		if !ok || len(kv) < 2 {
+			continue
+		}
+		k := kv[0]
+		val := kv[1]
+		if keyTransform != nil {
+			k = keyTransform(k)
+		}
+		if valTransform != nil {
+			val = valTransform(val)
+		}
+		result[k] = val
+	}
+	return result
+}
+
+// compositeDictGenerator generates maps using the collection protocol for
+// non-basic key or value generators.
+type compositeDictGenerator struct {
+	keys    Generator
+	values  Generator
+	minSize int
+	maxSize int
+	hasMax  bool
+}
+
+// Generate implements Generator by using the MAP span and collection protocol.
+func (g *compositeDictGenerator) Generate() any {
+	var result any
+	DiscardableGroup(LabelMap, func() {
+		maxSz := g.maxSize
+		if !g.hasMax {
+			maxSz = g.minSize + 10
+		}
+		coll := NewCollection(g.minSize, maxSz)
+		m := map[any]any{}
+		for coll.More() {
+			Group(LabelMapEntry, func() {
+				k := g.keys.Generate()
+				v := g.values.Generate()
+				m[k] = v
+			})
+		}
+		result = m
+	})
+	return result
+}
+
+// AsBasic returns nil — compositeDictGenerator is not a basic generator.
+func (g *compositeDictGenerator) AsBasic() *BasicGenerator { return nil }
+
+// Map returns a new MappedGenerator wrapping this generator.
+func (g *compositeDictGenerator) Map(fn func(any) any) Generator {
+	return &MappedGenerator{inner: g, fn: fn}
+}
+
+// --- OneOf generator ---
+
+// CompositeOneOfGenerator is a one_of generator for generators that cannot all
+// be represented as BasicGenerators (e.g. filtered generators). It generates an
+// integer index and delegates to the selected branch, wrapped in a ONE_OF span.
+type CompositeOneOfGenerator struct {
+	generators []Generator
+}
+
+// Generate picks one of the generators at random (via the Hegel server) and
+// returns a value from that generator, wrapped in a ONE_OF span.
+func (g *CompositeOneOfGenerator) Generate() any {
+	var result any
+	Group(LabelOneOf, func() {
+		n := len(g.generators)
+		idx, err := generateFromSchema(map[string]any{
+			"type":      "integer",
+			"min_value": int64(0),
+			"max_value": int64(n - 1),
+		})
+		if err != nil {
+			panic(fmt.Sprintf("hegel: unreachable: OneOf generateFromSchema: %v", err))
+		}
+		i, _ := ExtractInt(idx)
+		result = g.generators[i].Generate()
+	})
+	return result
+}
+
+// AsBasic returns nil — CompositeOneOfGenerator is not a basic generator.
+func (g *CompositeOneOfGenerator) AsBasic() *BasicGenerator { return nil }
+
+// Map returns a new MappedGenerator that applies fn to each generated value.
+func (g *CompositeOneOfGenerator) Map(fn func(any) any) Generator {
+	return &MappedGenerator{inner: g, fn: fn}
+}
+
+// OneOf returns a Generator that produces values from one of the given generators.
+//
+// Path 1 — all basic with identity transforms: schema {"one_of": [s1, s2, ...]}
+// Path 2 — all basic with some transforms: tagged-tuple schema, transform dispatches by tag
+// Path 3 — any non-basic: CompositeOneOfGenerator using ONE_OF span
+//
+// Requires at least 2 generators.
+func OneOf(generators ...Generator) Generator {
+	if len(generators) < 2 {
+		panic("hegel: OneOf requires at least 2 generators")
+	}
+
+	// Check if all generators are basic.
+	allBasic := true
+	for _, g := range generators {
+		if g.AsBasic() == nil {
+			allBasic = false
+			break
+		}
+	}
+
+	if !allBasic {
+		// Path 3: composite
+		gens := make([]Generator, len(generators))
+		copy(gens, generators)
+		return &CompositeOneOfGenerator{generators: gens}
+	}
+
+	// All are basic — collect them.
+	basics := make([]*BasicGenerator, len(generators))
+	for i, g := range generators {
+		basics[i] = g.AsBasic()
+	}
+
+	// Check if all have identity (nil) transforms.
+	allIdentity := true
+	for _, bg := range basics {
+		if bg.transform != nil {
+			allIdentity = false
+			break
+		}
+	}
+
+	if allIdentity {
+		// Path 1: simple {"one_of": [s1, s2, ...]}
+		schemas := make([]any, len(basics))
+		for i, bg := range basics {
+			schemas[i] = bg.schema
+		}
+		return &BasicGenerator{
+			schema: map[string]any{"one_of": schemas},
+		}
+	}
+
+	// Path 2: tagged tuples — wrap each branch as {"type":"tuple","elements":[{"const":i},schema]}
+	taggedSchemas := make([]any, len(basics))
+	for i, bg := range basics {
+		taggedSchemas[i] = map[string]any{
+			"type": "tuple",
+			"elements": []any{
+				map[string]any{"const": int64(i)},
+				bg.schema,
+			},
+		}
+	}
+
+	// Capture transforms slice (each entry may be nil = identity).
+	transforms := make([]func(any) any, len(basics))
+	for i, bg := range basics {
+		transforms[i] = bg.transform
+	}
+
+	applyTagged := func(tagged any) any {
+		// tagged is a CBOR-decoded tuple: []any{tag, value}
+		elems, _ := tagged.([]any)
+		if len(elems) < 2 {
+			return tagged
+		}
+		tag, _ := ExtractInt(elems[0])
+		value := elems[1]
+		if t := transforms[tag]; t != nil {
+			return t(value)
+		}
+		return value
+	}
+
+	return &BasicGenerator{
+		schema:    map[string]any{"one_of": taggedSchemas},
+		transform: applyTagged,
+	}
+}
+
+// Optional returns a Generator that produces either nil or a value from element.
+// It is equivalent to OneOf(Just(nil), element).
+func Optional(element Generator) Generator {
+	return OneOf(Just(nil), element)
+}
+
+// --- IPAddresses generator ---
+
+// IPAddressVersion specifies which IP version to generate.
+type IPAddressVersion int
+
+const (
+	// IPVersion4 generates IPv4 addresses.
+	IPVersion4 IPAddressVersion = 4
+	// IPVersion6 generates IPv6 addresses.
+	IPVersion6 IPAddressVersion = 6
+)
+
+// IPAddressOptions holds options for the IPAddresses generator.
+type IPAddressOptions struct {
+	// Version selects the IP version (4 or 6). Zero means generate both.
+	Version IPAddressVersion
+}
+
+// IPAddresses returns a Generator that produces IP address strings.
+// With Version=4 it generates IPv4 addresses (dotted decimal).
+// With Version=6 it generates IPv6 addresses (colon hex).
+// With Version=0 (default) it generates either IPv4 or IPv6.
+func IPAddresses(opts IPAddressOptions) Generator {
+	switch opts.Version {
+	case IPVersion4:
+		return &BasicGenerator{schema: map[string]any{"type": "ipv4"}}
+	case IPVersion6:
+		return &BasicGenerator{schema: map[string]any{"type": "ipv6"}}
+	default:
+		return OneOf(
+			&BasicGenerator{schema: map[string]any{"type": "ipv4"}},
+			&BasicGenerator{schema: map[string]any{"type": "ipv6"}},
+		)
+	}
+}
