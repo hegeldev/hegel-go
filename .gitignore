@@ -1,8 +1,6 @@
 # Virtual environment
 .venv/
 
-# Hegelator internal directories (removed after pipeline completes)
-.hegelator/
 
 # Test databases (created by hegel/hypothesis during test runs)
 .hegel/
