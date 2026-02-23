@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"net"
 	"sync"
+	"sync/atomic"
 	"time"
 )
 
@@ -35,7 +36,7 @@ const (
 type Connection struct {
 	name    string
 	conn    net.Conn
-	running bool
+	running atomic.Bool
 
 	nextChannelID int
 	channels      map[uint32]*Channel
@@ -52,11 +53,11 @@ func NewConnection(conn net.Conn, name string) *Connection {
 	c := &Connection{
 		name:          name,
 		conn:          conn,
-		running:       true,
 		channels:      make(map[uint32]*Channel),
 		state:         stateUnresolved,
 		nextChannelID: 1, // first real channel counter (matches Python's __next_channel_id = 1)
 	}
+	c.running.Store(true)
 	// Channel 0 is the control channel; it is pre-registered before any handshake.
 	c.controlCh = &Channel{
 		conn:          c,
@@ -70,9 +71,7 @@ func NewConnection(conn net.Conn, name string) *Connection {
 
 // Live reports whether the connection is still open.
 func (c *Connection) Live() bool {
-	c.writerMu.Lock()
-	defer c.writerMu.Unlock()
-	return c.running
+	return c.running.Load()
 }
 
 // ControlChannel returns the channel used for handshake and control messages.
@@ -88,11 +87,11 @@ func (c *Connection) SendPacket(pkt Packet) error {
 // Close shuts down the connection and signals all channels.
 func (c *Connection) Close() {
 	c.writerMu.Lock()
-	if !c.running {
+	if !c.running.Load() {
 		c.writerMu.Unlock()
 		return
 	}
-	c.running = false
+	c.running.Store(false)
 	channels := make([]*Channel, 0, len(c.channels))
 	for _, ch := range c.channels {
 		channels = append(channels, ch)
@@ -136,7 +135,7 @@ func (c *Connection) runReader(until func() bool) {
 		time.Sleep(time.Millisecond)
 	}
 
-	for c.running && !until() {
+	for c.running.Load() && !until() {
 		// Set a short deadline so we can re-check until() periodically.
 		c.conn.SetReadDeadline(time.Now().Add(100 * time.Millisecond)) //nolint:errcheck
 		pkt, err := ReadPacket(c.conn)
@@ -372,7 +371,7 @@ func (ch *Channel) Close() {
 	// Check if this channel is still registered (not already removed by the peer).
 	ch.conn.writerMu.Lock()
 	registered := ch.conn.channels[ch.channelID] == ch
-	live := ch.conn.running
+	live := ch.conn.running.Load()
 	ch.conn.writerMu.Unlock()
 
 	ch.closed = true
