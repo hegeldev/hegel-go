@@ -335,3 +335,27 @@ decisions made and why, things that would have saved time to know up front)*
 **Build conformance binaries into `bin/conformance/` — already gitignored**
 - `/bin/` is already in `.gitignore`, so compiled conformance binaries don't pollute the repo.
 - The `build-conformance` recipe iterates `cmd/conformance/*/` and builds each into `bin/conformance/<name>`.
+
+### Stage 9: Documentation, Examples, and Polish
+
+**Package doc comment must reference the real public API**
+- The initial `hegel.go` package comment referenced `RunTest` and `Generate` (which don't exist). Always verify doc examples compile against the actual API. The correct entry points are `RunHegelTest`/`RunHegelTestE`, `GenerateBool`, `GenerateInt`, and `gen.Generate()`.
+
+**`go doc -all .` passes silently even with wrong API in doc examples**
+- The `docs` recipe (`go doc -all . > /dev/null`) does not parse or type-check code inside doc comment examples. It only checks that the package compiles and all exported symbols have doc comments. Wrong function names in examples go unnoticed. Use `go build` or `go vet` for code in `// Output:` examples.
+
+**`examples/` are standalone `package main` binaries — staticcheck checks them**
+- `staticcheck ./examples/...` runs against example programs. Watch for:
+  - `S1002`: redundant bool comparisons (`b != true`, `b != false` → `!b`, `b`)
+  - `SA4013`: double negation (`!!b`)
+  - `SA1019`: deprecated functions (e.g. `strings.Title` deprecated since Go 1.18)
+- Replace deprecated functions with non-deprecated equivalents (`strings.ToUpper`, etc.)
+
+**Examples are not covered by `go test` — `-coverpkg` already excludes them**
+- The `-coverpkg=github.com/antithesishq/hegel-go` flag restricts coverage to the library package. Examples under `examples/` (also `package main`) don't appear in coverage profiles. No special handling needed.
+
+**`docs/getting-started.md` is a Markdown file, not a Go doc page**
+- The `docs` recipe only checks Go source doc comments. A `docs/` directory with Markdown files doesn't affect `just docs`. This is intentional: the getting-started tutorial is human-readable prose, not API reference.
+
+**staticcheck runs on `./examples/...` only if listed explicitly**
+- The justfile `lint` recipe runs `staticcheck ./...` which includes `examples/`. Make sure all example programs pass staticcheck before committing, or they'll fail `just check`.

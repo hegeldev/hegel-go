@@ -1,19 +1,40 @@
-// Package hegel provides a property-based testing SDK powered by the Hegel framework.
+// Package hegel provides a Go SDK for the Hegel property-based testing framework.
 //
 // Hegel is a universal property-based testing framework backed by Hypothesis.
-// This SDK communicates with the hegel binary (a Python server) via Unix sockets
-// using a custom binary protocol, enabling property-based testing in Go.
+// This SDK communicates with the hegel binary (a Python subprocess) via Unix
+// sockets using a custom binary protocol, enabling property-based testing in Go.
 //
-// Usage:
+// # Quick Start
 //
-//	import "github.com/antithesishq/hegel-go"
+// Run a property test with [RunHegelTest]:
 //
 //	func TestMyProperty(t *testing.T) {
-//	    hegel.RunTest(t, "my_property", func() {
-//	        n := hegel.Generate(hegel.Integers())
-//	        // assert properties about n
-//	    })
+//	    hegel.RunHegelTest("my_property", func() {
+//	        n := hegel.GenerateInt(0, 100)
+//	        if n < 0 || n > 100 {
+//	            panic("out of range")
+//	        }
+//	    }, hegel.WithTestCases(50))
 //	}
+//
+// Inside the test body, call generator functions such as [GenerateBool] and
+// [GenerateInt], or use the composable [Generator] types returned by functions
+// such as [Integers], [Text], [Lists], and [OneOf].
+//
+// Use [Assume] to filter invalid inputs, [Note] to attach debug messages that
+// appear only on the minimal failing example, and [Target] to guide Hegel
+// toward interesting boundary values.
+//
+// # Architecture
+//
+// The SDK is structured in layers:
+//
+//  1. Wire protocol ([ReadPacket], [WritePacket]) — 20-byte header, CBOR payload, CRC32
+//  2. Connection and channels ([Connection], [Channel]) — Unix socket multiplexing
+//  3. Test runner ([RunHegelTest], [RunHegelTestE]) — subprocess lifecycle, test loop
+//  4. Generators ([Generator], [BasicGenerator], [Lists], [Dicts], …) — value generation
+//
+// See the README and docs/getting-started.md for a full tutorial.
 package hegel
 
 // Version returns the current version of the Hegel Go SDK.
