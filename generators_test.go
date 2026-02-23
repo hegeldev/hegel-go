@@ -812,6 +812,230 @@ func TestIntegersNoBounds(t *testing.T) {
 // (These are integration tests that run against the real binary.)
 
 // =============================================================================
+// Just generator tests
+// =============================================================================
+
+// TestJustSchema verifies that Just produces a schema with "const" key.
+func TestJustSchema(t *testing.T) {
+	g := Just(42)
+	if _, hasConst := g.schema["const"]; !hasConst {
+		t.Error("Just schema should have 'const' key")
+	}
+	// The const value in schema should be nil (null)
+	if g.schema["const"] != nil {
+		t.Errorf("Just schema 'const' should be nil, got %v", g.schema["const"])
+	}
+}
+
+// TestJustTransformIgnoresInput verifies that Just always returns the constant value.
+func TestJustTransformIgnoresInput(t *testing.T) {
+	g := Just("hello")
+	// transform should ignore the server value and always return "hello"
+	result := g.transform(nil)
+	if result != "hello" {
+		t.Errorf("Just transform: expected 'hello', got %v", result)
+	}
+	result = g.transform(int64(999))
+	if result != "hello" {
+		t.Errorf("Just transform with non-nil input: expected 'hello', got %v", result)
+	}
+}
+
+// TestJustE2E verifies that Just always generates the constant value against the real server.
+func TestJustE2E(t *testing.T) {
+	hegelBinPath(t)
+	RunHegelTest(t.Name(), func() {
+		v := Just(42).Generate()
+		if v.(int) != 42 {
+			panic(fmt.Sprintf("Just: expected 42, got %v", v))
+		}
+	}, WithTestCases(20))
+}
+
+// TestJustNonPrimitive verifies that Just works with non-primitive values (pointer identity).
+func TestJustNonPrimitive(t *testing.T) {
+	hegelBinPath(t)
+	type myStruct struct{ x int }
+	val := &myStruct{x: 99}
+	RunHegelTest(t.Name(), func() {
+		v := Just(val).Generate()
+		if v != val {
+			panic("Just: pointer identity not preserved")
+		}
+	}, WithTestCases(10))
+}
+
+// =============================================================================
+// SampledFrom generator tests
+// =============================================================================
+
+// TestSampledFromEmptyError verifies that SampledFrom returns an error for empty slice.
+func TestSampledFromEmptyError(t *testing.T) {
+	_, err := SampledFrom([]any{})
+	if err == nil {
+		t.Fatal("SampledFrom([]): expected error, got nil")
+	}
+	if err.Error() != "sampled_from requires at least one element" {
+		t.Errorf("unexpected error message: %v", err)
+	}
+}
+
+// TestMustSampledFromEmptyPanics verifies MustSampledFrom panics with empty slice.
+func TestMustSampledFromEmptyPanics(t *testing.T) {
+	defer func() {
+		if r := recover(); r == nil {
+			t.Error("MustSampledFrom([]) should panic")
+		}
+	}()
+	MustSampledFrom([]any{})
+}
+
+// TestSampledFromSchema verifies that SampledFrom produces an integer schema with correct bounds.
+func TestSampledFromSchema(t *testing.T) {
+	g, err := SampledFrom([]any{"a", "b", "c"})
+	if err != nil {
+		t.Fatalf("SampledFrom: unexpected error: %v", err)
+	}
+	if g.schema["type"] != "integer" {
+		t.Errorf("schema type: expected 'integer', got %v", g.schema["type"])
+	}
+	minVal, _ := ExtractInt(g.schema["min_value"])
+	maxVal, _ := ExtractInt(g.schema["max_value"])
+	if minVal != 0 {
+		t.Errorf("min_value: expected 0, got %d", minVal)
+	}
+	if maxVal != 2 {
+		t.Errorf("max_value: expected 2 (len-1), got %d", maxVal)
+	}
+}
+
+// TestSampledFromTransformMapsIndices verifies that the transform correctly maps
+// integer indices to the corresponding elements.
+func TestSampledFromTransformMapsIndices(t *testing.T) {
+	items := []any{"x", "y", "z"}
+	g, err := SampledFrom(items)
+	if err != nil {
+		t.Fatalf("SampledFrom: unexpected error: %v", err)
+	}
+	// Index 0 → "x", 1 → "y", 2 → "z"
+	for i, want := range items {
+		got := g.transform(uint64(i))
+		if got != want {
+			t.Errorf("transform(%d): expected %v, got %v", i, want, got)
+		}
+	}
+}
+
+// TestSampledFromSingleElement verifies that a single-element slice always returns that element.
+func TestSampledFromSingleElement(t *testing.T) {
+	hegelBinPath(t)
+	g, _ := SampledFrom([]any{"only"})
+	RunHegelTest(t.Name(), func() {
+		v := g.Generate()
+		if v != "only" {
+			panic(fmt.Sprintf("SampledFrom single: expected 'only', got %v", v))
+		}
+	}, WithTestCases(20))
+}
+
+// TestSampledFromE2E verifies that SampledFrom only returns elements from the list
+// and that all elements appear (with enough test cases).
+func TestSampledFromE2E(t *testing.T) {
+	hegelBinPath(t)
+	choices := []any{"apple", "banana", "cherry"}
+	g, _ := SampledFrom(choices)
+	seen := map[string]bool{}
+	RunHegelTest(t.Name(), func() {
+		v := g.Generate()
+		s, ok := v.(string)
+		if !ok {
+			panic(fmt.Sprintf("SampledFrom: expected string, got %T", v))
+		}
+		found := false
+		for _, c := range choices {
+			if c == s {
+				found = true
+				break
+			}
+		}
+		if !found {
+			panic(fmt.Sprintf("SampledFrom: value %q not in choices", s))
+		}
+		seen[s] = true
+	}, WithTestCases(100))
+	// After 100 cases we expect all 3 values to have appeared.
+	for _, c := range choices {
+		if !seen[c.(string)] {
+			t.Errorf("SampledFrom: value %q never appeared in 100 cases", c)
+		}
+	}
+}
+
+// TestSampledFromNonPrimitive verifies that SampledFrom preserves pointer identity
+// for non-primitive values.
+func TestSampledFromNonPrimitive(t *testing.T) {
+	hegelBinPath(t)
+	type myStruct struct{ x int }
+	obj1 := &myStruct{x: 1}
+	obj2 := &myStruct{x: 2}
+	g, _ := SampledFrom([]any{obj1, obj2})
+	RunHegelTest(t.Name(), func() {
+		v := g.Generate()
+		if v != obj1 && v != obj2 {
+			panic("SampledFrom: value is not one of the original pointers")
+		}
+	}, WithTestCases(10))
+}
+
+// =============================================================================
+// FromRegex generator tests
+// =============================================================================
+
+// TestFromRegexSchema verifies that FromRegex produces the correct schema.
+func TestFromRegexSchema(t *testing.T) {
+	g := FromRegex(`\d+`, true)
+	if g.schema["type"] != "regex" {
+		t.Errorf("schema type: expected 'regex', got %v", g.schema["type"])
+	}
+	if g.schema["pattern"] != `\d+` {
+		t.Errorf("pattern: expected '\\d+', got %v", g.schema["pattern"])
+	}
+	if g.schema["fullmatch"] != true {
+		t.Errorf("fullmatch: expected true, got %v", g.schema["fullmatch"])
+	}
+}
+
+// TestFromRegexFullmatchFalse verifies that fullmatch=false is stored correctly.
+func TestFromRegexFullmatchFalse(t *testing.T) {
+	g := FromRegex(`abc`, false)
+	if g.schema["fullmatch"] != false {
+		t.Errorf("fullmatch: expected false, got %v", g.schema["fullmatch"])
+	}
+}
+
+// TestFromRegexE2E verifies that FromRegex generates strings that match the pattern.
+func TestFromRegexE2E(t *testing.T) {
+	hegelBinPath(t)
+	// Only digits, 1-5 chars
+	g := FromRegex(`[0-9]{1,5}`, true)
+	RunHegelTest(t.Name(), func() {
+		v := g.Generate()
+		s, ok := v.(string)
+		if !ok {
+			panic(fmt.Sprintf("FromRegex: expected string, got %T", v))
+		}
+		if len(s) == 0 || len(s) > 5 {
+			panic(fmt.Sprintf("FromRegex: length out of range: %q", s))
+		}
+		for _, ch := range s {
+			if ch < '0' || ch > '9' {
+				panic(fmt.Sprintf("FromRegex: non-digit character %q in %q", ch, s))
+			}
+		}
+	}, WithTestCases(50))
+}
+
+// =============================================================================
 // BasicGenerator.Generate error path (line 78-79)
 // =============================================================================
 
@@ -842,5 +1066,22 @@ func TestGeneratorMapOnNonBasic(t *testing.T) {
 	// Mapping a non-basic generator should produce a MappedGenerator.
 	if _, ok := mapped.(*MappedGenerator); !ok {
 		t.Errorf("Map on non-basic Generator should return *MappedGenerator, got %T", mapped)
+	}
+}
+
+// =============================================================================
+// MustSampledFrom happy-path test
+// =============================================================================
+
+// TestMustSampledFromHappyPath verifies that MustSampledFrom returns a valid generator
+// when given a non-empty slice.
+func TestMustSampledFromHappyPath(t *testing.T) {
+	g := MustSampledFrom([]any{"only"})
+	if g == nil {
+		t.Fatal("MustSampledFrom should return non-nil generator")
+	}
+	result := g.transform(uint64(0))
+	if result != "only" {
+		t.Errorf("MustSampledFrom transform(0): expected 'only', got %v", result)
 	}
 }

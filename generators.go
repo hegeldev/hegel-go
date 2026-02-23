@@ -319,3 +319,211 @@ func IntegersUnbounded() Generator {
 		},
 	}
 }
+
+// Emails returns a Generator that produces email address strings.
+func Emails() Generator {
+	return &BasicGenerator{
+		schema: map[string]any{
+			"type": "email",
+		},
+	}
+}
+
+// URLs returns a Generator that produces URL strings.
+func URLs() Generator {
+	return &BasicGenerator{
+		schema: map[string]any{
+			"type": "url",
+		},
+	}
+}
+
+// DomainOptions holds options for the Domains generator.
+type DomainOptions struct {
+	// MaxLength is the maximum length of the domain name.
+	// Zero means no maximum length constraint.
+	MaxLength int
+}
+
+// Domains returns a Generator that produces domain name strings.
+// If opts.MaxLength > 0, generated domains will not exceed that length.
+func Domains(opts DomainOptions) Generator {
+	schema := map[string]any{
+		"type": "domain",
+	}
+	if opts.MaxLength > 0 {
+		schema["max_length"] = int64(opts.MaxLength)
+	}
+	return &BasicGenerator{schema: schema}
+}
+
+// Dates returns a Generator that produces ISO 8601 date strings (YYYY-MM-DD).
+func Dates() Generator {
+	return &BasicGenerator{
+		schema: map[string]any{
+			"type": "date",
+		},
+	}
+}
+
+// Times returns a Generator that produces time strings (HH:MM:SS or similar).
+func Times() Generator {
+	return &BasicGenerator{
+		schema: map[string]any{
+			"type": "time",
+		},
+	}
+}
+
+// Datetimes returns a Generator that produces ISO 8601 datetime strings.
+func Datetimes() Generator {
+	return &BasicGenerator{
+		schema: map[string]any{
+			"type": "datetime",
+		},
+	}
+}
+
+// Just returns a Generator that always produces the given constant value.
+// The schema uses {"const": null} and the transform ignores the server result.
+func Just(value any) *BasicGenerator {
+	return &BasicGenerator{
+		schema:    map[string]any{"const": nil},
+		transform: func(_ any) any { return value },
+	}
+}
+
+// SampledFrom returns a Generator that picks uniformly at random from values.
+// The server generates an integer index in [0, len(values)-1], which is mapped
+// to the corresponding element. Returns an error if values is empty.
+func SampledFrom(values []any) (*BasicGenerator, error) {
+	elements := make([]any, len(values))
+	copy(elements, values)
+	if len(elements) == 0 {
+		return nil, fmt.Errorf("sampled_from requires at least one element")
+	}
+	schema := map[string]any{
+		"type":      "integer",
+		"min_value": int64(0),
+		"max_value": int64(len(elements) - 1),
+	}
+	return &BasicGenerator{
+		schema: schema,
+		transform: func(v any) any {
+			idx, _ := ExtractInt(v)
+			return elements[idx]
+		},
+	}, nil
+}
+
+// MustSampledFrom returns a Generator that picks uniformly at random from values.
+// Panics if values is empty.
+func MustSampledFrom(values []any) *BasicGenerator {
+	g, err := SampledFrom(values)
+	if err != nil {
+		panic(err)
+	}
+	return g
+}
+
+// FromRegex returns a Generator that produces strings matching the given regular expression.
+// If fullmatch is true (the default), the entire string must match.
+func FromRegex(pattern string, fullmatch bool) *BasicGenerator {
+	return &BasicGenerator{
+		schema: map[string]any{
+			"type":      "regex",
+			"pattern":   pattern,
+			"fullmatch": fullmatch,
+		},
+	}
+}
+
+// IntegersFrom returns a Generator that produces integers with optional bounds.
+// Pass nil for minVal or maxVal to leave that bound unbounded.
+func IntegersFrom(minVal, maxVal *int64) Generator {
+	schema := map[string]any{"type": "integer"}
+	if minVal != nil {
+		schema["min_value"] = *minVal
+	}
+	if maxVal != nil {
+		schema["max_value"] = *maxVal
+	}
+	return &BasicGenerator{schema: schema}
+}
+
+// Floats returns a Generator that produces float64 values.
+//
+// minVal and maxVal set the inclusive bounds (nil means unbounded).
+// allowNaN controls whether NaN is permitted; if nil, defaults to true only when
+// both bounds are nil. allowInfinity controls whether +/-Inf is permitted; if nil,
+// defaults to true unless both bounds are set.
+// excludeMin and excludeMax make the respective bound exclusive.
+func Floats(minVal, maxVal *float64, allowNaN, allowInfinity *bool, excludeMin, excludeMax bool) Generator {
+	hasMin := minVal != nil
+	hasMax := maxVal != nil
+
+	// Default allow_nan: true only when no bounds set.
+	nan := !hasMin && !hasMax
+	if allowNaN != nil {
+		nan = *allowNaN
+	}
+	// Default allow_infinity: true unless both bounds set.
+	inf := !hasMin || !hasMax
+	if allowInfinity != nil {
+		inf = *allowInfinity
+	}
+
+	schema := map[string]any{
+		"type":           "number",
+		"allow_nan":      nan,
+		"allow_infinity": inf,
+		"exclude_min":    excludeMin,
+		"exclude_max":    excludeMax,
+		"width":          int64(64),
+	}
+	if hasMin {
+		schema["min_value"] = *minVal
+	}
+	if hasMax {
+		schema["max_value"] = *maxVal
+	}
+	return &BasicGenerator{schema: schema}
+}
+
+// Booleans returns a Generator that produces boolean values with probability p
+// of generating true. p must be in [0, 1]; 0.5 gives equal probability.
+func Booleans(p float64) Generator {
+	return &BasicGenerator{
+		schema: map[string]any{
+			"type": "boolean",
+			"p":    p,
+		},
+	}
+}
+
+// Text returns a Generator that produces string values with codepoint count in
+// [minSize, maxSize]. Pass maxSize < 0 for unbounded.
+func Text(minSize int, maxSize int) Generator {
+	schema := map[string]any{
+		"type":     "string",
+		"min_size": int64(minSize),
+	}
+	if maxSize >= 0 {
+		schema["max_size"] = int64(maxSize)
+	}
+	return &BasicGenerator{schema: schema}
+}
+
+// Binary returns a Generator that produces byte slices with length in
+// [minSize, maxSize]. Pass maxSize < 0 for unbounded.
+// The server returns CBOR byte strings decoded directly as []byte.
+func Binary(minSize int, maxSize int) Generator {
+	schema := map[string]any{
+		"type":     "binary",
+		"min_size": int64(minSize),
+	}
+	if maxSize >= 0 {
+		schema["max_size"] = int64(maxSize)
+	}
+	return &BasicGenerator{schema: schema}
+}
