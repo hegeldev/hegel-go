@@ -1,7 +1,3 @@
-// Package hegel provides a Go SDK for the Hegel property-based testing framework.
-// Tests are run by calling RunHegelTest or RunHegelTestE with a test body function.
-// Generator functions (GenerateBool, GenerateInt, etc.), Assume, Note, and Target
-// are free functions that use goroutine-local state to communicate with the server.
 package hegel
 
 import (
@@ -11,6 +7,7 @@ import (
 	"os/exec"
 	"path/filepath"
 	"runtime"
+	"strings"
 	"sync"
 	"time"
 )
@@ -217,7 +214,7 @@ func WithTestCases(n int) Option {
 
 // RunHegelTest runs a property test against the Hegel server.
 // It panics if the test fails (for use with Go's testing.T).
-// test_cases defaults to 100.
+// The default number of test cases is 100; override with [WithTestCases].
 func RunHegelTest(name string, fn func(), opts ...Option) {
 	if err := RunHegelTestE(name, fn, opts...); err != nil {
 		panic(err)
@@ -253,16 +250,8 @@ func RunHegelTestE(name string, fn func(), opts ...Option) error {
 	return globalSession.runTest(name, fn, o)
 }
 
-// --- extractOrigin builds an origin string from error info ---
-
-// extractOrigin formats a short origin string for a failing exception.
-func extractOrigin(err error, file string, line int) string {
-	typeName := fmt.Sprintf("%T", err)
-	return fmt.Sprintf("%s at %s:%d", typeName, file, line)
-}
-
-// extractPanicOrigin extracts file/line from a recovered panic using runtime.Callers.
-// The skip parameter skips internal frames.
+// extractPanicOrigin extracts file/line from a recovered panic using runtime.Callers,
+// skipping internal hegel frames to find the user's test code.
 func extractPanicOrigin(v any) string {
 	var pcs [32]uintptr
 	n := runtime.Callers(3, pcs[:])
@@ -281,18 +270,11 @@ func extractPanicOrigin(v any) string {
 			break
 		}
 	}
-	var errStr string
-	if e, ok := v.(error); ok {
-		errStr = fmt.Sprintf("%T", e)
-	} else {
-		errStr = fmt.Sprintf("%T", v)
-	}
-	return fmt.Sprintf("%s at %s:%d", errStr, file, line)
+	return fmt.Sprintf("%T at %s:%d", v, file, line)
 }
 
 func isHegelFrame(fn string) bool {
-	return len(fn) >= len("github.com/antithesishq/hegel-go") &&
-		fn[:len("github.com/antithesishq/hegel-go")] == "github.com/antithesishq/hegel-go"
+	return strings.HasPrefix(fn, "github.com/antithesishq/hegel-go")
 }
 
 // --- Client: manages a single connection's test lifecycle ---
@@ -300,7 +282,7 @@ func isHegelFrame(fn string) bool {
 // client wraps a Connection for running property tests.
 type client struct {
 	conn *Connection
-	mu   sync.Mutex // serialises run_test calls
+	mu   sync.Mutex // serializes runTest calls
 }
 
 func newClient(conn *Connection) *client {

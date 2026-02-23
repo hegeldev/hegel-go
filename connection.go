@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"fmt"
 	"net"
+	"strings"
 	"sync"
 	"sync/atomic"
 	"time"
@@ -112,7 +113,7 @@ func (c *Connection) Close() {
 
 // runReader is the demand-driven reader loop.
 // It reads packets from the socket and dispatches them to the correct channel's inbox
-// until until() returns true, the connection closes, or a short timeout elapses.
+// until the until() predicate returns true, the connection closes, or a short timeout elapses.
 func (c *Connection) runReader(until func() bool) {
 	if until() {
 		return
@@ -222,10 +223,10 @@ func (c *Connection) SendHandshakeVersion() (string, error) {
 		return "", err
 	}
 	decoded := string(resp)
-	if len(decoded) < len(handshakePrefix) || decoded[:len(handshakePrefix)] != handshakePrefix {
+	if !strings.HasPrefix(decoded, handshakePrefix) {
 		return "", fmt.Errorf("bad handshake response: %q", decoded)
 	}
-	return decoded[len(handshakePrefix):], nil
+	return strings.TrimPrefix(decoded, handshakePrefix), nil
 }
 
 // ReceiveHandshake performs the server side of the handshake.
@@ -397,11 +398,6 @@ func (ch *Channel) SendRequestRaw(payload []byte) (uint32, error) {
 		Payload:   payload,
 	})
 	return msgID, err
-}
-
-// SendRequest sends a CBOR-encoded request and returns the message ID.
-func (ch *Channel) SendRequest(payload []byte) (uint32, error) {
-	return ch.SendRequestRaw(payload)
 }
 
 // SendReplyRaw sends raw bytes as a reply to the given message ID.

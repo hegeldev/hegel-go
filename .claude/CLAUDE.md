@@ -359,3 +359,26 @@ decisions made and why, things that would have saved time to know up front)*
 
 **staticcheck runs on `./examples/...` only if listed explicitly**
 - The justfile `lint` recipe runs `staticcheck ./...` which includes `examples/`. Make sure all example programs pass staticcheck before committing, or they'll fail `just check`.
+
+### Stage 10: Good Taste Audit
+
+**Duplicate package doc comment in runner.go**
+- Go allows only one `// Package hegel ...` doc comment per package. Having them in both `hegel.go` and `runner.go` is confusing — only `hegel.go` should have the canonical package doc. Other files should have just `package hegel`.
+
+**Hand-rolled stdlib equivalents**
+- `isHegelFrame` used manual length check + slice comparison instead of `strings.HasPrefix`.
+- `isEOFLike` used `==` instead of `errors.Is` for sentinel error comparison.
+- `SendHandshakeVersion` used manual prefix check instead of `strings.HasPrefix`/`strings.TrimPrefix`.
+- Always prefer stdlib functions: they're clearer, handle edge cases, and signal intent.
+
+**Dead code: `extractOrigin` and `SendRequest`**
+- `extractOrigin(err, file, line)` was never called from production code — only from tests written to cover it. Remove both the function and its tests.
+- `SendRequest` was a trivial alias for `SendRequestRaw` with a misleading doc comment ("CBOR-encoded" but it doesn't encode). Remove the alias; callers should use `SendRequestRaw` directly.
+
+**Doc comment accuracy**
+- `DecodeCBOR` referenced a nonexistent `DecodePayload` function.
+- `RunHegelTest` used snake_case `test_cases` in its doc comment; Go convention uses camelCase or natural language.
+- `extractPanicOrigin` doc mentioned a "skip parameter" that doesn't exist.
+
+**British vs American spelling**
+- `serialises` in a comment should be `serializes` (Go community convention is American English).

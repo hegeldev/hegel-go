@@ -2,6 +2,7 @@ package hegel
 
 import (
 	"encoding/binary"
+	"errors"
 	"fmt"
 	"hash/crc32"
 	"io"
@@ -64,7 +65,7 @@ func isPartialPacketError(err error, target **PartialPacketError) bool {
 
 // isEOFLike reports whether err indicates a connection close (EOF variant).
 func isEOFLike(err error) bool {
-	return err == io.EOF || err == io.ErrUnexpectedEOF || err == io.ErrClosedPipe
+	return errors.Is(err, io.EOF) || errors.Is(err, io.ErrUnexpectedEOF) || errors.Is(err, io.ErrClosedPipe)
 }
 
 // recvExact reads exactly n bytes from conn.

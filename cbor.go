@@ -21,8 +21,7 @@ func mustDecMode() cbor.DecMode {
 }
 
 // DecodeCBOR decodes CBOR-encoded bytes into a generic Go value (any).
-// Maps decode to map[interface{}]interface{} by default; use DecodePayload for
-// string-keyed maps.
+// Maps decode to map[interface{}]interface{} by default.
 func DecodeCBOR(data []byte) (any, error) {
 	var v any
 	if err := decMode.Unmarshal(data, &v); err != nil {

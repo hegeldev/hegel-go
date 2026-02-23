@@ -333,28 +333,6 @@ func TestHegelSessionConcurrentStart(t *testing.T) {
 	}
 }
 
-// --- extractOrigin: with runtime info ---
-
-func TestExtractOriginWithInfo(t *testing.T) {
-	// Create an error via a real panic/recover cycle to get runtime info.
-	origin := extractOrigin(errors.New("test error"), "somefile.go", 42)
-	if !strings.Contains(origin, "somefile.go") {
-		t.Errorf("extractOrigin: expected filename in %q", origin)
-	}
-	if !strings.Contains(origin, "42") {
-		t.Errorf("extractOrigin: expected line number in %q", origin)
-	}
-}
-
-// --- extractOrigin: no info ---
-
-func TestExtractOriginNoInfo(t *testing.T) {
-	origin := extractOrigin(errors.New("test"), "", 0)
-	if !strings.Contains(origin, ":0") {
-		t.Errorf("extractOrigin no info: got %q, want :0", origin)
-	}
-}
-
 // --- RunHegelTest with real test cases=1 ---
 
 func TestRunHegelTestSingleCase(t *testing.T) {

@@ -541,9 +541,9 @@ func TestReceiveResponse(t *testing.T) {
 		t.Fatalf("ConnectChannel: %v", err)
 	}
 
-	msgID, err := ch.SendRequest(mustEncode(t, map[string]any{"test": true}))
+	msgID, err := ch.SendRequestRaw(mustEncode(t, map[string]any{"test": true}))
 	if err != nil {
-		t.Fatalf("SendRequest: %v", err)
+		t.Fatalf("SendRequestRaw: %v", err)
 	}
 	result, err := ch.ReceiveResponse(msgID, 2*time.Second)
 	if err != nil {
