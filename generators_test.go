@@ -1085,3 +1085,143 @@ func TestMustSampledFromHappyPath(t *testing.T) {
 		t.Errorf("MustSampledFrom transform(0): expected 'only', got %v", result)
 	}
 }
+
+// =============================================================================
+// Map generator E2E tests
+// =============================================================================
+
+// TestMapBasicGeneratorE2E verifies that mapping Integers(0,100) by doubling
+// always produces even values in [0, 200], and the result is still a BasicGenerator.
+func TestMapBasicGeneratorE2E(t *testing.T) {
+	hegelBinPath(t)
+	gen := Integers(0, 100).Map(func(v any) any {
+		n, _ := ExtractInt(v)
+		return n * 2
+	})
+	// Map on basic generator must preserve BasicGenerator type.
+	if _, ok := gen.(*BasicGenerator); !ok {
+		t.Fatalf("Map on BasicGenerator should return *BasicGenerator, got %T", gen)
+	}
+	RunHegelTest(t.Name(), func() {
+		v := gen.Generate()
+		n, _ := ExtractInt(v)
+		if n%2 != 0 {
+			panic(fmt.Sprintf("map(x*2): expected even number, got %d", n))
+		}
+		if n < 0 || n > 200 {
+			panic(fmt.Sprintf("map(x*2): expected [0,200], got %d", n))
+		}
+	}, WithTestCases(50))
+}
+
+// TestMapChainedBasicGeneratorE2E verifies that chaining two maps on a BasicGenerator
+// preserves the BasicGenerator type and composes the transforms correctly.
+// Integers(0,100).Map(x+1).Map(x*2): result must be even, in [2, 202].
+func TestMapChainedBasicGeneratorE2E(t *testing.T) {
+	hegelBinPath(t)
+	gen := Integers(0, 100).
+		Map(func(v any) any {
+			n, _ := ExtractInt(v)
+			return n + 1
+		}).
+		Map(func(v any) any {
+			n, _ := ExtractInt(v)
+			return n * 2
+		})
+	// Both chained maps should still return a BasicGenerator (schema preserved).
+	if _, ok := gen.(*BasicGenerator); !ok {
+		t.Fatalf("chained Map on BasicGenerator should return *BasicGenerator, got %T", gen)
+	}
+	RunHegelTest(t.Name(), func() {
+		v := gen.Generate()
+		n, _ := ExtractInt(v)
+		// (x+1)*2 is always even. x in [0,100] → result in [2, 202].
+		if n%2 != 0 {
+			panic(fmt.Sprintf("map(x+1).map(x*2): expected even, got %d", n))
+		}
+		if n < 2 || n > 202 {
+			panic(fmt.Sprintf("map(x+1).map(x*2): expected [2,202], got %d", n))
+		}
+	}, WithTestCases(50))
+}
+
+// TestMapNonBasicGeneratorE2E verifies that mapping a MappedGenerator (non-basic)
+// wraps it in a MAPPED span and applies the transform correctly.
+// The result must be a MappedGenerator (not BasicGenerator).
+func TestMapNonBasicGeneratorE2E(t *testing.T) {
+	hegelBinPath(t)
+	// Create a non-basic generator by wrapping a BasicGenerator in MappedGenerator.
+	inner := Integers(1, 5)
+	nonBasic := &MappedGenerator{
+		inner: inner,
+		fn:    func(v any) any { return v }, // identity
+	}
+	gen := nonBasic.Map(func(v any) any {
+		n, _ := ExtractInt(v)
+		return n * 3
+	})
+	if _, ok := gen.(*MappedGenerator); !ok {
+		t.Fatalf("Map on non-basic Generator should return *MappedGenerator, got %T", gen)
+	}
+	if gen.AsBasic() != nil {
+		t.Error("MappedGenerator.AsBasic() should return nil")
+	}
+	RunHegelTest(t.Name(), func() {
+		v := gen.Generate()
+		n, _ := ExtractInt(v)
+		// inner is Integers(1,5)*1, map(*3): result is in {3, 6, 9, 12, 15}
+		if n < 3 || n > 15 || n%3 != 0 {
+			panic(fmt.Sprintf("map(*3) on [1,5]: expected multiple of 3 in [3,15], got %d", n))
+		}
+	}, WithTestCases(50))
+}
+
+// TestMapSchemaPreservedUnit verifies unit-level schema properties of Map on BasicGenerator.
+func TestMapSchemaPreservedUnit(t *testing.T) {
+	base := Integers(0, 100)
+	mapped := base.Map(func(v any) any { return v })
+	bg, ok := mapped.(*BasicGenerator)
+	if !ok {
+		t.Fatalf("Map on BasicGenerator: expected *BasicGenerator, got %T", mapped)
+	}
+	if bg.schema["type"] != "integer" {
+		t.Errorf("schema type: expected 'integer', got %v", bg.schema["type"])
+	}
+	if bg.transform == nil {
+		t.Error("transform should not be nil after Map")
+	}
+	// Map on BasicGenerator must preserve min/max bounds in the schema.
+	minV, _ := ExtractInt(bg.schema["min_value"])
+	maxV, _ := ExtractInt(bg.schema["max_value"])
+	if minV != 0 {
+		t.Errorf("min_value: expected 0, got %d", minV)
+	}
+	if maxV != 100 {
+		t.Errorf("max_value: expected 100, got %d", maxV)
+	}
+
+	// Double Map on BasicGenerator: schema still preserved, transforms compose correctly.
+	doubled := base.
+		Map(func(v any) any { n, _ := ExtractInt(v); return n + 10 }).
+		Map(func(v any) any { n, _ := ExtractInt(v); return n * 2 })
+	bg2, ok := doubled.(*BasicGenerator)
+	if !ok {
+		t.Fatalf("double Map on BasicGenerator: expected *BasicGenerator, got %T", doubled)
+	}
+	if bg2.schema["type"] != "integer" {
+		t.Errorf("double map schema type: expected 'integer', got %v", bg2.schema["type"])
+	}
+	// Verify composition: input 5 → +10 → 15 → *2 → 30.
+	result := bg2.transform(int64(5))
+	n, _ := ExtractInt(result)
+	if n != 30 {
+		t.Errorf("double map compose: input 5, expected 30, got %d", n)
+	}
+
+	// Map on MappedGenerator: AsBasic() returns nil.
+	mg := &MappedGenerator{inner: base, fn: func(v any) any { return v }}
+	mappedMG := mg.Map(func(v any) any { return v })
+	if mappedMG.AsBasic() != nil {
+		t.Error("mapping a MappedGenerator should produce AsBasic()=nil")
+	}
+}

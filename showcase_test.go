@@ -193,3 +193,52 @@ func TestBooleansWithHighP(t *testing.T) {
 		}
 	}, WithTestCases(20))
 }
+
+// TestMapDoubledIntegersAreEven demonstrates that mapping integers by doubling
+// always produces even numbers — a fundamental arithmetic property.
+// Uses BasicGenerator.Map which preserves the schema (single server round-trip).
+func TestMapDoubledIntegersAreEven(t *testing.T) {
+	hegelBinPath(t)
+	doubled := Integers(-50, 50).Map(func(v any) any {
+		n, _ := ExtractInt(v)
+		return n * 2
+	})
+	RunHegelTest(t.Name(), func() {
+		v := doubled.Generate()
+		n, _ := ExtractInt(v)
+		if n%2 != 0 {
+			panic(fmt.Sprintf("doubled integer must be even, got %d", n))
+		}
+		if n < -100 || n > 100 {
+			panic(fmt.Sprintf("doubled integer must be in [-100,100], got %d", n))
+		}
+	}, WithTestCases(50))
+}
+
+// TestMapChainedTransformsCompose demonstrates that chaining multiple Map calls
+// composes the transforms correctly — a fundamental property of function composition.
+// integers(1, 10).map(x*x).map(x-1): result is x²-1 for x in [1,10].
+// Property: result is always non-negative (since x² >= 1).
+func TestMapChainedTransformsCompose(t *testing.T) {
+	hegelBinPath(t)
+	gen := Integers(1, 10).
+		Map(func(v any) any {
+			n, _ := ExtractInt(v)
+			return n * n // square
+		}).
+		Map(func(v any) any {
+			n, _ := ExtractInt(v)
+			return n - 1 // subtract 1
+		})
+	RunHegelTest(t.Name(), func() {
+		v := gen.Generate()
+		n, _ := ExtractInt(v)
+		// x in [1,10] → x² in [1,100] → x²-1 in [0,99]; always non-negative.
+		if n < 0 {
+			panic(fmt.Sprintf("map(x²-1) on [1,10]: expected non-negative, got %d", n))
+		}
+		if n > 99 {
+			panic(fmt.Sprintf("map(x²-1) on [1,10]: expected <= 99, got %d", n))
+		}
+	}, WithTestCases(50))
+}
