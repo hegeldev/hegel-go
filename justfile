@@ -19,11 +19,14 @@ setup:
     go install honnef.co/go/tools/cmd/staticcheck@latest
 
 # Run tests with coverage, fail if below 100%.
+# We measure coverage only on the library package (not cmd/ binaries).
 test:
     #!/usr/bin/env bash
     set -euo pipefail
     export PATH="$(pwd)/.venv/bin:$PATH"
-    go test -race -coverprofile=coverage.out -covermode=atomic ./...
+    go test -race -coverprofile=coverage.out -covermode=atomic \
+        -coverpkg=github.com/antithesishq/hegel-go \
+        ./...
     python3 scripts/check-coverage.py
 
 # Auto-format code.
@@ -56,6 +59,25 @@ docs:
     # Verify all exported symbols have doc comments using go vet
     go doc -all . > /dev/null 2>&1
     echo "✅ Documentation generated successfully"
+
+# Build conformance test binaries into bin/conformance/.
+build-conformance:
+    #!/usr/bin/env bash
+    set -euo pipefail
+    mkdir -p bin/conformance
+    for pkg in cmd/conformance/*/; do
+        name=$(basename "$pkg")
+        go build -o "bin/conformance/$name" "./$pkg"
+    done
+    echo "✅ Conformance binaries built to bin/conformance/"
+
+# Run conformance tests against the real hegel server.
+conformance: build-conformance
+    #!/usr/bin/env bash
+    set -euo pipefail
+    export PATH="$(pwd)/.venv/bin:$PATH"
+    uv pip install --python .venv/bin/python pytest pytest-subtests hypothesis > /dev/null 2>&1 || true
+    .venv/bin/python -m pytest tests/conformance/ -v
 
 # Run lint + docs + test (the full CI check).
 check: lint docs test

@@ -3,12 +3,14 @@
 ## Build Commands
 
 ```bash
-just setup   # Install dependencies and hegel binary
-just test    # Run tests with coverage (fails if coverage < 100%)
-just format  # Auto-format code
-just lint    # Check formatting + linting
-just docs    # Build API documentation
-just check   # Run lint + docs + test (full CI check)
+just setup              # Install dependencies and hegel binary
+just test               # Run tests with coverage (fails if coverage < 100%)
+just format             # Auto-format code
+just lint               # Check formatting + linting
+just docs               # Build API documentation
+just check              # Run lint + docs + test (full CI check)
+just build-conformance  # Compile conformance binaries to bin/conformance/
+just conformance        # Build conformance binaries + run Python conformance test suite
 ```
 
 Tests must use `PATH="$(pwd)/.venv/bin:$PATH"` (absolute path) so the `hegel` binary is found.
@@ -285,3 +287,51 @@ decisions made and why, things that would have saved time to know up front)*
 
 **CLAUDE.md lives at `.claude/CLAUDE.md` relative to the repo root**
 - The project instructions file is at `.claude/CLAUDE.md`, not `CLAUDE.md`. Always update it with stage-specific lessons.
+
+### Stage 8: Conformance Test Suite
+
+**Conformance binaries are `package main` — exclude from coverage measurement**
+- Each conformance binary is a standalone `package main` under `cmd/conformance/<name>/`.
+  `go test ./...` with `-coverprofile` still instruments them (showing 0% coverage), which breaks the check.
+- **Fix**: Use `-coverpkg=github.com/antithesishq/hegel-go` in the `test` recipe to restrict coverage to the library package only. This omits `cmd/` packages from the profile.
+
+**check-coverage.py false-positive filter handles unreachable writes**
+- `WriteMetrics` has an `if _, err := f.Write(...) { panic("hegel: unreachable: ...") }` branch.
+  On normal filesystems, writing to a freshly-opened file never fails, so this is genuinely unreachable.
+  Mark it with "unreachable" in the panic message so the false-positive filter skips it.
+
+**WriteMetrics open error is testable; write error is not**
+- `os.OpenFile` with `O_WRONLY` on a directory path returns `EACCES`/`EISDIR`, covering the open-error panic.
+- `f.Write(...)` failures require either a full filesystem or a broken file descriptor — impractical in tests.
+  Mark the write error path as unreachable rather than trying to inject it.
+
+**json.Marshal of `map[string]any` with only bool/int/float/string values never fails**
+- The only way `json.Marshal` fails is on unencodable types (channels, functions, etc.).
+  Since WriteMetrics only receives basic conformance metrics, this path is truly unreachable.
+  Mark it as unreachable and let the false-positive filter handle it.
+
+**Conformance binary metrics format must exactly match the Python harness expectations**
+- Boolean: `{"value": bool}` — use `GenerateBool()` not `Booleans(0.5).Generate()`
+- Float: always set both `"is_nan"` and `"is_infinite"` keys; set `"value"` to `nil` for nan/inf
+- List: `"min_element"` and `"max_element"` must be `nil` (not absent) when list is empty
+- Dict: all four key/value metrics must be `nil` (not absent) when map is empty
+- SampledFrom: values from JSON params are `float64` — convert to `int64` before passing to `MustSampledFrom`
+
+**Python test harness: run_conformance_tests requires a complete set of ConformanceTest types**
+- `run_conformance_tests` asserts that `{type(t).__name__ for t in tests} | skip_names == registered_tests`.
+  Every registered subclass of `ConformanceTest` must appear exactly once in either `tests` or `skip_tests`.
+  The 14 test instances (8 data types + 6 error handling) cover all registered classes.
+
+**Error handling conformance tests use the same binaries as data type tests**
+- `StopTestOnGenerateConformance`, `StopTestOnMarkCompleteConformance`, `ErrorResponseConformance`,
+  `EmptyTestConformance` all use `test_booleans`.
+- `StopTestOnCollectionMoreConformance` and `StopTestOnNewCollectionConformance` use `test_lists`
+  (because collection StopTest requires `collection_more`/`new_collection` commands).
+
+**`just conformance` recipe installs Python test dependencies from .venv**
+- The conformance recipe calls `uv pip install pytest pytest-subtests hypothesis` before running.
+  This is idempotent and fast on subsequent runs. Alternatively, add these to a `requirements-test.txt`.
+
+**Build conformance binaries into `bin/conformance/` — already gitignored**
+- `/bin/` is already in `.gitignore`, so compiled conformance binaries don't pollute the repo.
+- The `build-conformance` recipe iterates `cmd/conformance/*/` and builds each into `bin/conformance/<name>`.
