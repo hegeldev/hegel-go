@@ -143,4 +143,44 @@ decisions made and why, things that would have saved time to know up front)*
 
 **CRC32**: Use stdlib `hash/crc32.ChecksumIEEE` — matches Python's `zlib.crc32(data) & 0xFFFFFFFF`. The IEEE polynomial is the standard one.
 
-**Packet struct with []byte field**: Go structs containing `[]byte` are not comparable with `==`. Use a `packetsEqual(a, b Packet) bool` helper that calls `bytes.Equal` for the payload field.**
+**Packet struct with []byte field**: Go structs containing `[]byte` are not comparable with `==`. Use a `packetsEqual(a, b Packet) bool` helper that calls `bytes.Equal` for the payload field.
+
+### Stage 3: Connection and Channel Abstractions
+
+**staticcheck ST1005 — error strings must not be capitalized**
+- Go convention (enforced by staticcheck ST1005): error strings must start with lowercase.
+- Any `fmt.Errorf("Bad ...", ...)` or `fmt.Errorf("Cannot ...", ...)` will fail lint.
+- Panics are NOT error strings and can be capitalized.
+- Remember to update test `mustContain` assertions to match the lowercase strings.
+
+**net.Pipe() returns io.ErrClosedPipe, not io.EOF**
+- Already known from Stage 2, but also relevant here: when testing handshake error paths by closing one end, the error will be `io.ErrClosedPipe` not `io.EOF`.
+
+**demand-driven reader: TryLock busy-wait**
+- `sync.Mutex.TryLock()` is available in Go 1.18+. The pattern is: try lock in a loop, sleeping 1ms between attempts, checking `until()` after each failed attempt.
+- The `until()` function returning true WHILE waiting for the lock (before acquiring it) causes `runReader` to return early — this path needs a dedicated test.
+
+**Unreachable panic placement — no comment between `if err != nil {` and `panic(`**
+- The `check-coverage.py` false-positive filter detects `if err != nil {` followed DIRECTLY by a `panic(` containing "unreachable". If there's a comment between them (e.g., `// unreachable: ...`), the filter won't recognize the region as a false positive.
+- **Pattern**: Place the comment BEFORE the `if err != nil {` block, not inside it, and put the panic on the line immediately after `if err != nil {`.
+- Example (correct): `if err != nil { panic(fmt.Sprintf("hegel: unreachable: ...", err)) }`
+
+**processOneMessage: ch.responses nil check**
+- `recvResponseRaw` initializes `ch.responses` at line 468 BEFORE calling `processOneMessage`. So the `if ch.responses == nil` guard inside `processOneMessage` (for reply routing) is never reached via `recvResponseRaw`.
+- To cover it: directly call `processOneMessage` with a reply packet in the inbox, bypassing `recvResponseRaw`.
+
+**Channel.SendReplyError: always-encodable encode**
+- `map[string]any{"error": string, "type": string}` is always CBOR-encodable. The `if err != nil` guard after `EncodeCBOR` is unreachable. Use the `panic("hegel: unreachable: ...")` pattern so the false-positive filter handles it.
+
+**isTimeout(nil): must be exercised**
+- `isTimeout` is only called inside `runReader` when `err != nil`, so the `if err == nil { return false }` branch is never hit during normal use. Add a direct test `TestIsTimeoutNil` calling `isTimeout(nil)`.
+
+**CloseRead() interface coverage**
+- `net.Pipe()` connections don't implement `CloseRead()`. To cover the `CloseRead()` branch in `Connection.Close()`, wrap the connection in a test struct that embeds `net.Conn` and implements `CloseRead() error`.
+
+**dispatch: unknown channel — IsReply=true vs IsReply=false paths**
+- Two separate branches: `IsReply=true` to an unknown channel → silently drop (line 169-184 `!pkt.IsReply` is false). `IsReply=false` to unknown channel → send error reply (lines 171-182). Both need distinct tests.
+- The client must drain the server's error reply for the request case, otherwise the server's `SendPacket` blocks on the synchronous `net.Pipe`.
+
+**TestHandleRequestsStopFnImmediate: stopFn returning true immediately**
+- Use `HandleRequests` with `stopFn = func() bool { return true }` to cover the early-exit path.
