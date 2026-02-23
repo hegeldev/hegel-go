@@ -187,6 +187,33 @@ func TestDatetimesGeneratesCorrectSchema(t *testing.T) {
 	}
 }
 
+// TestDomainsGeneratesCorrectSchemaNoMax checks the wire schema for Domains() with no max_length.
+func TestDomainsGeneratesCorrectSchemaNoMax(t *testing.T) {
+	schema := testGeneratorSchema(t, Domains(DomainOptions{}))
+	if schema[any("type")] != "domain" {
+		t.Errorf("generate schema type: expected domain, got %v", schema[any("type")])
+	}
+	if _, hasMax := schema[any("max_length")]; hasMax {
+		t.Error("max_length should not be in schema when MaxLength is 0")
+	}
+}
+
+// TestDomainsGeneratesCorrectSchemaWithMax checks the wire schema for Domains() with max_length.
+func TestDomainsGeneratesCorrectSchemaWithMax(t *testing.T) {
+	schema := testGeneratorSchema(t, Domains(DomainOptions{MaxLength: 30}))
+	if schema[any("type")] != "domain" {
+		t.Errorf("generate schema type: expected domain, got %v", schema[any("type")])
+	}
+	maxLen, ok := schema[any("max_length")]
+	if !ok {
+		t.Fatal("max_length should be in schema when MaxLength > 0")
+	}
+	ml, _ := ExtractInt(maxLen)
+	if ml != 30 {
+		t.Errorf("max_length: expected 30, got %d", ml)
+	}
+}
+
 // =============================================================================
 // E2E integration tests: property tests with the real hegel binary
 // =============================================================================
@@ -272,7 +299,7 @@ func TestDatesE2E(t *testing.T) {
 		if err != nil {
 			panic("date not parseable as YYYY-MM-DD: " + s + " err: " + err.Error())
 		}
-		// Verify round-trip: parsed back to the same string.
+		// Verify round-trip: parsing and re-formatting gives the same string.
 		if parsed.Format("2006-01-02") != s {
 			panic("date round-trip failed: " + s)
 		}
