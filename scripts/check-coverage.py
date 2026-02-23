@@ -39,13 +39,12 @@ def main() -> int:
     print("\nUncovered lines:")
     uncovered = parse_uncovered("coverage.out")
     real_uncovered = []
-    for file, start_line, end_line, count in uncovered:
-        if count == 0:
-            # Filter out known false positives
-            if is_false_positive(file, start_line, end_line):
-                continue
-            real_uncovered.append((file, start_line, end_line))
-            print(f"  {file}:{start_line}-{end_line}")
+    for file, local_path, start_line, end_line in uncovered:
+        # Filter out known false positives
+        if is_false_positive(local_path, start_line, end_line):
+            continue
+        real_uncovered.append((file, start_line, end_line))
+        print(f"  {file}:{start_line}-{end_line}")
 
     if real_uncovered:
         print(f"\n❌ {len(real_uncovered)} uncovered region(s) found")
@@ -55,26 +54,54 @@ def main() -> int:
     return 0
 
 
-def parse_uncovered(profile_path: str) -> list[tuple[str, int, int, int]]:
-    """Parse a Go coverage profile and return uncovered regions."""
+def parse_uncovered(profile_path: str) -> list[tuple[str, str, int, int]]:
+    """Parse a Go coverage profile and return uncovered regions.
+
+    Coverage profile format per line:
+        module/path/file.go:startLine.startCol,endLine.endCol numStatements executionCount
+
+    Returns tuples of (module_path, local_file_path, start_line, end_line)
+    for regions with executionCount == 0.
+    """
     uncovered = []
     with open(profile_path) as f:
         for line in f:
             line = line.strip()
             if line.startswith("mode:") or not line:
                 continue
-            # Format: file:startLine.startCol,endLine.endCol count statements
+            # Format: modulePath:startLine.startCol,endLine.endCol numStatements execCount
             match = re.match(
-                r"(.+):(\d+)\.\d+,(\d+)\.\d+\s+(\d+)\s+\d+", line
+                r"(.+):(\d+)\.\d+,(\d+)\.\d+\s+\d+\s+(\d+)", line
             )
             if match:
-                file = match.group(1)
+                module_path = match.group(1)
                 start_line = int(match.group(2))
                 end_line = int(match.group(3))
-                count = int(match.group(4))
-                if count == 0:
-                    uncovered.append((file, start_line, end_line, count))
+                exec_count = int(match.group(4))
+                if exec_count == 0:
+                    # Convert module path to local file path by stripping module prefix.
+                    # e.g. "github.com/antithesishq/hegel-go/cbor.go" -> "cbor.go"
+                    local_path = _module_path_to_local(module_path)
+                    uncovered.append((module_path, local_path, start_line, end_line))
     return uncovered
+
+
+def _module_path_to_local(module_path: str) -> str:
+    """Convert a Go module file path to a local filesystem path.
+
+    Strips the module prefix (everything up to and including the third path
+    component for github.com paths, or finds the first existing file).
+    Falls back to the original path if no mapping is found.
+    """
+    import os
+
+    # Try progressively stripping leading path components until the file exists.
+    parts = module_path.split("/")
+    for i in range(len(parts)):
+        candidate = "/".join(parts[i:])
+        if os.path.exists(candidate):
+            return candidate
+    return module_path
 
 
 def is_false_positive(file: str, start_line: int, end_line: int) -> bool:
@@ -82,7 +109,8 @@ def is_false_positive(file: str, start_line: int, end_line: int) -> bool:
 
     False positives include:
     - Lines containing only closing braces
-    - Lines containing only unreachable panics
+    - Lines containing only unreachable panics (single-line form)
+    - if err != nil lines that guard an unreachable panic
     """
     try:
         with open(file) as f:
@@ -92,9 +120,15 @@ def is_false_positive(file: str, start_line: int, end_line: int) -> bool:
             # Skip empty lines and closing braces
             if content in ("}", "}", "});", ""):
                 continue
-            # Skip unreachable panics
-            if content.startswith("panic(") and "unreachable" in content.lower():
+            # Skip unreachable panics (may be inline: "if err != nil { panic(...unreachable...) }")
+            if "panic(" in content and "unreachable" in content.lower():
                 continue
+            # Skip if-guard lines for unreachable panics:
+            # "if err != nil {" followed only by a panic on the next line
+            if content in ("if err != nil {",) and i + 1 < len(lines):
+                next_content = lines[i + 1].strip()
+                if next_content.startswith("panic(") and "unreachable" in next_content.lower():
+                    continue
             # Any other content means it's real uncovered code
             return False
         return True

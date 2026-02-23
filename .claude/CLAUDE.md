@@ -118,3 +118,29 @@ Failing to handle StopTest correctly causes `FlakyStrategyDefinition` errors.
 
 *(Updated by each stage as knowledge accumulates — gotchas, non-obvious patterns,
 decisions made and why, things that would have saved time to know up front)*
+
+### Stage 2: Binary Wire Protocol
+
+**CBOR library: fxamacker/cbor/v2**
+- Use `github.com/fxamacker/cbor/v2` — well-maintained, RFC 8949 compliant, familiar `Marshal`/`Unmarshal` API.
+- **Critical gotcha**: `fxamacker/cbor` decodes positive integers as `uint64`, not `int64`, when decoding to `any`. Negative integers decode as `int64`. This means you MUST handle both `uint64` and `int64` in type switch extractors. A test that encodes `int64(42)` and decodes to `any` will produce a `uint64` — the `case int64:` branch won't fire for positive values from CBOR. Test with negative integers to exercise the `int64` branch.
+- Similarly, `float32` is decoded as `float64` from CBOR wire format. The `case float32:` branch in `ExtractFloat` is only reachable if a `float32` is passed directly, not via CBOR decode.
+
+**net.Pipe() is synchronous (unbuffered)**
+- `net.Pipe()` blocks `Write` until the other side `Read`s. Any test that writes then reads sequentially on the same goroutine will deadlock.
+- **Pattern**: always write in a goroutine: `go func() { errCh <- WritePacket(writer, pkt) }()`, then read on the main goroutine.
+- Use `sendRaw(conn, data)` helper (which spawns a goroutine) for error-case tests that write raw bytes.
+- `net.Pipe()` returns `io.ErrClosedPipe` (not `io.EOF`) when the other end closes. Handle this in `recvExact`.
+
+**check-coverage.py had two bugs (fixed in Stage 2)**
+- **Bug 1**: The regex captured `numStatements` instead of `executionCount` from the coverage profile. Format is `file:range numStatements execCount`; the script was using the 4th capture group as "count" but that was `numStatements`. Fixed by capturing the last field for `execCount`.
+- **Bug 2**: `is_false_positive` tried to `open(file)` using the Go module path (e.g., `github.com/antithesishq/hegel-go/cbor.go`) which doesn't exist on disk. Fixed by stripping module prefix to find the local path.
+
+**Unreachable panic coverage**
+- `if err != nil { panic("unreachable: ...") }` guards that are truly unreachable (e.g., `cbor.DecOptions{}.DecMode()`) must be handled as false positives by the coverage script.
+- The script now detects `if err != nil {` followed by a panic with "unreachable" as a false positive.
+- Keep the word "unreachable" in the panic message so the false-positive filter can identify it.
+
+**CRC32**: Use stdlib `hash/crc32.ChecksumIEEE` — matches Python's `zlib.crc32(data) & 0xFFFFFFFF`. The IEEE polynomial is the standard one.
+
+**Packet struct with []byte field**: Go structs containing `[]byte` are not comparable with `==`. Use a `packetsEqual(a, b Packet) bool` helper that calls `bytes.Equal` for the payload field.**
