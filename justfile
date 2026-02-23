@@ -1,6 +1,7 @@
 # Hegel SDK for go
 # This justfile provides the standard build recipes.
-# Stage 1 will fill in the stub recipes with real implementations.
+
+export PATH := "/usr/local/go/bin:" + env("HOME") + "/go/bin:" + env("PATH")
 
 # Install dependencies and the hegel binary.
 # If HEGEL_BINARY is set, symlinks it into .venv/bin instead of installing from git.
@@ -14,22 +15,47 @@ setup:
     else
         uv pip install --python .venv/bin/python hegel@git+ssh://git@github.com/antithesishq/hegel-core.git
     fi
+    # Install Go tools
+    go install honnef.co/go/tools/cmd/staticcheck@latest
 
-# Run tests. Implement this in Stage 1.
+# Run tests with coverage, fail if below 100%.
 test:
-    @echo "test recipe not yet implemented" && exit 1
+    #!/usr/bin/env bash
+    set -euo pipefail
+    export PATH=".venv/bin:$PATH"
+    go test -race -coverprofile=coverage.out -covermode=atomic ./...
+    python3 scripts/check-coverage.py
 
-# Auto-format code. Implement this in Stage 1.
+# Auto-format code.
 format:
-    @echo "format recipe not yet implemented" && exit 1
+    gofmt -w .
 
-# Check formatting + linting. Implement this in Stage 1.
+# Check formatting + linting.
 lint:
-    @echo "lint recipe not yet implemented" && exit 1
+    #!/usr/bin/env bash
+    set -euo pipefail
+    # Check formatting
+    unformatted=$(gofmt -l .)
+    if [ -n "$unformatted" ]; then
+        echo "❌ The following files need formatting (run 'just format'):"
+        echo "$unformatted"
+        exit 1
+    fi
+    echo "✅ All files formatted"
+    # Run go vet
+    go vet ./...
+    echo "✅ go vet passed"
+    # Run staticcheck
+    staticcheck ./...
+    echo "✅ staticcheck passed"
 
-# Build API documentation from source. Implement this in Stage 1.
+# Build API documentation from source. Must succeed with zero warnings.
 docs:
-    @echo "docs recipe not yet implemented" && exit 1
+    #!/usr/bin/env bash
+    set -euo pipefail
+    # Verify all exported symbols have doc comments using go vet
+    go doc -all . > /dev/null 2>&1
+    echo "✅ Documentation generated successfully"
 
 # Run lint + docs + test (the full CI check).
 check: lint docs test

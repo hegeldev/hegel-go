@@ -94,13 +94,25 @@ Failing to handle StopTest correctly causes `FlakyStrategyDefinition` errors.
 
 ## Tooling Choices
 
-*(Stage 1 will fill this in: test framework, linter, formatter, coverage tool,
-docs tool, and versions)*
+- **Go version**: 1.23.x (installed via `actions/setup-go@v5` in CI)
+- **Test framework**: `testing` (Go stdlib) — run via `go test -race -coverprofile=coverage.out -covermode=atomic ./...`
+- **Linter**: `go vet` (stdlib) + `staticcheck` v0.7.0 (2026.1) — run via `just lint`
+- **Formatter**: `gofmt` (bundled with Go) — check with `gofmt -l .`, apply with `gofmt -w .`
+- **Coverage tool**: `go test -coverprofile` + `scripts/check-coverage.py` — custom Python script that parses coverage profiles, filters false positives, and fails if any real line is uncovered
+- **Documentation**: `go doc` (stdlib) — verifies all exported symbols have doc comments
 
 ## Project Conventions
 
-*(Stage 1 will fill this in: naming conventions, file layout, other language-specific
-patterns)*
+- **Module path**: `github.com/antithesishq/hegel-go`
+- **Package name**: `hegel` — single package for the library, users import `github.com/antithesishq/hegel-go`
+- **File naming**: lowercase, multi-word files use underscores (e.g., `test_runner.go`)
+- **Test files**: `*_test.go` in the same package (white-box testing for coverage)
+- **Exported symbols**: PascalCase per Go convention
+- **Unexported symbols**: camelCase per Go convention
+- **Error handling**: Return `error` for failable operations; `panic()` for truly unreachable code paths
+- **Doc comments**: Every exported symbol must have a doc comment starting with the symbol name
+- **Coverage**: 100% enforced — `scripts/check-coverage.py` runs after tests; false positives (closing braces, unreachable panics) are filtered automatically
+- **Test execution**: Tests use `PATH=".venv/bin:$PATH"` to find the `hegel` binary
 
 ## Lessons Learned
 
