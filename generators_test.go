@@ -1588,3 +1588,263 @@ func TestTuples2BasicOneTransformOneNil(t *testing.T) {
 }
 
 // =============================================================================
+// Primitive generator schema unit tests
+// =============================================================================
+
+// TestBooleansSchema verifies that Booleans produces a schema with type=boolean and p field.
+func TestBooleansSchema(t *testing.T) {
+	g := Booleans(0.5)
+	bg, ok := g.(*BasicGenerator)
+	if !ok {
+		t.Fatalf("Booleans should return *BasicGenerator, got %T", g)
+	}
+	if bg.schema["type"] != "boolean" {
+		t.Errorf("type: expected 'boolean', got %v", bg.schema["type"])
+	}
+	p, ok := bg.schema["p"].(float64)
+	if !ok {
+		t.Fatalf("p field should be float64, got %T", bg.schema["p"])
+	}
+	if p != 0.5 {
+		t.Errorf("p: expected 0.5, got %v", p)
+	}
+	// AsBasic returns itself.
+	if bg.AsBasic() != bg {
+		t.Error("AsBasic should return itself")
+	}
+}
+
+// TestBooleansP1Schema verifies that Booleans(1.0) stores p=1.0.
+func TestBooleansP1Schema(t *testing.T) {
+	g := Booleans(1.0)
+	bg := g.(*BasicGenerator)
+	if bg.schema["p"] != 1.0 {
+		t.Errorf("p: expected 1.0, got %v", bg.schema["p"])
+	}
+}
+
+// TestTextSchema verifies that Text produces the correct schema structure.
+func TestTextSchema(t *testing.T) {
+	g := Text(3, 10)
+	bg, ok := g.(*BasicGenerator)
+	if !ok {
+		t.Fatalf("Text should return *BasicGenerator, got %T", g)
+	}
+	if bg.schema["type"] != "string" {
+		t.Errorf("type: expected 'string', got %v", bg.schema["type"])
+	}
+	minSize, _ := ExtractInt(bg.schema["min_size"])
+	if minSize != 3 {
+		t.Errorf("min_size: expected 3, got %d", minSize)
+	}
+	maxSize, _ := ExtractInt(bg.schema["max_size"])
+	if maxSize != 10 {
+		t.Errorf("max_size: expected 10, got %d", maxSize)
+	}
+	// No transform.
+	if bg.transform != nil {
+		t.Error("Text should have no transform")
+	}
+}
+
+// TestTextSchemaNoMax verifies that Text with maxSize<0 omits max_size from schema.
+func TestTextSchemaNoMax(t *testing.T) {
+	g := Text(0, -1)
+	bg := g.(*BasicGenerator)
+	if _, hasMax := bg.schema["max_size"]; hasMax {
+		t.Error("max_size should not be present when maxSize < 0")
+	}
+	minSize, _ := ExtractInt(bg.schema["min_size"])
+	if minSize != 0 {
+		t.Errorf("min_size: expected 0, got %d", minSize)
+	}
+}
+
+// TestBinarySchema verifies that Binary produces the correct schema structure.
+func TestBinarySchema(t *testing.T) {
+	g := Binary(1, 20)
+	bg, ok := g.(*BasicGenerator)
+	if !ok {
+		t.Fatalf("Binary should return *BasicGenerator, got %T", g)
+	}
+	if bg.schema["type"] != "binary" {
+		t.Errorf("type: expected 'binary', got %v", bg.schema["type"])
+	}
+	minSize, _ := ExtractInt(bg.schema["min_size"])
+	if minSize != 1 {
+		t.Errorf("min_size: expected 1, got %d", minSize)
+	}
+	maxSize, _ := ExtractInt(bg.schema["max_size"])
+	if maxSize != 20 {
+		t.Errorf("max_size: expected 20, got %d", maxSize)
+	}
+	// No transform needed — server returns []byte directly via CBOR byte strings.
+	if bg.transform != nil {
+		t.Error("Binary should have no transform")
+	}
+	// AsBasic returns itself.
+	if bg.AsBasic() != bg {
+		t.Error("AsBasic should return itself")
+	}
+}
+
+// TestBinarySchemaNoMax verifies that Binary with maxSize<0 omits max_size from schema.
+func TestBinarySchemaNoMax(t *testing.T) {
+	g := Binary(0, -1)
+	bg := g.(*BasicGenerator)
+	if _, hasMax := bg.schema["max_size"]; hasMax {
+		t.Error("max_size should not be present when maxSize < 0")
+	}
+}
+
+// TestIntegersFromSchema verifies that IntegersFrom produces the correct schema.
+func TestIntegersFromSchema(t *testing.T) {
+	minV := int64(-10)
+	maxV := int64(10)
+	g := IntegersFrom(&minV, &maxV)
+	bg, ok := g.(*BasicGenerator)
+	if !ok {
+		t.Fatalf("IntegersFrom should return *BasicGenerator, got %T", g)
+	}
+	if bg.schema["type"] != "integer" {
+		t.Errorf("type: expected 'integer', got %v", bg.schema["type"])
+	}
+	minVal, _ := ExtractInt(bg.schema["min_value"])
+	maxVal, _ := ExtractInt(bg.schema["max_value"])
+	if minVal != -10 {
+		t.Errorf("min_value: expected -10, got %d", minVal)
+	}
+	if maxVal != 10 {
+		t.Errorf("max_value: expected 10, got %d", maxVal)
+	}
+}
+
+// TestIntegersFromSchemaOnlyMin verifies that IntegersFrom with only a min bound omits max_value.
+func TestIntegersFromSchemaOnlyMin(t *testing.T) {
+	minV := int64(5)
+	g := IntegersFrom(&minV, nil)
+	bg := g.(*BasicGenerator)
+	if _, hasMax := bg.schema["max_value"]; hasMax {
+		t.Error("max_value should not be present when maxVal is nil")
+	}
+	minVal, _ := ExtractInt(bg.schema["min_value"])
+	if minVal != 5 {
+		t.Errorf("min_value: expected 5, got %d", minVal)
+	}
+}
+
+// TestIntegersFromSchemaOnlyMax verifies that IntegersFrom with only a max bound omits min_value.
+func TestIntegersFromSchemaOnlyMax(t *testing.T) {
+	maxV := int64(99)
+	g := IntegersFrom(nil, &maxV)
+	bg := g.(*BasicGenerator)
+	if _, hasMin := bg.schema["min_value"]; hasMin {
+		t.Error("min_value should not be present when minVal is nil")
+	}
+	maxVal, _ := ExtractInt(bg.schema["max_value"])
+	if maxVal != 99 {
+		t.Errorf("max_value: expected 99, got %d", maxVal)
+	}
+}
+
+// TestFloatsSchemaWithBounds verifies that Floats with explicit bounds sets all schema fields.
+func TestFloatsSchemaWithBounds(t *testing.T) {
+	minV := 0.0
+	maxV := 1.0
+	falseV := false
+	g := Floats(&minV, &maxV, &falseV, &falseV, false, false)
+	bg, ok := g.(*BasicGenerator)
+	if !ok {
+		t.Fatalf("Floats should return *BasicGenerator, got %T", g)
+	}
+	if bg.schema["type"] != "number" {
+		t.Errorf("type: expected 'number', got %v", bg.schema["type"])
+	}
+	if bg.schema["allow_nan"] != false {
+		t.Errorf("allow_nan: expected false, got %v", bg.schema["allow_nan"])
+	}
+	if bg.schema["allow_infinity"] != false {
+		t.Errorf("allow_infinity: expected false, got %v", bg.schema["allow_infinity"])
+	}
+	if bg.schema["exclude_min"] != false {
+		t.Errorf("exclude_min: expected false, got %v", bg.schema["exclude_min"])
+	}
+	if bg.schema["exclude_max"] != false {
+		t.Errorf("exclude_max: expected false, got %v", bg.schema["exclude_max"])
+	}
+	minVal, _ := bg.schema["min_value"].(float64)
+	maxVal, _ := bg.schema["max_value"].(float64)
+	if minVal != 0.0 {
+		t.Errorf("min_value: expected 0.0, got %v", minVal)
+	}
+	if maxVal != 1.0 {
+		t.Errorf("max_value: expected 1.0, got %v", maxVal)
+	}
+	width, _ := ExtractInt(bg.schema["width"])
+	if width != 64 {
+		t.Errorf("width: expected 64, got %d", width)
+	}
+}
+
+// TestFloatsSchemaUnbounded verifies that Floats with no bounds defaults allow_nan=true, allow_infinity=true.
+func TestFloatsSchemaUnbounded(t *testing.T) {
+	g := Floats(nil, nil, nil, nil, false, false)
+	bg := g.(*BasicGenerator)
+	if bg.schema["allow_nan"] != true {
+		t.Errorf("allow_nan: expected true (no bounds), got %v", bg.schema["allow_nan"])
+	}
+	if bg.schema["allow_infinity"] != true {
+		t.Errorf("allow_infinity: expected true (no bounds), got %v", bg.schema["allow_infinity"])
+	}
+	if _, hasMin := bg.schema["min_value"]; hasMin {
+		t.Error("min_value should not be present when minVal is nil")
+	}
+	if _, hasMax := bg.schema["max_value"]; hasMax {
+		t.Error("max_value should not be present when maxVal is nil")
+	}
+}
+
+// TestFloatsSchemaOnlyMin verifies Floats with only min bound: allow_nan=false, allow_infinity=true.
+func TestFloatsSchemaOnlyMin(t *testing.T) {
+	minV := 0.0
+	g := Floats(&minV, nil, nil, nil, false, false)
+	bg := g.(*BasicGenerator)
+	// has_min=true, has_max=false → allow_nan=false, allow_infinity=true
+	if bg.schema["allow_nan"] != false {
+		t.Errorf("allow_nan: expected false when min set, got %v", bg.schema["allow_nan"])
+	}
+	if bg.schema["allow_infinity"] != true {
+		t.Errorf("allow_infinity: expected true when only min set, got %v", bg.schema["allow_infinity"])
+	}
+}
+
+// TestFloatsSchemaOnlyMax verifies Floats with only max bound: allow_nan=false, allow_infinity=true.
+func TestFloatsSchemaOnlyMax(t *testing.T) {
+	maxV := 1.0
+	g := Floats(nil, &maxV, nil, nil, false, false)
+	bg := g.(*BasicGenerator)
+	// has_min=false, has_max=true → allow_nan=false, allow_infinity=true
+	if bg.schema["allow_nan"] != false {
+		t.Errorf("allow_nan: expected false when max set, got %v", bg.schema["allow_nan"])
+	}
+	if bg.schema["allow_infinity"] != true {
+		t.Errorf("allow_infinity: expected true when only max set, got %v", bg.schema["allow_infinity"])
+	}
+}
+
+// TestFloatsSchemaExcludeBounds verifies that excludeMin/excludeMax are stored correctly.
+func TestFloatsSchemaExcludeBounds(t *testing.T) {
+	minV := 0.0
+	maxV := 1.0
+	falseV := false
+	g := Floats(&minV, &maxV, &falseV, &falseV, true, true)
+	bg := g.(*BasicGenerator)
+	if bg.schema["exclude_min"] != true {
+		t.Errorf("exclude_min: expected true, got %v", bg.schema["exclude_min"])
+	}
+	if bg.schema["exclude_max"] != true {
+		t.Errorf("exclude_max: expected true, got %v", bg.schema["exclude_max"])
+	}
+}
+
+// =============================================================================
