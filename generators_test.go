@@ -20,7 +20,7 @@ func TestBasicGeneratorGenerateNoTransform(t *testing.T) {
 		msgID, payload, _ := ctrl.RecvRequestRaw(5 * time.Second)
 		decoded, _ := DecodeCBOR(payload)
 		m, _ := ExtractDict(decoded)
-		chID, _ := ExtractInt(m[any("channel")])
+		chID, _ := ExtractInt(m[any("channel_id")])
 		ctrl.SendReplyValue(msgID, true) //nolint:errcheck
 
 		testCh, _ := serverConn.ConnectChannel(uint32(chID), "TestCh")
@@ -28,7 +28,7 @@ func TestBasicGeneratorGenerateNoTransform(t *testing.T) {
 		caseCh := serverConn.NewChannel("Case")
 		casePayload, _ := EncodeCBOR(map[string]any{
 			"event":    "test_case",
-			"channel":  int64(caseCh.ChannelID()),
+			"channel_id":  int64(caseCh.ChannelID()),
 			"is_final": false,
 		})
 		caseID, _ := testCh.SendRequestRaw(casePayload)
@@ -71,14 +71,14 @@ func TestBasicGeneratorGenerateWithTransform(t *testing.T) {
 		msgID, payload, _ := ctrl.RecvRequestRaw(5 * time.Second)
 		decoded, _ := DecodeCBOR(payload)
 		m, _ := ExtractDict(decoded)
-		chID, _ := ExtractInt(m[any("channel")])
+		chID, _ := ExtractInt(m[any("channel_id")])
 		ctrl.SendReplyValue(msgID, true) //nolint:errcheck
 
 		testCh, _ := serverConn.ConnectChannel(uint32(chID), "TestCh")
 		caseCh := serverConn.NewChannel("Case")
 		casePayload, _ := EncodeCBOR(map[string]any{
 			"event":    "test_case",
-			"channel":  int64(caseCh.ChannelID()),
+			"channel_id":  int64(caseCh.ChannelID()),
 			"is_final": false,
 		})
 		caseID, _ := testCh.SendRequestRaw(casePayload)
@@ -183,14 +183,14 @@ func TestMappedGeneratorGenerate(t *testing.T) {
 		msgID, payload, _ := ctrl.RecvRequestRaw(5 * time.Second)
 		decoded, _ := DecodeCBOR(payload)
 		m, _ := ExtractDict(decoded)
-		chID, _ := ExtractInt(m[any("channel")])
+		chID, _ := ExtractInt(m[any("channel_id")])
 		ctrl.SendReplyValue(msgID, true) //nolint:errcheck
 
 		testCh, _ := serverConn.ConnectChannel(uint32(chID), "TestCh")
 		caseCh := serverConn.NewChannel("Case")
 		casePayload, _ := EncodeCBOR(map[string]any{
 			"event":    "test_case",
-			"channel":  int64(caseCh.ChannelID()),
+			"channel_id":  int64(caseCh.ChannelID()),
 			"is_final": false,
 		})
 		caseID, _ := testCh.SendRequestRaw(casePayload)
@@ -266,14 +266,14 @@ func fakeTestEnv(t *testing.T, fn func(caseCh *Channel)) *Connection {
 		msgID, payload, _ := ctrl.RecvRequestRaw(5 * time.Second)
 		decoded, _ := DecodeCBOR(payload)
 		m, _ := ExtractDict(decoded)
-		chID, _ := ExtractInt(m[any("channel")])
+		chID, _ := ExtractInt(m[any("channel_id")])
 		ctrl.SendReplyValue(msgID, true) //nolint:errcheck
 
 		testCh, _ := serverConn.ConnectChannel(uint32(chID), "TestCh")
 		caseCh := serverConn.NewChannel("Case")
 		casePayload, _ := EncodeCBOR(map[string]any{
 			"event":    "test_case",
-			"channel":  int64(caseCh.ChannelID()),
+			"channel_id":  int64(caseCh.ChannelID()),
 			"is_final": false,
 		})
 		caseID, _ := testCh.SendRequestRaw(casePayload)
@@ -387,14 +387,14 @@ func TestGroup(t *testing.T) {
 		msgID, payload, _ := ctrl.RecvRequestRaw(5 * time.Second)
 		decoded, _ := DecodeCBOR(payload)
 		m, _ := ExtractDict(decoded)
-		chID, _ := ExtractInt(m[any("channel")])
+		chID, _ := ExtractInt(m[any("channel_id")])
 		ctrl.SendReplyValue(msgID, true) //nolint:errcheck
 
 		testCh, _ := serverConn.ConnectChannel(uint32(chID), "TestCh")
 		caseCh := serverConn.NewChannel("Case")
 		casePayload, _ := EncodeCBOR(map[string]any{
 			"event":    "test_case",
-			"channel":  int64(caseCh.ChannelID()),
+			"channel_id":  int64(caseCh.ChannelID()),
 			"is_final": false,
 		})
 		caseID, _ := testCh.SendRequestRaw(casePayload)
@@ -442,14 +442,14 @@ func TestDiscardableGroupNoPanic(t *testing.T) {
 		msgID, payload, _ := ctrl.RecvRequestRaw(5 * time.Second)
 		decoded, _ := DecodeCBOR(payload)
 		m, _ := ExtractDict(decoded)
-		chID, _ := ExtractInt(m[any("channel")])
+		chID, _ := ExtractInt(m[any("channel_id")])
 		ctrl.SendReplyValue(msgID, true) //nolint:errcheck
 
 		testCh, _ := serverConn.ConnectChannel(uint32(chID), "TestCh")
 		caseCh := serverConn.NewChannel("Case")
 		casePayload, _ := EncodeCBOR(map[string]any{
 			"event":    "test_case",
-			"channel":  int64(caseCh.ChannelID()),
+			"channel_id":  int64(caseCh.ChannelID()),
 			"is_final": false,
 		})
 		caseID, _ := testCh.SendRequestRaw(casePayload)
@@ -1642,14 +1642,14 @@ func TestFilteredGeneratorPredicatePasses(t *testing.T) {
 		msgID, payload, _ := ctrl.RecvRequestRaw(5 * time.Second)
 		decoded, _ := DecodeCBOR(payload)
 		m, _ := ExtractDict(decoded)
-		chID, _ := ExtractInt(m[any("channel")])
+		chID, _ := ExtractInt(m[any("channel_id")])
 		ctrl.SendReplyValue(msgID, true) //nolint:errcheck
 
 		testCh, _ := serverConn.ConnectChannel(uint32(chID), "TestCh")
 		caseCh := serverConn.NewChannel("Case")
 		casePayload, _ := EncodeCBOR(map[string]any{
 			"event":    "test_case",
-			"channel":  int64(caseCh.ChannelID()),
+			"channel_id":  int64(caseCh.ChannelID()),
 			"is_final": false,
 		})
 		caseID, _ := testCh.SendRequestRaw(casePayload)
@@ -1705,14 +1705,14 @@ func TestFilteredGeneratorAllAttemptsFailRejectsCase(t *testing.T) {
 		msgID, payload, _ := ctrl.RecvRequestRaw(5 * time.Second)
 		decoded, _ := DecodeCBOR(payload)
 		m, _ := ExtractDict(decoded)
-		chID, _ := ExtractInt(m[any("channel")])
+		chID, _ := ExtractInt(m[any("channel_id")])
 		ctrl.SendReplyValue(msgID, true) //nolint:errcheck
 
 		testCh, _ := serverConn.ConnectChannel(uint32(chID), "TestCh")
 		caseCh := serverConn.NewChannel("Case")
 		casePayload, _ := EncodeCBOR(map[string]any{
 			"event":    "test_case",
-			"channel":  int64(caseCh.ChannelID()),
+			"channel_id":  int64(caseCh.ChannelID()),
 			"is_final": false,
 		})
 		caseID, _ := testCh.SendRequestRaw(casePayload)
@@ -1778,14 +1778,14 @@ func TestFilteredGeneratorPartialAttemptsSucceed(t *testing.T) {
 		msgID, payload, _ := ctrl.RecvRequestRaw(5 * time.Second)
 		decoded, _ := DecodeCBOR(payload)
 		m, _ := ExtractDict(decoded)
-		chID, _ := ExtractInt(m[any("channel")])
+		chID, _ := ExtractInt(m[any("channel_id")])
 		ctrl.SendReplyValue(msgID, true) //nolint:errcheck
 
 		testCh, _ := serverConn.ConnectChannel(uint32(chID), "TestCh")
 		caseCh := serverConn.NewChannel("Case")
 		casePayload, _ := EncodeCBOR(map[string]any{
 			"event":    "test_case",
-			"channel":  int64(caseCh.ChannelID()),
+			"channel_id":  int64(caseCh.ChannelID()),
 			"is_final": false,
 		})
 		caseID, _ := testCh.SendRequestRaw(casePayload)
@@ -2223,14 +2223,14 @@ func TestFlatMappedGeneratorGenerate(t *testing.T) {
 		msgID, payload, _ := ctrl.RecvRequestRaw(5 * time.Second)
 		decoded, _ := DecodeCBOR(payload)
 		m, _ := ExtractDict(decoded)
-		chID, _ := ExtractInt(m[any("channel")])
+		chID, _ := ExtractInt(m[any("channel_id")])
 		ctrl.SendReplyValue(msgID, true) //nolint:errcheck
 
 		testCh, _ := serverConn.ConnectChannel(uint32(chID), "TestCh")
 		caseCh := serverConn.NewChannel("Case")
 		casePayload, _ := EncodeCBOR(map[string]any{
 			"event":    "test_case",
-			"channel":  int64(caseCh.ChannelID()),
+			"channel_id":  int64(caseCh.ChannelID()),
 			"is_final": false,
 		})
 		caseID, _ := testCh.SendRequestRaw(casePayload)
@@ -2296,14 +2296,14 @@ func TestFlatMappedGeneratorStartSpanLabel(t *testing.T) {
 		msgID, payload, _ := ctrl.RecvRequestRaw(5 * time.Second)
 		decoded, _ := DecodeCBOR(payload)
 		m, _ := ExtractDict(decoded)
-		chID, _ := ExtractInt(m[any("channel")])
+		chID, _ := ExtractInt(m[any("channel_id")])
 		ctrl.SendReplyValue(msgID, true) //nolint:errcheck
 
 		testCh, _ := serverConn.ConnectChannel(uint32(chID), "TestCh")
 		caseCh := serverConn.NewChannel("Case")
 		casePayload, _ := EncodeCBOR(map[string]any{
 			"event":    "test_case",
-			"channel":  int64(caseCh.ChannelID()),
+			"channel_id":  int64(caseCh.ChannelID()),
 			"is_final": false,
 		})
 		caseID, _ := testCh.SendRequestRaw(casePayload)

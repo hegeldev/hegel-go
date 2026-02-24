@@ -305,7 +305,7 @@ func (c *client) runTest(name string, fn func(), opts runOptions) error {
 		"command":    "run_test",
 		"name":       name,
 		"test_cases": int64(opts.testCases),
-		"channel":    int64(testCh.ChannelID()),
+		"channel_id": int64(testCh.ChannelID()),
 	})
 	if err != nil {
 		panic(fmt.Sprintf("hegel: unreachable: runTest encode: %v", err))
@@ -340,10 +340,10 @@ func (c *client) runTest(name string, fn func(), opts runOptions) error {
 
 		switch event {
 		case "test_case":
-			chIDVal := msg[any("channel")]
+			chIDVal := msg[any("channel_id")]
 			chID, err := ExtractInt(chIDVal)
 			if err != nil {
-				return fmt.Errorf("hegel: test_case missing channel: %w", err)
+				return fmt.Errorf("hegel: test_case missing channel_id: %w", err)
 			}
 			testCh.SendReplyValue(msgID, nil) //nolint:errcheck
 			caseCh, err := c.conn.ConnectChannel(uint32(chID), "TestCase")
@@ -389,7 +389,7 @@ doneLoop:
 		}
 		decoded, _ := DecodeCBOR(raw)
 		msg, _ := ExtractDict(decoded)
-		chIDVal := msg[any("channel")]
+		chIDVal := msg[any("channel_id")]
 		chID, _ := ExtractInt(chIDVal)
 		testCh.SendReplyValue(msgID, nil) //nolint:errcheck
 		caseCh, err := c.conn.ConnectChannel(uint32(chID), "FinalCase")
@@ -408,7 +408,7 @@ doneLoop:
 		}
 		decoded, _ := DecodeCBOR(raw)
 		msg, _ := ExtractDict(decoded)
-		chIDVal := msg[any("channel")]
+		chIDVal := msg[any("channel_id")]
 		chID, _ := ExtractInt(chIDVal)
 		testCh.SendReplyValue(msgID, nil) //nolint:errcheck
 		caseCh, err := c.conn.ConnectChannel(uint32(chID), fmt.Sprintf("FinalCase%d", i))
