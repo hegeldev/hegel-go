@@ -208,9 +208,9 @@ func TestFilteredGeneratorGenerateAllFailsCallsAssume(t *testing.T) {
 		testCh, _ := serverConn.ConnectChannel(uint32(chID), "TestCh")
 		caseCh := serverConn.NewChannel("Case")
 		casePayload, _ := EncodeCBOR(map[string]any{
-			"event":    "test_case",
-			"channel_id":  int64(caseCh.ChannelID()),
-			"is_final": false,
+			"event":      "test_case",
+			"channel_id": int64(caseCh.ChannelID()),
+			"is_final":   false,
 		})
 		caseID, _ := testCh.SendRequestRaw(casePayload)
 		testCh.recvResponseRaw(caseID, 5*time.Second) //nolint:errcheck
@@ -341,9 +341,9 @@ func TestFilteredGeneratorGenerateUnitPredicatePasses(t *testing.T) {
 		testCh, _ := serverConn.ConnectChannel(uint32(chID), "TestCh")
 		caseCh := serverConn.NewChannel("Case")
 		casePayload, _ := EncodeCBOR(map[string]any{
-			"event":    "test_case",
-			"channel_id":  int64(caseCh.ChannelID()),
-			"is_final": false,
+			"event":      "test_case",
+			"channel_id": int64(caseCh.ChannelID()),
+			"is_final":   false,
 		})
 		caseID, _ := testCh.SendRequestRaw(casePayload)
 		testCh.recvResponseRaw(caseID, 5*time.Second) //nolint:errcheck
@@ -404,9 +404,9 @@ func TestFilteredGeneratorGenerateUnitPredicateFailsThenPasses(t *testing.T) {
 		testCh, _ := serverConn.ConnectChannel(uint32(chID), "TestCh")
 		caseCh := serverConn.NewChannel("Case")
 		casePayload, _ := EncodeCBOR(map[string]any{
-			"event":    "test_case",
-			"channel_id":  int64(caseCh.ChannelID()),
-			"is_final": false,
+			"event":      "test_case",
+			"channel_id": int64(caseCh.ChannelID()),
+			"is_final":   false,
 		})
 		caseID, _ := testCh.SendRequestRaw(casePayload)
 		testCh.recvResponseRaw(caseID, 5*time.Second) //nolint:errcheck

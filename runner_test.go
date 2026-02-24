@@ -646,7 +646,7 @@ func runTestOnFakeServer(t *testing.T, testFn func(), serverReply func(caseCh *C
 		// Create a case channel and send test_case.
 		caseCh := serverConn.NewChannel("CaseCh")
 		casePayload, _ := EncodeCBOR(map[string]any{
-			"event":   "test_case",
+			"event":      "test_case",
 			"channel_id": int64(caseCh.ChannelID()),
 		})
 		caseID, _ := testCh.SendRequestRaw(casePayload)
@@ -1067,7 +1067,7 @@ func TestRunTestConnectCaseChannelError(t *testing.T) {
 		testCh, _ := serverConn.ConnectChannel(uint32(chID), "TestCh")
 		// Send test_case with channel ID = 0 (already registered as control).
 		casePayload, _ := EncodeCBOR(map[string]any{
-			"event":   "test_case",
+			"event":      "test_case",
 			"channel_id": int64(0), // already exists!
 		})
 		caseID, _ := testCh.SendRequestRaw(casePayload)
@@ -1171,7 +1171,7 @@ func TestRunTestCaseMarkCompleteError(t *testing.T) {
 		testCh, _ := serverConn.ConnectChannel(uint32(chID), "TestCh")
 		caseCh := serverConn.NewChannel("CaseCh")
 		casePayload, _ := EncodeCBOR(map[string]any{
-			"event":   "test_case",
+			"event":      "test_case",
 			"channel_id": int64(caseCh.ChannelID()),
 		})
 		caseID, _ := testCh.SendRequestRaw(casePayload)
@@ -1219,7 +1219,7 @@ func TestRunTestMultipleInteresting(t *testing.T) {
 		for i := 0; i < 2; i++ {
 			caseCh := serverConn.NewChannel(fmt.Sprintf("FinalCh%d", i))
 			casePayload, _ := EncodeCBOR(map[string]any{
-				"event":   "test_case",
+				"event":      "test_case",
 				"channel_id": int64(caseCh.ChannelID()),
 			})
 			caseID, _ := testCh.SendRequestRaw(casePayload)
@@ -1270,7 +1270,7 @@ func TestRunTestSingleInterestingConnectError(t *testing.T) {
 
 		// Send final test_case with channel 0 (already exists → ConnectChannel fails).
 		casePayload, _ := EncodeCBOR(map[string]any{
-			"event":   "test_case",
+			"event":      "test_case",
 			"channel_id": int64(0), // control channel, already exists
 		})
 		caseID, _ := testCh.SendRequestRaw(casePayload)
@@ -1354,7 +1354,7 @@ func TestRunTestMultiInterestingRecvError(t *testing.T) {
 		// Send only 1 final case, then close — 2nd recv should fail.
 		caseCh := serverConn.NewChannel("FinalCh0")
 		casePayload, _ := EncodeCBOR(map[string]any{
-			"event":   "test_case",
+			"event":      "test_case",
 			"channel_id": int64(caseCh.ChannelID()),
 		})
 		caseID, _ := testCh.SendRequestRaw(casePayload)
@@ -1753,7 +1753,7 @@ func TestRunTestSingleInterestingCasePasses(t *testing.T) {
 		// Send final test_case.
 		caseCh := serverConn.NewChannel("FinalCh")
 		casePayload, _ := EncodeCBOR(map[string]any{
-			"event":   "test_case",
+			"event":      "test_case",
 			"channel_id": int64(caseCh.ChannelID()),
 		})
 		caseID, _ := testCh.SendRequestRaw(casePayload)
@@ -1910,7 +1910,7 @@ func TestRunTestMultiInterestingConnectError(t *testing.T) {
 		// Send final test_case with channel ID 0 (control channel → already connected).
 		for i := 0; i < 2; i++ {
 			casePayload, _ := EncodeCBOR(map[string]any{
-				"event":   "test_case",
+				"event":      "test_case",
 				"channel_id": int64(0), // channel 0 exists → ConnectChannel will fail
 			})
 			caseID, _ := testCh.SendRequestRaw(casePayload)
@@ -1964,7 +1964,7 @@ func TestRunTestMultiInterestingCasePasses(t *testing.T) {
 		for i := 0; i < 2; i++ {
 			caseCh := serverConn.NewChannel(fmt.Sprintf("FinalCh%d", i))
 			casePayload, _ := EncodeCBOR(map[string]any{
-				"event":   "test_case",
+				"event":      "test_case",
 				"channel_id": int64(caseCh.ChannelID()),
 			})
 			caseID, _ := testCh.SendRequestRaw(casePayload)

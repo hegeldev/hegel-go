@@ -177,9 +177,9 @@ func TestCompositeListGeneratorProtocol(t *testing.T) {
 		testCh, _ := serverConn.ConnectChannel(uint32(chID), "TestCh")
 		caseCh := serverConn.NewChannel("Case")
 		casePayload, _ := EncodeCBOR(map[string]any{
-			"event":    "test_case",
-			"channel_id":  int64(caseCh.ChannelID()),
-			"is_final": false,
+			"event":      "test_case",
+			"channel_id": int64(caseCh.ChannelID()),
+			"is_final":   false,
 		})
 		caseID, _ := testCh.SendRequestRaw(casePayload)
 		testCh.recvResponseRaw(caseID, 5*time.Second) //nolint:errcheck
@@ -267,9 +267,9 @@ func TestCompositeListGeneratorEmptyList(t *testing.T) {
 		testCh, _ := serverConn.ConnectChannel(uint32(chID), "TestCh")
 		caseCh := serverConn.NewChannel("Case")
 		casePayload, _ := EncodeCBOR(map[string]any{
-			"event":    "test_case",
-			"channel_id":  int64(caseCh.ChannelID()),
-			"is_final": false,
+			"event":      "test_case",
+			"channel_id": int64(caseCh.ChannelID()),
+			"is_final":   false,
 		})
 		caseID, _ := testCh.SendRequestRaw(casePayload)
 		testCh.recvResponseRaw(caseID, 5*time.Second) //nolint:errcheck
