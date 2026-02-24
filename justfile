@@ -12,8 +12,6 @@ setup:
     if [ -n "${HEGEL_BINARY:-}" ]; then
         mkdir -p .venv/bin
         ln -sf "$HEGEL_BINARY" .venv/bin/hegel
-    elif [ -d "/home/drmaciver/hegelator/external/hegel-core" ]; then
-        uv pip install --python .venv/bin/python /home/drmaciver/hegelator/external/hegel-core
     else
         uv pip install --python .venv/bin/python hegel@git+ssh://git@github.com/antithesishq/hegel-core.git
     fi

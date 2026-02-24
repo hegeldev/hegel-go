@@ -116,348 +116,42 @@ Failing to handle StopTest correctly causes `FlakyStrategyDefinition` errors.
 - **Coverage**: 100% enforced — `scripts/check-coverage.py` runs after tests; false positives (closing braces, unreachable panics) are filtered automatically
 - **Test execution**: Tests use `PATH="$(pwd)/.venv/bin:$PATH"` (absolute path) to find the `hegel` binary — relative paths don't work with `exec.LookPath`
 
-## Lessons Learned
+## Developer Notes
 
-*(Updated by each stage as knowledge accumulates — gotchas, non-obvious patterns,
-decisions made and why, things that would have saved time to know up front)*
+### CBOR gotchas (fxamacker/cbor/v2)
 
-### Stage 2: Binary Wire Protocol
+- Positive integers decode as `uint64`, negative as `int64` when decoding to `any`. You MUST handle both in type switches.
+- `float32` decodes as `float64` from CBOR wire format. The `float32` branch is only reachable if passed directly.
 
-**CBOR library: fxamacker/cbor/v2**
-- Use `github.com/fxamacker/cbor/v2` — well-maintained, RFC 8949 compliant, familiar `Marshal`/`Unmarshal` API.
-- **Critical gotcha**: `fxamacker/cbor` decodes positive integers as `uint64`, not `int64`, when decoding to `any`. Negative integers decode as `int64`. This means you MUST handle both `uint64` and `int64` in type switch extractors. A test that encodes `int64(42)` and decodes to `any` will produce a `uint64` — the `case int64:` branch won't fire for positive values from CBOR. Test with negative integers to exercise the `int64` branch.
-- Similarly, `float32` is decoded as `float64` from CBOR wire format. The `case float32:` branch in `ExtractFloat` is only reachable if a `float32` is passed directly, not via CBOR decode.
+### net.Pipe() in tests
 
-**net.Pipe() is synchronous (unbuffered)**
-- `net.Pipe()` blocks `Write` until the other side `Read`s. Any test that writes then reads sequentially on the same goroutine will deadlock.
-- **Pattern**: always write in a goroutine: `go func() { errCh <- WritePacket(writer, pkt) }()`, then read on the main goroutine.
-- Use `sendRaw(conn, data)` helper (which spawns a goroutine) for error-case tests that write raw bytes.
-- `net.Pipe()` returns `io.ErrClosedPipe` (not `io.EOF`) when the other end closes. Handle this in `recvExact`.
+- `net.Pipe()` is synchronous (unbuffered) — always write in a goroutine to avoid deadlocks.
+- Returns `io.ErrClosedPipe` (not `io.EOF`) when the other end closes.
 
-**check-coverage.py had two bugs (fixed in Stage 2)**
-- **Bug 1**: The regex captured `numStatements` instead of `executionCount` from the coverage profile. Format is `file:range numStatements execCount`; the script was using the 4th capture group as "count" but that was `numStatements`. Fixed by capturing the last field for `execCount`.
-- **Bug 2**: `is_false_positive` tried to `open(file)` using the Go module path (e.g., `github.com/antithesishq/hegel-go/cbor.go`) which doesn't exist on disk. Fixed by stripping module prefix to find the local path.
+### Coverage enforcement
 
-**Unreachable panic coverage**
-- `if err != nil { panic("unreachable: ...") }` guards that are truly unreachable (e.g., `cbor.DecOptions{}.DecMode()`) must be handled as false positives by the coverage script.
-- The script now detects `if err != nil {` followed by a panic with "unreachable" as a false positive.
-- Keep the word "unreachable" in the panic message so the false-positive filter can identify it.
+- 100% coverage is mandatory. `scripts/check-coverage.py` filters false positives automatically.
+- Use `panic("hegel: unreachable: ...")` for truly unreachable code paths — the false-positive filter recognizes the "unreachable" keyword.
+- The `if err != nil {` line must be immediately followed by the `panic(` line (no comments between them) for the filter to detect it.
+- Use `-coverpkg=github.com/antithesishq/hegel-go` to restrict coverage to the library package (excludes `cmd/` and `examples/`).
 
-**CRC32**: Use stdlib `hash/crc32.ChecksumIEEE` — matches Python's `zlib.crc32(data) & 0xFFFFFFFF`. The IEEE polynomial is the standard one.
+### Test isolation with HEGEL_PROTOCOL_TEST_MODE
 
-**Packet struct with []byte field**: Go structs containing `[]byte` are not comparable with `==`. Use a `packetsEqual(a, b Packet) bool` helper that calls `bytes.Equal` for the payload field.
+- Test-mode hegel handles exactly ONE `run_test` then exits. `RunHegelTestE` creates a fresh temporary session when this env var is set.
+- Test-mode sessions suppress stderr to avoid Python tracebacks in test output.
 
-### Stage 3: Connection and Channel Abstractions
+### Protocol field names
 
-**staticcheck ST1005 — error strings must not be capitalized**
-- Go convention (enforced by staticcheck ST1005): error strings must start with lowercase.
-- Any `fmt.Errorf("Bad ...", ...)` or `fmt.Errorf("Cannot ...", ...)` will fail lint.
-- Panics are NOT error strings and can be capitalized.
-- Remember to update test `mustContain` assertions to match the lowercase strings.
+- The `run_test` command uses `"channel"` (not `"channel_id"`) for the test channel ID.
+- Always cross-check field names against the reference implementation.
 
-**net.Pipe() returns io.ErrClosedPipe, not io.EOF**
-- Already known from Stage 2, but also relevant here: when testing handshake error paths by closing one end, the error will be `io.ErrClosedPipe` not `io.EOF`.
+### Generator optimization
 
-**demand-driven reader: TryLock busy-wait**
-- `sync.Mutex.TryLock()` is available in Go 1.18+. The pattern is: try lock in a loop, sleeping 1ms between attempts, checking `until()` after each failed attempt.
-- The `until()` function returning true WHILE waiting for the lock (before acquiring it) causes `runReader` to return early — this path needs a dedicated test.
+- `BasicGenerator.Map()` returns a new `*BasicGenerator` with the same schema and a composed transform — only one `generate` command regardless of chained `.Map()` calls.
+- Non-basic generators wrapped in `Map()` produce `*MappedGenerator` with `start_span`/`stop_span` per generation.
 
-**Unreachable panic placement — no comment between `if err != nil {` and `panic(`**
-- The `check-coverage.py` false-positive filter detects `if err != nil {` followed DIRECTLY by a `panic(` containing "unreachable". If there's a comment between them (e.g., `// unreachable: ...`), the filter won't recognize the region as a false positive.
-- **Pattern**: Place the comment BEFORE the `if err != nil {` block, not inside it, and put the panic on the line immediately after `if err != nil {`.
-- Example (correct): `if err != nil { panic(fmt.Sprintf("hegel: unreachable: ...", err)) }`
+### OneOf code paths
 
-**processOneMessage: ch.responses nil check**
-- `recvResponseRaw` initializes `ch.responses` at line 468 BEFORE calling `processOneMessage`. So the `if ch.responses == nil` guard inside `processOneMessage` (for reply routing) is never reached via `recvResponseRaw`.
-- To cover it: directly call `processOneMessage` with a reply packet in the inbox, bypassing `recvResponseRaw`.
-
-**Channel.SendReplyError: always-encodable encode**
-- `map[string]any{"error": string, "type": string}` is always CBOR-encodable. The `if err != nil` guard after `EncodeCBOR` is unreachable. Use the `panic("hegel: unreachable: ...")` pattern so the false-positive filter handles it.
-
-**isTimeout(nil): must be exercised**
-- `isTimeout` is only called inside `runReader` when `err != nil`, so the `if err == nil { return false }` branch is never hit during normal use. Add a direct test `TestIsTimeoutNil` calling `isTimeout(nil)`.
-
-**CloseRead() interface coverage**
-- `net.Pipe()` connections don't implement `CloseRead()`. To cover the `CloseRead()` branch in `Connection.Close()`, wrap the connection in a test struct that embeds `net.Conn` and implements `CloseRead() error`.
-
-**dispatch: unknown channel — IsReply=true vs IsReply=false paths**
-- Two separate branches: `IsReply=true` to an unknown channel → silently drop (line 169-184 `!pkt.IsReply` is false). `IsReply=false` to unknown channel → send error reply (lines 171-182). Both need distinct tests.
-- The client must drain the server's error reply for the request case, otherwise the server's `SendPacket` blocks on the synchronous `net.Pipe`.
-
-**TestHandleRequestsStopFnImmediate: stopFn returning true immediately**
-- Use `HandleRequests` with `stopFn = func() bool { return true }` to cover the early-exit path.
-
-### Stage 4: Test Runner and Test Lifecycle
-
-**HEGEL_PROTOCOL_TEST_MODE, not HEGEL_PROTOCOL_TEST_MODE**
-- The correct env var for activating the hegel test server's error injection modes is `HEGEL_PROTOCOL_TEST_MODE`. The documentation previously said `HEGEL_PROTOCOL_TEST_MODE` but the actual binary uses the longer form. Always double-check env var names against the source (`hegel/__main__.py`).
-
-**`SendReplyValue` already wraps — do not double-wrap**
-- `ch.SendReplyValue(msgID, v)` encodes `{"result": v}` internally. Test code that calls `SendReplyValue(msgID, map[string]any{"result": v})` will produce `{"result": {"result": v}}` — a double-wrap. The client's decoder extracts `result` and gets a dict instead of the expected type, causing confusing type-assertion failures downstream. Always pass the raw value: `SendReplyValue(msgID, true)`, `SendReplyValue(msgID, int64(42))`.
-
-**Global session + HEGEL_PROTOCOL_TEST_MODE = test isolation problem**
-- The normal hegel server handles multiple `run_test` requests per connection (it loops). The test server (HEGEL_PROTOCOL_TEST_MODE) handles exactly ONE `run_test` then exits. If `RunHegelTestE` uses the global session (which is already connected from a prior test), the test server subprocess is long gone and the socket is dead.
-- **Solution**: In `RunHegelTestE`, detect `HEGEL_PROTOCOL_TEST_MODE != ""` and create a fresh temporary `hegelSession` (with `defer s.cleanup()`), bypassing the global session entirely.
-
-**`exec.LookPath` requires an absolute PATH**
-- The justfile had `export PATH=".venv/bin:$PATH"` (relative). `exec.LookPath("hegel")` uses the actual PATH environment variable and won't resolve relative paths. Integration tests that call `hegelBinPath(t)` (which uses `exec.LookPath`) were silently skipping because hegel wasn't found.
-- **Fix**: Use `export PATH="$(pwd)/.venv/bin:$PATH"` (absolute via `$(pwd)`) in the justfile.
-
-**Shell built-ins not in PATH — use absolute paths in tests**
-- `s.hegelCmd = "false"` doesn't work because `false` is a shell built-in, not a PATH binary on all systems. Use `/usr/bin/false` for tests that need a binary that immediately exits.
-
-**`client.mu` must protect the entire `runTest` call**
-- The `Connection` and `Channel` objects are not goroutine-safe. If multiple goroutines call `client.runTest` concurrently (e.g., `go cli.runTest(...)` × N), they race on the control channel's `responses` map.
-- **Fix**: Move `c.mu.Lock()` to cover the entire `runTest` method body (not just the initial send). The full duration of a test — from `run_test` request through `test_done` receipt and all replay cases — must be serialized.
-
-**Avoid double-checked locking without atomics**
-- An outer `if s.hasWorkingClient() { return nil }` check before acquiring `s.mu` in `start()` is a data race (reading `s.cli` and `s.conn` without the lock). Remove it. Always acquire the lock first, then check `hasWorkingClient()` inside the lock.
-
-**`mkdirTempFn` indirection for testability**
-- `os.MkdirTemp` is called inside `start()`. To test the error path (when mktemp fails), introduce `var mkdirTempFn = os.MkdirTemp` at package level and replace the call-site. Tests can then swap it: `mkdirTempFn = func(...) (string, error) { return "", fmt.Errorf("simulated") }`.
-
-**`fakeServerConn` for unit-testing the runner**
-- Use a `socketpair()` + goroutine pattern for unit tests of `client.runTest` and `client.runTestCase`. The server goroutine runs in a separate goroutine, communicates via the socket, and uses `serverConn.ConnectChannel` to respond to test events.
-- The server goroutine must match the exact protocol: receive `run_test` on control channel → reply → send `test_done` on testCh → wait for reply → send `test_case` events → wait for `mark_complete`.
-
-**StopTest from `stop_test_on_collection_more` / `stop_test_on_new_collection` are Stage 5**
-- These modes require `collection_more` and `new_collection` commands which are part of the collection generator protocol (Stage 5). Tests for these modes must be marked `t.Skip()` in Stage 4 and implemented when Stage 5 adds collection support.
-
-**`is_false_positive` in `check-coverage.py`: new patterns needed for runner.go**
-- The `frames.Next()` loop in `extractPanicOrigin` generates an uncovered `if !more { break }` region. Add `if content in ("if !more {", "break"): continue` to handle this.
-- An `if condition {` line followed on the next line by a `panic(` with "unreachable" should also be filtered. The existing filter only checked for `if err != nil {` patterns by checking `if content.endswith("{") and "if " in content`.
-
-**`RunHegelTestE` not `RunHegelTestE` — naming is the public API**
-- The public function is `RunHegelTestE` (not `RunHegelTest` + E suffix as a separate thing). `RunHegelTest` panics on error; `RunHegelTestE` returns error. The `E` suffix is a Go convention for "error-returning variant".
-
-### Stage 5: Generator Infrastructure
-
-**BasicGenerator.Map preserves the schema optimization**
-- Mapping a `*BasicGenerator` returns another `*BasicGenerator` with the same schema and a composed transform function. This is the critical optimization: a single `generate` command is sent to the server regardless of how many `.Map()` calls are chained.
-- Mapping a `*MappedGenerator` (non-basic) returns a new `*MappedGenerator` wrapping the original, which sends `start_span`/`stop_span` around each generation.
-
-**`fakeTestEnv` double-handles mark_complete — avoid for span tests**
-- `fakeTestEnv` reads mark_complete after calling `fn(caseCh)`. If `fn` itself loops `for { RecvRequestRaw }` until `mark_complete`, the outer handler will block for 5s waiting for a second mark_complete that never comes.
-- **Fix**: Use `fakeServerConn` directly and read exactly the expected number of messages (e.g., `for i := 0; i < 3; i++ { ... }`).
-
-**CBOR decodes positive integers as uint64 (reminder)**
-- Already documented in Stage 2, but also applies to generator values: `BasicGenerator.Generate()` returns whatever `generateFromSchema` gives, which for positive integers is `uint64`, not `int64`. Use `ExtractInt(v)` in tests, not `v.(int64)`.
-
-**`ch.Request()` error in spans/collection is unreachable in practice**
-- `StartSpan`/`StopSpan`/`NewCollection`/`More`/`Reject` call `ch.Request()`. This can only fail if the channel is closed. Channels are closed after `setAborted()` is already set — so the `s.aborted` early-return check in `StartSpan`/`StopSpan` fires first. Make these `panic("hegel: unreachable: ...")` so the false-positive filter handles them. Same for `NewCollection` and `More` `pending.Get()` non-StopTest errors.
-
-**`error_response` mode covers BasicGenerator.Generate error path**
-- `HEGEL_PROTOCOL_TEST_MODE=error_response` sends a `RequestError` in response to the first `generate` command. When `BasicGenerator.Generate()` is used (not `GenerateBool`/`GenerateInt`), `generateFromSchema` returns the error and `BasicGenerator.Generate` re-panics it. Use this mode to cover the `if err != nil { panic(err) }` line.
-
-**Collection StopTest tests no longer need t.Skip in Stage 5**
-- `TestStopTestOnCollectionMore` and `TestStopTestOnNewCollection` were skipped in Stage 4 (collection not implemented). In Stage 5, remove the skips and implement them using `HEGEL_PROTOCOL_TEST_MODE` with `NewCollection`/`More` calls.
-
-**mark_complete timeout in multi-interesting test: use 10s not 2s**
-- `TestRunTestMultiInterestingCasePasses` uses `caseCh.RecvRequestRaw(2s)` for the mark_complete wait. Under load (race detector, parallel tests), the client may take >2s between sending the test_case ack and the mark_complete. Use 10s to avoid flakiness.
-
-### Stage 7: one_of, optional, ip_addresses
-
-**OneOf has three code paths — all must be tested**
-- Path 1 (all basic, all identity): produces `{"one_of": [s1, s2, ...]}` — no transform needed.
-- Path 2 (all basic, some have transforms): produces tagged-tuple schema `{"one_of": [{"type":"tuple","elements":[{"const":i},si]}, ...]}` with a dispatch transform that reads the tag and calls the branch's transform.
-- Path 3 (any non-basic): returns `*CompositeOneOfGenerator` which wraps generation in a `LabelOneOf` span and generates an integer index first.
-
-**Tagged-tuple dispatch: nil transform means identity**
-- In Path 2, the `transforms` slice has `nil` entries for branches with identity (no transform). The dispatch function `applyTagged` must handle `transforms[tag] == nil` by returning the raw value unmodified.
-
-**Tagged-tuple short-tuple guard**
-- The `applyTagged` function must handle tuples with fewer than 2 elements gracefully (return the original value). This covers the case of malformed CBOR from the server.
-
-**`error_response` mode fires on the first GENERATE command, not start_span**
-- `CompositeOneOfGenerator.Generate()` sends `start_span(LabelOneOf)` first, then `generate(integer)` for the index selection. The `error_response` test mode asserts the first message is `generate` — so the server crashes with an AssertionError when it sees `start_span`. This crash closes the connection, so `generateFromSchema` for the index gets an I/O error, which covers the `if err != nil { panic(...) }` path in `CompositeOneOfGenerator.Generate()`.
-- The test still passes because the panic propagates as an INTERESTING test case.
-- Mark this panic as `panic(fmt.Sprintf("hegel: unreachable: ...", err))` so the false-positive filter works (even though it IS reachable — via server crash). The coverage DOES cover it.
-
-**Optional = OneOf(Just(nil), element) — this is Path 2 for basic elements**
-- `Just(nil)` always has a transform (ignores server value, returns nil). So `Optional(basicGen)` always triggers Path 2 (tagged tuples), not Path 1.
-- For non-basic elements: `Optional(nonBasic)` → Path 3 (`*CompositeOneOfGenerator`) since `MappedGenerator.AsBasic()` returns nil.
-
-**IPAddresses default = OneOf(v4, v6) — Path 1 (both branches are basic, no transforms)**
-- Both `&BasicGenerator{schema: map[string]any{"type":"ipv4"}}` and the v6 variant have nil transforms, so `OneOf(v4, v6)` takes Path 1 and produces a simple `{"one_of": [{"type":"ipv4"}, {"type":"ipv6"}]}` schema.
-
-**go test default timeout is 10 minutes — add timeout flag for large test suites**
-- Running `go test ./...` without `-timeout` uses the 10-minute default. If you have many integration tests (100+ each with a real hegel subprocess), the total can exceed 10 minutes, causing a panic/timeout that looks like a hang or deadlock.
-- The `just test` recipe uses `go test -race -coverprofile=coverage.out -covermode=atomic ./...` without explicit timeout. With 226 hegelBinPath test invocations, the total was ~33 seconds (well under 60s), so no timeout needed.
-- If tests appear to hang at the 10-minute mark: it's the default timeout firing, not an actual deadlock.
-
-**CLAUDE.md lives at `.claude/CLAUDE.md` relative to the repo root**
-- The project instructions file is at `.claude/CLAUDE.md`, not `CLAUDE.md`. Always update it with stage-specific lessons.
-
-### Stage 8: Conformance Test Suite
-
-**Conformance binaries are `package main` — exclude from coverage measurement**
-- Each conformance binary is a standalone `package main` under `cmd/conformance/<name>/`.
-  `go test ./...` with `-coverprofile` still instruments them (showing 0% coverage), which breaks the check.
-- **Fix**: Use `-coverpkg=github.com/antithesishq/hegel-go` in the `test` recipe to restrict coverage to the library package only. This omits `cmd/` packages from the profile.
-
-**check-coverage.py false-positive filter handles unreachable writes**
-- `WriteMetrics` has an `if _, err := f.Write(...) { panic("hegel: unreachable: ...") }` branch.
-  On normal filesystems, writing to a freshly-opened file never fails, so this is genuinely unreachable.
-  Mark it with "unreachable" in the panic message so the false-positive filter skips it.
-
-**WriteMetrics open error is testable; write error is not**
-- `os.OpenFile` with `O_WRONLY` on a directory path returns `EACCES`/`EISDIR`, covering the open-error panic.
-- `f.Write(...)` failures require either a full filesystem or a broken file descriptor — impractical in tests.
-  Mark the write error path as unreachable rather than trying to inject it.
-
-**json.Marshal of `map[string]any` with only bool/int/float/string values never fails**
-- The only way `json.Marshal` fails is on unencodable types (channels, functions, etc.).
-  Since WriteMetrics only receives basic conformance metrics, this path is truly unreachable.
-  Mark it as unreachable and let the false-positive filter handle it.
-
-**Conformance binary metrics format must exactly match the Python harness expectations**
-- Boolean: `{"value": bool}` — use `GenerateBool()` not `Booleans(0.5).Generate()`
-- Float: always set both `"is_nan"` and `"is_infinite"` keys; set `"value"` to `nil` for nan/inf
-- List: `"min_element"` and `"max_element"` must be `nil` (not absent) when list is empty
-- Dict: all four key/value metrics must be `nil` (not absent) when map is empty
-- SampledFrom: values from JSON params are `float64` — convert to `int64` before passing to `MustSampledFrom`
-
-**Python test harness: run_conformance_tests requires a complete set of ConformanceTest types**
-- `run_conformance_tests` asserts that `{type(t).__name__ for t in tests} | skip_names == registered_tests`.
-  Every registered subclass of `ConformanceTest` must appear exactly once in either `tests` or `skip_tests`.
-  The 14 test instances (8 data types + 6 error handling) cover all registered classes.
-
-**Error handling conformance tests use the same binaries as data type tests**
-- `StopTestOnGenerateConformance`, `StopTestOnMarkCompleteConformance`, `ErrorResponseConformance`,
-  `EmptyTestConformance` all use `test_booleans`.
-- `StopTestOnCollectionMoreConformance` and `StopTestOnNewCollectionConformance` use `test_lists`
-  (because collection StopTest requires `collection_more`/`new_collection` commands).
-
-**`just conformance` recipe installs Python test dependencies from .venv**
-- The conformance recipe calls `uv pip install pytest pytest-subtests hypothesis` before running.
-  This is idempotent and fast on subsequent runs. Alternatively, add these to a `requirements-test.txt`.
-
-**Build conformance binaries into `bin/conformance/` — already gitignored**
-- `/bin/` is already in `.gitignore`, so compiled conformance binaries don't pollute the repo.
-- The `build-conformance` recipe iterates `cmd/conformance/*/` and builds each into `bin/conformance/<name>`.
-
-### Stage 9: Documentation, Examples, and Polish
-
-**Package doc comment must reference the real public API**
-- The initial `hegel.go` package comment referenced `RunTest` and `Generate` (which don't exist). Always verify doc examples compile against the actual API. The correct entry points are `RunHegelTest`/`RunHegelTestE`, `GenerateBool`, `GenerateInt`, and `gen.Generate()`.
-
-**`go doc -all .` passes silently even with wrong API in doc examples**
-- The `docs` recipe (`go doc -all . > /dev/null`) does not parse or type-check code inside doc comment examples. It only checks that the package compiles and all exported symbols have doc comments. Wrong function names in examples go unnoticed. Use `go build` or `go vet` for code in `// Output:` examples.
-
-**`examples/` are standalone `package main` binaries — staticcheck checks them**
-- `staticcheck ./examples/...` runs against example programs. Watch for:
-  - `S1002`: redundant bool comparisons (`b != true`, `b != false` → `!b`, `b`)
-  - `SA4013`: double negation (`!!b`)
-  - `SA1019`: deprecated functions (e.g. `strings.Title` deprecated since Go 1.18)
-- Replace deprecated functions with non-deprecated equivalents (`strings.ToUpper`, etc.)
-
-**Examples are not covered by `go test` — `-coverpkg` already excludes them**
-- The `-coverpkg=github.com/antithesishq/hegel-go` flag restricts coverage to the library package. Examples under `examples/` (also `package main`) don't appear in coverage profiles. No special handling needed.
-
-**`docs/getting-started.md` is a Markdown file, not a Go doc page**
-- The `docs` recipe only checks Go source doc comments. A `docs/` directory with Markdown files doesn't affect `just docs`. This is intentional: the getting-started tutorial is human-readable prose, not API reference.
-
-**staticcheck runs on `./examples/...` only if listed explicitly**
-- The justfile `lint` recipe runs `staticcheck ./...` which includes `examples/`. Make sure all example programs pass staticcheck before committing, or they'll fail `just check`.
-
-### Stage 10: Good Taste Audit
-
-**Duplicate package doc comment in runner.go**
-- Go allows only one `// Package hegel ...` doc comment per package. Having them in both `hegel.go` and `runner.go` is confusing — only `hegel.go` should have the canonical package doc. Other files should have just `package hegel`.
-
-**Hand-rolled stdlib equivalents**
-- `isHegelFrame` used manual length check + slice comparison instead of `strings.HasPrefix`.
-- `isEOFLike` used `==` instead of `errors.Is` for sentinel error comparison.
-- `SendHandshakeVersion` used manual prefix check instead of `strings.HasPrefix`/`strings.TrimPrefix`.
-- Always prefer stdlib functions: they're clearer, handle edge cases, and signal intent.
-
-**Dead code: `extractOrigin` and `SendRequest`**
-- `extractOrigin(err, file, line)` was never called from production code — only from tests written to cover it. Remove both the function and its tests.
-- `SendRequest` was a trivial alias for `SendRequestRaw` with a misleading doc comment ("CBOR-encoded" but it doesn't encode). Remove the alias; callers should use `SendRequestRaw` directly.
-
-**Doc comment accuracy**
-- `DecodeCBOR` referenced a nonexistent `DecodePayload` function.
-- `RunHegelTest` used snake_case `test_cases` in its doc comment; Go convention uses camelCase or natural language.
-- `extractPanicOrigin` doc mentioned a "skip parameter" that doesn't exist.
-
-**British vs American spelling**
-- `serialises` in a comment should be `serializes` (Go community convention is American English).
-
-### Stage 10 (bug fix): Suppress hegel stderr for HEGEL_PROTOCOL_TEST_MODE sessions
-
-**Problem: test-mode hegel crashes emit tracebacks to stderr**
-- When `HEGEL_PROTOCOL_TEST_MODE=error_response` is set and the SDK sends `start_span` before `generate` (e.g. `CompositeOneOfGenerator`), the hegel server's `_mode_error_response` handler crashes with an `AssertionError` because it asserts the first command is `generate`.
-- This crash writes a full Python traceback to stderr. Validation systems that monitor test output for error strings will incorrectly flag this as a test failure, even though the Go test itself passes.
-- Similarly, other `HEGEL_PROTOCOL_TEST_MODE` sessions may print "Aborted!" when the server exits non-cleanly.
-
-**Fix: `suppressStderr bool` field on `hegelSession`**
-- Added `suppressStderr bool` to `hegelSession`. When true, `cmd.Stderr = io.Discard` instead of `cmd.Stderr = os.Stderr`.
-- In `RunHegelTestE`, set `s.suppressStderr = true` on the temporary test-mode session before calling `s.start()`.
-- The global session keeps `suppressStderr = false` (stderr visible for production debugging).
-- This eliminates all spurious Python tracebacks and "Aborted!" lines from test-mode runs.
-
-### Stage 11 (gen-tuples): Tuples2, Tuples3, Tuples4
-
-**Tuples were already fully implemented in generators.go**
-- `Tuples2`, `Tuples3`, `Tuples4`, `tupleBasic`, and `CompositeTupleGenerator` were all present from a
-  previous stage. Similarly, all unit tests and e2e tests were already in `generators_test.go` and
-  `showcase_test.go`. No new generator code or tests needed to be written.
-
-**Protocol field name bug: `"channel_id"` vs `"channel"`**
-- The `run_test` command sends the test channel ID to the server. The correct wire-protocol field name
-  is `"channel"`, NOT `"channel_id"`. The working directory had a regression where `runner.go` was
-  using `"channel_id"` in four places:
-  1. Sending `run_test` request: `"channel_id": int64(testCh.ChannelID())`
-  2. Reading `test_case` event channel: `msg[any("channel_id")]`
-  3. Reading final case channel (single): `msg[any("channel_id")]`
-  4. Reading final case channel (multi): `msg[any("channel_id")]`
-- This caused `serverConn.ConnectChannel(uint32(chID), ...)` to receive `chID=0` (zero value from
-  failed ExtractInt), causing it to fail since channel 0 is the control channel. The result was a
-  nil `*Channel` and a nil-pointer panic in tests.
-- **Fix**: Replace all `"channel_id"` with `"channel"` in `runner.go` and in all test mocks that
-  simulate the server (`runner_test.go`, `dicts_test.go`, `generators_test.go`, `filter_test.go`,
-  `lists_test.go`, `oneof_test.go`).
-- **Lesson**: Unit test mocks that manually build server messages are fragile — any protocol field
-  rename silently breaks them. Always cross-check field names against the reference implementation.
-
-### Stage gen-dicts: Dicts Generator
-
-**`go test ./...` appends stray lines to `-coverprofile` output**
-- When `go test ./...` runs multiple packages (some with no test files), Go can append stray numeric
-  output (e.g. `5\n`) to the `-coverprofile=coverage.out` file. This causes `go tool cover -func=coverage.out`
-  to fail with: `cover: line "5" doesn't match expected format: couldn't find a   before Count`.
-- **Fix**: In `check-coverage.py`, call `sanitize_coverage(input, output)` to write a cleaned copy
-  of the profile (only lines matching the expected format), then pass the cleaned file to `go tool cover`.
-- Add `coverage.sanitized.out` to `.gitignore`.
-
-**Stale test cache causes flaky-seeming failures**
-- If a prior test run panicked (e.g. from a cached broken build), `go test` may replay the cached
-  failure on subsequent runs without actually re-running the test binary. This gives false failures.
-- **Fix**: Run `go clean -testcache` before investigating apparent test failures, especially ones that
-  run in <1s when they should take 30s+.
-
-### Stage 5: Generator Infrastructure
-
-**Generator infrastructure was already fully implemented**
-- The Generator interface, BasicGenerator, MappedGenerator, FilteredGenerator, FlatMappedGenerator,
-  StartSpan/StopSpan/Group/DiscardableGroup, and the full Collection protocol (NewCollection,
-  More, Reject) were all already present in generators.go from earlier stages.
-- generators_test.go already contained 2392 lines of tests covering all code paths.
-- `just check` passed with exit 0 (all uncovered lines identified as false positives).
-
-**BasicGenerator.Map() schema preservation — the key optimization**
-- `Map()` on a `*BasicGenerator` returns a new `*BasicGenerator` with the same schema and a composed
-  transform function. This means no matter how many `.Map()` calls are chained, only one `generate`
-  command is sent to the server.
-- `Map()` on any non-basic generator (`FilteredGenerator`, `MappedGenerator`, etc.) returns a
-  `*MappedGenerator` which wraps each call in a `start_span`/`stop_span` pair.
-
-**Span no-op pattern**
-- `StartSpan` and `StopSpan` both check `s.aborted` first and silently return if the test has been
-  aborted. This prevents sending commands to the server after a StopTest has been received.
-
-**Collection protocol — StopTest handling**
-- `NewCollection()` and `Collection.More()` check for `*RequestError` with `ErrorType == "StopTest"`
-  and call `setAborted()` + panic with `&dataExhausted{}` to unwind the test body.
-- Non-StopTest errors in collection protocol use `panic(fmt.Sprintf("hegel: unreachable: ..."))`.
-- `Collection.Reject()` and subsequent `More()` calls after `finished=true` are no-ops (no network).
+- Path 1 (all basic, all identity): simple `{"one_of": [...]}` schema.
+- Path 2 (all basic, some transforms): tagged-tuple schema with dispatch.
+- Path 3 (any non-basic): `*CompositeOneOfGenerator` with span wrapping.
