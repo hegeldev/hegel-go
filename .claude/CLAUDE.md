@@ -435,3 +435,29 @@ decisions made and why, things that would have saved time to know up front)*
   failure on subsequent runs without actually re-running the test binary. This gives false failures.
 - **Fix**: Run `go clean -testcache` before investigating apparent test failures, especially ones that
   run in <1s when they should take 30s+.
+
+### Stage 5: Generator Infrastructure
+
+**Generator infrastructure was already fully implemented**
+- The Generator interface, BasicGenerator, MappedGenerator, FilteredGenerator, FlatMappedGenerator,
+  StartSpan/StopSpan/Group/DiscardableGroup, and the full Collection protocol (NewCollection,
+  More, Reject) were all already present in generators.go from earlier stages.
+- generators_test.go already contained 2392 lines of tests covering all code paths.
+- `just check` passed with exit 0 (all uncovered lines identified as false positives).
+
+**BasicGenerator.Map() schema preservation — the key optimization**
+- `Map()` on a `*BasicGenerator` returns a new `*BasicGenerator` with the same schema and a composed
+  transform function. This means no matter how many `.Map()` calls are chained, only one `generate`
+  command is sent to the server.
+- `Map()` on any non-basic generator (`FilteredGenerator`, `MappedGenerator`, etc.) returns a
+  `*MappedGenerator` which wraps each call in a `start_span`/`stop_span` pair.
+
+**Span no-op pattern**
+- `StartSpan` and `StopSpan` both check `s.aborted` first and silently return if the test has been
+  aborted. This prevents sending commands to the server after a StopTest has been received.
+
+**Collection protocol — StopTest handling**
+- `NewCollection()` and `Collection.More()` check for `*RequestError` with `ErrorType == "StopTest"`
+  and call `setAborted()` + panic with `&dataExhausted{}` to unwind the test body.
+- Non-StopTest errors in collection protocol use `panic(fmt.Sprintf("hegel: unreachable: ..."))`.
+- `Collection.Reject()` and subsequent `More()` calls after `finished=true` are no-ops (no network).
