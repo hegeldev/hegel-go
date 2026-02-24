@@ -40,8 +40,8 @@ import (
 
 func TestAddCommutative(t *testing.T) {
     hegel.RunHegelTest("add_commutative", func() {
-        a := hegel.GenerateInt(-1000, 1000)
-        b := hegel.GenerateInt(-1000, 1000)
+        a, _ := hegel.ExtractInt(hegel.Integers(-1000, 1000).Generate())
+        b, _ := hegel.ExtractInt(hegel.Integers(-1000, 1000).Generate())
         if a+b != b+a {
             panic("addition is not commutative!")
         }
@@ -61,14 +61,6 @@ and report the minimal counterexample if it finds one.
 | `RunHegelTest(name, fn, opts...)` | Run a property test; panic on failure |
 | `RunHegelTestE(name, fn, opts...)` | Run a property test; return error on failure |
 | `WithTestCases(n)` | Option: set number of test cases (default 100) |
-
-### Generating values (inside test body)
-
-| Function | Description |
-|---|---|
-| `GenerateBool()` | Generate a boolean |
-| `GenerateInt(min, max)` | Generate an integer in [min, max] |
-| `gen.Generate()` | Generate a value from any [Generator] |
 
 ### Generators
 

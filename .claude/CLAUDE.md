@@ -142,7 +142,7 @@ Failing to handle StopTest correctly causes `FlakyStrategyDefinition` errors.
 
 ### Protocol field names
 
-- The `run_test` command and server responses use `"channel_id"` for the test channel ID.
+- The `run_test` command and server responses use `"channel"` for the test channel ID.
 - Always cross-check field names against the published hegel-core server.
 
 ### Generator optimization

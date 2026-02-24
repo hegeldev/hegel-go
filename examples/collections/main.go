@@ -131,7 +131,7 @@ func main() {
 
 	// Property 8: dependent generation — list length matches a generated count.
 	hegel.RunHegelTest("list_length_matches_count", func() {
-		count := hegel.GenerateInt(1, 8)
+		count, _ := hegel.ExtractInt(hegel.Integers(1, 8).Generate())
 		lst := hegel.Lists(
 			hegel.IntegersUnbounded(),
 			hegel.ListsOptions{MinSize: int(count), MaxSize: int(count)},

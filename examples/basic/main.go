@@ -1,8 +1,8 @@
 // basic demonstrates property testing with primitive generators in Hegel.
 //
 // It tests three simple mathematical properties — commutativity of addition,
-// identity element of multiplication, and integer bounds — using GenerateInt
-// and GenerateBool. Run it with: go run ./examples/basic
+// identity element of multiplication, and integer bounds — using the Integers
+// and Booleans generators. Run it with: go run ./examples/basic
 package main
 
 import (
@@ -14,8 +14,8 @@ import (
 func main() {
 	// Property 1: addition is commutative.
 	hegel.RunHegelTest("add_commutative", func() {
-		a := hegel.GenerateInt(-1_000_000, 1_000_000)
-		b := hegel.GenerateInt(-1_000_000, 1_000_000)
+		a, _ := hegel.ExtractInt(hegel.Integers(-1_000_000, 1_000_000).Generate())
+		b, _ := hegel.ExtractInt(hegel.Integers(-1_000_000, 1_000_000).Generate())
 		if a+b != b+a {
 			panic(fmt.Sprintf("add not commutative: %d + %d ≠ %d + %d", a, b, b, a))
 		}
@@ -24,7 +24,7 @@ func main() {
 
 	// Property 2: multiplying by one is identity.
 	hegel.RunHegelTest("mul_identity", func() {
-		n := hegel.GenerateInt(-1_000_000, 1_000_000)
+		n, _ := hegel.ExtractInt(hegel.Integers(-1_000_000, 1_000_000).Generate())
 		if n*1 != n {
 			panic(fmt.Sprintf("n*1 != n: %d", n))
 		}
@@ -34,7 +34,7 @@ func main() {
 	// Property 3: integer bounds are respected.
 	const lo, hi = -500, 500
 	hegel.RunHegelTest("integer_bounds", func() {
-		n := hegel.GenerateInt(lo, hi)
+		n, _ := hegel.ExtractInt(hegel.Integers(lo, hi).Generate())
 		if n < lo || n > hi {
 			panic(fmt.Sprintf("out of range: %d ∉ [%d, %d]", n, lo, hi))
 		}
@@ -43,7 +43,7 @@ func main() {
 
 	// Property 4: OR with false is identity (b || false == b).
 	hegel.RunHegelTest("bool_or_false", func() {
-		b := hegel.GenerateBool()
+		b := hegel.Booleans(0.5).Generate().(bool)
 		//nolint:gosimple // property test: explicitly checking the identity law
 		if (b || false) != b {
 			panic(fmt.Sprintf("b || false != b for b=%v", b))
@@ -53,8 +53,8 @@ func main() {
 
 	// Property 5: Assume filters out unwanted cases.
 	hegel.RunHegelTest("division_remainder", func() {
-		n := hegel.GenerateInt(-1000, 1000)
-		d := hegel.GenerateInt(-1000, 1000)
+		n, _ := hegel.ExtractInt(hegel.Integers(-1000, 1000).Generate())
+		d, _ := hegel.ExtractInt(hegel.Integers(-1000, 1000).Generate())
 		hegel.Assume(d != 0)
 		// Euclidean division invariant.
 		q, r := n/d, n%d
