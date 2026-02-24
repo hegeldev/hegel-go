@@ -1,12 +1,16 @@
 // test_lists is a conformance binary for list generation.
 // It parses JSON params from argv[1] (min_size, max_size, min_value, max_value)
 // and writes list metrics (size, min_element, max_element).
+//
+// When HEGEL_PROTOCOL_TEST_MODE contains "collection", the element generator
+// is wrapped with a no-op Filter to force the collection protocol path.
 package main
 
 import (
 	"encoding/json"
 	"math"
 	"os"
+	"strings"
 
 	hegel "github.com/antithesishq/hegel-go"
 )
@@ -47,7 +51,18 @@ func main() {
 		}
 	}
 
-	elemGen := hegel.IntegersFrom(minValPtr, maxValPtr)
+	var elemGen hegel.Generator
+	elemGen = hegel.IntegersFrom(minValPtr, maxValPtr)
+
+	// When running collection StopTest modes, force the collection protocol
+	// by wrapping the element generator with a no-op Filter. This makes it
+	// non-basic, so Lists uses new_collection/collection_more instead of a
+	// single generate command with a list schema.
+	testMode := os.Getenv("HEGEL_PROTOCOL_TEST_MODE")
+	if strings.Contains(testMode, "collection") {
+		elemGen = elemGen.Filter(func(any) bool { return true })
+	}
+
 	opts := hegel.ListsOptions{
 		MinSize: minSize,
 		MaxSize: maxSize,
