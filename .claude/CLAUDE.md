@@ -189,8 +189,8 @@ decisions made and why, things that would have saved time to know up front)*
 
 ### Stage 4: Test Runner and Test Lifecycle
 
-**HEGEL_PROTOCOL_TEST_MODE, not HEGEL_TEST_MODE**
-- The correct env var for activating the hegel test server's error injection modes is `HEGEL_PROTOCOL_TEST_MODE`. The documentation previously said `HEGEL_TEST_MODE` but the actual binary uses the longer form. Always double-check env var names against the source (`hegel/__main__.py`).
+**HEGEL_PROTOCOL_TEST_MODE, not HEGEL_PROTOCOL_TEST_MODE**
+- The correct env var for activating the hegel test server's error injection modes is `HEGEL_PROTOCOL_TEST_MODE`. The documentation previously said `HEGEL_PROTOCOL_TEST_MODE` but the actual binary uses the longer form. Always double-check env var names against the source (`hegel/__main__.py`).
 
 **`SendReplyValue` already wraps — do not double-wrap**
 - `ch.SendReplyValue(msgID, v)` encodes `{"result": v}` internally. Test code that calls `SendReplyValue(msgID, map[string]any{"result": v})` will produce `{"result": {"result": v}}` — a double-wrap. The client's decoder extracts `result` and gets a dict instead of the expected type, causing confusing type-assertion failures downstream. Always pass the raw value: `SendReplyValue(msgID, true)`, `SendReplyValue(msgID, int64(42))`.
