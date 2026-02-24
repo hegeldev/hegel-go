@@ -1,7 +1,6 @@
 package hegel
 
 import (
-	"bytes"
 	"encoding/json"
 	"fmt"
 	"os"
@@ -38,13 +37,6 @@ func WriteMetrics(metrics map[string]any) {
 	if err != nil {
 		panic(fmt.Sprintf("hegel: unreachable: WriteMetrics marshal: %v", err))
 	}
-	// Escape Unicode line terminators that json.Marshal leaves unescaped.
-	// Python's str.splitlines() treats U+0085 (NEL), U+2028 (LS), and
-	// U+2029 (PS) as line boundaries, which splits a JSONL line if these
-	// appear inside a JSON string value.
-	data = bytes.ReplaceAll(data, []byte("\xc2\x85"), []byte(`\u0085`))
-	data = bytes.ReplaceAll(data, []byte("\xe2\x80\xa8"), []byte(`\u2028`))
-	data = bytes.ReplaceAll(data, []byte("\xe2\x80\xa9"), []byte(`\u2029`))
 	conformanceMetricsMu.Lock()
 	defer conformanceMetricsMu.Unlock()
 	f, err := os.OpenFile(path, os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0644)
