@@ -248,14 +248,14 @@ func TestDictsBasicGenerateHappyPath(t *testing.T) {
 		msgID, payload, _ := ctrl.RecvRequestRaw(5 * time.Second)
 		decoded, _ := DecodeCBOR(payload)
 		m, _ := ExtractDict(decoded)
-		chID, _ := ExtractInt(m[any("channel")])
+		chID, _ := ExtractInt(m[any("channel_id")])
 		ctrl.SendReplyValue(msgID, true) //nolint:errcheck
 
 		testCh, _ := serverConn.ConnectChannel(uint32(chID), "TestCh")
 		caseCh := serverConn.NewChannel("Case")
 		casePayload, _ := EncodeCBOR(map[string]any{
 			"event":    "test_case",
-			"channel":  int64(caseCh.ChannelID()),
+			"channel_id":  int64(caseCh.ChannelID()),
 			"is_final": false,
 		})
 		caseID, _ := testCh.SendRequestRaw(casePayload)
@@ -310,14 +310,14 @@ func TestDictsBasicWithTransforms(t *testing.T) {
 		msgID, payload, _ := ctrl.RecvRequestRaw(5 * time.Second)
 		decoded, _ := DecodeCBOR(payload)
 		m, _ := ExtractDict(decoded)
-		chID, _ := ExtractInt(m[any("channel")])
+		chID, _ := ExtractInt(m[any("channel_id")])
 		ctrl.SendReplyValue(msgID, true) //nolint:errcheck
 
 		testCh, _ := serverConn.ConnectChannel(uint32(chID), "TestCh")
 		caseCh := serverConn.NewChannel("Case")
 		casePayload, _ := EncodeCBOR(map[string]any{
 			"event":    "test_case",
-			"channel":  int64(caseCh.ChannelID()),
+			"channel_id":  int64(caseCh.ChannelID()),
 			"is_final": false,
 		})
 		caseID, _ := testCh.SendRequestRaw(casePayload)
@@ -383,14 +383,14 @@ func TestDictsCompositeGenerateHappyPath(t *testing.T) {
 		msgID, payload, _ := ctrl.RecvRequestRaw(5 * time.Second)
 		decoded, _ := DecodeCBOR(payload)
 		m, _ := ExtractDict(decoded)
-		chID, _ := ExtractInt(m[any("channel")])
+		chID, _ := ExtractInt(m[any("channel_id")])
 		ctrl.SendReplyValue(msgID, true) //nolint:errcheck
 
 		testCh, _ := serverConn.ConnectChannel(uint32(chID), "TestCh")
 		caseCh := serverConn.NewChannel("Case")
 		casePayload, _ := EncodeCBOR(map[string]any{
 			"event":    "test_case",
-			"channel":  int64(caseCh.ChannelID()),
+			"channel_id":  int64(caseCh.ChannelID()),
 			"is_final": false,
 		})
 		caseID, _ := testCh.SendRequestRaw(casePayload)
@@ -486,14 +486,14 @@ func TestDictsCompositeNoMaxHappyPath(t *testing.T) {
 		msgID, payload, _ := ctrl.RecvRequestRaw(5 * time.Second)
 		decoded, _ := DecodeCBOR(payload)
 		m, _ := ExtractDict(decoded)
-		chID, _ := ExtractInt(m[any("channel")])
+		chID, _ := ExtractInt(m[any("channel_id")])
 		ctrl.SendReplyValue(msgID, true) //nolint:errcheck
 
 		testCh, _ := serverConn.ConnectChannel(uint32(chID), "TestCh")
 		caseCh := serverConn.NewChannel("Case")
 		casePayload, _ := EncodeCBOR(map[string]any{
 			"event":    "test_case",
-			"channel":  int64(caseCh.ChannelID()),
+			"channel_id":  int64(caseCh.ChannelID()),
 			"is_final": false,
 		})
 		caseID, _ := testCh.SendRequestRaw(casePayload)
