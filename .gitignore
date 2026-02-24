@@ -19,6 +19,7 @@ __pycache__/
 # Build artifacts
 coverage.out
 cover_test.out
+coverage.sanitized.out
 
 # Go build cache
 /bin/

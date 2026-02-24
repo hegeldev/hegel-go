@@ -395,3 +395,43 @@ decisions made and why, things that would have saved time to know up front)*
 - In `RunHegelTestE`, set `s.suppressStderr = true` on the temporary test-mode session before calling `s.start()`.
 - The global session keeps `suppressStderr = false` (stderr visible for production debugging).
 - This eliminates all spurious Python tracebacks and "Aborted!" lines from test-mode runs.
+
+### Stage 11 (gen-tuples): Tuples2, Tuples3, Tuples4
+
+**Tuples were already fully implemented in generators.go**
+- `Tuples2`, `Tuples3`, `Tuples4`, `tupleBasic`, and `CompositeTupleGenerator` were all present from a
+  previous stage. Similarly, all unit tests and e2e tests were already in `generators_test.go` and
+  `showcase_test.go`. No new generator code or tests needed to be written.
+
+**Protocol field name bug: `"channel_id"` vs `"channel"`**
+- The `run_test` command sends the test channel ID to the server. The correct wire-protocol field name
+  is `"channel"`, NOT `"channel_id"`. The working directory had a regression where `runner.go` was
+  using `"channel_id"` in four places:
+  1. Sending `run_test` request: `"channel_id": int64(testCh.ChannelID())`
+  2. Reading `test_case` event channel: `msg[any("channel_id")]`
+  3. Reading final case channel (single): `msg[any("channel_id")]`
+  4. Reading final case channel (multi): `msg[any("channel_id")]`
+- This caused `serverConn.ConnectChannel(uint32(chID), ...)` to receive `chID=0` (zero value from
+  failed ExtractInt), causing it to fail since channel 0 is the control channel. The result was a
+  nil `*Channel` and a nil-pointer panic in tests.
+- **Fix**: Replace all `"channel_id"` with `"channel"` in `runner.go` and in all test mocks that
+  simulate the server (`runner_test.go`, `dicts_test.go`, `generators_test.go`, `filter_test.go`,
+  `lists_test.go`, `oneof_test.go`).
+- **Lesson**: Unit test mocks that manually build server messages are fragile — any protocol field
+  rename silently breaks them. Always cross-check field names against the reference implementation.
+
+### Stage gen-dicts: Dicts Generator
+
+**`go test ./...` appends stray lines to `-coverprofile` output**
+- When `go test ./...` runs multiple packages (some with no test files), Go can append stray numeric
+  output (e.g. `5\n`) to the `-coverprofile=coverage.out` file. This causes `go tool cover -func=coverage.out`
+  to fail with: `cover: line "5" doesn't match expected format: couldn't find a   before Count`.
+- **Fix**: In `check-coverage.py`, call `sanitize_coverage(input, output)` to write a cleaned copy
+  of the profile (only lines matching the expected format), then pass the cleaned file to `go tool cover`.
+- Add `coverage.sanitized.out` to `.gitignore`.
+
+**Stale test cache causes flaky-seeming failures**
+- If a prior test run panicked (e.g. from a cached broken build), `go test` may replay the cached
+  failure on subsequent runs without actually re-running the test binary. This gives false failures.
+- **Fix**: Run `go clean -testcache` before investigating apparent test failures, especially ones that
+  run in <1s when they should take 30s+.

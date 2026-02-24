@@ -11,9 +11,14 @@ import sys
 
 
 def main() -> int:
+    # Sanitize coverage.out: remove any lines that don't match the expected format.
+    # When 'go test ./...' runs multiple packages, stray lines (e.g. test-count
+    # output) can get appended to the coverage profile and confuse go tool cover.
+    sanitize_coverage("coverage.out", "coverage.sanitized.out")
+
     # Run go tool cover to get per-function coverage
     result = subprocess.run(
-        ["go", "tool", "cover", "-func=coverage.out"],
+        ["go", "tool", "cover", "-func=coverage.sanitized.out"],
         capture_output=True,
         text=True,
     )
@@ -37,7 +42,7 @@ def main() -> int:
 
     # If we didn't find 100%, parse the coverage profile for uncovered lines
     print("\nUncovered lines:")
-    uncovered = parse_uncovered("coverage.out")
+    uncovered = parse_uncovered("coverage.sanitized.out")
     real_uncovered = []
     for file, local_path, start_line, end_line in uncovered:
         # Filter out known false positives
@@ -52,6 +57,21 @@ def main() -> int:
 
     print("\n✅ All uncovered lines are false positives — coverage is effectively 100%")
     return 0
+
+
+def sanitize_coverage(input_path: str, output_path: str) -> None:
+    """Write a sanitized copy of the Go coverage profile, removing malformed lines.
+
+    Go's 'go test ./...' sometimes appends stray lines (e.g. test-count output)
+    to the coverage profile. This function copies only valid lines (mode header
+    and properly-formatted coverage entries) to a new file.
+    """
+    valid_line = re.compile(r".+:\d+\.\d+,\d+\.\d+\s+\d+\s+\d+")
+    with open(input_path) as fin, open(output_path, "w") as fout:
+        for line in fin:
+            stripped = line.strip()
+            if stripped.startswith("mode:") or valid_line.match(stripped):
+                fout.write(line)
 
 
 def parse_uncovered(profile_path: str) -> list[tuple[str, str, int, int]]:
