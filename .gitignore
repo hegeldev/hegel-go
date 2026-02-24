@@ -1,17 +1,42 @@
+# Virtual environment
+.venv/
+
+# Test databases (created by hegel/hypothesis during test runs)
+.hegel/
+.hypothesis/
+
+# Python bytecode (from coverage scripts and conformance tests)
+__pycache__/
+*.pyc
+
+# Claude Code transient files
+.claude/plan.md
+.claude/settings.local.json
+
+# Hegelator metadata
+.hegelator/
+
+# Build artifacts
+coverage.out
+cover_test.out
+coverage.sanitized.out
+*.test
+*.out
+
+# Go build cache and binaries
+/bin/
 *.exe
 *.exe~
 *.dll
 *.so
 *.dylib
-*.test
-*.out
+
+# Go workspace
 go.work
 vendor/
+
+# Editor/IDE directories
 .idea/
 .vscode/
+*.iml
 .DS_Store
-.hegel/
-.hypothesis/
-.claude/settings.local.json
-__pycache__
-bin/

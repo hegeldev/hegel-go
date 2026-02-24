@@ -6,69 +6,54 @@ on:
   pull_request:
     branches: [main]
 
-# Cancel in-progress PR builds if another commit is pushed.
-# On non-PR builds, fall back to the globally-unique run_id and don't cancel.
 concurrency:
   group: ${{ github.workflow }}-${{ github.head_ref || github.run_id }}
   cancel-in-progress: true
 
 jobs:
-  format:
-    name: format
+  check:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
-      - uses: actions/setup-go@v5
-        with:
-          go-version: '1.22'
-      - name: format
-        run: |
-          go fmt ./...
-          git diff --exit-code
 
-  test:
-    name: test
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v4
       - uses: ./.github/actions/base
         with:
           ssh-key: ${{ secrets.HEGEL_DEPLOY_KEY }}
+
+      - uses: extractions/setup-just@v2
+      - uses: astral-sh/setup-uv@v6
+
       - uses: actions/setup-go@v5
         with:
-          go-version: '1.22'
-      - run: go test ./...
+          go-version: '1.23'
+
+      - name: Install Go tools
+        run: |
+          go install honnef.co/go/tools/cmd/staticcheck@latest
+
+      - run: just setup
+      - run: just check
 
   conformance:
-    name: conformance
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
+
       - uses: ./.github/actions/base
         with:
           ssh-key: ${{ secrets.HEGEL_DEPLOY_KEY }}
-      - uses: actions/setup-go@v5
-        with:
-          go-version: '1.22'
+
+      - uses: extractions/setup-just@v2
+      - uses: astral-sh/setup-uv@v6
+
       - uses: actions/setup-python@v5
         with:
-          python-version: '3.13'
-      - name: Install hegel
-        run: |
-          pip install git+ssh://git@github.com/antithesishq/hegel.git
-          pip install pytest
-      - name: Build conformance binaries
-        working-directory: tests/conformance/go
-        run: |
-          mkdir -p bin
-          go build -o bin/test_booleans ./cmd/test_booleans
-          go build -o bin/test_integers ./cmd/test_integers
-          go build -o bin/test_floats ./cmd/test_floats
-          go build -o bin/test_text ./cmd/test_text
-          go build -o bin/test_binary ./cmd/test_binary
-          go build -o bin/test_lists ./cmd/test_lists
-          go build -o bin/test_sampled_from ./cmd/test_sampled_from
-          go build -o bin/test_hashmaps ./cmd/test_hashmaps
-      - name: Run conformance tests
-        working-directory: tests/conformance
-        run: pytest test_conformance.py --durations=20 --durations-min=1.0
+          python-version: "3.13"
+
+      - uses: actions/setup-go@v5
+        with:
+          go-version: '1.23'
+
+      - run: just setup
+      - run: pip install pytest
+      - run: just conformance

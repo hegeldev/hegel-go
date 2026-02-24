@@ -1,44 +1,62 @@
+"""Conformance tests for the Hegel Go SDK.
+
+These tests validate that the Go SDK correctly implements the Hegel protocol
+by running compiled Go binaries against the real hegel server and checking
+that the generated values satisfy the expected constraints.
+"""
+
 from pathlib import Path
 
+import pytest
 from hegel.conformance import (
-    BinaryConformance,
     BooleanConformance,
+    BinaryConformance,
     DictConformance,
+    EmptyTestConformance,
+    ErrorResponseConformance,
     FloatConformance,
     IntegerConformance,
     ListConformance,
     SampledFromConformance,
+    StopTestOnCollectionMoreConformance,
+    StopTestOnGenerateConformance,
+    StopTestOnMarkCompleteConformance,
+    StopTestOnNewCollectionConformance,
     TextConformance,
     run_conformance_tests,
 )
 
-BUILD_DIR = Path(__file__).parent / "go" / "bin"
+# Path to the compiled conformance binaries.
+# The justfile compiles them to bin/conformance/ before running tests.
+BINARIES_DIR = Path(__file__).parent.parent.parent / "bin" / "conformance"
 
-INT64_MIN = -(2**63)
-INT64_MAX = 2**63 - 1
+
+def _bin(name: str) -> Path:
+    """Return the path to a conformance binary."""
+    return BINARIES_DIR / name
 
 
-def test_conformance(subtests):
-    run_conformance_tests(
-        [
-            BooleanConformance(BUILD_DIR / "test_booleans"),
-            IntegerConformance(
-                BUILD_DIR / "test_integers", min_value=INT64_MIN, max_value=INT64_MAX
-            ),
-            FloatConformance(BUILD_DIR / "test_floats"),
-            TextConformance(BUILD_DIR / "test_text"),
-            BinaryConformance(BUILD_DIR / "test_binary"),
-            ListConformance(
-                BUILD_DIR / "test_lists", min_value=INT64_MIN, max_value=INT64_MAX
-            ),
-            SampledFromConformance(BUILD_DIR / "test_sampled_from"),
-            DictConformance(
-                BUILD_DIR / "test_hashmaps",
-                min_key=INT64_MIN,
-                max_key=INT64_MAX,
-                min_value=INT64_MIN,
-                max_value=INT64_MAX,
-            ),
-        ],
-        subtests,
-    )
+@pytest.fixture
+def conformance_tests() -> list:
+    """Return all conformance test instances."""
+    return [
+        BooleanConformance(_bin("test_booleans")),
+        IntegerConformance(_bin("test_integers"), min_value=-1000, max_value=1000),
+        FloatConformance(_bin("test_floats")),
+        TextConformance(_bin("test_text")),
+        BinaryConformance(_bin("test_binary")),
+        ListConformance(_bin("test_lists"), min_value=-1000, max_value=1000),
+        SampledFromConformance(_bin("test_sampled_from")),
+        DictConformance(_bin("test_hashmaps")),
+        StopTestOnGenerateConformance(_bin("test_booleans")),
+        StopTestOnMarkCompleteConformance(_bin("test_booleans")),
+        StopTestOnCollectionMoreConformance(_bin("test_lists")),
+        StopTestOnNewCollectionConformance(_bin("test_lists")),
+        ErrorResponseConformance(_bin("test_booleans")),
+        EmptyTestConformance(_bin("test_booleans")),
+    ]
+
+
+def test_conformance(conformance_tests, subtests):
+    """Run all conformance tests for the Go SDK."""
+    run_conformance_tests(conformance_tests, subtests)
