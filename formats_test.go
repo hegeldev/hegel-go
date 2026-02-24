@@ -43,7 +43,7 @@ func TestURLsSchema(t *testing.T) {
 	}
 }
 
-// TestDomainsSchemaNoMaxLength verifies that Domains() with no max_length omits it.
+// TestDomainsSchemaNoMaxLength verifies that Domains() with no MaxLength uses the default (255).
 func TestDomainsSchemaNoMaxLength(t *testing.T) {
 	g := Domains(DomainOptions{})
 	bg, ok := g.(*BasicGenerator)
@@ -53,8 +53,13 @@ func TestDomainsSchemaNoMaxLength(t *testing.T) {
 	if bg.schema["type"] != "domain" {
 		t.Errorf("type: expected domain, got %v", bg.schema["type"])
 	}
-	if _, hasMax := bg.schema["max_length"]; hasMax {
-		t.Error("max_length should not be present when MaxLength is 0")
+	maxLen, hasMax := bg.schema["max_length"]
+	if !hasMax {
+		t.Fatal("max_length should always be present in domain schema")
+	}
+	ml, _ := ExtractInt(maxLen)
+	if ml != 255 {
+		t.Errorf("default max_length: expected 255, got %d", ml)
 	}
 }
 
@@ -187,14 +192,19 @@ func TestDatetimesGeneratesCorrectSchema(t *testing.T) {
 	}
 }
 
-// TestDomainsGeneratesCorrectSchemaNoMax checks the wire schema for Domains() with no max_length.
+// TestDomainsGeneratesCorrectSchemaNoMax checks the wire schema for Domains() with default max_length.
 func TestDomainsGeneratesCorrectSchemaNoMax(t *testing.T) {
 	schema := testGeneratorSchema(t, Domains(DomainOptions{}))
 	if schema[any("type")] != "domain" {
 		t.Errorf("generate schema type: expected domain, got %v", schema[any("type")])
 	}
-	if _, hasMax := schema[any("max_length")]; hasMax {
-		t.Error("max_length should not be in schema when MaxLength is 0")
+	maxLen, hasMax := schema[any("max_length")]
+	if !hasMax {
+		t.Fatal("max_length should always be in domain schema")
+	}
+	ml, _ := ExtractInt(maxLen)
+	if ml != 255 {
+		t.Errorf("default max_length: expected 255, got %d", ml)
 	}
 }
 

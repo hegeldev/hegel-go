@@ -400,18 +400,25 @@ func URLs() Generator {
 // DomainOptions holds options for the Domains generator.
 type DomainOptions struct {
 	// MaxLength is the maximum length of the domain name.
-	// Zero means no maximum length constraint.
+	// Zero means use the default maximum length (255, matching RFC 1035).
 	MaxLength int
 }
 
+// defaultDomainMaxLength is the default maximum domain name length per RFC 1035,
+// matching hypothesis's default for domains().
+const defaultDomainMaxLength = 255
+
 // Domains returns a Generator that produces domain name strings.
 // If opts.MaxLength > 0, generated domains will not exceed that length.
+// Otherwise, the default maximum length of 255 is used.
 func Domains(opts DomainOptions) Generator {
-	schema := map[string]any{
-		"type": "domain",
+	maxLen := opts.MaxLength
+	if maxLen <= 0 {
+		maxLen = defaultDomainMaxLength
 	}
-	if opts.MaxLength > 0 {
-		schema["max_length"] = int64(opts.MaxLength)
+	schema := map[string]any{
+		"type":       "domain",
+		"max_length": int64(maxLen),
 	}
 	return &BasicGenerator{schema: schema}
 }
