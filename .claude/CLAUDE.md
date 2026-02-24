@@ -382,3 +382,16 @@ decisions made and why, things that would have saved time to know up front)*
 
 **British vs American spelling**
 - `serialises` in a comment should be `serializes` (Go community convention is American English).
+
+### Stage 10 (bug fix): Suppress hegel stderr for HEGEL_PROTOCOL_TEST_MODE sessions
+
+**Problem: test-mode hegel crashes emit tracebacks to stderr**
+- When `HEGEL_PROTOCOL_TEST_MODE=error_response` is set and the SDK sends `start_span` before `generate` (e.g. `CompositeOneOfGenerator`), the hegel server's `_mode_error_response` handler crashes with an `AssertionError` because it asserts the first command is `generate`.
+- This crash writes a full Python traceback to stderr. Validation systems that monitor test output for error strings will incorrectly flag this as a test failure, even though the Go test itself passes.
+- Similarly, other `HEGEL_PROTOCOL_TEST_MODE` sessions may print "Aborted!" when the server exits non-cleanly.
+
+**Fix: `suppressStderr bool` field on `hegelSession`**
+- Added `suppressStderr bool` to `hegelSession`. When true, `cmd.Stderr = io.Discard` instead of `cmd.Stderr = os.Stderr`.
+- In `RunHegelTestE`, set `s.suppressStderr = true` on the temporary test-mode session before calling `s.start()`.
+- The global session keeps `suppressStderr = false` (stderr visible for production debugging).
+- This eliminates all spurious Python tracebacks and "Aborted!" lines from test-mode runs.

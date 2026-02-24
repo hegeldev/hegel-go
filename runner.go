@@ -2,6 +2,7 @@ package hegel
 
 import (
 	"fmt"
+	"io"
 	"net"
 	"os"
 	"os/exec"
@@ -235,8 +236,10 @@ func RunHegelTestE(name string, fn func(), opts ...Option) error {
 
 	// If HEGEL_PROTOCOL_TEST_MODE is set, use a temporary single-use session
 	// so the test server gets a fresh subprocess with the right env var.
+	// The test-mode server intentionally crashes for error injection, so suppress its stderr.
 	if os.Getenv("HEGEL_PROTOCOL_TEST_MODE") != "" {
 		s := newHegelSession()
+		s.suppressStderr = true
 		defer s.cleanup()
 		if err := s.start(); err != nil {
 			return fmt.Errorf("hegel: session start: %w", err)
@@ -499,13 +502,14 @@ func (c *client) runTestCase(ch *Channel, fn func(), isFinal bool) (finalErr err
 
 // hegelSession manages a shared hegel subprocess for the entire test suite.
 type hegelSession struct {
-	mu         sync.Mutex
-	conn       *Connection
-	cli        *client
-	process    *exec.Cmd
-	tempDir    string
-	socketPath string
-	hegelCmd   string // overridable for testing
+	mu             sync.Mutex
+	conn           *Connection
+	cli            *client
+	process        *exec.Cmd
+	tempDir        string
+	socketPath     string
+	hegelCmd       string // overridable for testing
+	suppressStderr bool   // suppress hegel subprocess stderr (used for test-mode sessions that intentionally crash)
 }
 
 // mkdirTempFn is the function used to create temp directories.
@@ -546,7 +550,11 @@ func (s *hegelSession) start() error {
 	// Spawn hegel process.
 	cmd := exec.Command(hegelBin, sockPath)
 	cmd.Stdout = os.Stderr
-	cmd.Stderr = os.Stderr
+	if s.suppressStderr {
+		cmd.Stderr = io.Discard
+	} else {
+		cmd.Stderr = os.Stderr
+	}
 	if err := cmd.Start(); err != nil {
 		os.RemoveAll(tmp) //nolint:errcheck
 		return fmt.Errorf("hegel: spawn: %w", err)
