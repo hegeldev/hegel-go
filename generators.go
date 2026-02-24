@@ -59,6 +59,11 @@ type Generator interface {
 
 	// Map returns a new generator that applies fn to each generated value.
 	Map(fn func(any) any) Generator
+
+	// Filter returns a new generator that only produces values satisfying pred.
+	// It tries up to 3 times per test case; if all attempts fail, the test case
+	// is rejected via Assume(false). The result is always non-basic.
+	Filter(pred func(any) bool) Generator
 }
 
 // --- BasicGenerator ---
@@ -86,6 +91,11 @@ func (g *BasicGenerator) Generate() any {
 
 // AsBasic returns g itself — BasicGenerator is its own basic form.
 func (g *BasicGenerator) AsBasic() *BasicGenerator { return g }
+
+// Filter returns a FilteredGenerator that only produces values satisfying pred.
+func (g *BasicGenerator) Filter(pred func(any) bool) Generator {
+	return &FilteredGenerator{source: g, predicate: pred}
+}
 
 // Map returns a new BasicGenerator with the same schema and a composed
 // transform function (preserving the single-generate-call optimisation).
@@ -125,12 +135,61 @@ func (g *MappedGenerator) Generate() any {
 // AsBasic returns nil — MappedGenerator is not a basic generator.
 func (g *MappedGenerator) AsBasic() *BasicGenerator { return nil }
 
+// Filter returns a FilteredGenerator that only produces values satisfying pred.
+func (g *MappedGenerator) Filter(pred func(any) bool) Generator {
+	return &FilteredGenerator{source: g, predicate: pred}
+}
+
 // Map returns a new MappedGenerator that composes fn with g's transform.
 func (g *MappedGenerator) Map(fn func(any) any) Generator {
 	return &MappedGenerator{
 		inner: g,
 		fn:    fn,
 	}
+}
+
+// --- FilteredGenerator ---
+
+// FilteredGenerator wraps a source generator and a predicate, retrying up to
+// maxFilterAttempts times before rejecting the test case via Assume(false).
+// Each attempt is wrapped in a discardable FILTER span so the server can
+// reclaim the data budget for failed attempts.
+type FilteredGenerator struct {
+	source    Generator
+	predicate func(any) bool
+}
+
+const maxFilterAttempts = 3
+
+// Generate tries up to maxFilterAttempts times to produce a value from source
+// that satisfies predicate. Each attempt is wrapped in a FILTER span; spans
+// for failed attempts are discarded. If all attempts fail, the test case is
+// rejected via Assume(false).
+func (g *FilteredGenerator) Generate() any {
+	for range maxFilterAttempts {
+		StartSpan(LabelFilter)
+		value := g.source.Generate()
+		if g.predicate(value) {
+			StopSpan(false)
+			return value
+		}
+		StopSpan(true)
+	}
+	Assume(false)
+	panic("hegel: unreachable: Assume(false) did not panic")
+}
+
+// AsBasic returns nil — FilteredGenerator is never a basic generator.
+func (g *FilteredGenerator) AsBasic() *BasicGenerator { return nil }
+
+// Filter returns a new FilteredGenerator composed from this one and pred.
+func (g *FilteredGenerator) Filter(pred func(any) bool) Generator {
+	return &FilteredGenerator{source: g, predicate: pred}
+}
+
+// Map returns a new MappedGenerator that applies fn to values from this generator.
+func (g *FilteredGenerator) Map(fn func(any) any) Generator {
+	return &MappedGenerator{inner: g, fn: fn}
 }
 
 // --- Span helpers ---
@@ -619,6 +678,11 @@ func (g *compositeListGenerator) Generate() any {
 // AsBasic returns nil — compositeListGenerator is not a basic generator.
 func (g *compositeListGenerator) AsBasic() *BasicGenerator { return nil }
 
+// Filter returns a FilteredGenerator that only produces values satisfying pred.
+func (g *compositeListGenerator) Filter(pred func(any) bool) Generator {
+	return &FilteredGenerator{source: g, predicate: pred}
+}
+
 // Map returns a new MappedGenerator wrapping g.
 func (g *compositeListGenerator) Map(fn func(any) any) Generator {
 	return &MappedGenerator{inner: g, fn: fn}
@@ -746,6 +810,11 @@ func (g *compositeDictGenerator) Generate() any {
 // AsBasic returns nil — compositeDictGenerator is not a basic generator.
 func (g *compositeDictGenerator) AsBasic() *BasicGenerator { return nil }
 
+// Filter returns a FilteredGenerator that only produces values satisfying pred.
+func (g *compositeDictGenerator) Filter(pred func(any) bool) Generator {
+	return &FilteredGenerator{source: g, predicate: pred}
+}
+
 // Map returns a new MappedGenerator wrapping this generator.
 func (g *compositeDictGenerator) Map(fn func(any) any) Generator {
 	return &MappedGenerator{inner: g, fn: fn}
@@ -782,6 +851,11 @@ func (g *CompositeOneOfGenerator) Generate() any {
 
 // AsBasic returns nil — CompositeOneOfGenerator is not a basic generator.
 func (g *CompositeOneOfGenerator) AsBasic() *BasicGenerator { return nil }
+
+// Filter returns a FilteredGenerator that only produces values satisfying pred.
+func (g *CompositeOneOfGenerator) Filter(pred func(any) bool) Generator {
+	return &FilteredGenerator{source: g, predicate: pred}
+}
 
 // Map returns a new MappedGenerator that applies fn to each generated value.
 func (g *CompositeOneOfGenerator) Map(fn func(any) any) Generator {
@@ -946,6 +1020,11 @@ func (g *CompositeTupleGenerator) Generate() any {
 // AsBasic returns nil — CompositeTupleGenerator is not a basic generator.
 func (g *CompositeTupleGenerator) AsBasic() *BasicGenerator { return nil }
 
+// Filter returns a FilteredGenerator that only produces values satisfying pred.
+func (g *CompositeTupleGenerator) Filter(pred func(any) bool) Generator {
+	return &FilteredGenerator{source: g, predicate: pred}
+}
+
 // Map returns a new MappedGenerator that applies fn to each generated tuple.
 func (g *CompositeTupleGenerator) Map(fn func(any) any) Generator {
 	return &MappedGenerator{inner: g, fn: fn}
@@ -1017,6 +1096,49 @@ func Tuples3(g1, g2, g3 Generator) Generator {
 		return tupleBasic([]*BasicGenerator{b1, b2, b3})
 	}
 	return &CompositeTupleGenerator{elements: []Generator{g1, g2, g3}}
+}
+
+// --- FlatMappedGenerator ---
+
+// FlatMappedGenerator is a generator for dependent generation.
+// It generates a value from a source generator, passes it to f, and then
+// generates from the generator returned by f. The whole operation is wrapped
+// in a FLAT_MAP span.
+type FlatMappedGenerator struct {
+	source Generator
+	f      func(any) Generator
+}
+
+// FlatMap returns a new FlatMappedGenerator that generates a value from g,
+// passes it to f, and generates from the returned generator.
+// Always non-basic — wrapped in a FLAT_MAP span (label 11).
+func FlatMap(g Generator, f func(any) Generator) Generator {
+	return &FlatMappedGenerator{source: g, f: f}
+}
+
+// Generate generates a value from the source generator, passes it to f,
+// and generates from the returned generator, all inside a FLAT_MAP span.
+func (g *FlatMappedGenerator) Generate() any {
+	var result any
+	DiscardableGroup(LabelFlatMap, func() {
+		first := g.source.Generate()
+		secondGen := g.f(first)
+		result = secondGen.Generate()
+	})
+	return result
+}
+
+// AsBasic returns nil — FlatMappedGenerator is never a basic generator.
+func (g *FlatMappedGenerator) AsBasic() *BasicGenerator { return nil }
+
+// Filter returns a FilteredGenerator that only produces values satisfying pred.
+func (g *FlatMappedGenerator) Filter(pred func(any) bool) Generator {
+	return &FilteredGenerator{source: g, predicate: pred}
+}
+
+// Map returns a new MappedGenerator that applies fn to each generated value.
+func (g *FlatMappedGenerator) Map(fn func(any) any) Generator {
+	return &MappedGenerator{inner: g, fn: fn}
 }
 
 // Tuples4 returns a Generator that produces 4-element tuples ([]any of length 4).

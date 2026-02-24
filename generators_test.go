@@ -1591,6 +1591,334 @@ func TestTuples2BasicOneTransformOneNil(t *testing.T) {
 // Primitive generator schema unit tests
 // =============================================================================
 
+// =============================================================================
+// FilteredGenerator tests
+// =============================================================================
+
+// TestFilteredGeneratorAsBasic verifies that FilteredGenerator.AsBasic returns nil.
+func TestFilteredGeneratorAsBasic(t *testing.T) {
+	g := Integers(0, 10).Filter(func(v any) bool { return true })
+	if g.AsBasic() != nil {
+		t.Error("FilteredGenerator.AsBasic() should return nil")
+	}
+}
+
+// TestFilteredGeneratorFromBasicIsNotBasic verifies that Filter on a BasicGenerator
+// returns a FilteredGenerator (not a BasicGenerator).
+func TestFilteredGeneratorFromBasicIsNotBasic(t *testing.T) {
+	g := Integers(0, 100).Filter(func(v any) bool { return true })
+	if _, ok := g.(*FilteredGenerator); !ok {
+		t.Fatalf("Filter on BasicGenerator should return *FilteredGenerator, got %T", g)
+	}
+}
+
+// TestFilteredGeneratorFilterMethod verifies that calling Filter on a FilteredGenerator
+// returns another FilteredGenerator.
+func TestFilteredGeneratorFilterMethod(t *testing.T) {
+	g := Integers(0, 100).
+		Filter(func(v any) bool { return true }).
+		Filter(func(v any) bool { return true })
+	if _, ok := g.(*FilteredGenerator); !ok {
+		t.Fatalf("Filter on FilteredGenerator should return *FilteredGenerator, got %T", g)
+	}
+}
+
+// TestFilteredGeneratorMapMethod verifies that calling Map on a FilteredGenerator
+// returns a MappedGenerator.
+func TestFilteredGeneratorMapMethod(t *testing.T) {
+	g := Integers(0, 100).Filter(func(v any) bool { return true })
+	mapped := g.Map(func(v any) any { return v })
+	if _, ok := mapped.(*MappedGenerator); !ok {
+		t.Fatalf("Map on FilteredGenerator should return *MappedGenerator, got %T", mapped)
+	}
+}
+
+// TestFilteredGeneratorPredicatePasses verifies that when the predicate passes on the
+// first attempt, the value is returned immediately (only one FILTER span pair sent).
+func TestFilteredGeneratorPredicatePasses(t *testing.T) {
+	var gotVal int64
+	clientConn := fakeServerConn(t, func(serverConn *Connection) {
+		ctrl := serverConn.ControlChannel()
+		msgID, payload, _ := ctrl.RecvRequestRaw(5 * time.Second)
+		decoded, _ := DecodeCBOR(payload)
+		m, _ := ExtractDict(decoded)
+		chID, _ := ExtractInt(m[any("channel")])
+		ctrl.SendReplyValue(msgID, true) //nolint:errcheck
+
+		testCh, _ := serverConn.ConnectChannel(uint32(chID), "TestCh")
+		caseCh := serverConn.NewChannel("Case")
+		casePayload, _ := EncodeCBOR(map[string]any{
+			"event":    "test_case",
+			"channel":  int64(caseCh.ChannelID()),
+			"is_final": false,
+		})
+		caseID, _ := testCh.SendRequestRaw(casePayload)
+		testCh.recvResponseRaw(caseID, 5*time.Second) //nolint:errcheck
+
+		// start_span
+		ssID, _, _ := caseCh.RecvRequestRaw(5 * time.Second)
+		caseCh.SendReplyValue(ssID, nil) //nolint:errcheck
+		// generate
+		genID, _, _ := caseCh.RecvRequestRaw(5 * time.Second)
+		caseCh.SendReplyValue(genID, int64(42)) //nolint:errcheck
+		// stop_span (discard=false)
+		spID, spPayload, _ := caseCh.RecvRequestRaw(5 * time.Second)
+		decoded2, _ := DecodeCBOR(spPayload)
+		m2, _ := ExtractDict(decoded2)
+		discard, _ := m2[any("discard")].(bool)
+		if discard {
+			t.Error("stop_span should have discard=false when predicate passes")
+		}
+		caseCh.SendReplyValue(spID, nil) //nolint:errcheck
+		// mark_complete
+		mcID, _, _ := caseCh.RecvRequestRaw(5 * time.Second)
+		caseCh.SendReplyValue(mcID, nil) //nolint:errcheck
+
+		sendTestDone(t, testCh, true, 0)
+	})
+
+	cli := newClient(clientConn)
+	err := cli.runTest("filter_passes", func() {
+		g := &FilteredGenerator{
+			source:    &BasicGenerator{schema: map[string]any{"type": "integer"}},
+			predicate: func(v any) bool { return true },
+		}
+		v := g.Generate()
+		gotVal, _ = ExtractInt(v)
+	}, runOptions{testCases: 1})
+	if err != nil {
+		t.Fatalf("runTest: %v", err)
+	}
+	if gotVal != 42 {
+		t.Errorf("expected 42, got %d", gotVal)
+	}
+}
+
+// TestFilteredGeneratorAllAttemptsFailRejectsCase verifies that when all 3 attempts fail,
+// exactly 3 start_span/generate/stop_span(discard=true) cycles are sent, then
+// Assume(false) causes the case to be sent mark_complete with status="INVALID".
+func TestFilteredGeneratorAllAttemptsFailRejectsCase(t *testing.T) {
+	var spanCount int
+	var mcStatus string
+	clientConn := fakeServerConn(t, func(serverConn *Connection) {
+		ctrl := serverConn.ControlChannel()
+		msgID, payload, _ := ctrl.RecvRequestRaw(5 * time.Second)
+		decoded, _ := DecodeCBOR(payload)
+		m, _ := ExtractDict(decoded)
+		chID, _ := ExtractInt(m[any("channel")])
+		ctrl.SendReplyValue(msgID, true) //nolint:errcheck
+
+		testCh, _ := serverConn.ConnectChannel(uint32(chID), "TestCh")
+		caseCh := serverConn.NewChannel("Case")
+		casePayload, _ := EncodeCBOR(map[string]any{
+			"event":    "test_case",
+			"channel":  int64(caseCh.ChannelID()),
+			"is_final": false,
+		})
+		caseID, _ := testCh.SendRequestRaw(casePayload)
+		testCh.recvResponseRaw(caseID, 5*time.Second) //nolint:errcheck
+
+		// 3 failed attempts: each produces start_span, generate, stop_span(discard=true)
+		for i := 0; i < maxFilterAttempts; i++ {
+			// start_span
+			ssID, _, _ := caseCh.RecvRequestRaw(5 * time.Second)
+			caseCh.SendReplyValue(ssID, nil) //nolint:errcheck
+			// generate
+			genID, _, _ := caseCh.RecvRequestRaw(5 * time.Second)
+			caseCh.SendReplyValue(genID, int64(0)) //nolint:errcheck
+			// stop_span
+			spID, spPayload, _ := caseCh.RecvRequestRaw(5 * time.Second)
+			decoded2, _ := DecodeCBOR(spPayload)
+			m2, _ := ExtractDict(decoded2)
+			discard, _ := m2[any("discard")].(bool)
+			if !discard {
+				t.Errorf("attempt %d: stop_span should have discard=true when predicate fails", i)
+			}
+			caseCh.SendReplyValue(spID, nil) //nolint:errcheck
+			spanCount++
+		}
+
+		// Assume(false) panics with assumeRejected → runner sends mark_complete with "INVALID".
+		mcID, mcPayload, _ := caseCh.RecvRequestRaw(5 * time.Second)
+		decoded3, _ := DecodeCBOR(mcPayload)
+		m3, _ := ExtractDict(decoded3)
+		mcStatus, _ = ExtractString(m3[any("status")])
+		caseCh.SendReplyValue(mcID, nil) //nolint:errcheck
+
+		sendTestDone(t, testCh, true, 0)
+	})
+
+	cli := newClient(clientConn)
+	err := cli.runTest("filter_exhaust", func() {
+		g := &FilteredGenerator{
+			source:    &BasicGenerator{schema: map[string]any{"type": "integer"}},
+			predicate: func(v any) bool { return false }, // always reject
+		}
+		g.Generate()
+	}, runOptions{testCases: 1})
+	if err != nil {
+		t.Fatalf("runTest: %v", err)
+	}
+	if spanCount != maxFilterAttempts {
+		t.Errorf("expected %d span pairs, got %d", maxFilterAttempts, spanCount)
+	}
+	if mcStatus != "INVALID" {
+		t.Errorf("mark_complete status: expected 'INVALID', got %q", mcStatus)
+	}
+}
+
+// TestFilteredGeneratorPartialAttemptsSucceed verifies that when the first 2 attempts
+// fail but the 3rd passes, 2 discard spans and 1 keep span are sent.
+func TestFilteredGeneratorPartialAttemptsSucceed(t *testing.T) {
+	attemptNum := 0
+	var gotVal int64
+
+	clientConn := fakeServerConn(t, func(serverConn *Connection) {
+		ctrl := serverConn.ControlChannel()
+		msgID, payload, _ := ctrl.RecvRequestRaw(5 * time.Second)
+		decoded, _ := DecodeCBOR(payload)
+		m, _ := ExtractDict(decoded)
+		chID, _ := ExtractInt(m[any("channel")])
+		ctrl.SendReplyValue(msgID, true) //nolint:errcheck
+
+		testCh, _ := serverConn.ConnectChannel(uint32(chID), "TestCh")
+		caseCh := serverConn.NewChannel("Case")
+		casePayload, _ := EncodeCBOR(map[string]any{
+			"event":    "test_case",
+			"channel":  int64(caseCh.ChannelID()),
+			"is_final": false,
+		})
+		caseID, _ := testCh.SendRequestRaw(casePayload)
+		testCh.recvResponseRaw(caseID, 5*time.Second) //nolint:errcheck
+
+		// 2 failed attempts (returns 0), then 1 successful (returns 7)
+		for i := 0; i < 3; i++ {
+			ssID, _, _ := caseCh.RecvRequestRaw(5 * time.Second)
+			caseCh.SendReplyValue(ssID, nil) //nolint:errcheck
+
+			genID, _, _ := caseCh.RecvRequestRaw(5 * time.Second)
+			val := int64(0)
+			if i == 2 {
+				val = int64(7)
+			}
+			caseCh.SendReplyValue(genID, val) //nolint:errcheck
+
+			spID, spPayload, _ := caseCh.RecvRequestRaw(5 * time.Second)
+			decoded2, _ := DecodeCBOR(spPayload)
+			m2, _ := ExtractDict(decoded2)
+			discard, _ := m2[any("discard")].(bool)
+			if i < 2 && !discard {
+				t.Errorf("attempt %d: expected discard=true for failed attempt", i)
+			}
+			if i == 2 && discard {
+				t.Errorf("attempt %d: expected discard=false for successful attempt", i)
+			}
+			caseCh.SendReplyValue(spID, nil) //nolint:errcheck
+		}
+
+		mcID, _, _ := caseCh.RecvRequestRaw(5 * time.Second)
+		caseCh.SendReplyValue(mcID, nil) //nolint:errcheck
+
+		sendTestDone(t, testCh, true, 0)
+	})
+
+	cli := newClient(clientConn)
+	err := cli.runTest("filter_partial", func() {
+		g := &FilteredGenerator{
+			source: &BasicGenerator{schema: map[string]any{"type": "integer"}},
+			predicate: func(v any) bool {
+				attemptNum++
+				n, _ := ExtractInt(v)
+				return n > 0
+			},
+		}
+		v := g.Generate()
+		gotVal, _ = ExtractInt(v)
+	}, runOptions{testCases: 1})
+	if err != nil {
+		t.Fatalf("runTest: %v", err)
+	}
+	if gotVal != 7 {
+		t.Errorf("expected 7, got %d", gotVal)
+	}
+	if attemptNum != 3 {
+		t.Errorf("expected predicate called 3 times, called %d times", attemptNum)
+	}
+}
+
+// TestFilteredGeneratorE2EAlwaysPasses verifies an e2e filter with a predicate
+// that values greater than 50.
+func TestFilteredGeneratorE2EAlwaysPasses(t *testing.T) {
+	hegelBinPath(t)
+	RunHegelTest(t.Name(), func() {
+		gen := Integers(0, 100).Filter(func(v any) bool {
+			n, _ := ExtractInt(v)
+			return n > 50
+		})
+		v := gen.Generate()
+		n, _ := ExtractInt(v)
+		if n <= 50 {
+			panic(fmt.Sprintf("filter(>50): expected n>50, got %d", n))
+		}
+	}, WithTestCases(50))
+}
+
+// TestFilteredGeneratorE2EEvenNumbers verifies filter for even numbers.
+func TestFilteredGeneratorE2EEvenNumbers(t *testing.T) {
+	hegelBinPath(t)
+	RunHegelTest(t.Name(), func() {
+		gen := Integers(0, 10).Filter(func(v any) bool {
+			n, _ := ExtractInt(v)
+			return n%2 == 0
+		})
+		v := gen.Generate()
+		n, _ := ExtractInt(v)
+		if n%2 != 0 {
+			panic(fmt.Sprintf("filter(even): expected even, got %d", n))
+		}
+	}, WithTestCases(50))
+}
+
+// TestFilterOnNonBasicGenerators verifies that Filter works on non-basic generators.
+func TestFilterOnNonBasicGenerators(t *testing.T) {
+	// MappedGenerator.Filter
+	mg := &MappedGenerator{inner: Integers(0, 5), fn: func(v any) any { return v }}
+	fg := mg.Filter(func(v any) bool { return true })
+	if _, ok := fg.(*FilteredGenerator); !ok {
+		t.Errorf("Filter on MappedGenerator should return *FilteredGenerator, got %T", fg)
+	}
+	// compositeListGenerator.Filter
+	cl := &compositeListGenerator{elements: Integers(0, 5), minSize: 0, maxSize: 3}
+	fg2 := cl.Filter(func(v any) bool { return true })
+	if _, ok := fg2.(*FilteredGenerator); !ok {
+		t.Errorf("Filter on compositeListGenerator should return *FilteredGenerator, got %T", fg2)
+	}
+	// compositeDictGenerator.Filter
+	cd := &compositeDictGenerator{keys: Integers(0, 5), values: Integers(0, 5), minSize: 0}
+	fg3 := cd.Filter(func(v any) bool { return true })
+	if _, ok := fg3.(*FilteredGenerator); !ok {
+		t.Errorf("Filter on compositeDictGenerator should return *FilteredGenerator, got %T", fg3)
+	}
+	// CompositeOneOfGenerator.Filter
+	co := &CompositeOneOfGenerator{generators: []Generator{Integers(0, 5), Integers(6, 10)}}
+	fg4 := co.Filter(func(v any) bool { return true })
+	if _, ok := fg4.(*FilteredGenerator); !ok {
+		t.Errorf("Filter on CompositeOneOfGenerator should return *FilteredGenerator, got %T", fg4)
+	}
+	// CompositeTupleGenerator.Filter
+	ct := &CompositeTupleGenerator{elements: []Generator{Integers(0, 5)}}
+	fg5 := ct.Filter(func(v any) bool { return true })
+	if _, ok := fg5.(*FilteredGenerator); !ok {
+		t.Errorf("Filter on CompositeTupleGenerator should return *FilteredGenerator, got %T", fg5)
+	}
+	// FlatMappedGenerator.Filter
+	fm := &FlatMappedGenerator{source: Integers(0, 5), f: func(v any) Generator { return Integers(0, 5) }}
+	fg6 := fm.Filter(func(v any) bool { return true })
+	if _, ok := fg6.(*FilteredGenerator); !ok {
+		t.Errorf("Filter on FlatMappedGenerator should return *FilteredGenerator, got %T", fg6)
+	}
+}
+
 // TestBooleansSchema verifies that Booleans produces a schema with type=boolean and p field.
 func TestBooleansSchema(t *testing.T) {
 	g := Booleans(0.5)
@@ -1848,3 +2176,217 @@ func TestFloatsSchemaExcludeBounds(t *testing.T) {
 }
 
 // =============================================================================
+// FlatMappedGenerator tests
+// =============================================================================
+
+// TestFlatMappedGeneratorAsBasicReturnsNil verifies that FlatMappedGenerator.AsBasic() returns nil.
+func TestFlatMappedGeneratorAsBasicReturnsNil(t *testing.T) {
+	gen := FlatMap(Integers(1, 5), func(v any) Generator {
+		return Integers(0, 10)
+	})
+	if gen.AsBasic() != nil {
+		t.Error("FlatMappedGenerator.AsBasic() should return nil")
+	}
+}
+
+// TestFlatMappedGeneratorIsNotBasic verifies that FlatMap returns a *FlatMappedGenerator (not BasicGenerator).
+func TestFlatMappedGeneratorIsNotBasic(t *testing.T) {
+	gen := FlatMap(IntegersUnbounded(), func(v any) Generator {
+		return IntegersUnbounded()
+	})
+	if _, ok := gen.(*FlatMappedGenerator); !ok {
+		t.Fatalf("FlatMap should return *FlatMappedGenerator, got %T", gen)
+	}
+	// FlatMappedGenerator is never a BasicGenerator.
+	if _, ok := gen.(*BasicGenerator); ok {
+		t.Error("FlatMap result should not be a *BasicGenerator")
+	}
+}
+
+// TestFlatMappedGeneratorMapReturnsMapped verifies that Map on FlatMappedGenerator returns a MappedGenerator.
+func TestFlatMappedGeneratorMapReturnsMapped(t *testing.T) {
+	gen := FlatMap(Integers(1, 5), func(v any) Generator {
+		return Integers(0, 10)
+	})
+	mapped := gen.Map(func(v any) any { return v })
+	if _, ok := mapped.(*MappedGenerator); !ok {
+		t.Fatalf("Map on FlatMappedGenerator should return *MappedGenerator, got %T", mapped)
+	}
+}
+
+// TestFlatMappedGeneratorGenerate verifies the low-level protocol:
+// start_span(11), source generate, second generate, stop_span, mark_complete.
+func TestFlatMappedGeneratorGenerate(t *testing.T) {
+	var cmds []string
+	clientConn := fakeServerConn(t, func(serverConn *Connection) {
+		ctrl := serverConn.ControlChannel()
+		msgID, payload, _ := ctrl.RecvRequestRaw(5 * time.Second)
+		decoded, _ := DecodeCBOR(payload)
+		m, _ := ExtractDict(decoded)
+		chID, _ := ExtractInt(m[any("channel")])
+		ctrl.SendReplyValue(msgID, true) //nolint:errcheck
+
+		testCh, _ := serverConn.ConnectChannel(uint32(chID), "TestCh")
+		caseCh := serverConn.NewChannel("Case")
+		casePayload, _ := EncodeCBOR(map[string]any{
+			"event":    "test_case",
+			"channel":  int64(caseCh.ChannelID()),
+			"is_final": false,
+		})
+		caseID, _ := testCh.SendRequestRaw(casePayload)
+		testCh.recvResponseRaw(caseID, 5*time.Second) //nolint:errcheck
+
+		// Expect: start_span(11), generate(source), generate(second), stop_span, mark_complete
+		for i := 0; i < 5; i++ {
+			mid, pl, _ := caseCh.RecvRequestRaw(5 * time.Second)
+			dec, _ := DecodeCBOR(pl)
+			mp, _ := ExtractDict(dec)
+			cmd, _ := ExtractString(mp[any("command")])
+			cmds = append(cmds, cmd)
+			switch cmd {
+			case "generate":
+				caseCh.SendReplyValue(mid, int64(7)) //nolint:errcheck
+			default:
+				caseCh.SendReplyValue(mid, nil) //nolint:errcheck
+			}
+		}
+
+		sendTestDone(t, testCh, true, 0)
+	})
+
+	cli := newClient(clientConn)
+	var gotVal int64
+	err := cli.runTest("flatmap_protocol", func() {
+		gen := FlatMap(
+			Integers(0, 100),
+			func(v any) Generator { return Integers(0, 100) },
+		)
+		v := gen.Generate()
+		gotVal, _ = ExtractInt(v)
+	}, runOptions{testCases: 1})
+	if err != nil {
+		t.Fatalf("runTest: %v", err)
+	}
+	if gotVal != 7 {
+		t.Errorf("expected 7, got %d", gotVal)
+	}
+	// Verify protocol order: start_span, generate, generate, stop_span, mark_complete
+	if len(cmds) < 4 {
+		t.Fatalf("expected at least 4 commands, got %v", cmds)
+	}
+	if cmds[0] != "start_span" {
+		t.Errorf("cmds[0]: expected start_span, got %s", cmds[0])
+	}
+	if cmds[1] != "generate" {
+		t.Errorf("cmds[1]: expected generate (source), got %s", cmds[1])
+	}
+	if cmds[2] != "generate" {
+		t.Errorf("cmds[2]: expected generate (second), got %s", cmds[2])
+	}
+	if cmds[3] != "stop_span" {
+		t.Errorf("cmds[3]: expected stop_span, got %s", cmds[3])
+	}
+}
+
+// TestFlatMappedGeneratorStartSpanLabel verifies that the FLAT_MAP span uses label 11.
+func TestFlatMappedGeneratorStartSpanLabel(t *testing.T) {
+	var gotLabel int64
+	clientConn := fakeServerConn(t, func(serverConn *Connection) {
+		ctrl := serverConn.ControlChannel()
+		msgID, payload, _ := ctrl.RecvRequestRaw(5 * time.Second)
+		decoded, _ := DecodeCBOR(payload)
+		m, _ := ExtractDict(decoded)
+		chID, _ := ExtractInt(m[any("channel")])
+		ctrl.SendReplyValue(msgID, true) //nolint:errcheck
+
+		testCh, _ := serverConn.ConnectChannel(uint32(chID), "TestCh")
+		caseCh := serverConn.NewChannel("Case")
+		casePayload, _ := EncodeCBOR(map[string]any{
+			"event":    "test_case",
+			"channel":  int64(caseCh.ChannelID()),
+			"is_final": false,
+		})
+		caseID, _ := testCh.SendRequestRaw(casePayload)
+		testCh.recvResponseRaw(caseID, 5*time.Second) //nolint:errcheck
+
+		for i := 0; i < 5; i++ {
+			mid, pl, _ := caseCh.RecvRequestRaw(5 * time.Second)
+			dec, _ := DecodeCBOR(pl)
+			mp, _ := ExtractDict(dec)
+			cmd, _ := ExtractString(mp[any("command")])
+			if cmd == "start_span" {
+				gotLabel, _ = ExtractInt(mp[any("label")])
+			}
+			switch cmd {
+			case "generate":
+				caseCh.SendReplyValue(mid, int64(3)) //nolint:errcheck
+			default:
+				caseCh.SendReplyValue(mid, nil) //nolint:errcheck
+			}
+		}
+
+		sendTestDone(t, testCh, true, 0)
+	})
+
+	cli := newClient(clientConn)
+	err := cli.runTest("flatmap_label", func() {
+		gen := FlatMap(Integers(0, 10), func(v any) Generator { return Integers(0, 10) })
+		_ = gen.Generate()
+	}, runOptions{testCases: 1})
+	if err != nil {
+		t.Fatalf("runTest: %v", err)
+	}
+	if gotLabel != int64(LabelFlatMap) {
+		t.Errorf("start_span label: expected %d (LabelFlatMap), got %d", LabelFlatMap, gotLabel)
+	}
+}
+
+// TestFlatMappedGeneratorE2E verifies that flat_map produces a dependent value.
+// integers(1,5).flat_map(n => text(min=n, max=n)) always produces text of length in [1,5].
+func TestFlatMappedGeneratorE2E(t *testing.T) {
+	hegelBinPath(t)
+	gen := FlatMap(Integers(1, 5), func(v any) Generator {
+		n, _ := ExtractInt(v)
+		return Text(int(n), int(n)) // exact length = n
+	})
+	RunHegelTest(t.Name(), func() {
+		v := gen.Generate()
+		s, ok := v.(string)
+		if !ok {
+			panic(fmt.Sprintf("flat_map: expected string, got %T", v))
+		}
+		count := len([]rune(s))
+		// n is in [1,5], so text length is in [1,5].
+		if count < 1 || count > 5 {
+			panic(fmt.Sprintf("flat_map text length %d out of [1,5]", count))
+		}
+	}, WithTestCases(50))
+}
+
+// TestFlatMappedGeneratorDependency verifies that the second generation genuinely depends
+// on the first generated value. We generate n in [2,4] and a list of exactly n elements.
+// Every list must have length in [2,4] and all elements must be in [0,100].
+func TestFlatMappedGeneratorDependency(t *testing.T) {
+	hegelBinPath(t)
+	gen := FlatMap(Integers(2, 4), func(v any) Generator {
+		n, _ := ExtractInt(v)
+		sz := int(n)
+		return Lists(Integers(0, 100), ListsOptions{MinSize: sz, MaxSize: sz})
+	})
+	RunHegelTest(t.Name(), func() {
+		v := gen.Generate()
+		slice, ok := v.([]any)
+		if !ok {
+			panic(fmt.Sprintf("flat_map dependency: expected []any, got %T", v))
+		}
+		if len(slice) < 2 || len(slice) > 4 {
+			panic(fmt.Sprintf("flat_map dependency: list length %d not in [2,4]", len(slice)))
+		}
+		for _, elem := range slice {
+			n, err := ExtractInt(elem)
+			if err != nil || n < 0 || n > 100 {
+				panic(fmt.Sprintf("flat_map dependency: element %v not in [0,100]", elem))
+			}
+		}
+	}, WithTestCases(50))
+}

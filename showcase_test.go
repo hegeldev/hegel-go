@@ -478,3 +478,113 @@ func TestTuples3StringIntFloatTriples(t *testing.T) {
 		}
 	}, WithTestCases(50))
 }
+
+// TestFlatMapTextLengthMatchesInteger demonstrates flat_map by generating an integer n
+// and then a string of exactly n codepoints. This verifies the core property: the
+// second generator depends on the first value, and the relationship holds for every
+// generated example.
+func TestFlatMapTextLengthMatchesInteger(t *testing.T) {
+	hegelBinPath(t)
+	// Generate n in [1,8], then generate text of exactly n codepoints.
+	gen := FlatMap(Integers(1, 8), func(v any) Generator {
+		n, _ := ExtractInt(v)
+		return Text(int(n), int(n))
+	})
+	RunHegelTest(t.Name(), func() {
+		v := gen.Generate()
+		s, ok := v.(string)
+		if !ok {
+			panic(fmt.Sprintf("FlatMap text: expected string, got %T", v))
+		}
+		count := utf8.RuneCountInString(s)
+		// The text length must be in [1,8] because n is in [1,8].
+		if count < 1 || count > 8 {
+			panic(fmt.Sprintf("FlatMap text: codepoint count %d out of [1,8]", count))
+		}
+	}, WithTestCases(50))
+}
+
+// TestFlatMapListLengthMatchesInteger demonstrates that flat_map enables dependent
+// generation: generating a list whose length is determined by a previously generated
+// integer. This is a property that cannot be expressed with Map alone.
+func TestFlatMapListLengthMatchesInteger(t *testing.T) {
+	hegelBinPath(t)
+	// Generate n in [1,6], then generate a list of exactly n booleans.
+	// Property: every generated list has length in [1,6], and the length
+	// matches the integer that controlled the generation.
+	gen := FlatMap(Integers(1, 6), func(v any) Generator {
+		n, _ := ExtractInt(v)
+		sz := int(n)
+		return Lists(Booleans(0.5), ListsOptions{MinSize: sz, MaxSize: sz})
+	})
+	RunHegelTest(t.Name(), func() {
+		v := gen.Generate()
+		bools, ok := v.([]any)
+		if !ok {
+			panic(fmt.Sprintf("FlatMap list: expected []any, got %T", v))
+		}
+		// Length must be in [1,6].
+		if len(bools) < 1 || len(bools) > 6 {
+			panic(fmt.Sprintf("FlatMap list: length %d out of [1,6]", len(bools)))
+		}
+		// Every element must be a boolean.
+		for i, elem := range bools {
+			if _, ok := elem.(bool); !ok {
+				panic(fmt.Sprintf("FlatMap list[%d]: expected bool, got %T", i, elem))
+			}
+		}
+	}, WithTestCases(50))
+}
+
+// TestFilterPreservesConstraint demonstrates Filter by generating integers and filtering
+// to keep only those divisible by 3. Every generated value must satisfy x%3==0.
+// This is a meaningful property: filtering is correct if and only if every kept value
+// satisfies the predicate.
+func TestFilterPreservesConstraint(t *testing.T) {
+	hegelBinPath(t)
+	// integers in [0, 30] filtered to multiples of 3
+	gen := Integers(0, 30).Filter(func(v any) bool {
+		n, _ := ExtractInt(v)
+		return n%3 == 0
+	})
+	RunHegelTest(t.Name(), func() {
+		v := gen.Generate()
+		n, _ := ExtractInt(v)
+		if n%3 != 0 {
+			panic(fmt.Sprintf("filter(%%3==0): expected multiple of 3, got %d", n))
+		}
+		if n < 0 || n > 30 {
+			panic(fmt.Sprintf("filter(%%3==0): value %d outside [0,30]", n))
+		}
+	}, WithTestCases(50))
+}
+
+// TestFilterSquaresAreSquares demonstrates filtering integers to keep only perfect squares.
+// Every kept value must equal the square of some non-negative integer — a mathematical
+// property that filter either preserves or violates on every test case.
+func TestFilterSquaresAreSquares(t *testing.T) {
+	hegelBinPath(t)
+	// Generate integers in [0, 100] and keep only perfect squares (0, 1, 4, 9, 16, 25, 36, 49, 64, 81, 100).
+	isPerfectSquare := func(n int64) bool {
+		if n < 0 {
+			return false
+		}
+		// Integer square root check.
+		root := int64(0)
+		for root*root < n {
+			root++
+		}
+		return root*root == n
+	}
+	gen := Integers(0, 100).Filter(func(v any) bool {
+		n, _ := ExtractInt(v)
+		return isPerfectSquare(n)
+	})
+	RunHegelTest(t.Name(), func() {
+		v := gen.Generate()
+		n, _ := ExtractInt(v)
+		if !isPerfectSquare(n) {
+			panic(fmt.Sprintf("filter(perfect square): expected perfect square, got %d", n))
+		}
+	}, WithTestCases(50))
+}
