@@ -13,6 +13,9 @@ __pycache__/
 # Claude Code transient files
 .claude/plan.md
 
+# Hegelator metadata
+.hegelator/
+
 # Build artifacts
 coverage.out
 cover_test.out
