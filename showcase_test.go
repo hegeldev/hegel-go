@@ -17,8 +17,8 @@ import (
 func TestAdditionIsCommutative(t *testing.T) {
 	hegelBinPath(t)
 	RunHegelTest(t.Name(), func() {
-		x := GenerateInt(-1000, 1000)
-		y := GenerateInt(-1000, 1000)
+		x, _ := ExtractInt(Integers(-1000, 1000).Generate())
+		y, _ := ExtractInt(Integers(-1000, 1000).Generate())
 		if x+y != y+x {
 			panic("addition is not commutative")
 		}
@@ -29,7 +29,7 @@ func TestAdditionIsCommutative(t *testing.T) {
 func TestAbsoluteValueIsNonNegative(t *testing.T) {
 	hegelBinPath(t)
 	RunHegelTest(t.Name(), func() {
-		x := GenerateInt(-1000, 1000)
+		x, _ := ExtractInt(Integers(-1000, 1000).Generate())
 		abs := x
 		if abs < 0 {
 			abs = -abs
@@ -44,7 +44,7 @@ func TestAbsoluteValueIsNonNegative(t *testing.T) {
 func TestDoubleNegationIsIdentity(t *testing.T) {
 	hegelBinPath(t)
 	RunHegelTest(t.Name(), func() {
-		b := GenerateBool()
+		b := Booleans(0.5).Generate().(bool)
 		notB := !b
 		notNotB := !notB
 		if notNotB != b {

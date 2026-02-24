@@ -39,7 +39,7 @@ import (
 
 func Example_integers() {
     hegel.RunHegelTest("integers", func() {
-        n := hegel.GenerateInt(-1<<31, 1<<31-1)
+        n, _ := hegel.ExtractInt(hegel.Integers(-1<<31, 1<<31-1).Generate())
         fmt.Printf("called with %d\n", n)
         if n != n { // always false — just checking the type
             panic("unreachable")
@@ -50,9 +50,9 @@ func Example_integers() {
 
 `RunHegelTest` is the entry point for a property test. The second argument is
 the *test body* — a plain `func()` that Hegel calls once per generated input.
-Inside the body, call `GenerateInt` (or any other generator) to obtain a
-random value. When the test runs, Hegel generates random inputs and checks
-that the body never panics.
+Inside the body, call `.Generate()` on a generator to obtain a random value.
+When the test runs, Hegel generates random inputs and checks that the body
+never panics.
 
 By default Hegel runs **100 test cases**. Override this with `WithTestCases`:
 
@@ -72,7 +72,7 @@ and call `RunHegelTest` inside it:
 ```go
 func TestIntegerBound(t *testing.T) {
     err := hegel.RunHegelTestE("integer_bound", func() {
-        n := hegel.GenerateInt(0, 200)
+        n, _ := hegel.ExtractInt(hegel.Integers(0, 200).Generate())
         if n >= 50 {
             panic(fmt.Sprintf("n=%d is too large", n))
         }
@@ -97,7 +97,7 @@ Call generators multiple times to produce multiple values in one test:
 
 ```go
 hegel.RunHegelTest("multiple_values", func() {
-    n := hegel.GenerateInt(-1000, 1000)
+    n, _ := hegel.ExtractInt(hegel.Integers(-1000, 1000).Generate())
     s := hegel.Text(0, 50).Generate()
 
     _ = n // n is an int64
@@ -118,8 +118,8 @@ Use `Assume` to discard test cases that don't satisfy a precondition:
 
 ```go
 hegel.RunHegelTest("division", func() {
-    n1 := hegel.GenerateInt(-1000, 1000)
-    n2 := hegel.GenerateInt(-1000, 1000)
+    n1, _ := hegel.ExtractInt(hegel.Integers(-1000, 1000).Generate())
+    n2, _ := hegel.ExtractInt(hegel.Integers(-1000, 1000).Generate())
 
     hegel.Assume(n2 != 0) // discard the case where n2 is zero
 
@@ -172,12 +172,12 @@ configure later generators directly — no `@composite` or `data()` required:
 
 ```go
 hegel.RunHegelTest("list_with_valid_index", func() {
-    n := hegel.GenerateInt(1, 10)               // list length
+    n, _ := hegel.ExtractInt(hegel.Integers(1, 10).Generate())
     lst := hegel.Lists(
         hegel.IntegersUnbounded(),
         hegel.ListsOptions{MinSize: int(n), MaxSize: int(n)},
     ).Generate().([]any)
-    index := hegel.GenerateInt(0, n-1)          // valid index
+    index, _ := hegel.ExtractInt(hegel.Integers(0, n-1).Generate())
 
     if index < 0 || index >= int64(len(lst)) {
         panic("index out of range")
@@ -196,8 +196,6 @@ hegel.RunHegelTest("list_with_valid_index", func() {
 
 | Go call | Description |
 |---|---|
-| `GenerateBool()` | `bool` |
-| `GenerateInt(min, max)` | `int64` in [min, max] |
 | `Booleans(p).Generate()` | `bool` with probability `p` of true |
 | `Integers(min, max).Generate()` | `int64` in [min, max] |
 | `IntegersUnbounded().Generate()` | Unbounded `int64` |
@@ -253,8 +251,8 @@ minimal failing example:
 
 ```go
 hegel.RunHegelTest("example", func() {
-    x := hegel.GenerateInt(-1000, 1000)
-    y := hegel.GenerateInt(-1000, 1000)
+    x, _ := hegel.ExtractInt(hegel.Integers(-1000, 1000).Generate())
+    y, _ := hegel.ExtractInt(hegel.Integers(-1000, 1000).Generate())
 
     hegel.Note(fmt.Sprintf("trying x=%d, y=%d", x, y))
 

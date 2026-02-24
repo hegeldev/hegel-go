@@ -10,16 +10,15 @@
 //
 //	func TestMyProperty(t *testing.T) {
 //	    hegel.RunHegelTest("my_property", func() {
-//	        n := hegel.GenerateInt(0, 100)
+//	        n, _ := hegel.ExtractInt(hegel.Integers(0, 100).Generate())
 //	        if n < 0 || n > 100 {
 //	            panic("out of range")
 //	        }
 //	    }, hegel.WithTestCases(50))
 //	}
 //
-// Inside the test body, call generator functions such as [GenerateBool] and
-// [GenerateInt], or use the composable [Generator] types returned by functions
-// such as [Integers], [Text], [Lists], and [OneOf].
+// Inside the test body, use the composable [Generator] types returned by functions
+// such as [Integers], [Booleans], [Text], [Lists], and [OneOf].
 //
 // Use [Assume] to filter invalid inputs, [Note] to attach debug messages that
 // appear only on the minimal failing example, and [Target] to guide Hegel
