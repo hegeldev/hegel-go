@@ -29,7 +29,7 @@ func goroutineID() int64 {
 
 // goroutineState holds the per-goroutine test context.
 type goroutineState struct {
-	channel *Channel
+	channel *channel
 	isFinal bool
 	aborted bool
 }
@@ -63,7 +63,7 @@ func getCurrentIsFinal() bool {
 	return s.isFinal
 }
 
-func getCurrentChannel() *Channel {
+func getCurrentChannel() *channel {
 	s := getState()
 	if s == nil {
 		return nil
@@ -71,7 +71,7 @@ func getCurrentChannel() *Channel {
 	return s.channel
 }
 
-func getChannel() *Channel {
+func getChannel() *channel {
 	ch := getCurrentChannel()
 	if ch == nil {
 		panic("hegel: not in a test context — must be called from within a test function")
@@ -250,13 +250,13 @@ func isHegelFrame(fn string) bool {
 
 // --- Client: manages a single connection's test lifecycle ---
 
-// client wraps a Connection for running property tests.
+// client wraps a connection for running property tests.
 type client struct {
-	conn *Connection
+	conn *connection
 	mu   sync.Mutex // serializes runTest calls
 }
 
-func newClient(conn *Connection) *client {
+func newClient(conn *connection) *client {
 	return &client{conn: conn}
 }
 
@@ -395,7 +395,7 @@ doneLoop:
 }
 
 // runTestCase executes one test case and sends mark_complete to the server.
-func (c *client) runTestCase(ch *Channel, fn func(), isFinal bool) (finalErr error) {
+func (c *client) runTestCase(ch *channel, fn func(), isFinal bool) (finalErr error) {
 	state := &goroutineState{
 		channel: ch,
 		isFinal: isFinal,
@@ -433,7 +433,7 @@ func (c *client) runTestCase(ch *Channel, fn func(), isFinal bool) (finalErr err
 	}()
 
 	if finalErr != nil {
-		// Connection error or re-raised final failure: close channel and return.
+		// connection error or re-raised final failure: close channel and return.
 		ch.Close()
 		return finalErr
 	}
@@ -471,7 +471,7 @@ func (c *client) runTestCase(ch *Channel, fn func(), isFinal bool) (finalErr err
 // hegelSession manages a shared hegel subprocess for the entire test suite.
 type hegelSession struct {
 	mu             sync.Mutex
-	conn           *Connection
+	conn           *connection
 	cli            *client
 	process        *exec.Cmd
 	tempDir        string
@@ -547,7 +547,7 @@ func (s *hegelSession) start() error {
 		return fmt.Errorf("hegel: timeout waiting for hegel to start")
 	}
 
-	conn := NewConnection(sock, "SDK")
+	conn := newConnection(sock, "SDK")
 	version, err := conn.SendHandshakeVersion()
 	if err != nil {
 		sock.Close()       //nolint:errcheck

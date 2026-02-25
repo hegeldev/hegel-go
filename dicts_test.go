@@ -85,8 +85,8 @@ func TestDictsAsBasic(t *testing.T) {
 
 // TestDictsCompositeAsBasic verifies compositeDictGenerator returns nil from AsBasic.
 func TestDictsCompositeAsBasic(t *testing.T) {
-	// Use a non-basic key generator (MappedGenerator)
-	nonBasicKeys := &MappedGenerator{
+	// Use a non-basic key generator (mappedGenerator)
+	nonBasicKeys := &mappedGenerator{
 		inner: Integers(0, 10),
 		fn:    func(v any) any { return v },
 	}
@@ -96,16 +96,16 @@ func TestDictsCompositeAsBasic(t *testing.T) {
 	}
 }
 
-// TestDictsCompositeMap verifies that Map on a compositeDictGenerator returns a MappedGenerator.
+// TestDictsCompositeMap verifies that Map on a compositeDictGenerator returns a mappedGenerator.
 func TestDictsCompositeMap(t *testing.T) {
-	nonBasicKeys := &MappedGenerator{
+	nonBasicKeys := &mappedGenerator{
 		inner: Integers(0, 10),
 		fn:    func(v any) any { return v },
 	}
 	gen := Dicts(nonBasicKeys, Integers(0, 10), DictOptions{})
 	mapped := gen.Map(func(v any) any { return v })
-	if _, ok := mapped.(*MappedGenerator); !ok {
-		t.Errorf("Map on compositeDictGenerator should return *MappedGenerator, got %T", mapped)
+	if _, ok := mapped.(*mappedGenerator); !ok {
+		t.Errorf("Map on compositeDictGenerator should return *mappedGenerator, got %T", mapped)
 	}
 }
 
@@ -243,7 +243,7 @@ func TestPairsToMapNonSlicePair(t *testing.T) {
 // sends the correct schema and applies the pair-to-map transform.
 func TestDictsBasicGenerateHappyPath(t *testing.T) {
 	// Server returns [[k1, v1], [k2, v2]] as the CBOR array of pairs.
-	clientConn := fakeServerConn(t, func(serverConn *Connection) {
+	clientConn := fakeServerConn(t, func(serverConn *connection) {
 		ctrl := serverConn.ControlChannel()
 		msgID, payload, _ := ctrl.RecvRequestRaw(5 * time.Second)
 		decoded, _ := DecodeCBOR(payload)
@@ -305,7 +305,7 @@ func TestDictsBasicGenerateHappyPath(t *testing.T) {
 func TestDictsBasicWithTransforms(t *testing.T) {
 	// Key generator with transform: text → uppercase key
 	// Value generator with transform: integer → value * 2
-	clientConn := fakeServerConn(t, func(serverConn *Connection) {
+	clientConn := fakeServerConn(t, func(serverConn *connection) {
 		ctrl := serverConn.ControlChannel()
 		msgID, payload, _ := ctrl.RecvRequestRaw(5 * time.Second)
 		decoded, _ := DecodeCBOR(payload)
@@ -378,7 +378,7 @@ func TestDictsBasicWithTransforms(t *testing.T) {
 // TestDictsCompositeGenerateHappyPath verifies the composite dict generator
 // sends new_collection, collection_more, and MapEntry spans correctly.
 func TestDictsCompositeGenerateHappyPath(t *testing.T) {
-	clientConn := fakeServerConn(t, func(serverConn *Connection) {
+	clientConn := fakeServerConn(t, func(serverConn *connection) {
 		ctrl := serverConn.ControlChannel()
 		msgID, payload, _ := ctrl.RecvRequestRaw(5 * time.Second)
 		decoded, _ := DecodeCBOR(payload)
@@ -401,7 +401,7 @@ func TestDictsCompositeGenerateHappyPath(t *testing.T) {
 		// 2. new_collection
 		// 3. collection_more → true
 		// 4. start_span (MAP_ENTRY)  [from Group(LabelMapEntry, ...)]
-		// 5. start_span (MAPPED)  [from MappedGenerator.Generate → Group(LabelMapped, ...)]
+		// 5. start_span (MAPPED)  [from mappedGenerator.Generate → Group(LabelMapped, ...)]
 		// 6. generate key  [from inner Integers]
 		// 7. stop_span (MAPPED)
 		// 8. generate value  [from Integers(0,100), no span]
@@ -438,7 +438,7 @@ func TestDictsCompositeGenerateHappyPath(t *testing.T) {
 	var gotMap map[any]any
 	err := cli.runTest("dicts_composite_happy", func() {
 		// Non-basic key generator
-		nonBasicKeys := &MappedGenerator{
+		nonBasicKeys := &mappedGenerator{
 			inner: Integers(0, 10),
 			fn:    func(v any) any { return v },
 		}
@@ -455,7 +455,7 @@ func TestDictsCompositeGenerateHappyPath(t *testing.T) {
 	if len(gotMap) != 1 {
 		t.Errorf("expected 1 entry, got %d", len(gotMap))
 	}
-	// MappedGenerator.fn returns the inner value from CBOR decode (uint64 for positive int).
+	// mappedGenerator.fn returns the inner value from CBOR decode (uint64 for positive int).
 	// Try both int64 and uint64 key lookup.
 	var keyFound bool
 	var foundVal any
@@ -481,7 +481,7 @@ func TestDictsCompositeGenerateHappyPath(t *testing.T) {
 // defaults to minSize+10 for the collection.
 func TestDictsCompositeNoMaxHappyPath(t *testing.T) {
 	var gotCollMax int64
-	clientConn := fakeServerConn(t, func(serverConn *Connection) {
+	clientConn := fakeServerConn(t, func(serverConn *connection) {
 		ctrl := serverConn.ControlChannel()
 		msgID, payload, _ := ctrl.RecvRequestRaw(5 * time.Second)
 		decoded, _ := DecodeCBOR(payload)
@@ -526,7 +526,7 @@ func TestDictsCompositeNoMaxHappyPath(t *testing.T) {
 
 	cli := newClient(clientConn)
 	err := cli.runTest("dicts_composite_no_max", func() {
-		nonBasicKeys := &MappedGenerator{
+		nonBasicKeys := &mappedGenerator{
 			inner: Integers(0, 10),
 			fn:    func(v any) any { return v },
 		}
@@ -552,7 +552,7 @@ func TestDictsStopTestOnNewCollection(t *testing.T) {
 	hegelBinPath(t)
 	setEnv(t, "HEGEL_PROTOCOL_TEST_MODE", "stop_test_on_new_collection")
 	err := RunHegelTestE("dicts_stop_new_collection", func() {
-		nonBasicKeys := &MappedGenerator{
+		nonBasicKeys := &mappedGenerator{
 			inner: Integers(0, 10),
 			fn:    func(v any) any { return v },
 		}
@@ -569,7 +569,7 @@ func TestDictsStopTestOnCollectionMore(t *testing.T) {
 	hegelBinPath(t)
 	setEnv(t, "HEGEL_PROTOCOL_TEST_MODE", "stop_test_on_collection_more")
 	err := RunHegelTestE("dicts_stop_collection_more", func() {
-		nonBasicKeys := &MappedGenerator{
+		nonBasicKeys := &mappedGenerator{
 			inner: Integers(0, 10),
 			fn:    func(v any) any { return v },
 		}

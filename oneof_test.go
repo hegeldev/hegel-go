@@ -219,33 +219,33 @@ func TestOneOfPath2E2E(t *testing.T) {
 // =============================================================================
 
 // TestOneOfPath3IsComposite verifies that OneOf with a non-basic generator
-// returns a CompositeOneOfGenerator.
+// returns a compositeOneOfGenerator.
 func TestOneOfPath3IsComposite(t *testing.T) {
-	// A FilteredGenerator (from Filter) is not a BasicGenerator.
+	// A filteredGenerator (from Filter) is not a BasicGenerator.
 	filtered := Integers(0, 10).Map(func(v any) any { return v }) // still basic
-	// MappedGenerator of MappedGenerator is still not basic if it's non-basic…
-	// Actually just use a MappedGenerator wrapping MappedGenerator
-	nonBasic := &MappedGenerator{
+	// mappedGenerator of mappedGenerator is still not basic if it's non-basic…
+	// Actually just use a mappedGenerator wrapping mappedGenerator
+	nonBasic := &mappedGenerator{
 		inner: Integers(0, 10),
 		fn:    func(v any) any { return v },
 	}
 	combined := OneOf(nonBasic, filtered)
-	if _, ok := combined.(*CompositeOneOfGenerator); !ok {
-		t.Fatalf("OneOf with non-basic should return *CompositeOneOfGenerator, got %T", combined)
+	if _, ok := combined.(*compositeOneOfGenerator); !ok {
+		t.Fatalf("OneOf with non-basic should return *compositeOneOfGenerator, got %T", combined)
 	}
 	if combined.AsBasic() != nil {
-		t.Error("CompositeOneOfGenerator.AsBasic() should return nil")
+		t.Error("compositeOneOfGenerator.AsBasic() should return nil")
 	}
 }
 
-// TestOneOfPath3MapReturnsMapGen verifies that mapping a CompositeOneOfGenerator
-// returns a MappedGenerator.
+// TestOneOfPath3MapReturnsMapGen verifies that mapping a compositeOneOfGenerator
+// returns a mappedGenerator.
 func TestOneOfPath3MapReturnsMapGen(t *testing.T) {
-	nonBasic := &MappedGenerator{inner: Integers(0, 10), fn: func(v any) any { return v }}
+	nonBasic := &mappedGenerator{inner: Integers(0, 10), fn: func(v any) any { return v }}
 	combined := OneOf(nonBasic, Integers(0, 5))
 	mapped := combined.Map(func(v any) any { return v })
-	if _, ok := mapped.(*MappedGenerator); !ok {
-		t.Fatalf("CompositeOneOfGenerator.Map should return *MappedGenerator, got %T", mapped)
+	if _, ok := mapped.(*mappedGenerator); !ok {
+		t.Fatalf("compositeOneOfGenerator.Map should return *mappedGenerator, got %T", mapped)
 	}
 }
 
@@ -253,10 +253,10 @@ func TestOneOfPath3MapReturnsMapGen(t *testing.T) {
 // using the real hegel binary.
 func TestOneOfPath3E2E(t *testing.T) {
 	hegelBinPath(t)
-	// nonBasic: a MappedGenerator (not a *BasicGenerator)
-	nonBasic := &MappedGenerator{
+	// nonBasic: a mappedGenerator (not a *BasicGenerator)
+	nonBasic := &mappedGenerator{
 		inner: Integers(0, 1000),
-		fn:    func(v any) any { return v }, // identity, but still a MappedGenerator
+		fn:    func(v any) any { return v }, // identity, but still a mappedGenerator
 	}
 	text := Text(1, 5)
 	combined := OneOf(nonBasic, text)
@@ -282,13 +282,13 @@ func TestOneOfPath3E2E(t *testing.T) {
 	}
 }
 
-// TestOneOfPath3UnitFakeServer verifies the CompositeOneOfGenerator through a fake server.
+// TestOneOfPath3UnitFakeServer verifies the compositeOneOfGenerator through a fake server.
 func TestOneOfPath3UnitFakeServer(t *testing.T) {
-	nonBasic := &MappedGenerator{inner: Integers(0, 100), fn: func(v any) any { return v }}
-	gen := &CompositeOneOfGenerator{generators: []Generator{nonBasic, Booleans(0.5)}}
+	nonBasic := &mappedGenerator{inner: Integers(0, 100), fn: func(v any) any { return v }}
+	gen := &compositeOneOfGenerator{generators: []Generator{nonBasic, Booleans(0.5)}}
 
 	// server side: handle ONE_OF span start + int generate for index + inner generate + stop_span
-	clientConn := fakeServerConn(t, func(serverConn *Connection) {
+	clientConn := fakeServerConn(t, func(serverConn *connection) {
 		ctrl := serverConn.ControlChannel()
 		msgID, payload, _ := ctrl.RecvRequestRaw(5 * time.Second)
 		decoded, _ := DecodeCBOR(payload)
@@ -317,7 +317,7 @@ func TestOneOfPath3UnitFakeServer(t *testing.T) {
 		// generate (index selection: reply with 0 to pick branch 0)
 		genID, _, _ := caseCh.RecvRequestRaw(5 * time.Second)
 		caseCh.SendReplyValue(genID, int64(0)) //nolint:errcheck
-		// generate (inner integer for MappedGenerator branch 0)
+		// generate (inner integer for mappedGenerator branch 0)
 		innerGenID, _, _ := caseCh.RecvRequestRaw(5 * time.Second)
 		caseCh.SendReplyValue(innerGenID, int64(42)) //nolint:errcheck
 		// stop_span (MAPPED)
@@ -407,16 +407,16 @@ func TestOptionalE2E(t *testing.T) {
 }
 
 // TestOptionalNonBasicE2E verifies that Optional with a non-basic element
-// falls back to Path 3 (CompositeOneOfGenerator).
+// falls back to Path 3 (compositeOneOfGenerator).
 func TestOptionalNonBasicE2E(t *testing.T) {
 	hegelBinPath(t)
-	// Just(nil) is basic (has transform), so the pair Just(nil)+MappedGenerator
-	// would be mixed: Just(nil).AsBasic() != nil, MappedGenerator.AsBasic() == nil
+	// Just(nil) is basic (has transform), so the pair Just(nil)+mappedGenerator
+	// would be mixed: Just(nil).AsBasic() != nil, mappedGenerator.AsBasic() == nil
 	// → Path 3
-	nonBasic := &MappedGenerator{inner: Integers(0, 10), fn: func(v any) any { return v }}
+	nonBasic := &mappedGenerator{inner: Integers(0, 10), fn: func(v any) any { return v }}
 	g := Optional(nonBasic)
-	if _, ok := g.(*CompositeOneOfGenerator); !ok {
-		t.Fatalf("Optional(nonBasic) should return *CompositeOneOfGenerator, got %T", g)
+	if _, ok := g.(*compositeOneOfGenerator); !ok {
+		t.Fatalf("Optional(nonBasic) should return *compositeOneOfGenerator, got %T", g)
 	}
 	sawNil := false
 	sawVal := false
@@ -601,15 +601,15 @@ func TestOneOfAllBranchesAppear(t *testing.T) {
 }
 
 // TestCompositeOneOfGenerateErrorResponse covers the error path in
-// CompositeOneOfGenerator.Generate when the server sends a RequestError
+// compositeOneOfGenerator.Generate when the server sends a RequestError
 // in response to the index generate command.
 func TestCompositeOneOfGenerateErrorResponse(t *testing.T) {
 	hegelBinPath(t)
 	setEnv(t, "HEGEL_PROTOCOL_TEST_MODE", "error_response")
-	// Use a CompositeOneOfGenerator (non-basic branches → Path 3).
-	nonBasic1 := &MappedGenerator{inner: Integers(0, 5), fn: func(v any) any { return v }}
-	nonBasic2 := &MappedGenerator{inner: Integers(6, 10), fn: func(v any) any { return v }}
-	gen := &CompositeOneOfGenerator{generators: []Generator{nonBasic1, nonBasic2}}
+	// Use a compositeOneOfGenerator (non-basic branches → Path 3).
+	nonBasic1 := &mappedGenerator{inner: Integers(0, 5), fn: func(v any) any { return v }}
+	nonBasic2 := &mappedGenerator{inner: Integers(6, 10), fn: func(v any) any { return v }}
+	gen := &compositeOneOfGenerator{generators: []Generator{nonBasic1, nonBasic2}}
 	err := RunHegelTestE(t.Name(), func() {
 		_ = gen.Generate() // should panic with RequestError
 	})

@@ -47,7 +47,7 @@ func socketPair(t *testing.T) (net.Conn, net.Conn) {
 }
 
 // packetsEqual reports whether two Packets are equal, including payload bytes.
-func packetsEqual(a, b Packet) bool {
+func packetsEqual(a, b packet) bool {
 	return a.ChannelID == b.ChannelID &&
 		a.MessageID == b.MessageID &&
 		a.IsReply == b.IsReply &&
@@ -66,19 +66,19 @@ func sendRaw(conn net.Conn, data []byte) <-chan error {
 }
 
 // roundtrip writes pkt to one end of a net.Pipe and reads it back from the other.
-func roundtrip(t *testing.T, pkt Packet) Packet {
+func roundtrip(t *testing.T, pkt packet) packet {
 	t.Helper()
 	reader, writer := socketPair(t)
 	errCh := make(chan error, 1)
 	go func() {
-		errCh <- WritePacket(writer, pkt)
+		errCh <- writePacket(writer, pkt)
 	}()
-	got, err := ReadPacket(reader)
+	got, err := readPacket(reader)
 	if err != nil {
-		t.Fatalf("ReadPacket: %v", err)
+		t.Fatalf("readPacket: %v", err)
 	}
 	if werr := <-errCh; werr != nil {
-		t.Fatalf("WritePacket: %v", werr)
+		t.Fatalf("writePacket: %v", werr)
 	}
 	return got
 }
@@ -103,10 +103,10 @@ func TestConstants(t *testing.T) {
 	}
 }
 
-// --- Packet round-trip tests ---
+// --- packet round-trip tests ---
 
 func TestPacketRoundtripBasic(t *testing.T) {
-	pkt := Packet{ChannelID: 0, MessageID: 1, IsReply: false, Payload: []byte("hello")}
+	pkt := packet{ChannelID: 0, MessageID: 1, IsReply: false, Payload: []byte("hello")}
 	got := roundtrip(t, pkt)
 	if !packetsEqual(got, pkt) {
 		t.Errorf("got %+v, want %+v", got, pkt)
@@ -114,7 +114,7 @@ func TestPacketRoundtripBasic(t *testing.T) {
 }
 
 func TestPacketRoundtripEmptyPayload(t *testing.T) {
-	pkt := Packet{ChannelID: 0, MessageID: 1, IsReply: false, Payload: []byte{}}
+	pkt := packet{ChannelID: 0, MessageID: 1, IsReply: false, Payload: []byte{}}
 	got := roundtrip(t, pkt)
 	if got.ChannelID != pkt.ChannelID || got.MessageID != pkt.MessageID || got.IsReply != pkt.IsReply || len(got.Payload) != 0 {
 		t.Errorf("got %+v, want %+v", got, pkt)
@@ -122,7 +122,7 @@ func TestPacketRoundtripEmptyPayload(t *testing.T) {
 }
 
 func TestPacketRoundtripReply(t *testing.T) {
-	pkt := Packet{ChannelID: 1, MessageID: 42, IsReply: true, Payload: []byte("response")}
+	pkt := packet{ChannelID: 1, MessageID: 42, IsReply: true, Payload: []byte("response")}
 	got := roundtrip(t, pkt)
 	if !packetsEqual(got, pkt) {
 		t.Errorf("got %+v, want %+v", got, pkt)
@@ -130,7 +130,7 @@ func TestPacketRoundtripReply(t *testing.T) {
 }
 
 func TestPacketRoundtripLargeChannelID(t *testing.T) {
-	pkt := Packet{ChannelID: 0xFFFFFFFF, MessageID: 1, IsReply: false, Payload: []byte("data")}
+	pkt := packet{ChannelID: 0xFFFFFFFF, MessageID: 1, IsReply: false, Payload: []byte("data")}
 	got := roundtrip(t, pkt)
 	if !packetsEqual(got, pkt) {
 		t.Errorf("got %+v, want %+v", got, pkt)
@@ -138,7 +138,7 @@ func TestPacketRoundtripLargeChannelID(t *testing.T) {
 }
 
 func TestPacketRoundtripLargeMessageID(t *testing.T) {
-	pkt := Packet{ChannelID: 0, MessageID: (1 << 31) - 1, IsReply: false, Payload: []byte("data")}
+	pkt := packet{ChannelID: 0, MessageID: (1 << 31) - 1, IsReply: false, Payload: []byte("data")}
 	got := roundtrip(t, pkt)
 	if !packetsEqual(got, pkt) {
 		t.Errorf("got %+v, want %+v", got, pkt)
@@ -150,7 +150,7 @@ func TestPacketRoundtripBinaryPayload(t *testing.T) {
 	for i := range payload {
 		payload[i] = byte(i)
 	}
-	pkt := Packet{ChannelID: 3, MessageID: 7, IsReply: false, Payload: payload}
+	pkt := packet{ChannelID: 3, MessageID: 7, IsReply: false, Payload: payload}
 	got := roundtrip(t, pkt)
 	if !packetsEqual(got, pkt) {
 		t.Errorf("got %+v, want %+v", got, pkt)
@@ -180,11 +180,11 @@ func TestRecvExactConnectionClosedNoData(t *testing.T) {
 	go writer.Close()
 	_, err := recvExact(reader, 10)
 	if err == nil {
-		t.Fatal("expected PartialPacketError, got nil")
+		t.Fatal("expected partialPacketError, got nil")
 	}
-	var ppe *PartialPacketError
+	var ppe *partialPacketError
 	if !isPartialPacketError(err, &ppe) {
-		t.Errorf("expected PartialPacketError, got %T: %v", err, err)
+		t.Errorf("expected partialPacketError, got %T: %v", err, err)
 	}
 }
 
@@ -203,7 +203,7 @@ func TestReadPacketInvalidMagic(t *testing.T) {
 	reader, writer := socketPair(t)
 	raw := makeRawPacket(0xDEADBEEF, 0, 0, 1, []byte("payload"), Terminator)
 	sendRaw(writer, raw)
-	_, err := ReadPacket(reader)
+	_, err := readPacket(reader)
 	if err == nil {
 		t.Fatal("expected error for invalid magic")
 	}
@@ -216,7 +216,7 @@ func TestReadPacketInvalidTerminator(t *testing.T) {
 	reader, writer := socketPair(t)
 	raw := makeRawPacket(Magic, 0, 0, 1, []byte("payload"), 0xFF)
 	sendRaw(writer, raw)
-	_, err := ReadPacket(reader)
+	_, err := readPacket(reader)
 	if err == nil {
 		t.Fatal("expected error for invalid terminator")
 	}
@@ -239,7 +239,7 @@ func TestReadPacketBadChecksum(t *testing.T) {
 	raw := append(h[:], payload...)
 	raw = append(raw, Terminator)
 	sendRaw(writer, raw)
-	_, err := ReadPacket(reader)
+	_, err := readPacket(reader)
 	if err == nil {
 		t.Fatal("expected error for bad checksum")
 	}
@@ -248,27 +248,27 @@ func TestReadPacketBadChecksum(t *testing.T) {
 	}
 }
 
-// --- PartialPacketError ---
+// --- partialPacketError ---
 
 func TestPartialPacketErrorMessage(t *testing.T) {
-	err := &PartialPacketError{"test message"}
+	err := &partialPacketError{"test message"}
 	if err.Error() != "test message" {
 		t.Errorf("Error() = %q, want %q", err.Error(), "test message")
 	}
 }
 
 func TestIsPartialPacketErrorNilTarget(t *testing.T) {
-	err := &PartialPacketError{"msg"}
+	err := &partialPacketError{"msg"}
 	if !isPartialPacketError(err, nil) {
-		t.Error("isPartialPacketError with nil target should return true for PartialPacketError")
+		t.Error("isPartialPacketError with nil target should return true for partialPacketError")
 	}
 }
 
 func TestIsPartialPacketErrorFalseForOther(t *testing.T) {
 	err := fmt.Errorf("some other error")
-	var ppe *PartialPacketError
+	var ppe *partialPacketError
 	if isPartialPacketError(err, &ppe) {
-		t.Error("isPartialPacketError should return false for non-PartialPacketError")
+		t.Error("isPartialPacketError should return false for non-partialPacketError")
 	}
 }
 
@@ -299,13 +299,13 @@ func TestRecvExactNonEOFError(t *testing.T) {
 	}
 }
 
-// --- ReadPacket error paths ---
+// --- readPacket error paths ---
 
 func TestReadPacketConnectionClosedDuringHeader(t *testing.T) {
 	reader, writer := socketPair(t)
 	// Close writer immediately — no header bytes sent.
 	go writer.Close()
-	_, err := ReadPacket(reader)
+	_, err := readPacket(reader)
 	if err == nil {
 		t.Fatal("expected error when connection closes before header")
 	}
@@ -324,7 +324,7 @@ func TestReadPacketConnectionClosedDuringPayload(t *testing.T) {
 		writer.Write(h[:])                     //nolint:errcheck
 		writer.Close()                         // close without sending payload
 	}()
-	_, err := ReadPacket(reader)
+	_, err := readPacket(reader)
 	if err == nil {
 		t.Fatal("expected error when connection closes during payload")
 	}
@@ -351,7 +351,7 @@ func TestReadPacketConnectionClosedDuringTerminator(t *testing.T) {
 		writer.Write(h[:])                    //nolint:errcheck
 		writer.Close()                        // close without terminator
 	}()
-	_, err := ReadPacket(reader)
+	_, err := readPacket(reader)
 	if err == nil {
 		t.Fatal("expected error when connection closes during terminator")
 	}
@@ -372,10 +372,10 @@ func TestCRC32KnownVector(t *testing.T) {
 
 func TestWritePacketProducesValidCRC(t *testing.T) {
 	reader, writer := socketPair(t)
-	pkt := Packet{ChannelID: 5, MessageID: 10, IsReply: false, Payload: []byte("test")}
-	go func() { WritePacket(writer, pkt) }() //nolint:errcheck
-	// ReadPacket validates CRC internally; success means CRC was correct.
-	if _, err := ReadPacket(reader); err != nil {
-		t.Errorf("ReadPacket after WritePacket: %v", err)
+	pkt := packet{ChannelID: 5, MessageID: 10, IsReply: false, Payload: []byte("test")}
+	go func() { writePacket(writer, pkt) }() //nolint:errcheck
+	// readPacket validates CRC internally; success means CRC was correct.
+	if _, err := readPacket(reader); err != nil {
+		t.Errorf("readPacket after writePacket: %v", err)
 	}
 }

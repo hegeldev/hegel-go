@@ -453,8 +453,8 @@ func TestNoteOnFinalRun(t *testing.T) {
 func TestRunTestUnrecognisedEvent(t *testing.T) {
 	// Build a fake server using connection primitives.
 	s, c := socketPair(t)
-	serverConn := NewConnection(s, "FakeServer")
-	clientConn := NewConnection(c, "Client")
+	serverConn := newConnection(s, "FakeServer")
+	clientConn := newConnection(c, "Client")
 
 	serverDone := make(chan error, 1)
 	go func() {
@@ -545,8 +545,8 @@ func TestRunTestCaseFinalFlag(t *testing.T) {
 	defer s.Close()
 	defer c.Close()
 
-	serverConn := NewConnection(s, "S")
-	clientConn := NewConnection(c, "C")
+	serverConn := newConnection(s, "S")
+	clientConn := newConnection(c, "C")
 
 	go func() {
 		serverConn.ReceiveHandshake() //nolint:errcheck
@@ -580,11 +580,11 @@ func TestRunTestCaseFinalFlag(t *testing.T) {
 // fakeServerConn builds a handshaked server+client connection pair for unit tests.
 // The server goroutine runs fn; the client connection is returned.
 // Any server error is reported via t.Error.
-func fakeServerConn(t *testing.T, fn func(serverConn *Connection)) *Connection {
+func fakeServerConn(t *testing.T, fn func(serverConn *connection)) *connection {
 	t.Helper()
 	s, c := socketPair(t)
-	serverConn := NewConnection(s, "FakeServer")
-	clientConn := NewConnection(c, "Client")
+	serverConn := newConnection(s, "FakeServer")
+	clientConn := newConnection(c, "Client")
 
 	serverReady := make(chan struct{})
 	go func() {
@@ -601,7 +601,7 @@ func fakeServerConn(t *testing.T, fn func(serverConn *Connection)) *Connection {
 }
 
 // sendTestDone sends a test_done event on testCh with the given results.
-func sendTestDone(t *testing.T, testCh *Channel, passed bool, interesting int64) {
+func sendTestDone(t *testing.T, testCh *channel, passed bool, interesting int64) {
 	t.Helper()
 	payload, _ := EncodeCBOR(map[string]any{
 		"event": "test_done",
@@ -619,9 +619,9 @@ func sendTestDone(t *testing.T, testCh *Channel, passed bool, interesting int64)
 
 // runTestOnFakeServer sets up a fake server that sends a single test_case event,
 // runs the test body, then sends test_done.
-func runTestOnFakeServer(t *testing.T, testFn func(), serverReply func(caseCh *Channel)) error {
+func runTestOnFakeServer(t *testing.T, testFn func(), serverReply func(caseCh *channel)) error {
 	t.Helper()
-	clientConn := fakeServerConn(t, func(serverConn *Connection) {
+	clientConn := fakeServerConn(t, func(serverConn *connection) {
 		ctrl := serverConn.ControlChannel()
 
 		// Receive run_test.
@@ -726,8 +726,8 @@ func TestGetCurrentChannelOutside(t *testing.T) {
 func TestGenerateFromSchemaStopTest(t *testing.T) {
 	// Set up a fake channel that returns a StopTest RequestError.
 	s, c := socketPair(t)
-	serverConn := NewConnection(s, "S")
-	clientConn := NewConnection(c, "C")
+	serverConn := newConnection(s, "S")
+	clientConn := newConnection(c, "C")
 	go func() {
 		serverConn.ReceiveHandshake() //nolint:errcheck
 	}()
@@ -767,8 +767,8 @@ func TestGenerateFromSchemaStopTest(t *testing.T) {
 
 func TestGenerateFromSchemaNonStopTestError(t *testing.T) {
 	s, c := socketPair(t)
-	serverConn := NewConnection(s, "S")
-	clientConn := NewConnection(c, "C")
+	serverConn := newConnection(s, "S")
+	clientConn := newConnection(c, "C")
 	go func() {
 		serverConn.ReceiveHandshake() //nolint:errcheck
 	}()
@@ -799,12 +799,12 @@ func TestGenerateFromSchemaNonStopTestError(t *testing.T) {
 
 func TestGenerateFromSchemaConnectionError(t *testing.T) {
 	s, c := socketPair(t)
-	conn := NewConnection(s, "C")
+	conn := newConnection(s, "C")
 	c.Close()
 	// Don't handshake — just create a channel manually on a pre-client connection.
 	// We need state=client so NewChannel works.
 	conn.state = stateClient
-	ch := &Channel{conn: conn, channelID: 1, inbox: make(chan any, 1), nextMessageID: 1}
+	ch := &channel{conn: conn, channelID: 1, inbox: make(chan any, 1), nextMessageID: 1}
 	conn.channels[1] = ch
 
 	// Close the underlying conn so SendPacket fails.
@@ -837,7 +837,7 @@ func TestIntegersGenerateUnit(t *testing.T) {
 		if n < 0 || n > 10 {
 			panic(fmt.Sprintf("out of range: %d", n))
 		}
-	}, func(caseCh *Channel) {
+	}, func(caseCh *channel) {
 		// Respond to generate with value 7, then mark_complete.
 		msgID, _, _ := caseCh.RecvRequestRaw(2 * time.Second)
 		caseCh.SendReplyValue(msgID, int64(7)) //nolint:errcheck
@@ -854,9 +854,9 @@ func TestIntegersGenerateUnit(t *testing.T) {
 
 func TestTargetConnectionError(t *testing.T) {
 	s, _ := socketPair(t)
-	conn := NewConnection(s, "C")
+	conn := newConnection(s, "C")
 	conn.state = stateClient
-	ch := &Channel{conn: conn, channelID: 1, inbox: make(chan any, 1), nextMessageID: 1}
+	ch := &channel{conn: conn, channelID: 1, inbox: make(chan any, 1), nextMessageID: 1}
 	conn.channels[1] = ch
 	s.Close()
 
@@ -878,8 +878,8 @@ func TestTargetConnectionError(t *testing.T) {
 
 func TestTargetResponseError(t *testing.T) {
 	s, c := socketPair(t)
-	serverConn := NewConnection(s, "S")
-	clientConn := NewConnection(c, "C")
+	serverConn := newConnection(s, "S")
+	clientConn := newConnection(c, "C")
 	go func() {
 		serverConn.ReceiveHandshake() //nolint:errcheck
 	}()
@@ -909,7 +909,7 @@ func TestTargetResponseError(t *testing.T) {
 // --- runTest: event decode error ---
 
 func TestRunTestEventDecodeError(t *testing.T) {
-	clientConn := fakeServerConn(t, func(serverConn *Connection) {
+	clientConn := fakeServerConn(t, func(serverConn *connection) {
 		ctrl := serverConn.ControlChannel()
 		msgID, payload, _ := ctrl.RecvRequestRaw(5 * time.Second)
 		decoded, _ := DecodeCBOR(payload)
@@ -938,7 +938,7 @@ func TestRunTestEventDecodeError(t *testing.T) {
 // --- runTest: event not a dict error ---
 
 func TestRunTestEventNotDictError(t *testing.T) {
-	clientConn := fakeServerConn(t, func(serverConn *Connection) {
+	clientConn := fakeServerConn(t, func(serverConn *connection) {
 		ctrl := serverConn.ControlChannel()
 		msgID, payload, _ := ctrl.RecvRequestRaw(5 * time.Second)
 		decoded, _ := DecodeCBOR(payload)
@@ -965,7 +965,7 @@ func TestRunTestEventNotDictError(t *testing.T) {
 // --- runTest: test_case missing channel field ---
 
 func TestRunTestCaseMissingChannel(t *testing.T) {
-	clientConn := fakeServerConn(t, func(serverConn *Connection) {
+	clientConn := fakeServerConn(t, func(serverConn *connection) {
 		ctrl := serverConn.ControlChannel()
 		msgID, payload, _ := ctrl.RecvRequestRaw(5 * time.Second)
 		decoded, _ := DecodeCBOR(payload)
@@ -993,8 +993,8 @@ func TestRunTestCaseMissingChannel(t *testing.T) {
 
 func TestRunTestSendError(t *testing.T) {
 	s, c := socketPair(t)
-	serverConn := NewConnection(s, "S")
-	clientConn := NewConnection(c, "C")
+	serverConn := newConnection(s, "S")
+	clientConn := newConnection(c, "C")
 	go func() {
 		serverConn.ReceiveHandshake() //nolint:errcheck
 	}()
@@ -1014,7 +1014,7 @@ func TestRunTestSendError(t *testing.T) {
 // --- runTest: run_test ack error ---
 
 func TestRunTestAckError(t *testing.T) {
-	clientConn := fakeServerConn(t, func(serverConn *Connection) {
+	clientConn := fakeServerConn(t, func(serverConn *connection) {
 		ctrl := serverConn.ControlChannel()
 		msgID, _, _ := ctrl.RecvRequestRaw(5 * time.Second)
 		// Reply with an error instead of ack.
@@ -1031,7 +1031,7 @@ func TestRunTestAckError(t *testing.T) {
 // --- runTest: test event recv error (channel closed) ---
 
 func TestRunTestEventRecvError(t *testing.T) {
-	clientConn := fakeServerConn(t, func(serverConn *Connection) {
+	clientConn := fakeServerConn(t, func(serverConn *connection) {
 		ctrl := serverConn.ControlChannel()
 		msgID, payload, _ := ctrl.RecvRequestRaw(5 * time.Second)
 		decoded, _ := DecodeCBOR(payload)
@@ -1055,7 +1055,7 @@ func TestRunTestEventRecvError(t *testing.T) {
 // --- runTest: connect test case channel error ---
 
 func TestRunTestConnectCaseChannelError(t *testing.T) {
-	clientConn := fakeServerConn(t, func(serverConn *Connection) {
+	clientConn := fakeServerConn(t, func(serverConn *connection) {
 		ctrl := serverConn.ControlChannel()
 		msgID, payload, _ := ctrl.RecvRequestRaw(5 * time.Second)
 		decoded, _ := DecodeCBOR(payload)
@@ -1087,7 +1087,7 @@ func TestRunTestConnectCaseChannelError(t *testing.T) {
 func TestRunTestCaseInteresting(t *testing.T) {
 	err := runTestOnFakeServer(t, func() {
 		panic("assertion failure")
-	}, func(caseCh *Channel) {
+	}, func(caseCh *channel) {
 		// Receive mark_complete with INTERESTING status.
 		msgID, payload, _ := caseCh.RecvRequestRaw(2 * time.Second)
 		decoded, _ := DecodeCBOR(payload)
@@ -1109,7 +1109,7 @@ func TestRunTestCaseInteresting(t *testing.T) {
 func TestRunTestCaseDataExhausted(t *testing.T) {
 	err := runTestOnFakeServer(t, func() {
 		panic(&dataExhausted{msg: "exhausted"})
-	}, func(caseCh *Channel) {
+	}, func(caseCh *channel) {
 		// Server should NOT receive mark_complete when data is exhausted.
 		// Just wait with a short timeout.
 		caseCh.RecvRequestRaw(100 * time.Millisecond) //nolint:errcheck
@@ -1124,7 +1124,7 @@ func TestRunTestCaseDataExhausted(t *testing.T) {
 func TestRunTestCaseInvalid(t *testing.T) {
 	err := runTestOnFakeServer(t, func() {
 		Assume(false)
-	}, func(caseCh *Channel) {
+	}, func(caseCh *channel) {
 		msgID, payload, _ := caseCh.RecvRequestRaw(2 * time.Second)
 		decoded, _ := DecodeCBOR(payload)
 		m, _ := ExtractDict(decoded)
@@ -1145,7 +1145,7 @@ func TestRunTestCaseConnectionError(t *testing.T) {
 	// connection error inside test body should propagate.
 	err := runTestOnFakeServer(t, func() {
 		panic(&connectionError{msg: "conn broke"})
-	}, func(caseCh *Channel) {
+	}, func(caseCh *channel) {
 		// mark_complete should NOT be sent; server just drains.
 		caseCh.RecvRequestRaw(100 * time.Millisecond) //nolint:errcheck
 	})
@@ -1159,7 +1159,7 @@ func TestRunTestCaseConnectionError(t *testing.T) {
 
 func TestRunTestCaseMarkCompleteError(t *testing.T) {
 	// The channel is closed before mark_complete → send fails but we handle gracefully.
-	clientConn := fakeServerConn(t, func(serverConn *Connection) {
+	clientConn := fakeServerConn(t, func(serverConn *connection) {
 		ctrl := serverConn.ControlChannel()
 		msgID, payload, _ := ctrl.RecvRequestRaw(5 * time.Second)
 		decoded, _ := DecodeCBOR(payload)
@@ -1190,7 +1190,7 @@ func TestRunTestCaseMarkCompleteError(t *testing.T) {
 // --- runTest: multiple interesting cases (nInteresting > 1) ---
 
 func TestRunTestMultipleInteresting(t *testing.T) {
-	clientConn := fakeServerConn(t, func(serverConn *Connection) {
+	clientConn := fakeServerConn(t, func(serverConn *connection) {
 		ctrl := serverConn.ControlChannel()
 		msgID, payload, _ := ctrl.RecvRequestRaw(5 * time.Second)
 		decoded, _ := DecodeCBOR(payload)
@@ -1243,7 +1243,7 @@ func TestRunTestMultipleInteresting(t *testing.T) {
 // --- runTest: single interesting case, server reply error on connect ---
 
 func TestRunTestSingleInterestingConnectError(t *testing.T) {
-	clientConn := fakeServerConn(t, func(serverConn *Connection) {
+	clientConn := fakeServerConn(t, func(serverConn *connection) {
 		ctrl := serverConn.ControlChannel()
 		msgID, payload, _ := ctrl.RecvRequestRaw(5 * time.Second)
 		decoded, _ := DecodeCBOR(payload)
@@ -1287,7 +1287,7 @@ func TestRunTestSingleInterestingConnectError(t *testing.T) {
 // --- runTest: final case recv error ---
 
 func TestRunTestFinalCaseRecvError(t *testing.T) {
-	clientConn := fakeServerConn(t, func(serverConn *Connection) {
+	clientConn := fakeServerConn(t, func(serverConn *connection) {
 		ctrl := serverConn.ControlChannel()
 		msgID, payload, _ := ctrl.RecvRequestRaw(5 * time.Second)
 		decoded, _ := DecodeCBOR(payload)
@@ -1326,7 +1326,7 @@ func TestRunTestFinalCaseRecvError(t *testing.T) {
 // --- runTest: multi-interesting final case recv error ---
 
 func TestRunTestMultiInterestingRecvError(t *testing.T) {
-	clientConn := fakeServerConn(t, func(serverConn *Connection) {
+	clientConn := fakeServerConn(t, func(serverConn *connection) {
 		ctrl := serverConn.ControlChannel()
 		msgID, payload, _ := ctrl.RecvRequestRaw(5 * time.Second)
 		decoded, _ := DecodeCBOR(payload)
@@ -1451,7 +1451,7 @@ func TestHegelSessionCleanupWithErrors(t *testing.T) {
 	sc, cc := socketPair(t)
 	sc.Close()
 	cc.Close()
-	s.conn = NewConnection(sc, "closed")
+	s.conn = newConnection(sc, "closed")
 	s.conn.Close() // pre-close
 
 	// This should not panic.
@@ -1618,7 +1618,7 @@ func TestRunTestSingleInterestingCasePasses(t *testing.T) {
 	// runTest just returns nil (no "expected to fail" check for single case).
 	// Line 399: `return c.runTestCase(caseCh, fn, true)` — this is the return.
 	// So if runTestCase returns nil, runTest returns nil.
-	clientConn := fakeServerConn(t, func(serverConn *Connection) {
+	clientConn := fakeServerConn(t, func(serverConn *connection) {
 		ctrl := serverConn.ControlChannel()
 		msgID, payload, _ := ctrl.RecvRequestRaw(5 * time.Second)
 		decoded, _ := DecodeCBOR(payload)
@@ -1743,7 +1743,7 @@ func TestRunHegelTestEProtocolModeStartError(t *testing.T) {
 func TestRunTestMultiInterestingConnectError(t *testing.T) {
 	// Server sends test_done with 2 interesting cases, then sends final test_case
 	// with channel ID 0 (already exists as control channel → ConnectChannel fails).
-	clientConn := fakeServerConn(t, func(serverConn *Connection) {
+	clientConn := fakeServerConn(t, func(serverConn *connection) {
 		ctrl := serverConn.ControlChannel()
 		msgID, payload, _ := ctrl.RecvRequestRaw(5 * time.Second)
 		decoded, _ := DecodeCBOR(payload)
@@ -1796,7 +1796,7 @@ func TestRunTestMultiInterestingCasePasses(t *testing.T) {
 	// Case 1: test fn panics → error appended.
 	// Case 2: test fn passes (fn is a no-op) → "expected to fail" error appended (line 437-439).
 	caseCount := 0
-	clientConn := fakeServerConn(t, func(serverConn *Connection) {
+	clientConn := fakeServerConn(t, func(serverConn *connection) {
 		ctrl := serverConn.ControlChannel()
 		msgID, payload, _ := ctrl.RecvRequestRaw(5 * time.Second)
 		decoded, _ := DecodeCBOR(payload)

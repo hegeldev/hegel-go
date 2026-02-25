@@ -31,8 +31,8 @@ var CloseChannelPayload = []byte{0xFE}
 // headerSize is the size of the fixed packet header in bytes (5 × uint32).
 const headerSize = 20
 
-// Packet represents a single message in the Hegel wire protocol.
-type Packet struct {
+// packet represents a single message in the Hegel wire protocol.
+type packet struct {
 	// ChannelID identifies the logical channel this packet belongs to.
 	ChannelID uint32
 	// MessageID is the per-channel message sequence number.
@@ -43,18 +43,18 @@ type Packet struct {
 	Payload []byte
 }
 
-// PartialPacketError is returned when the connection closes mid-packet.
-type PartialPacketError struct {
+// partialPacketError is returned when the connection closes mid-packet.
+type partialPacketError struct {
 	msg string
 }
 
 // Error implements the error interface.
-func (e *PartialPacketError) Error() string { return e.msg }
+func (e *partialPacketError) Error() string { return e.msg }
 
-// isPartialPacketError reports whether err is a *PartialPacketError and, if so,
+// isPartialPacketError reports whether err is a *partialPacketError and, if so,
 // stores it in *target.
-func isPartialPacketError(err error, target **PartialPacketError) bool {
-	if p, ok := err.(*PartialPacketError); ok {
+func isPartialPacketError(err error, target **partialPacketError) bool {
+	if p, ok := err.(*partialPacketError); ok {
 		if target != nil {
 			*target = p
 		}
@@ -69,7 +69,7 @@ func isEOFLike(err error) bool {
 }
 
 // recvExact reads exactly n bytes from conn.
-// It returns a *PartialPacketError if the connection closes before the first byte,
+// It returns a *partialPacketError if the connection closes before the first byte,
 // and a plain error if it closes partway through.
 func recvExact(conn net.Conn, n int) ([]byte, error) {
 	if n == 0 {
@@ -83,7 +83,7 @@ func recvExact(conn net.Conn, n int) ([]byte, error) {
 		if err != nil {
 			if isEOFLike(err) {
 				if read == 0 {
-					return nil, &PartialPacketError{"connection closed partway through reading packet"}
+					return nil, &partialPacketError{"connection closed partway through reading packet"}
 				}
 				return nil, fmt.Errorf("connection closed while reading data after %d bytes", read)
 			}
@@ -93,13 +93,13 @@ func recvExact(conn net.Conn, n int) ([]byte, error) {
 	return buf, nil
 }
 
-// ReadPacket reads and deserializes a single packet from conn.
+// readPacket reads and deserializes a single packet from conn.
 // It validates the magic number, checksum, and terminator byte.
-func ReadPacket(conn net.Conn) (Packet, error) {
+func readPacket(conn net.Conn) (packet, error) {
 	// Read the fixed 20-byte header.
 	header, err := recvExact(conn, headerSize)
 	if err != nil {
-		return Packet{}, err
+		return packet{}, err
 	}
 
 	magic := binary.BigEndian.Uint32(header[0:])
@@ -109,7 +109,7 @@ func ReadPacket(conn net.Conn) (Packet, error) {
 	payloadLen := binary.BigEndian.Uint32(header[16:])
 
 	if magic != Magic {
-		return Packet{}, fmt.Errorf("invalid magic number: expected 0x%08X, got 0x%08X", Magic, magic)
+		return packet{}, fmt.Errorf("invalid magic number: expected 0x%08X, got 0x%08X", Magic, magic)
 	}
 
 	isReply := messageID&ReplyBit != 0
@@ -120,16 +120,16 @@ func ReadPacket(conn net.Conn) (Packet, error) {
 	// Read payload.
 	payload, err := recvExact(conn, int(payloadLen))
 	if err != nil {
-		return Packet{}, err
+		return packet{}, err
 	}
 
 	// Read terminator.
 	term, err := recvExact(conn, 1)
 	if err != nil {
-		return Packet{}, err
+		return packet{}, err
 	}
 	if term[0] != Terminator {
-		return Packet{}, fmt.Errorf("invalid terminator: expected 0x%02X, got 0x%02X", Terminator, term[0])
+		return packet{}, fmt.Errorf("invalid terminator: expected 0x%02X, got 0x%02X", Terminator, term[0])
 	}
 
 	// Verify CRC32 over header-with-checksum-zeroed + payload.
@@ -138,10 +138,10 @@ func ReadPacket(conn net.Conn) (Packet, error) {
 	binary.BigEndian.PutUint32(headerForCheck[4:], 0) // zero the checksum field
 	computed := crc32.ChecksumIEEE(append(headerForCheck, payload...))
 	if computed != checksum {
-		return Packet{}, fmt.Errorf("checksum mismatch: expected 0x%08X, got 0x%08X", checksum, computed)
+		return packet{}, fmt.Errorf("checksum mismatch: expected 0x%08X, got 0x%08X", checksum, computed)
 	}
 
-	return Packet{
+	return packet{
 		ChannelID: channelID,
 		MessageID: messageID,
 		IsReply:   isReply,
@@ -149,9 +149,9 @@ func ReadPacket(conn net.Conn) (Packet, error) {
 	}, nil
 }
 
-// WritePacket serializes and writes a packet to conn.
+// writePacket serializes and writes a packet to conn.
 // It computes the CRC32 checksum and appends the terminator byte.
-func WritePacket(conn net.Conn, pkt Packet) error {
+func writePacket(conn net.Conn, pkt packet) error {
 	messageID := pkt.MessageID
 	if pkt.IsReply {
 		messageID |= ReplyBit

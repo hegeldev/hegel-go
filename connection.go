@@ -31,36 +31,36 @@ const (
 	stateServer
 )
 
-// Connection manages a multiplexed socket with a demand-driven reader.
+// connection manages a multiplexed socket with a demand-driven reader.
 // It is safe to call Close from any goroutine; all other methods must be called
 // from a single goroutine per connection (the reader lock provides ordering).
-type Connection struct {
+type connection struct {
 	name    string
 	conn    net.Conn
 	running atomic.Bool
 
 	nextChannelID int
-	channels      map[uint32]*Channel
+	channels      map[uint32]*channel
 	state         connectionState
 
 	writerMu sync.Mutex
 	readerMu sync.Mutex
 
-	controlCh *Channel
+	controlCh *channel
 }
 
-// NewConnection wraps conn in a new Connection and registers the control channel (ID 0).
-func NewConnection(conn net.Conn, name string) *Connection {
-	c := &Connection{
+// newConnection wraps conn in a new connection and registers the control channel (ID 0).
+func newConnection(conn net.Conn, name string) *connection {
+	c := &connection{
 		name:          name,
 		conn:          conn,
-		channels:      make(map[uint32]*Channel),
+		channels:      make(map[uint32]*channel),
 		state:         stateUnresolved,
 		nextChannelID: 1, // first real channel counter (matches Python's __next_channel_id = 1)
 	}
 	c.running.Store(true)
-	// Channel 0 is the control channel; it is pre-registered before any handshake.
-	c.controlCh = &Channel{
+	// channel 0 is the control channel; it is pre-registered before any handshake.
+	c.controlCh = &channel{
 		conn:          c,
 		channelID:     0,
 		inbox:         make(chan any, 64),
@@ -71,29 +71,29 @@ func NewConnection(conn net.Conn, name string) *Connection {
 }
 
 // Live reports whether the connection is still open.
-func (c *Connection) Live() bool {
+func (c *connection) Live() bool {
 	return c.running.Load()
 }
 
 // ControlChannel returns the channel used for handshake and control messages.
-func (c *Connection) ControlChannel() *Channel { return c.controlCh }
+func (c *connection) ControlChannel() *channel { return c.controlCh }
 
 // SendPacket sends a packet to the peer. It is safe to call concurrently.
-func (c *Connection) SendPacket(pkt Packet) error {
+func (c *connection) SendPacket(pkt packet) error {
 	c.writerMu.Lock()
 	defer c.writerMu.Unlock()
-	return WritePacket(c.conn, pkt)
+	return writePacket(c.conn, pkt)
 }
 
 // Close shuts down the connection and signals all channels.
-func (c *Connection) Close() {
+func (c *connection) Close() {
 	c.writerMu.Lock()
 	if !c.running.Load() {
 		c.writerMu.Unlock()
 		return
 	}
 	c.running.Store(false)
-	channels := make([]*Channel, 0, len(c.channels))
+	channels := make([]*channel, 0, len(c.channels))
 	for _, ch := range c.channels {
 		channels = append(channels, ch)
 	}
@@ -114,7 +114,7 @@ func (c *Connection) Close() {
 // runReader is the demand-driven reader loop.
 // It reads packets from the socket and dispatches them to the correct channel's inbox
 // until the until() predicate returns true, the connection closes, or a short timeout elapses.
-func (c *Connection) runReader(until func() bool) {
+func (c *connection) runReader(until func() bool) {
 	if until() {
 		return
 	}
@@ -139,13 +139,13 @@ func (c *Connection) runReader(until func() bool) {
 	for c.running.Load() && !until() {
 		// Set a short deadline so we can re-check until() periodically.
 		c.conn.SetReadDeadline(time.Now().Add(100 * time.Millisecond)) //nolint:errcheck
-		pkt, err := ReadPacket(c.conn)
+		pkt, err := readPacket(c.conn)
 		c.conn.SetReadDeadline(time.Time{}) //nolint:errcheck
 		if err != nil {
 			if isTimeout(err) {
 				continue
 			}
-			// Connection error — stop reading.
+			// connection error — stop reading.
 			return
 		}
 		c.dispatch(pkt)
@@ -153,13 +153,13 @@ func (c *Connection) runReader(until func() bool) {
 }
 
 // dispatch routes a received packet to the appropriate channel's inbox.
-func (c *Connection) dispatch(pkt Packet) {
+func (c *connection) dispatch(pkt packet) {
 	c.writerMu.Lock()
 	ch, ok := c.channels[pkt.ChannelID]
 	c.writerMu.Unlock()
 
 	if bytes.Equal(pkt.Payload, CloseChannelPayload) && pkt.MessageID == CloseChannelMessageID {
-		// Channel close notification — remove the channel.
+		// channel close notification — remove the channel.
 		c.writerMu.Lock()
 		delete(c.channels, pkt.ChannelID)
 		c.writerMu.Unlock()
@@ -173,7 +173,7 @@ func (c *Connection) dispatch(pkt Packet) {
 				pkt.MessageID, pkt.ChannelID)
 			errPayload, encErr := EncodeCBOR(map[string]any{"error": errMsg})
 			if encErr == nil {
-				c.SendPacket(Packet{ //nolint:errcheck
+				c.SendPacket(packet{ //nolint:errcheck
 					ChannelID: pkt.ChannelID,
 					MessageID: pkt.MessageID,
 					IsReply:   true,
@@ -198,14 +198,14 @@ func isTimeout(err error) bool {
 }
 
 // SendHandshake performs the client side of the handshake and discards the version.
-func (c *Connection) SendHandshake() error {
+func (c *connection) SendHandshake() error {
 	_, err := c.SendHandshakeVersion()
 	return err
 }
 
 // SendHandshakeVersion performs the client side of the handshake and returns the
 // server version string (the part after "Hegel/").
-func (c *Connection) SendHandshakeVersion() (string, error) {
+func (c *connection) SendHandshakeVersion() (string, error) {
 	c.writerMu.Lock()
 	if c.state != stateUnresolved {
 		c.writerMu.Unlock()
@@ -230,7 +230,7 @@ func (c *Connection) SendHandshakeVersion() (string, error) {
 }
 
 // ReceiveHandshake performs the server side of the handshake.
-func (c *Connection) ReceiveHandshake() error {
+func (c *connection) ReceiveHandshake() error {
 	c.writerMu.Lock()
 	if c.state != stateUnresolved {
 		c.writerMu.Unlock()
@@ -252,7 +252,7 @@ func (c *Connection) ReceiveHandshake() error {
 
 // NewChannel allocates a new client-side logical channel. Panics if called before
 // the handshake is complete (matching Python's ValueError).
-func (c *Connection) NewChannel(name string) *Channel {
+func (c *connection) NewChannel(name string) *channel {
 	c.writerMu.Lock()
 	defer c.writerMu.Unlock()
 
@@ -270,7 +270,7 @@ func (c *Connection) NewChannel(name string) *Channel {
 	}
 	c.nextChannelID++
 
-	ch := &Channel{
+	ch := &channel{
 		conn:          c,
 		channelID:     channelID,
 		inbox:         make(chan any, 64),
@@ -282,7 +282,7 @@ func (c *Connection) NewChannel(name string) *Channel {
 }
 
 // ConnectChannel registers an existing peer-created channel by its ID.
-func (c *Connection) ConnectChannel(id uint32, name string) (*Channel, error) {
+func (c *connection) ConnectChannel(id uint32, name string) (*channel, error) {
 	c.writerMu.Lock()
 	defer c.writerMu.Unlock()
 
@@ -293,7 +293,7 @@ func (c *Connection) ConnectChannel(id uint32, name string) (*Channel, error) {
 		return nil, fmt.Errorf("channel already connected as channel %d", id)
 	}
 
-	ch := &Channel{
+	ch := &channel{
 		conn:          c,
 		channelID:     id,
 		inbox:         make(chan any, 64),
@@ -340,23 +340,23 @@ func resultOrError(body map[any]any) (any, error) {
 	return body[any("result")], nil
 }
 
-// Channel is a logical, non-thread-safe communication channel over a Connection.
-type Channel struct {
-	conn          *Connection
+// channel is a logical, non-thread-safe communication channel over a connection.
+type channel struct {
+	conn          *connection
 	channelID     uint32
 	inbox         chan any
 	nextMessageID uint32
 	responses     map[uint32][]byte
-	requests      []Packet
+	requests      []packet
 	closed        bool
 	name          string
 }
 
 // ChannelID returns the numeric ID of this channel.
-func (ch *Channel) ChannelID() uint32 { return ch.channelID }
+func (ch *channel) ChannelID() uint32 { return ch.channelID }
 
-// putInbox delivers a value (Packet or shutdownSentinel) to the channel's inbox.
-func (ch *Channel) putInbox(v any) {
+// putInbox delivers a value (packet or shutdownSentinel) to the channel's inbox.
+func (ch *channel) putInbox(v any) {
 	select {
 	case ch.inbox <- v:
 	default:
@@ -365,7 +365,7 @@ func (ch *Channel) putInbox(v any) {
 }
 
 // Close sends a close notification to the peer and marks the channel closed.
-func (ch *Channel) Close() {
+func (ch *channel) Close() {
 	if ch.closed {
 		return
 	}
@@ -378,7 +378,7 @@ func (ch *Channel) Close() {
 	ch.closed = true
 	if registered && live {
 		// Send asynchronously: write may block if the reader isn't consuming yet.
-		go ch.conn.SendPacket(Packet{ //nolint:errcheck
+		go ch.conn.SendPacket(packet{ //nolint:errcheck
 			ChannelID: ch.channelID,
 			MessageID: CloseChannelMessageID,
 			IsReply:   false,
@@ -388,10 +388,10 @@ func (ch *Channel) Close() {
 }
 
 // SendRequestRaw sends raw bytes as a request and returns the message ID.
-func (ch *Channel) SendRequestRaw(payload []byte) (uint32, error) {
+func (ch *channel) SendRequestRaw(payload []byte) (uint32, error) {
 	msgID := ch.nextMessageID
 	ch.nextMessageID++
-	err := ch.conn.SendPacket(Packet{
+	err := ch.conn.SendPacket(packet{
 		ChannelID: ch.channelID,
 		MessageID: msgID,
 		IsReply:   false,
@@ -401,8 +401,8 @@ func (ch *Channel) SendRequestRaw(payload []byte) (uint32, error) {
 }
 
 // SendReplyRaw sends raw bytes as a reply to the given message ID.
-func (ch *Channel) SendReplyRaw(msgID uint32, payload []byte) error {
-	return ch.conn.SendPacket(Packet{
+func (ch *channel) SendReplyRaw(msgID uint32, payload []byte) error {
+	return ch.conn.SendPacket(packet{
 		ChannelID: ch.channelID,
 		MessageID: msgID,
 		IsReply:   true,
@@ -411,7 +411,7 @@ func (ch *Channel) SendReplyRaw(msgID uint32, payload []byte) error {
 }
 
 // SendReplyValue sends a CBOR-encoded {"result": v} reply.
-func (ch *Channel) SendReplyValue(msgID uint32, v any) error {
+func (ch *channel) SendReplyValue(msgID uint32, v any) error {
 	payload, err := EncodeCBOR(map[string]any{"result": v})
 	if err != nil {
 		return err
@@ -420,7 +420,7 @@ func (ch *Channel) SendReplyValue(msgID uint32, v any) error {
 }
 
 // SendReplyError sends a CBOR-encoded error reply with the given message and type.
-func (ch *Channel) SendReplyError(msgID uint32, errMsg, errType string) error {
+func (ch *channel) SendReplyError(msgID uint32, errMsg, errType string) error {
 	payload, err := EncodeCBOR(map[string]any{
 		"error": errMsg,
 		"type":  errType,
@@ -433,7 +433,7 @@ func (ch *Channel) SendReplyError(msgID uint32, errMsg, errType string) error {
 
 // RecvRequestRaw waits for the next server-initiated request and returns
 // (messageID, payload, error). timeout <= 0 means no timeout.
-func (ch *Channel) RecvRequestRaw(timeout time.Duration) (uint32, []byte, error) {
+func (ch *channel) RecvRequestRaw(timeout time.Duration) (uint32, []byte, error) {
 	for len(ch.requests) == 0 {
 		if err := ch.processOneMessage(timeout); err != nil {
 			return 0, nil, err
@@ -446,7 +446,7 @@ func (ch *Channel) RecvRequestRaw(timeout time.Duration) (uint32, []byte, error)
 
 // RecvRequest waits for the next server-initiated request and returns
 // (messageID, CBOR-decoded payload, error).
-func (ch *Channel) RecvRequest(timeout time.Duration) (uint32, any, error) {
+func (ch *channel) RecvRequest(timeout time.Duration) (uint32, any, error) {
 	msgID, payload, err := ch.RecvRequestRaw(timeout)
 	if err != nil {
 		return 0, nil, err
@@ -459,7 +459,7 @@ func (ch *Channel) RecvRequest(timeout time.Duration) (uint32, any, error) {
 }
 
 // recvResponseRaw waits for a reply to the given message ID.
-func (ch *Channel) recvResponseRaw(msgID uint32, timeout time.Duration) ([]byte, error) {
+func (ch *channel) recvResponseRaw(msgID uint32, timeout time.Duration) ([]byte, error) {
 	if ch.responses == nil {
 		ch.responses = make(map[uint32][]byte)
 	}
@@ -476,7 +476,7 @@ func (ch *Channel) recvResponseRaw(msgID uint32, timeout time.Duration) ([]byte,
 
 // ReceiveResponse waits for a reply to the given message ID and returns the
 // CBOR-decoded result (unwrapping {"result": v} or raising RequestError).
-func (ch *Channel) ReceiveResponse(msgID uint32, timeout time.Duration) (any, error) {
+func (ch *channel) ReceiveResponse(msgID uint32, timeout time.Duration) (any, error) {
 	raw, err := ch.recvResponseRaw(msgID, timeout)
 	if err != nil {
 		return nil, err
@@ -494,7 +494,7 @@ func (ch *Channel) ReceiveResponse(msgID uint32, timeout time.Duration) (any, er
 
 // processOneMessage calls runReader until the channel's inbox has something,
 // then dequeues and routes it.
-func (ch *Channel) processOneMessage(timeout time.Duration) error {
+func (ch *channel) processOneMessage(timeout time.Duration) error {
 	start := time.Now()
 	needsMessages := func() bool {
 		return ch.closed || len(ch.inbox) > 0 ||
@@ -512,7 +512,7 @@ func (ch *Channel) processOneMessage(timeout time.Duration) error {
 		if item == shutdownSentinel {
 			return fmt.Errorf("connection closed")
 		}
-		pkt := item.(Packet)
+		pkt := item.(packet)
 		if pkt.IsReply {
 			if ch.responses == nil {
 				ch.responses = make(map[uint32][]byte)
@@ -531,27 +531,27 @@ func (ch *Channel) processOneMessage(timeout time.Duration) error {
 	}
 }
 
-func (ch *Channel) channelName() string {
+func (ch *channel) channelName() string {
 	if ch.name != "" {
 		return ch.name
 	}
 	return fmt.Sprintf("channel %d", ch.channelID)
 }
 
-// Request sends a request and returns a PendingRequest future.
-func (ch *Channel) Request(payload []byte) (*PendingRequest, error) {
+// Request sends a request and returns a pendingRequest future.
+func (ch *channel) Request(payload []byte) (*pendingRequest, error) {
 	msgID, err := ch.SendRequestRaw(payload)
 	if err != nil {
 		return nil, err
 	}
-	return &PendingRequest{ch: ch, msgID: msgID}, nil
+	return &pendingRequest{ch: ch, msgID: msgID}, nil
 }
 
 // HandleRequests processes incoming requests with handler until stopFn returns true.
 // The handler receives the raw CBOR request payload and returns a Go value (any) that
 // will be sent as {"result": v}. On error, {"error": ..., "type": ...} is sent.
 // If stopFn is nil, it runs indefinitely until the connection dies.
-func (ch *Channel) HandleRequests(handler func([]byte) (any, error), stopFn func() bool) {
+func (ch *channel) HandleRequests(handler func([]byte) (any, error), stopFn func() bool) {
 	for {
 		if stopFn != nil && stopFn() {
 			return
@@ -569,9 +569,9 @@ func (ch *Channel) HandleRequests(handler func([]byte) (any, error), stopFn func
 	}
 }
 
-// PendingRequest is a future for an in-flight request.
-type PendingRequest struct {
-	ch    *Channel
+// pendingRequest is a future for an in-flight request.
+type pendingRequest struct {
+	ch    *channel
 	msgID uint32
 	value any
 	done  bool
@@ -579,7 +579,7 @@ type PendingRequest struct {
 }
 
 // Get waits for and returns the response. Subsequent calls return the cached value.
-func (p *PendingRequest) Get() (any, error) {
+func (p *pendingRequest) Get() (any, error) {
 	if p.done {
 		return p.value, p.err
 	}

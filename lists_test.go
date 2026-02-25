@@ -113,9 +113,9 @@ func TestListsBasicElementWithTransformNonSlicePassthrough(t *testing.T) {
 // TestListsNonBasicElementReturnsComposite verifies that Lists on a non-basic generator
 // returns a compositeListGenerator (not a BasicGenerator).
 func TestListsNonBasicElementReturnsComposite(t *testing.T) {
-	// MappedGenerator is non-basic.
+	// mappedGenerator is non-basic.
 	inner := Integers(0, 10)
-	nonBasic := &MappedGenerator{inner: inner, fn: func(v any) any { return v }}
+	nonBasic := &mappedGenerator{inner: inner, fn: func(v any) any { return v }}
 	gen := Lists(nonBasic, ListsOptions{MinSize: 1, MaxSize: 3})
 	if _, ok := gen.(*compositeListGenerator); !ok {
 		t.Fatalf("Lists(non-basic) should return *compositeListGenerator, got %T", gen)
@@ -126,14 +126,14 @@ func TestListsNonBasicElementReturnsComposite(t *testing.T) {
 }
 
 // TestCompositeListGeneratorMap verifies that mapping a compositeListGenerator
-// returns a MappedGenerator.
+// returns a mappedGenerator.
 func TestCompositeListGeneratorMap(t *testing.T) {
 	inner := Integers(0, 10)
-	nonBasic := &MappedGenerator{inner: inner, fn: func(v any) any { return v }}
+	nonBasic := &mappedGenerator{inner: inner, fn: func(v any) any { return v }}
 	gen := Lists(nonBasic, ListsOptions{MinSize: 0, MaxSize: 3})
 	mapped := gen.Map(func(v any) any { return v })
-	if _, ok := mapped.(*MappedGenerator); !ok {
-		t.Fatalf("Map on compositeListGenerator should return *MappedGenerator, got %T", mapped)
+	if _, ok := mapped.(*mappedGenerator); !ok {
+		t.Fatalf("Map on compositeListGenerator should return *mappedGenerator, got %T", mapped)
 	}
 }
 
@@ -158,15 +158,15 @@ func TestListsNegativeMinSizeClampedToZero(t *testing.T) {
 // TestCompositeListGeneratorProtocol tests the collection protocol for composite lists
 // using a fake server (no real hegel binary needed).
 func TestCompositeListGeneratorProtocol(t *testing.T) {
-	// Non-basic generator: MappedGenerator wrapping integers
+	// Non-basic generator: mappedGenerator wrapping integers
 	inner := Integers(0, 10)
-	nonBasic := &MappedGenerator{inner: inner, fn: func(v any) any {
+	nonBasic := &mappedGenerator{inner: inner, fn: func(v any) any {
 		n, _ := ExtractInt(v)
 		return n * 2
 	}}
 	gen := Lists(nonBasic, ListsOptions{MinSize: 1, MaxSize: 3})
 
-	clientConn := fakeServerConn(t, func(serverConn *Connection) {
+	clientConn := fakeServerConn(t, func(serverConn *connection) {
 		ctrl := serverConn.ControlChannel()
 		msgID, payload, _ := ctrl.RecvRequestRaw(5 * time.Second)
 		decoded, _ := DecodeCBOR(payload)
@@ -204,7 +204,7 @@ func TestCompositeListGeneratorProtocol(t *testing.T) {
 		m1ID, _, _ := caseCh.RecvRequestRaw(5 * time.Second)
 		caseCh.SendReplyValue(m1ID, true) //nolint:errcheck
 
-		// start_span for MappedGenerator
+		// start_span for mappedGenerator
 		mssID, _, _ := caseCh.RecvRequestRaw(5 * time.Second)
 		caseCh.SendReplyValue(mssID, nil) //nolint:errcheck
 
@@ -212,7 +212,7 @@ func TestCompositeListGeneratorProtocol(t *testing.T) {
 		genID, _, _ := caseCh.RecvRequestRaw(5 * time.Second)
 		caseCh.SendReplyValue(genID, int64(3)) //nolint:errcheck
 
-		// stop_span for MappedGenerator
+		// stop_span for mappedGenerator
 		mspID, _, _ := caseCh.RecvRequestRaw(5 * time.Second)
 		caseCh.SendReplyValue(mspID, nil) //nolint:errcheck
 
@@ -253,10 +253,10 @@ func TestCompositeListGeneratorProtocol(t *testing.T) {
 // returns an empty (but non-nil via append behavior) slice.
 func TestCompositeListGeneratorEmptyList(t *testing.T) {
 	inner := Integers(0, 10)
-	nonBasic := &MappedGenerator{inner: inner, fn: func(v any) any { return v }}
+	nonBasic := &mappedGenerator{inner: inner, fn: func(v any) any { return v }}
 	gen := Lists(nonBasic, ListsOptions{MinSize: 0, MaxSize: 3})
 
-	clientConn := fakeServerConn(t, func(serverConn *Connection) {
+	clientConn := fakeServerConn(t, func(serverConn *connection) {
 		ctrl := serverConn.ControlChannel()
 		msgID, payload, _ := ctrl.RecvRequestRaw(5 * time.Second)
 		decoded, _ := DecodeCBOR(payload)
@@ -361,7 +361,7 @@ func TestListsNonBasicElementE2E(t *testing.T) {
 		// Only keep even — transform to ensure "even" semantics (round to nearest even).
 		return (n / 2) * 2
 	})
-	nonBasic := &MappedGenerator{inner: filtered, fn: func(v any) any { return v }}
+	nonBasic := &mappedGenerator{inner: filtered, fn: func(v any) any { return v }}
 
 	RunHegelTest("lists_non_basic_e2e", func() {
 		xs := Lists(nonBasic, ListsOptions{MinSize: 0, MaxSize: 5}).Generate()

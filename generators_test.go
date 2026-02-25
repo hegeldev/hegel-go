@@ -15,7 +15,7 @@ import (
 func TestBasicGeneratorGenerateNoTransform(t *testing.T) {
 	// Set up fake server that responds to a generate command with int64(42).
 	schema := map[string]any{"type": "integer", "min_value": int64(0), "max_value": int64(100)}
-	clientConn := fakeServerConn(t, func(serverConn *Connection) {
+	clientConn := fakeServerConn(t, func(serverConn *connection) {
 		ctrl := serverConn.ControlChannel()
 		msgID, payload, _ := ctrl.RecvRequestRaw(5 * time.Second)
 		decoded, _ := DecodeCBOR(payload)
@@ -66,7 +66,7 @@ func TestBasicGeneratorGenerateNoTransform(t *testing.T) {
 
 func TestBasicGeneratorGenerateWithTransform(t *testing.T) {
 	schema := map[string]any{"type": "integer"}
-	clientConn := fakeServerConn(t, func(serverConn *Connection) {
+	clientConn := fakeServerConn(t, func(serverConn *connection) {
 		ctrl := serverConn.ControlChannel()
 		msgID, payload, _ := ctrl.RecvRequestRaw(5 * time.Second)
 		decoded, _ := DecodeCBOR(payload)
@@ -173,12 +173,12 @@ func TestBasicGeneratorAsBasic(t *testing.T) {
 	}
 }
 
-// --- MappedGenerator ---
+// --- mappedGenerator ---
 
 func TestMappedGeneratorGenerate(t *testing.T) {
-	// MappedGenerator wraps a non-basic generator.
+	// mappedGenerator wraps a non-basic generator.
 	schema := map[string]any{"type": "integer"}
-	clientConn := fakeServerConn(t, func(serverConn *Connection) {
+	clientConn := fakeServerConn(t, func(serverConn *connection) {
 		ctrl := serverConn.ControlChannel()
 		msgID, payload, _ := ctrl.RecvRequestRaw(5 * time.Second)
 		decoded, _ := DecodeCBOR(payload)
@@ -217,7 +217,7 @@ func TestMappedGeneratorGenerate(t *testing.T) {
 	var gotVal int64
 	err := cli.runTest("mapped_gen", func() {
 		inner := &BasicGenerator{schema: schema}
-		mg := &MappedGenerator{
+		mg := &mappedGenerator{
 			inner: inner,
 			fn:    func(v any) any { n, _ := ExtractInt(v); return n * 10 },
 		}
@@ -232,19 +232,19 @@ func TestMappedGeneratorGenerate(t *testing.T) {
 	}
 }
 
-// --- MappedGenerator.AsBasic ---
+// --- mappedGenerator.AsBasic ---
 
 func TestMappedGeneratorAsBasic(t *testing.T) {
-	mg := &MappedGenerator{
+	mg := &mappedGenerator{
 		inner: &BasicGenerator{schema: map[string]any{"type": "integer"}},
 		fn:    func(v any) any { return v },
 	}
 	if mg.AsBasic() != nil {
-		t.Error("MappedGenerator.AsBasic should return nil")
+		t.Error("mappedGenerator.AsBasic should return nil")
 	}
 }
 
-// --- MappedGenerator.Map returns BasicGenerator when inner is BasicGenerator ---
+// --- mappedGenerator.Map returns BasicGenerator when inner is BasicGenerator ---
 
 func TestMappedGeneratorMapOnBasicInner(t *testing.T) {
 	inner := &BasicGenerator{schema: map[string]any{"type": "integer"}}
@@ -259,9 +259,9 @@ func TestMappedGeneratorMapOnBasicInner(t *testing.T) {
 // Span helper tests
 // =============================================================================
 
-func fakeTestEnv(t *testing.T, fn func(caseCh *Channel)) *Connection {
+func fakeTestEnv(t *testing.T, fn func(caseCh *channel)) *connection {
 	t.Helper()
-	return fakeServerConn(t, func(serverConn *Connection) {
+	return fakeServerConn(t, func(serverConn *connection) {
 		ctrl := serverConn.ControlChannel()
 		msgID, payload, _ := ctrl.RecvRequestRaw(5 * time.Second)
 		decoded, _ := DecodeCBOR(payload)
@@ -294,7 +294,7 @@ func fakeTestEnv(t *testing.T, fn func(caseCh *Channel)) *Connection {
 func TestStartStopSpan(t *testing.T) {
 	var gotStartLabel int64
 	var gotStopDiscard bool
-	clientConn := fakeTestEnv(t, func(caseCh *Channel) {
+	clientConn := fakeTestEnv(t, func(caseCh *channel) {
 		// start_span
 		ssID, ssPayload, _ := caseCh.RecvRequestRaw(5 * time.Second)
 		decoded, _ := DecodeCBOR(ssPayload)
@@ -330,7 +330,7 @@ func TestStartStopSpan(t *testing.T) {
 
 func TestStopSpanDiscard(t *testing.T) {
 	var gotDiscard bool
-	clientConn := fakeTestEnv(t, func(caseCh *Channel) {
+	clientConn := fakeTestEnv(t, func(caseCh *channel) {
 		// start_span
 		ssID, _, _ := caseCh.RecvRequestRaw(5 * time.Second)
 		caseCh.SendReplyValue(ssID, nil) //nolint:errcheck
@@ -360,7 +360,7 @@ func TestStopSpanDiscard(t *testing.T) {
 
 func TestStartSpanNoOpWhenAborted(t *testing.T) {
 	// When aborted=true, StartSpan and StopSpan must not send any messages.
-	clientConn := fakeTestEnv(t, func(caseCh *Channel) {
+	clientConn := fakeTestEnv(t, func(caseCh *channel) {
 		// No messages expected (no start/stop span).
 		// The test fn will set aborted then call StartSpan/StopSpan.
 	})
@@ -382,7 +382,7 @@ func TestStartSpanNoOpWhenAborted(t *testing.T) {
 func TestGroup(t *testing.T) {
 	var cmds []string
 	// Use fakeServerConn directly to control all message handling.
-	clientConn := fakeServerConn(t, func(serverConn *Connection) {
+	clientConn := fakeServerConn(t, func(serverConn *connection) {
 		ctrl := serverConn.ControlChannel()
 		msgID, payload, _ := ctrl.RecvRequestRaw(5 * time.Second)
 		decoded, _ := DecodeCBOR(payload)
@@ -437,7 +437,7 @@ func TestGroup(t *testing.T) {
 
 func TestDiscardableGroupNoPanic(t *testing.T) {
 	var cmds []string
-	clientConn := fakeServerConn(t, func(serverConn *Connection) {
+	clientConn := fakeServerConn(t, func(serverConn *connection) {
 		ctrl := serverConn.ControlChannel()
 		msgID, payload, _ := ctrl.RecvRequestRaw(5 * time.Second)
 		decoded, _ := DecodeCBOR(payload)
@@ -487,7 +487,7 @@ func TestDiscardableGroupNoPanic(t *testing.T) {
 
 func TestDiscardableGroupPanic(t *testing.T) {
 	var stopDiscardVal bool
-	clientConn := fakeTestEnv(t, func(caseCh *Channel) {
+	clientConn := fakeTestEnv(t, func(caseCh *channel) {
 		// start_span
 		ssID, _, _ := caseCh.RecvRequestRaw(5 * time.Second)
 		caseCh.SendReplyValue(ssID, nil) //nolint:errcheck
@@ -522,7 +522,7 @@ func TestDiscardableGroupPanic(t *testing.T) {
 func TestNewCollection(t *testing.T) {
 	var gotCmd string
 	var gotMin, gotMax int64
-	clientConn := fakeTestEnv(t, func(caseCh *Channel) {
+	clientConn := fakeTestEnv(t, func(caseCh *channel) {
 		// new_collection
 		ncID, ncPayload, _ := caseCh.RecvRequestRaw(5 * time.Second)
 		decoded, _ := DecodeCBOR(ncPayload)
@@ -561,7 +561,7 @@ func TestNewCollection(t *testing.T) {
 
 func TestCollectionMore(t *testing.T) {
 	var moreCount int
-	clientConn := fakeTestEnv(t, func(caseCh *Channel) {
+	clientConn := fakeTestEnv(t, func(caseCh *channel) {
 		// new_collection
 		ncID, _, _ := caseCh.RecvRequestRaw(5 * time.Second)
 		caseCh.SendReplyValue(ncID, "coll_x") //nolint:errcheck
@@ -592,7 +592,7 @@ func TestCollectionMore(t *testing.T) {
 // --- Collection.More: cached false after first false ---
 
 func TestCollectionMoreCachesFalse(t *testing.T) {
-	clientConn := fakeTestEnv(t, func(caseCh *Channel) {
+	clientConn := fakeTestEnv(t, func(caseCh *channel) {
 		// new_collection
 		ncID, _, _ := caseCh.RecvRequestRaw(5 * time.Second)
 		caseCh.SendReplyValue(ncID, "coll_y") //nolint:errcheck
@@ -620,7 +620,7 @@ func TestCollectionMoreCachesFalse(t *testing.T) {
 
 func TestCollectionReject(t *testing.T) {
 	var gotRejectCmd string
-	clientConn := fakeTestEnv(t, func(caseCh *Channel) {
+	clientConn := fakeTestEnv(t, func(caseCh *channel) {
 		// new_collection
 		ncID, _, _ := caseCh.RecvRequestRaw(5 * time.Second)
 		caseCh.SendReplyValue(ncID, "coll_r") //nolint:errcheck
@@ -661,7 +661,7 @@ func TestCollectionReject(t *testing.T) {
 // --- Collection.Reject no-op after finished ---
 
 func TestCollectionRejectNoOpAfterFinished(t *testing.T) {
-	clientConn := fakeTestEnv(t, func(caseCh *Channel) {
+	clientConn := fakeTestEnv(t, func(caseCh *channel) {
 		// new_collection
 		ncID, _, _ := caseCh.RecvRequestRaw(5 * time.Second)
 		caseCh.SendReplyValue(ncID, "coll_nop") //nolint:errcheck
@@ -1053,19 +1053,19 @@ func TestBasicGeneratorGenerateErrorResponse(t *testing.T) {
 }
 
 // =============================================================================
-// Generator.Map on a Generator interface (non-basic returns MappedGenerator)
+// Generator.Map on a Generator interface (non-basic returns mappedGenerator)
 // =============================================================================
 
 func TestGeneratorMapOnNonBasic(t *testing.T) {
 	// A custom generator that is not a BasicGenerator.
 	schema := map[string]any{"type": "integer"}
 	inner := &BasicGenerator{schema: schema}
-	// MappedGenerator is not a BasicGenerator.
-	mg := &MappedGenerator{inner: inner, fn: func(v any) any { return v }}
+	// mappedGenerator is not a BasicGenerator.
+	mg := &mappedGenerator{inner: inner, fn: func(v any) any { return v }}
 	mapped := mg.Map(func(v any) any { return v })
-	// Mapping a non-basic generator should produce a MappedGenerator.
-	if _, ok := mapped.(*MappedGenerator); !ok {
-		t.Errorf("Map on non-basic Generator should return *MappedGenerator, got %T", mapped)
+	// Mapping a non-basic generator should produce a mappedGenerator.
+	if _, ok := mapped.(*mappedGenerator); !ok {
+		t.Errorf("Map on non-basic Generator should return *mappedGenerator, got %T", mapped)
 	}
 }
 
@@ -1145,14 +1145,14 @@ func TestMapChainedBasicGeneratorE2E(t *testing.T) {
 	}, WithTestCases(50))
 }
 
-// TestMapNonBasicGeneratorE2E verifies that mapping a MappedGenerator (non-basic)
+// TestMapNonBasicGeneratorE2E verifies that mapping a mappedGenerator (non-basic)
 // wraps it in a MAPPED span and applies the transform correctly.
-// The result must be a MappedGenerator (not BasicGenerator).
+// The result must be a mappedGenerator (not BasicGenerator).
 func TestMapNonBasicGeneratorE2E(t *testing.T) {
 	hegelBinPath(t)
-	// Create a non-basic generator by wrapping a BasicGenerator in MappedGenerator.
+	// Create a non-basic generator by wrapping a BasicGenerator in mappedGenerator.
 	inner := Integers(1, 5)
-	nonBasic := &MappedGenerator{
+	nonBasic := &mappedGenerator{
 		inner: inner,
 		fn:    func(v any) any { return v }, // identity
 	}
@@ -1160,11 +1160,11 @@ func TestMapNonBasicGeneratorE2E(t *testing.T) {
 		n, _ := ExtractInt(v)
 		return n * 3
 	})
-	if _, ok := gen.(*MappedGenerator); !ok {
-		t.Fatalf("Map on non-basic Generator should return *MappedGenerator, got %T", gen)
+	if _, ok := gen.(*mappedGenerator); !ok {
+		t.Fatalf("Map on non-basic Generator should return *mappedGenerator, got %T", gen)
 	}
 	if gen.AsBasic() != nil {
-		t.Error("MappedGenerator.AsBasic() should return nil")
+		t.Error("mappedGenerator.AsBasic() should return nil")
 	}
 	RunHegelTest(t.Name(), func() {
 		v := gen.Generate()
@@ -1218,11 +1218,11 @@ func TestMapSchemaPreservedUnit(t *testing.T) {
 		t.Errorf("double map compose: input 5, expected 30, got %d", n)
 	}
 
-	// Map on MappedGenerator: AsBasic() returns nil.
-	mg := &MappedGenerator{inner: base, fn: func(v any) any { return v }}
+	// Map on mappedGenerator: AsBasic() returns nil.
+	mg := &mappedGenerator{inner: base, fn: func(v any) any { return v }}
 	mappedMG := mg.Map(func(v any) any { return v })
 	if mappedMG.AsBasic() != nil {
-		t.Error("mapping a MappedGenerator should produce AsBasic()=nil")
+		t.Error("mapping a mappedGenerator should produce AsBasic()=nil")
 	}
 }
 
@@ -1314,20 +1314,20 @@ func TestTuples2AllBasicWithTransforms(t *testing.T) {
 }
 
 // TestTuples2MixedBasicNonBasic verifies that Tuples2 with a non-basic element
-// returns a CompositeTupleGenerator, not a BasicGenerator.
+// returns a compositeTupleGenerator, not a BasicGenerator.
 func TestTuples2MixedBasicNonBasic(t *testing.T) {
-	// Create a non-basic generator by wrapping in MappedGenerator.
-	nonBasic := &MappedGenerator{
+	// Create a non-basic generator by wrapping in mappedGenerator.
+	nonBasic := &mappedGenerator{
 		inner: Integers(0, 10),
 		fn:    func(v any) any { return v },
 	}
 	g2 := Booleans(0.5)
 	gen := Tuples2(nonBasic, g2)
-	if _, ok := gen.(*CompositeTupleGenerator); !ok {
-		t.Fatalf("Tuples2 with non-basic element should return *CompositeTupleGenerator, got %T", gen)
+	if _, ok := gen.(*compositeTupleGenerator); !ok {
+		t.Fatalf("Tuples2 with non-basic element should return *compositeTupleGenerator, got %T", gen)
 	}
 	if gen.AsBasic() != nil {
-		t.Error("CompositeTupleGenerator.AsBasic() should return nil")
+		t.Error("compositeTupleGenerator.AsBasic() should return nil")
 	}
 }
 
@@ -1351,13 +1351,13 @@ func TestTuples3AllBasic(t *testing.T) {
 	}
 }
 
-// TestTuples3WithNonBasic verifies that Tuples3 falls back to CompositeTupleGenerator
+// TestTuples3WithNonBasic verifies that Tuples3 falls back to compositeTupleGenerator
 // when any element is non-basic.
 func TestTuples3WithNonBasic(t *testing.T) {
-	nonBasic := &MappedGenerator{inner: Integers(0, 5), fn: func(v any) any { return v }}
+	nonBasic := &mappedGenerator{inner: Integers(0, 5), fn: func(v any) any { return v }}
 	gen := Tuples3(nonBasic, Booleans(0.5), Text(1, 5))
-	if _, ok := gen.(*CompositeTupleGenerator); !ok {
-		t.Fatalf("Tuples3 with non-basic should return *CompositeTupleGenerator, got %T", gen)
+	if _, ok := gen.(*compositeTupleGenerator); !ok {
+		t.Fatalf("Tuples3 with non-basic should return *compositeTupleGenerator, got %T", gen)
 	}
 }
 
@@ -1378,24 +1378,24 @@ func TestTuples4AllBasic(t *testing.T) {
 	}
 }
 
-// TestTuples4WithNonBasic verifies that Tuples4 falls back to CompositeTupleGenerator
+// TestTuples4WithNonBasic verifies that Tuples4 falls back to compositeTupleGenerator
 // when any element is non-basic.
 func TestTuples4WithNonBasic(t *testing.T) {
-	nonBasic := &MappedGenerator{inner: Integers(0, 5), fn: func(v any) any { return v }}
+	nonBasic := &mappedGenerator{inner: Integers(0, 5), fn: func(v any) any { return v }}
 	gen := Tuples4(Integers(0, 5), Booleans(0.5), nonBasic, Text(1, 5))
-	if _, ok := gen.(*CompositeTupleGenerator); !ok {
-		t.Fatalf("Tuples4 with non-basic should return *CompositeTupleGenerator, got %T", gen)
+	if _, ok := gen.(*compositeTupleGenerator); !ok {
+		t.Fatalf("Tuples4 with non-basic should return *compositeTupleGenerator, got %T", gen)
 	}
 }
 
-// TestCompositeTupleGeneratorMap verifies that Map on CompositeTupleGenerator returns
-// a MappedGenerator.
+// TestCompositeTupleGeneratorMap verifies that Map on compositeTupleGenerator returns
+// a mappedGenerator.
 func TestCompositeTupleGeneratorMap(t *testing.T) {
-	nonBasic := &MappedGenerator{inner: Integers(0, 5), fn: func(v any) any { return v }}
+	nonBasic := &mappedGenerator{inner: Integers(0, 5), fn: func(v any) any { return v }}
 	comp := Tuples2(nonBasic, Booleans(0.5))
 	mapped := comp.Map(func(v any) any { return v })
-	if _, ok := mapped.(*MappedGenerator); !ok {
-		t.Fatalf("Map on CompositeTupleGenerator should return *MappedGenerator, got %T", mapped)
+	if _, ok := mapped.(*mappedGenerator); !ok {
+		t.Fatalf("Map on compositeTupleGenerator should return *mappedGenerator, got %T", mapped)
 	}
 }
 
@@ -1488,12 +1488,12 @@ func TestTuples3E2E(t *testing.T) {
 	}, WithTestCases(50))
 }
 
-// TestTuples2NonBasicE2E runs a CompositeTupleGenerator against the real server.
+// TestTuples2NonBasicE2E runs a compositeTupleGenerator against the real server.
 // Uses a filtered generator so the first element is always generated via span protocol.
 func TestTuples2NonBasicE2E(t *testing.T) {
 	hegelBinPath(t)
-	// MappedGenerator wrapping Integers(0,10) is non-basic.
-	nonBasic := &MappedGenerator{
+	// mappedGenerator wrapping Integers(0,10) is non-basic.
+	nonBasic := &mappedGenerator{
 		inner: Integers(0, 10),
 		fn:    func(v any) any { n, _ := ExtractInt(v); return n + 100 },
 	}
@@ -1592,44 +1592,44 @@ func TestTuples2BasicOneTransformOneNil(t *testing.T) {
 // =============================================================================
 
 // =============================================================================
-// FilteredGenerator tests
+// filteredGenerator tests
 // =============================================================================
 
-// TestFilteredGeneratorAsBasic verifies that FilteredGenerator.AsBasic returns nil.
+// TestFilteredGeneratorAsBasic verifies that filteredGenerator.AsBasic returns nil.
 func TestFilteredGeneratorAsBasic(t *testing.T) {
 	g := Integers(0, 10).Filter(func(v any) bool { return true })
 	if g.AsBasic() != nil {
-		t.Error("FilteredGenerator.AsBasic() should return nil")
+		t.Error("filteredGenerator.AsBasic() should return nil")
 	}
 }
 
 // TestFilteredGeneratorFromBasicIsNotBasic verifies that Filter on a BasicGenerator
-// returns a FilteredGenerator (not a BasicGenerator).
+// returns a filteredGenerator (not a BasicGenerator).
 func TestFilteredGeneratorFromBasicIsNotBasic(t *testing.T) {
 	g := Integers(0, 100).Filter(func(v any) bool { return true })
-	if _, ok := g.(*FilteredGenerator); !ok {
-		t.Fatalf("Filter on BasicGenerator should return *FilteredGenerator, got %T", g)
+	if _, ok := g.(*filteredGenerator); !ok {
+		t.Fatalf("Filter on BasicGenerator should return *filteredGenerator, got %T", g)
 	}
 }
 
-// TestFilteredGeneratorFilterMethod verifies that calling Filter on a FilteredGenerator
-// returns another FilteredGenerator.
+// TestFilteredGeneratorFilterMethod verifies that calling Filter on a filteredGenerator
+// returns another filteredGenerator.
 func TestFilteredGeneratorFilterMethod(t *testing.T) {
 	g := Integers(0, 100).
 		Filter(func(v any) bool { return true }).
 		Filter(func(v any) bool { return true })
-	if _, ok := g.(*FilteredGenerator); !ok {
-		t.Fatalf("Filter on FilteredGenerator should return *FilteredGenerator, got %T", g)
+	if _, ok := g.(*filteredGenerator); !ok {
+		t.Fatalf("Filter on filteredGenerator should return *filteredGenerator, got %T", g)
 	}
 }
 
-// TestFilteredGeneratorMapMethod verifies that calling Map on a FilteredGenerator
-// returns a MappedGenerator.
+// TestFilteredGeneratorMapMethod verifies that calling Map on a filteredGenerator
+// returns a mappedGenerator.
 func TestFilteredGeneratorMapMethod(t *testing.T) {
 	g := Integers(0, 100).Filter(func(v any) bool { return true })
 	mapped := g.Map(func(v any) any { return v })
-	if _, ok := mapped.(*MappedGenerator); !ok {
-		t.Fatalf("Map on FilteredGenerator should return *MappedGenerator, got %T", mapped)
+	if _, ok := mapped.(*mappedGenerator); !ok {
+		t.Fatalf("Map on filteredGenerator should return *mappedGenerator, got %T", mapped)
 	}
 }
 
@@ -1637,7 +1637,7 @@ func TestFilteredGeneratorMapMethod(t *testing.T) {
 // first attempt, the value is returned immediately (only one FILTER span pair sent).
 func TestFilteredGeneratorPredicatePasses(t *testing.T) {
 	var gotVal int64
-	clientConn := fakeServerConn(t, func(serverConn *Connection) {
+	clientConn := fakeServerConn(t, func(serverConn *connection) {
 		ctrl := serverConn.ControlChannel()
 		msgID, payload, _ := ctrl.RecvRequestRaw(5 * time.Second)
 		decoded, _ := DecodeCBOR(payload)
@@ -1679,7 +1679,7 @@ func TestFilteredGeneratorPredicatePasses(t *testing.T) {
 
 	cli := newClient(clientConn)
 	err := cli.runTest("filter_passes", func() {
-		g := &FilteredGenerator{
+		g := &filteredGenerator{
 			source:    &BasicGenerator{schema: map[string]any{"type": "integer"}},
 			predicate: func(v any) bool { return true },
 		}
@@ -1700,7 +1700,7 @@ func TestFilteredGeneratorPredicatePasses(t *testing.T) {
 func TestFilteredGeneratorAllAttemptsFailRejectsCase(t *testing.T) {
 	var spanCount int
 	var mcStatus string
-	clientConn := fakeServerConn(t, func(serverConn *Connection) {
+	clientConn := fakeServerConn(t, func(serverConn *connection) {
 		ctrl := serverConn.ControlChannel()
 		msgID, payload, _ := ctrl.RecvRequestRaw(5 * time.Second)
 		decoded, _ := DecodeCBOR(payload)
@@ -1750,7 +1750,7 @@ func TestFilteredGeneratorAllAttemptsFailRejectsCase(t *testing.T) {
 
 	cli := newClient(clientConn)
 	err := cli.runTest("filter_exhaust", func() {
-		g := &FilteredGenerator{
+		g := &filteredGenerator{
 			source:    &BasicGenerator{schema: map[string]any{"type": "integer"}},
 			predicate: func(v any) bool { return false }, // always reject
 		}
@@ -1773,7 +1773,7 @@ func TestFilteredGeneratorPartialAttemptsSucceed(t *testing.T) {
 	attemptNum := 0
 	var gotVal int64
 
-	clientConn := fakeServerConn(t, func(serverConn *Connection) {
+	clientConn := fakeServerConn(t, func(serverConn *connection) {
 		ctrl := serverConn.ControlChannel()
 		msgID, payload, _ := ctrl.RecvRequestRaw(5 * time.Second)
 		decoded, _ := DecodeCBOR(payload)
@@ -1824,7 +1824,7 @@ func TestFilteredGeneratorPartialAttemptsSucceed(t *testing.T) {
 
 	cli := newClient(clientConn)
 	err := cli.runTest("filter_partial", func() {
-		g := &FilteredGenerator{
+		g := &filteredGenerator{
 			source: &BasicGenerator{schema: map[string]any{"type": "integer"}},
 			predicate: func(v any) bool {
 				attemptNum++
@@ -1881,41 +1881,41 @@ func TestFilteredGeneratorE2EEvenNumbers(t *testing.T) {
 
 // TestFilterOnNonBasicGenerators verifies that Filter works on non-basic generators.
 func TestFilterOnNonBasicGenerators(t *testing.T) {
-	// MappedGenerator.Filter
-	mg := &MappedGenerator{inner: Integers(0, 5), fn: func(v any) any { return v }}
+	// mappedGenerator.Filter
+	mg := &mappedGenerator{inner: Integers(0, 5), fn: func(v any) any { return v }}
 	fg := mg.Filter(func(v any) bool { return true })
-	if _, ok := fg.(*FilteredGenerator); !ok {
-		t.Errorf("Filter on MappedGenerator should return *FilteredGenerator, got %T", fg)
+	if _, ok := fg.(*filteredGenerator); !ok {
+		t.Errorf("Filter on mappedGenerator should return *filteredGenerator, got %T", fg)
 	}
 	// compositeListGenerator.Filter
 	cl := &compositeListGenerator{elements: Integers(0, 5), minSize: 0, maxSize: 3}
 	fg2 := cl.Filter(func(v any) bool { return true })
-	if _, ok := fg2.(*FilteredGenerator); !ok {
-		t.Errorf("Filter on compositeListGenerator should return *FilteredGenerator, got %T", fg2)
+	if _, ok := fg2.(*filteredGenerator); !ok {
+		t.Errorf("Filter on compositeListGenerator should return *filteredGenerator, got %T", fg2)
 	}
 	// compositeDictGenerator.Filter
 	cd := &compositeDictGenerator{keys: Integers(0, 5), values: Integers(0, 5), minSize: 0}
 	fg3 := cd.Filter(func(v any) bool { return true })
-	if _, ok := fg3.(*FilteredGenerator); !ok {
-		t.Errorf("Filter on compositeDictGenerator should return *FilteredGenerator, got %T", fg3)
+	if _, ok := fg3.(*filteredGenerator); !ok {
+		t.Errorf("Filter on compositeDictGenerator should return *filteredGenerator, got %T", fg3)
 	}
-	// CompositeOneOfGenerator.Filter
-	co := &CompositeOneOfGenerator{generators: []Generator{Integers(0, 5), Integers(6, 10)}}
+	// compositeOneOfGenerator.Filter
+	co := &compositeOneOfGenerator{generators: []Generator{Integers(0, 5), Integers(6, 10)}}
 	fg4 := co.Filter(func(v any) bool { return true })
-	if _, ok := fg4.(*FilteredGenerator); !ok {
-		t.Errorf("Filter on CompositeOneOfGenerator should return *FilteredGenerator, got %T", fg4)
+	if _, ok := fg4.(*filteredGenerator); !ok {
+		t.Errorf("Filter on compositeOneOfGenerator should return *filteredGenerator, got %T", fg4)
 	}
-	// CompositeTupleGenerator.Filter
-	ct := &CompositeTupleGenerator{elements: []Generator{Integers(0, 5)}}
+	// compositeTupleGenerator.Filter
+	ct := &compositeTupleGenerator{elements: []Generator{Integers(0, 5)}}
 	fg5 := ct.Filter(func(v any) bool { return true })
-	if _, ok := fg5.(*FilteredGenerator); !ok {
-		t.Errorf("Filter on CompositeTupleGenerator should return *FilteredGenerator, got %T", fg5)
+	if _, ok := fg5.(*filteredGenerator); !ok {
+		t.Errorf("Filter on compositeTupleGenerator should return *filteredGenerator, got %T", fg5)
 	}
 	// FlatMappedGenerator.Filter
 	fm := &FlatMappedGenerator{source: Integers(0, 5), f: func(v any) Generator { return Integers(0, 5) }}
 	fg6 := fm.Filter(func(v any) bool { return true })
-	if _, ok := fg6.(*FilteredGenerator); !ok {
-		t.Errorf("Filter on FlatMappedGenerator should return *FilteredGenerator, got %T", fg6)
+	if _, ok := fg6.(*filteredGenerator); !ok {
+		t.Errorf("Filter on FlatMappedGenerator should return *filteredGenerator, got %T", fg6)
 	}
 }
 
@@ -2203,14 +2203,14 @@ func TestFlatMappedGeneratorIsNotBasic(t *testing.T) {
 	}
 }
 
-// TestFlatMappedGeneratorMapReturnsMapped verifies that Map on FlatMappedGenerator returns a MappedGenerator.
+// TestFlatMappedGeneratorMapReturnsMapped verifies that Map on FlatMappedGenerator returns a mappedGenerator.
 func TestFlatMappedGeneratorMapReturnsMapped(t *testing.T) {
 	gen := FlatMap(Integers(1, 5), func(v any) Generator {
 		return Integers(0, 10)
 	})
 	mapped := gen.Map(func(v any) any { return v })
-	if _, ok := mapped.(*MappedGenerator); !ok {
-		t.Fatalf("Map on FlatMappedGenerator should return *MappedGenerator, got %T", mapped)
+	if _, ok := mapped.(*mappedGenerator); !ok {
+		t.Fatalf("Map on FlatMappedGenerator should return *mappedGenerator, got %T", mapped)
 	}
 }
 
@@ -2218,7 +2218,7 @@ func TestFlatMappedGeneratorMapReturnsMapped(t *testing.T) {
 // start_span(11), source generate, second generate, stop_span, mark_complete.
 func TestFlatMappedGeneratorGenerate(t *testing.T) {
 	var cmds []string
-	clientConn := fakeServerConn(t, func(serverConn *Connection) {
+	clientConn := fakeServerConn(t, func(serverConn *connection) {
 		ctrl := serverConn.ControlChannel()
 		msgID, payload, _ := ctrl.RecvRequestRaw(5 * time.Second)
 		decoded, _ := DecodeCBOR(payload)
@@ -2291,7 +2291,7 @@ func TestFlatMappedGeneratorGenerate(t *testing.T) {
 // TestFlatMappedGeneratorStartSpanLabel verifies that the FLAT_MAP span uses label 11.
 func TestFlatMappedGeneratorStartSpanLabel(t *testing.T) {
 	var gotLabel int64
-	clientConn := fakeServerConn(t, func(serverConn *Connection) {
+	clientConn := fakeServerConn(t, func(serverConn *connection) {
 		ctrl := serverConn.ControlChannel()
 		msgID, payload, _ := ctrl.RecvRequestRaw(5 * time.Second)
 		decoded, _ := DecodeCBOR(payload)

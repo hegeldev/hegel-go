@@ -12,7 +12,7 @@ import (
 // --- Handshake helpers ---
 
 // handshakePair performs a concurrent handshake between server and client connections.
-func handshakePair(t *testing.T, serverConn, clientConn *Connection) {
+func handshakePair(t *testing.T, serverConn, clientConn *connection) {
 	t.Helper()
 	var wg sync.WaitGroup
 	wg.Add(1)
@@ -29,11 +29,11 @@ func handshakePair(t *testing.T, serverConn, clientConn *Connection) {
 }
 
 // connPair returns two connected Connections (server, client) backed by a net.Pipe.
-func connPair(t *testing.T) (*Connection, *Connection) {
+func connPair(t *testing.T) (*connection, *connection) {
 	t.Helper()
 	s, c := socketPair(t)
-	server := NewConnection(s, "Server")
-	client := NewConnection(c, "Client")
+	server := newConnection(s, "Server")
+	client := newConnection(c, "Client")
 	t.Cleanup(func() {
 		server.Close()
 		client.Close()
@@ -41,11 +41,11 @@ func connPair(t *testing.T) (*Connection, *Connection) {
 	return server, client
 }
 
-// --- Connection.live ---
+// --- connection.live ---
 
 func TestConnectionLive(t *testing.T) {
 	s, _ := socketPair(t)
-	conn := NewConnection(s, "Test")
+	conn := newConnection(s, "Test")
 	if !conn.Live() {
 		t.Error("new connection should be live")
 	}
@@ -55,11 +55,11 @@ func TestConnectionLive(t *testing.T) {
 	}
 }
 
-// --- Connection.Close idempotent ---
+// --- connection.Close idempotent ---
 
 func TestConnectionDoubleClose(t *testing.T) {
 	s, _ := socketPair(t)
-	conn := NewConnection(s, "Test")
+	conn := newConnection(s, "Test")
 	conn.Close()
 	conn.Close() // must not panic or deadlock
 }
@@ -167,7 +167,7 @@ func TestSendHandshakeBadResponse(t *testing.T) {
 	<-done
 }
 
-// --- Channel allocation: new_channel returns odd IDs ---
+// --- channel allocation: new_channel returns odd IDs ---
 
 func TestNewChannelOddIDs(t *testing.T) {
 	serverConn, clientConn := connPair(t)
@@ -195,7 +195,7 @@ func TestNewChannelOddIDs(t *testing.T) {
 
 func TestNewChannelBeforeHandshakeRaises(t *testing.T) {
 	s, _ := socketPair(t)
-	conn := NewConnection(s, "Test")
+	conn := newConnection(s, "Test")
 	defer conn.Close()
 
 	defer func() {
@@ -210,7 +210,7 @@ func TestNewChannelBeforeHandshakeRaises(t *testing.T) {
 
 func TestConnectChannelBeforeHandshakeRaises(t *testing.T) {
 	s, _ := socketPair(t)
-	conn := NewConnection(s, "Test")
+	conn := newConnection(s, "Test")
 	defer conn.Close()
 
 	_, err := conn.ConnectChannel(1, "test")
@@ -226,7 +226,7 @@ func TestConnectChannelAlreadyExistsRaises(t *testing.T) {
 	serverConn, clientConn := connPair(t)
 	handshakePair(t, serverConn, clientConn)
 
-	// Channel 0 (control channel) already exists.
+	// channel 0 (control channel) already exists.
 	_, err := clientConn.ConnectChannel(0, "dup")
 	if err == nil {
 		t.Fatal("expected error for duplicate channel")
@@ -234,7 +234,7 @@ func TestConnectChannelAlreadyExistsRaises(t *testing.T) {
 	mustContain(t, err.Error(), "channel already connected")
 }
 
-// --- Channel close: sends close packet, idempotent ---
+// --- channel close: sends close packet, idempotent ---
 
 func TestChannelClose(t *testing.T) {
 	serverConn, clientConn := connPair(t)
@@ -245,7 +245,7 @@ func TestChannelClose(t *testing.T) {
 	ch.Close() // idempotent
 }
 
-// --- Channel close when connection not live ---
+// --- channel close when connection not live ---
 
 func TestChannelCloseWhenConnectionNotLive(t *testing.T) {
 	serverConn, clientConn := connPair(t)
@@ -257,7 +257,7 @@ func TestChannelCloseWhenConnectionNotLive(t *testing.T) {
 	serverConn.Close()
 }
 
-// --- Channel: closed channel rejects recv ---
+// --- channel: closed channel rejects recv ---
 
 func TestChannelProcessMessageWhenClosed(t *testing.T) {
 	serverConn, clientConn := connPair(t)
@@ -274,7 +274,7 @@ func TestChannelProcessMessageWhenClosed(t *testing.T) {
 	serverConn.Close()
 }
 
-// --- Channel timeout ---
+// --- channel timeout ---
 
 func TestChannelTimeout(t *testing.T) {
 	serverConn, clientConn := connPair(t)
@@ -295,7 +295,7 @@ func TestChannelTimeout(t *testing.T) {
 
 func TestShutdownInInboxRaises(t *testing.T) {
 	s, _ := socketPair(t)
-	conn := NewConnection(s, "Test")
+	conn := newConnection(s, "Test")
 	defer conn.Close()
 
 	ch := conn.ControlChannel()
@@ -327,7 +327,7 @@ func TestMessageToNonexistentChannel(t *testing.T) {
 	// Client: send bad-channel packet, then a control ping (so server sees both).
 	// Use goroutines because net.Pipe writes block until read.
 	go func() {
-		clientConn.SendPacket(Packet{ //nolint:errcheck
+		clientConn.SendPacket(packet{ //nolint:errcheck
 			ChannelID: 9999,
 			MessageID: 1,
 			IsReply:   false,
@@ -470,7 +470,7 @@ func TestRequestHandling(t *testing.T) {
 	wg.Wait()
 }
 
-// --- PendingRequest caching ---
+// --- pendingRequest caching ---
 
 func TestPendingRequestCaching(t *testing.T) {
 	serverConn, clientConn := connPair(t)
@@ -637,7 +637,7 @@ func TestSendReplyErrorWithKwargs(t *testing.T) {
 	wg.Wait()
 }
 
-// --- Connection.Close with CloseRead (TCP conn interface) ---
+// --- connection.Close with CloseRead (TCP conn interface) ---
 
 // closeReadConn wraps a net.Conn and records calls to CloseRead.
 type closeReadConn struct {
@@ -653,7 +653,7 @@ func (c *closeReadConn) CloseRead() error {
 func TestConnectionCloseCallsCloseRead(t *testing.T) {
 	s, _ := socketPair(t)
 	cr := &closeReadConn{Conn: s}
-	conn := NewConnection(cr, "Test")
+	conn := newConnection(cr, "Test")
 	conn.Close()
 	if !cr.closed {
 		t.Error("expected CloseRead to be called")
@@ -666,7 +666,7 @@ func TestRunReaderUntilFiresWhileWaitingForLock(t *testing.T) {
 	s, c := socketPair(t)
 	defer s.Close()
 	defer c.Close()
-	conn := NewConnection(s, "Test")
+	conn := newConnection(s, "Test")
 	defer conn.Close()
 
 	// Hold the reader lock so TryLock fails.
@@ -743,7 +743,7 @@ func TestDispatchUnknownChannelIsReply(t *testing.T) {
 	}()
 
 	go func() {
-		clientConn.SendPacket(Packet{ //nolint:errcheck
+		clientConn.SendPacket(packet{ //nolint:errcheck
 			ChannelID: 9997,
 			MessageID: 1,
 			IsReply:   true,
@@ -777,7 +777,7 @@ func TestDispatchUnknownChannelRequest(t *testing.T) {
 
 	// Client sends the bad-channel request.
 	go func() {
-		clientConn.SendPacket(Packet{ //nolint:errcheck
+		clientConn.SendPacket(packet{ //nolint:errcheck
 			ChannelID: 9998,
 			MessageID: 1,
 			IsReply:   false,
@@ -824,7 +824,7 @@ func TestIsTimeoutNonNetError(t *testing.T) {
 
 func TestSendHandshakeVersionSendError(t *testing.T) {
 	s, c := net.Pipe()
-	conn := NewConnection(s, "Test")
+	conn := newConnection(s, "Test")
 	// Close both ends so SendRequestRaw fails.
 	s.Close()
 	c.Close()
@@ -839,7 +839,7 @@ func TestSendHandshakeVersionSendError(t *testing.T) {
 
 func TestSendHandshakeVersionRecvError(t *testing.T) {
 	s, c := net.Pipe()
-	conn := NewConnection(s, "Test")
+	conn := newConnection(s, "Test")
 	// Close the peer end immediately after accepting the write.
 	go func() {
 		// Drain the handshake request so SendRequestRaw unblocks, then close.
@@ -858,7 +858,7 @@ func TestSendHandshakeVersionRecvError(t *testing.T) {
 
 func TestReceiveHandshakeRecvError(t *testing.T) {
 	s, c := net.Pipe()
-	conn := NewConnection(s, "Test")
+	conn := newConnection(s, "Test")
 	// Close peer immediately so RecvRequestRaw returns an error.
 	c.Close()
 	err := conn.ReceiveHandshake()
@@ -890,16 +890,16 @@ func TestNewRequestErrorNonStringKey(t *testing.T) {
 
 func TestPutInboxDropsWhenFull(t *testing.T) {
 	s, _ := socketPair(t)
-	conn := NewConnection(s, "Test")
+	conn := newConnection(s, "Test")
 	defer conn.Close()
 
 	ch := conn.ControlChannel()
 	// Fill the inbox (capacity 64).
 	for i := 0; i < 64; i++ {
-		ch.inbox <- Packet{ChannelID: 0, MessageID: uint32(i)}
+		ch.inbox <- packet{ChannelID: 0, MessageID: uint32(i)}
 	}
 	// This call should hit the default case and silently drop.
-	ch.putInbox(Packet{ChannelID: 0, MessageID: 99})
+	ch.putInbox(packet{ChannelID: 0, MessageID: 99})
 	if len(ch.inbox) != 64 {
 		t.Errorf("inbox length = %d, want 64 (drop did not work)", len(ch.inbox))
 	}
@@ -911,10 +911,10 @@ func TestSendReplyValueEncodeError(t *testing.T) {
 	s, c := socketPair(t)
 	defer s.Close()
 	defer c.Close()
-	conn := NewConnection(s, "Test")
+	conn := newConnection(s, "Test")
 
 	// Build a channel manually without handshake for encode error testing.
-	ch := &Channel{conn: conn, channelID: 0, inbox: make(chan any, 1), nextMessageID: 1}
+	ch := &channel{conn: conn, channelID: 0, inbox: make(chan any, 1), nextMessageID: 1}
 
 	// func() cannot be CBOR-encoded — triggers encode error.
 	err := ch.SendReplyValue(1, func() {})
@@ -929,8 +929,8 @@ func TestSendReplyErrorSucceeds(t *testing.T) {
 	s, c := socketPair(t)
 	defer s.Close()
 	defer c.Close()
-	conn := NewConnection(s, "Test")
-	ch := &Channel{conn: conn, channelID: 0, inbox: make(chan any, 1), nextMessageID: 1}
+	conn := newConnection(s, "Test")
+	ch := &channel{conn: conn, channelID: 0, inbox: make(chan any, 1), nextMessageID: 1}
 	errc := make(chan error, 1)
 	go func() { errc <- ch.SendReplyError(1, "msg", "Type") }()
 	// Drain from peer so write unblocks.
@@ -945,12 +945,12 @@ func TestSendReplyErrorSucceeds(t *testing.T) {
 
 func TestRecvRequestDecodeCBORError(t *testing.T) {
 	s, _ := socketPair(t)
-	conn := NewConnection(s, "Test")
+	conn := newConnection(s, "Test")
 	defer conn.Close()
 
 	ch := conn.ControlChannel()
 	// Put a raw packet with invalid CBOR payload directly into the inbox.
-	ch.inbox <- Packet{ChannelID: 0, MessageID: 1, IsReply: false, Payload: []byte{0xFF}}
+	ch.inbox <- packet{ChannelID: 0, MessageID: 1, IsReply: false, Payload: []byte{0xFF}}
 
 	_, _, err := ch.RecvRequest(100 * time.Millisecond)
 	if err == nil {
@@ -962,7 +962,7 @@ func TestRecvRequestDecodeCBORError(t *testing.T) {
 
 func TestRecvResponseRawProcessError(t *testing.T) {
 	s, _ := socketPair(t)
-	conn := NewConnection(s, "Test")
+	conn := newConnection(s, "Test")
 	defer conn.Close()
 
 	ch := conn.ControlChannel()
@@ -979,12 +979,12 @@ func TestRecvResponseRawProcessError(t *testing.T) {
 
 func TestReceiveResponseDecodeCBORError(t *testing.T) {
 	s, _ := socketPair(t)
-	conn := NewConnection(s, "Test")
+	conn := newConnection(s, "Test")
 	defer conn.Close()
 
 	ch := conn.ControlChannel()
 	// Inject a reply with invalid CBOR into the inbox.
-	ch.inbox <- Packet{ChannelID: 0, MessageID: 1, IsReply: true, Payload: []byte{0xFF}}
+	ch.inbox <- packet{ChannelID: 0, MessageID: 1, IsReply: true, Payload: []byte{0xFF}}
 
 	_, err := ch.ReceiveResponse(1, 100*time.Millisecond)
 	if err == nil {
@@ -996,13 +996,13 @@ func TestReceiveResponseDecodeCBORError(t *testing.T) {
 
 func TestReceiveResponseExtractDictError(t *testing.T) {
 	s, _ := socketPair(t)
-	conn := NewConnection(s, "Test")
+	conn := newConnection(s, "Test")
 	defer conn.Close()
 
 	ch := conn.ControlChannel()
 	// Inject a reply whose payload is a CBOR integer (not a dict).
 	payload, _ := EncodeCBOR(int64(42))
-	ch.inbox <- Packet{ChannelID: 0, MessageID: 1, IsReply: true, Payload: payload}
+	ch.inbox <- packet{ChannelID: 0, MessageID: 1, IsReply: true, Payload: payload}
 
 	_, err := ch.ReceiveResponse(1, 100*time.Millisecond)
 	if err == nil {
@@ -1014,7 +1014,7 @@ func TestReceiveResponseExtractDictError(t *testing.T) {
 
 func TestReceiveResponseRecvError(t *testing.T) {
 	s, _ := socketPair(t)
-	conn := NewConnection(s, "Test")
+	conn := newConnection(s, "Test")
 	defer conn.Close()
 
 	ch := conn.ControlChannel()
@@ -1030,14 +1030,14 @@ func TestReceiveResponseRecvError(t *testing.T) {
 
 func TestProcessOneMessageRouteReplyNilResponses(t *testing.T) {
 	s, _ := socketPair(t)
-	conn := NewConnection(s, "Test")
+	conn := newConnection(s, "Test")
 	defer conn.Close()
 
 	ch := conn.ControlChannel()
 	// ch.responses is nil (never initialized).
 	// Put a reply packet directly in the inbox and call processOneMessage.
 	payload, _ := EncodeCBOR(map[string]any{"result": int64(7)})
-	ch.inbox <- Packet{ChannelID: 0, MessageID: 5, IsReply: true, Payload: payload}
+	ch.inbox <- packet{ChannelID: 0, MessageID: 5, IsReply: true, Payload: payload}
 
 	// processOneMessage is called with ch.responses == nil, exercising the init path.
 	if err := ch.processOneMessage(100 * time.Millisecond); err != nil {
@@ -1055,7 +1055,7 @@ func TestProcessOneMessageRouteReplyNilResponses(t *testing.T) {
 
 func TestChannelNameUnnamed(t *testing.T) {
 	s, _ := socketPair(t)
-	conn := NewConnection(s, "Test")
+	conn := newConnection(s, "Test")
 	defer conn.Close()
 
 	// Control channel has no name set.
@@ -1068,12 +1068,12 @@ func TestChannelNameUnnamed(t *testing.T) {
 
 func TestRequestSendError(t *testing.T) {
 	s, c := net.Pipe()
-	conn := NewConnection(s, "Test")
+	conn := newConnection(s, "Test")
 	// Close both ends so SendRequestRaw fails.
 	s.Close()
 	c.Close()
 
-	ch := &Channel{conn: conn, channelID: 0, inbox: make(chan any, 1), nextMessageID: 1}
+	ch := &channel{conn: conn, channelID: 0, inbox: make(chan any, 1), nextMessageID: 1}
 	_, err := ch.Request([]byte("test"))
 	if err == nil {
 		t.Fatal("expected error from Request on closed conn")

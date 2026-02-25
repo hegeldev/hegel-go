@@ -137,7 +137,7 @@ func TestDatetimesSchema(t *testing.T) {
 func testGeneratorSchema(t *testing.T, g Generator) map[any]any {
 	t.Helper()
 	var gotSchema map[any]any
-	clientConn := fakeTestEnv(t, func(caseCh *Channel) {
+	clientConn := fakeTestEnv(t, func(caseCh *channel) {
 		genID, genPayload, _ := caseCh.RecvRequestRaw(5 * time.Second)
 		decoded, _ := DecodeCBOR(genPayload)
 		m, _ := ExtractDict(decoded)
