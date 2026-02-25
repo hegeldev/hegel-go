@@ -112,9 +112,29 @@ hegel.RunHegelTest("multiple_values", func() {
 
 ---
 
-## Filtering with Assume
+## Filtering
 
-Use `Assume` to discard test cases that don't satisfy a precondition:
+Use `.Filter` on a generator for simple per-value conditions:
+
+```go
+hegel.RunHegelTest("even_integers", func() {
+    n, _ := hegel.ExtractInt(
+        hegel.IntegersUnbounded().Filter(func(v any) bool {
+            i, _ := hegel.ExtractInt(v)
+            return i%2 == 0
+        }).Generate(),
+    )
+    if n%2 != 0 {
+        panic(fmt.Sprintf("%d is not even", n))
+    }
+})
+```
+
+`.Filter` retries up to 3 times. If all attempts fail, the test case is
+discarded (equivalent to `Assume(false)`).
+
+For conditions that depend on multiple generated values, use `Assume` inside
+the test body:
 
 ```go
 hegel.RunHegelTest("division", func() {
@@ -131,10 +151,8 @@ hegel.RunHegelTest("division", func() {
 })
 ```
 
-> **Python equivalent:** `assume(n2 != 0)`
-
-For simple per-value conditions, `.Map` and schema bounds are more efficient
-than `Assume` because they avoid generating values that will be rejected.
+Schema bounds and `.Map` are more efficient than `.Filter` or `Assume`
+because they avoid generating values that will be rejected.
 
 ---
 
@@ -188,6 +206,28 @@ hegel.RunHegelTest("list_with_valid_index", func() {
 > **Hypothesis comparison:** This pattern requires `@composite` or `data()` in
 > Hypothesis. In Hegel it falls out naturally from the imperative style.
 
+You can also use `FlatMap` for dependent generation within a single generator
+expression:
+
+```go
+hegel.RunHegelTest("flatmap_example", func() {
+    result := hegel.FlatMap(
+        hegel.Integers(1, 5),
+        func(v any) hegel.Generator {
+            n, _ := hegel.ExtractInt(v)
+            return hegel.Lists(
+                hegel.IntegersUnbounded(),
+                hegel.ListsOptions{MinSize: int(n), MaxSize: int(n)},
+            )
+        },
+    ).Generate().([]any)
+
+    if len(result) < 1 || len(result) > 5 {
+        panic(fmt.Sprintf("unexpected list length: %d", len(result)))
+    }
+})
+```
+
 ---
 
 ## What you can generate
@@ -228,6 +268,8 @@ hegel.RunHegelTest("list_with_valid_index", func() {
 | `OneOf(g1, g2, ...).Generate()` | Value from any of the given generators |
 | `Optional(g).Generate()` | Either `nil` or a value from `g` |
 | `gen.Map(fn)` | Transform generated values |
+| `gen.Filter(pred)` | Keep only values matching a predicate |
+| `FlatMap(gen, fn)` | Dependent generation — `fn` returns a new generator |
 
 ### Formats and addresses
 
