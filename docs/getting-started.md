@@ -4,13 +4,13 @@
 
 ```bash
 # Install the hegel backend
-pip install hegel
+pip install "git+ssh://git@github.com/antithesishq/hegel-core.git"
 
 # Add the Go SDK to your module
 go get github.com/antithesishq/hegel-go
 ```
 
-If you are working inside this repository, `just setup` handles everything.
+If you are working inside this repository, `just setup` handles both steps.
 
 ## Write your first test
 
