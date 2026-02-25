@@ -105,13 +105,6 @@ hegel.RunHegelTest("multiple_values", func() {
 })
 ```
 
-> **Hypothesis comparison:** In Hypothesis you pass strategies as arguments to
-> `@given` and receive them as function parameters. In Hegel you call
-> `.Generate()` directly inside the test body, which means you can generate
-> values at any point — including conditionally or inside loops.
-
----
-
 ## Filtering
 
 Use `.Filter` on a generator for simple per-value conditions:
@@ -186,7 +179,7 @@ hegel.RunHegelTest("string_of_digits", func() {
 ## Dependent generation
 
 Because generation is imperative in Hegel, you can use earlier results to
-configure later generators directly — no `@composite` or `data()` required:
+configure later generators directly:
 
 ```go
 hegel.RunHegelTest("list_with_valid_index", func() {
@@ -202,9 +195,6 @@ hegel.RunHegelTest("list_with_valid_index", func() {
     }
 })
 ```
-
-> **Hypothesis comparison:** This pattern requires `@composite` or `data()` in
-> Hypothesis. In Hegel it falls out naturally from the imperative style.
 
 You can also use `FlatMap` for dependent generation within a single generator
 expression:
@@ -336,4 +326,4 @@ minimize) the targeted metric, but it may still explore other regions.
 - Browse the [`examples/`](../examples/) directory for runnable programs.
 - Read the full API reference: `go doc github.com/antithesishq/hegel-go`
 - Explore the [Hypothesis documentation](https://hypothesis.readthedocs.io/)
-  for deeper background on the underlying engine.
+  for background on property-based testing concepts.
