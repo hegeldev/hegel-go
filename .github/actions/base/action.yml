@@ -1,16 +1,18 @@
-name: 'base setup'
+name: base setup
 
 inputs:
   ssh-key:
     required: true
 
 runs:
-  using: 'composite'
+  using: composite
   steps:
-    - name: setup SSH key
+    - name: Set up SSH key
       shell: bash
+      env:
+        SSH_KEY: ${{ inputs.ssh-key }}
       run: |
         mkdir -p ~/.ssh
-        echo "${{ inputs.ssh-key }}" > ~/.ssh/id_ed25519
+        echo "$SSH_KEY" > ~/.ssh/id_ed25519
         chmod 600 ~/.ssh/id_ed25519
         ssh-keyscan github.com >> ~/.ssh/known_hosts

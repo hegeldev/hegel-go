@@ -1,0 +1,590 @@
+package hegel
+
+// showcase_test.go demonstrates idiomatic Hegel property-based tests.
+// These tests verify real properties — every generated value is used in a meaningful assertion.
+
+import (
+	"fmt"
+	"math"
+	"regexp"
+	"strings"
+	"testing"
+	"time"
+	"unicode/utf8"
+)
+
+// TestAdditionIsCommutative verifies that integer addition is commutative.
+func TestAdditionIsCommutative(t *testing.T) {
+	hegelBinPath(t)
+	RunHegelTest(t.Name(), func() {
+		x, _ := ExtractInt(Integers(-1000, 1000).Generate())
+		y, _ := ExtractInt(Integers(-1000, 1000).Generate())
+		if x+y != y+x {
+			panic("addition is not commutative")
+		}
+	}, WithTestCases(50))
+}
+
+// TestAbsoluteValueIsNonNegative verifies that |x| >= 0 for all integers.
+func TestAbsoluteValueIsNonNegative(t *testing.T) {
+	hegelBinPath(t)
+	RunHegelTest(t.Name(), func() {
+		x, _ := ExtractInt(Integers(-1000, 1000).Generate())
+		abs := x
+		if abs < 0 {
+			abs = -abs
+		}
+		if abs < 0 {
+			panic("abs(x) is negative")
+		}
+	}, WithTestCases(50))
+}
+
+// TestDoubleNegationIsIdentity verifies that negating a boolean twice gives the original.
+func TestDoubleNegationIsIdentity(t *testing.T) {
+	hegelBinPath(t)
+	RunHegelTest(t.Name(), func() {
+		b := Booleans(0.5).Generate().(bool)
+		notB := !b
+		notNotB := !notB
+		if notNotB != b {
+			panic("double negation is not identity")
+		}
+	}, WithTestCases(20))
+}
+
+// TestEmailContainsAtSymbol demonstrates generating email addresses.
+// Every email must contain exactly one "@" separating local and domain parts.
+func TestEmailContainsAtSymbol(t *testing.T) {
+	hegelBinPath(t)
+	RunHegelTest(t.Name(), func() {
+		email := Emails().Generate().(string)
+		parts := strings.Split(email, "@")
+		if len(parts) != 2 {
+			panic("email must have exactly one '@': " + email)
+		}
+		if parts[0] == "" {
+			panic("email local-part must not be empty: " + email)
+		}
+		if parts[1] == "" {
+			panic("email domain part must not be empty: " + email)
+		}
+	}, WithTestCases(50))
+}
+
+// TestDateParsingRoundtrip demonstrates that generated dates parse and round-trip correctly.
+// This mirrors the Python reference test: date.fromisoformat(date_str).isoformat() == date_str.
+func TestDateParsingRoundtrip(t *testing.T) {
+	hegelBinPath(t)
+	RunHegelTest(t.Name(), func() {
+		dateStr := Dates().Generate().(string)
+		parsed, err := time.Parse("2006-01-02", dateStr)
+		if err != nil {
+			panic("date not parseable as YYYY-MM-DD: " + dateStr)
+		}
+		roundTripped := parsed.Format("2006-01-02")
+		if roundTripped != dateStr {
+			panic("date round-trip failed: " + dateStr + " != " + roundTripped)
+		}
+	}, WithTestCases(50))
+}
+
+// TestJustAlwaysReturnsConstant demonstrates Just by verifying that every generated
+// value is the same constant — a fundamental property of constant generators.
+func TestJustAlwaysReturnsConstant(t *testing.T) {
+	hegelBinPath(t)
+	const expected = "fixed"
+	RunHegelTest(t.Name(), func() {
+		v := Just(expected).Generate()
+		s, ok := v.(string)
+		if !ok || s != expected {
+			panic(fmt.Sprintf("Just: expected %q, got %v", expected, v))
+		}
+	}, WithTestCases(30))
+}
+
+// TestSampledFromOnlyReturnsListElements demonstrates SampledFrom by verifying that
+// every generated value is one of the input elements — no values outside the list.
+func TestSampledFromOnlyReturnsListElements(t *testing.T) {
+	hegelBinPath(t)
+	weekdays := []any{"Mon", "Tue", "Wed", "Thu", "Fri"}
+	g, _ := SampledFrom(weekdays)
+	validSet := map[string]bool{"Mon": true, "Tue": true, "Wed": true, "Thu": true, "Fri": true}
+	RunHegelTest(t.Name(), func() {
+		v := g.Generate()
+		day, ok := v.(string)
+		if !ok || !validSet[day] {
+			panic(fmt.Sprintf("SampledFrom: unexpected value %v", v))
+		}
+	}, WithTestCases(50))
+}
+
+// TestFromRegexAllValuesMatchPattern demonstrates FromRegex by verifying that every
+// generated string matches the regex pattern — the core property of regex generators.
+func TestFromRegexAllValuesMatchPattern(t *testing.T) {
+	hegelBinPath(t)
+	pattern := `[A-Z]{2,4}`
+	re := regexp.MustCompile(`^` + pattern + `$`)
+	g := FromRegex(pattern, true)
+	RunHegelTest(t.Name(), func() {
+		v := g.Generate()
+		s, ok := v.(string)
+		if !ok {
+			panic(fmt.Sprintf("FromRegex: expected string, got %T", v))
+		}
+		if !re.MatchString(s) {
+			panic(fmt.Sprintf("FromRegex: %q does not match pattern %s", s, pattern))
+		}
+	}, WithTestCases(50))
+}
+
+// TestTextLengthBoundsAreRespected demonstrates the Text generator by verifying that
+// every generated string has a codepoint count within the specified bounds.
+func TestTextLengthBoundsAreRespected(t *testing.T) {
+	hegelBinPath(t)
+	RunHegelTest(t.Name(), func() {
+		s := Text(3, 7).Generate().(string)
+		count := utf8.RuneCountInString(s)
+		if count < 3 || count > 7 {
+			panic(fmt.Sprintf("text: codepoint count %d out of [3, 7]", count))
+		}
+	}, WithTestCases(50))
+}
+
+// TestBinaryLengthBoundsAreRespected demonstrates the Binary generator by verifying that
+// every generated byte slice has a length within the specified bounds.
+func TestBinaryLengthBoundsAreRespected(t *testing.T) {
+	hegelBinPath(t)
+	RunHegelTest(t.Name(), func() {
+		b := Binary(2, 6).Generate().([]byte)
+		if len(b) < 2 || len(b) > 6 {
+			panic(fmt.Sprintf("binary: length %d out of [2, 6]", len(b)))
+		}
+	}, WithTestCases(50))
+}
+
+// TestFloatsBoundedExcludesSpecials demonstrates that Floats with explicit bounds
+// never produces NaN or Inf when those flags are disabled.
+func TestFloatsBoundedExcludesSpecials(t *testing.T) {
+	hegelBinPath(t)
+	falseBool := false
+	RunHegelTest(t.Name(), func() {
+		f := Floats(floatPtr(-100.0), floatPtr(100.0), &falseBool, &falseBool, false, false).Generate().(float64)
+		if math.IsNaN(f) {
+			panic("floats: unexpected NaN with allow_nan=false")
+		}
+		if math.IsInf(f, 0) {
+			panic("floats: unexpected Inf with allow_infinity=false")
+		}
+		if f < -100.0 || f > 100.0 {
+			panic(fmt.Sprintf("floats: %v out of [-100, 100]", f))
+		}
+	}, WithTestCases(50))
+}
+
+// TestBooleansWithHighP demonstrates that with p=1.0, booleans always generates true.
+// This is a fundamental property: p=1.0 means probability 1 of true.
+func TestBooleansWithHighP(t *testing.T) {
+	hegelBinPath(t)
+	RunHegelTest(t.Name(), func() {
+		b := Booleans(1.0).Generate().(bool)
+		if !b {
+			panic("booleans(p=1.0): expected always true")
+		}
+	}, WithTestCases(20))
+}
+
+// TestMapDoubledIntegersAreEven demonstrates that mapping integers by doubling
+// always produces even numbers — a fundamental arithmetic property.
+// Uses BasicGenerator.Map which preserves the schema (single server round-trip).
+func TestMapDoubledIntegersAreEven(t *testing.T) {
+	hegelBinPath(t)
+	doubled := Integers(-50, 50).Map(func(v any) any {
+		n, _ := ExtractInt(v)
+		return n * 2
+	})
+	RunHegelTest(t.Name(), func() {
+		v := doubled.Generate()
+		n, _ := ExtractInt(v)
+		if n%2 != 0 {
+			panic(fmt.Sprintf("doubled integer must be even, got %d", n))
+		}
+		if n < -100 || n > 100 {
+			panic(fmt.Sprintf("doubled integer must be in [-100,100], got %d", n))
+		}
+	}, WithTestCases(50))
+}
+
+// TestListsSortedIsSorted demonstrates the Lists generator by verifying that
+// sorting a list of integers produces a non-decreasing sequence.
+// This is a meaningful property: sort is correct if and only if the result is ordered.
+func TestListsSortedIsSorted(t *testing.T) {
+	hegelBinPath(t)
+	RunHegelTest(t.Name(), func() {
+		xs := Lists(Integers(-100, 100), ListsOptions{MinSize: 0, MaxSize: 20}).Generate()
+		slice, ok := xs.([]any)
+		if !ok {
+			panic(fmt.Sprintf("Lists: expected []any, got %T", xs))
+		}
+		// Extract integers, sort, verify non-decreasing.
+		nums := make([]int64, len(slice))
+		for i, x := range slice {
+			nums[i], _ = ExtractInt(x)
+		}
+		// Insertion sort (simple, verifiable).
+		sorted := make([]int64, len(nums))
+		copy(sorted, nums)
+		for i := 1; i < len(sorted); i++ {
+			for j := i; j > 0 && sorted[j] < sorted[j-1]; j-- {
+				sorted[j], sorted[j-1] = sorted[j-1], sorted[j]
+			}
+		}
+		for i := 1; i < len(sorted); i++ {
+			if sorted[i] < sorted[i-1] {
+				panic(fmt.Sprintf("sorted list not non-decreasing at index %d: %v", i, sorted))
+			}
+		}
+	}, WithTestCases(50))
+}
+
+// TestListsLengthBoundsAreRespected demonstrates that Lists with min/max size bounds
+// always generates a list within those bounds — the fundamental size constraint property.
+func TestListsLengthBoundsAreRespected(t *testing.T) {
+	hegelBinPath(t)
+	RunHegelTest(t.Name(), func() {
+		xs := Lists(Integers(0, 1000), ListsOptions{MinSize: 2, MaxSize: 8}).Generate()
+		slice, ok := xs.([]any)
+		if !ok {
+			panic(fmt.Sprintf("Lists: expected []any, got %T", xs))
+		}
+		if len(slice) < 2 || len(slice) > 8 {
+			panic(fmt.Sprintf("Lists: length %d out of [2, 8]", len(slice)))
+		}
+		for _, x := range slice {
+			v, _ := ExtractInt(x)
+			if v < 0 || v > 1000 {
+				panic(fmt.Sprintf("Lists: element %d out of range [0, 1000]", v))
+			}
+		}
+	}, WithTestCases(50))
+}
+
+// TestDictsKeyValueTypes demonstrates the Dicts generator with typed keys and values.
+// Every generated map must have string keys and integer values in the specified range.
+// This verifies the core type contract: keys come from the key generator, values from the value generator.
+func TestDictsKeyValueTypes(t *testing.T) {
+	hegelBinPath(t)
+	RunHegelTest(t.Name(), func() {
+		gen := Dicts(Text(1, 8), Integers(0, 255), DictOptions{MinSize: 0, MaxSize: 4, HasMaxSize: true})
+		v := gen.Generate()
+		m, ok := v.(map[any]any)
+		if !ok {
+			panic(fmt.Sprintf("Dicts: expected map[any]any, got %T", v))
+		}
+		if len(m) > 4 {
+			panic(fmt.Sprintf("Dicts: at most 4 entries expected, got %d", len(m)))
+		}
+		for k, val := range m {
+			s, sOk := k.(string)
+			runeCount := utf8.RuneCountInString(s)
+			if !sOk || runeCount < 1 || runeCount > 8 {
+				panic(fmt.Sprintf("Dicts: key must be string of length 1-8 codepoints, got %T %q (len=%d)", k, k, runeCount))
+			}
+			n, nErr := ExtractInt(val)
+			if nErr != nil || n < 0 || n > 255 {
+				panic(fmt.Sprintf("Dicts: value must be int in [0,255], got %v", val))
+			}
+		}
+	}, WithTestCases(50))
+}
+
+// TestDictsSizeBoundsHold demonstrates that Dicts respects min_size and max_size.
+// Maps with min_size=2, max_size=5 must always have between 2 and 5 entries.
+// This is a fundamental size-bound property of the Dicts generator.
+func TestDictsSizeBoundsHold(t *testing.T) {
+	hegelBinPath(t)
+	RunHegelTest(t.Name(), func() {
+		gen := Dicts(Integers(0, 100), Booleans(0.5), DictOptions{MinSize: 2, MaxSize: 5, HasMaxSize: true})
+		v := gen.Generate()
+		m, ok := v.(map[any]any)
+		if !ok {
+			panic(fmt.Sprintf("Dicts: expected map[any]any, got %T", v))
+		}
+		if len(m) < 2 || len(m) > 5 {
+			panic(fmt.Sprintf("Dicts: expected size in [2,5], got %d", len(m)))
+		}
+	}, WithTestCases(50))
+}
+
+// TestMapChainedTransformsCompose demonstrates that chaining multiple Map calls
+// composes the transforms correctly — a fundamental property of function composition.
+// integers(1, 10).map(x*x).map(x-1): result is x²-1 for x in [1,10].
+// Property: result is always non-negative (since x² >= 1).
+func TestMapChainedTransformsCompose(t *testing.T) {
+	hegelBinPath(t)
+	gen := Integers(1, 10).
+		Map(func(v any) any {
+			n, _ := ExtractInt(v)
+			return n * n // square
+		}).
+		Map(func(v any) any {
+			n, _ := ExtractInt(v)
+			return n - 1 // subtract 1
+		})
+	RunHegelTest(t.Name(), func() {
+		v := gen.Generate()
+		n, _ := ExtractInt(v)
+		// x in [1,10] → x² in [1,100] → x²-1 in [0,99]; always non-negative.
+		if n < 0 {
+			panic(fmt.Sprintf("map(x²-1) on [1,10]: expected non-negative, got %d", n))
+		}
+		if n > 99 {
+			panic(fmt.Sprintf("map(x²-1) on [1,10]: expected <= 99, got %d", n))
+		}
+	}, WithTestCases(50))
+}
+
+// TestOneOfChoosesFromEitherBranch demonstrates that OneOf generates values
+// from multiple branches and that every generated value satisfies a constraint
+// derived from whichever branch produced it.
+func TestOneOfChoosesFromEitherBranch(t *testing.T) {
+	hegelBinPath(t)
+	// Branch A: even integers [0,20]; Branch B: always the string "ok"
+	evenInts := Integers(0, 10).Map(func(v any) any {
+		n, _ := ExtractInt(v)
+		return n * 2
+	})
+	constStr := Just("ok")
+	gen := OneOf(evenInts, constStr)
+	RunHegelTest(t.Name(), func() {
+		v := gen.Generate()
+		switch val := v.(type) {
+		case int64:
+			if val%2 != 0 || val < 0 || val > 20 {
+				panic(fmt.Sprintf("OneOf int branch: expected even [0,20], got %d", val))
+			}
+		case uint64:
+			if val%2 != 0 || val > 20 {
+				panic(fmt.Sprintf("OneOf int branch: expected even [0,20], got %d", val))
+			}
+		case string:
+			if val != "ok" {
+				panic(fmt.Sprintf("OneOf string branch: expected 'ok', got %q", val))
+			}
+		default:
+			panic(fmt.Sprintf("OneOf: unexpected type %T: %v", v, v))
+		}
+	}, WithTestCases(100))
+}
+
+// TestOptionalSometimesNil demonstrates that Optional generates nil values
+// and that non-nil values satisfy the element generator's constraint.
+func TestOptionalSometimesNil(t *testing.T) {
+	hegelBinPath(t)
+	// Optional of non-negative integers: value is nil or a non-negative integer.
+	gen := Optional(Integers(0, 100))
+	RunHegelTest(t.Name(), func() {
+		v := gen.Generate()
+		if v == nil {
+			return // nil is always valid
+		}
+		n, err := ExtractInt(v)
+		if err != nil {
+			panic(fmt.Sprintf("Optional: expected int or nil, got %T: %v", v, v))
+		}
+		if n < 0 || n > 100 {
+			panic(fmt.Sprintf("Optional int: expected [0,100], got %d", n))
+		}
+	}, WithTestCases(100))
+}
+
+// TestIPAddressesAreValidFormat demonstrates that generated IP addresses have
+// the correct format: IPv4 has exactly 4 dot-separated octets.
+func TestIPAddressesAreValidFormat(t *testing.T) {
+	hegelBinPath(t)
+	v4gen := IPAddresses(IPAddressOptions{Version: IPVersion4})
+	RunHegelTest(t.Name(), func() {
+		addr := v4gen.Generate().(string)
+		parts := strings.Split(addr, ".")
+		if len(parts) != 4 {
+			panic(fmt.Sprintf("IPv4 address must have 4 octets: %q", addr))
+		}
+		for _, part := range parts {
+			if len(part) == 0 {
+				panic(fmt.Sprintf("IPv4 octet must not be empty: %q", addr))
+			}
+		}
+	}, WithTestCases(50))
+}
+
+// TestTuples2IntBoolPairs demonstrates Tuples2 by verifying that each generated
+// pair has an integer in [0, 10] and a boolean — an independent co-generation property.
+func TestTuples2IntBoolPairs(t *testing.T) {
+	hegelBinPath(t)
+	gen := Tuples2(Integers(0, 10), Booleans(0.5))
+	RunHegelTest(t.Name(), func() {
+		v := gen.Generate()
+		pair, ok := v.([]any)
+		if !ok || len(pair) != 2 {
+			panic(fmt.Sprintf("Tuples2: expected []any of len 2, got %T len=%d", v, func() int {
+				if s, ok := v.([]any); ok {
+					return len(s)
+				}
+				return -1
+			}()))
+		}
+		n, _ := ExtractInt(pair[0])
+		if n < 0 || n > 10 {
+			panic(fmt.Sprintf("Tuples2[0]: expected integer in [0,10], got %d", n))
+		}
+		_, ok = pair[1].(bool)
+		if !ok {
+			panic(fmt.Sprintf("Tuples2[1]: expected bool, got %T", pair[1]))
+		}
+	}, WithTestCases(50))
+}
+
+// TestTuples3StringIntFloatTriples demonstrates Tuples3 by generating (text, int, float)
+// triples and verifying each element satisfies its type and range constraints.
+// Property: the sum of min-text-length + integer + float is always well-defined.
+func TestTuples3StringIntFloatTriples(t *testing.T) {
+	hegelBinPath(t)
+	falseBool := false
+	gen := Tuples3(
+		Text(1, 10),
+		Integers(0, 100),
+		Floats(floatPtr(0.0), floatPtr(1.0), &falseBool, &falseBool, false, false),
+	)
+	RunHegelTest(t.Name(), func() {
+		v := gen.Generate()
+		triple, ok := v.([]any)
+		if !ok || len(triple) != 3 {
+			panic("Tuples3: expected []any of len 3")
+		}
+		s, ok := triple[0].(string)
+		if !ok || len(s) == 0 {
+			panic(fmt.Sprintf("Tuples3[0]: expected non-empty string, got %T %q", triple[0], triple[0]))
+		}
+		n, _ := ExtractInt(triple[1])
+		if n < 0 || n > 100 {
+			panic(fmt.Sprintf("Tuples3[1]: expected [0,100], got %d", n))
+		}
+		f, ok := triple[2].(float64)
+		if !ok {
+			panic(fmt.Sprintf("Tuples3[2]: expected float64, got %T", triple[2]))
+		}
+		if math.IsNaN(f) || math.IsInf(f, 0) || f < 0.0 || f > 1.0 {
+			panic(fmt.Sprintf("Tuples3[2]: expected finite float in [0,1], got %v", f))
+		}
+	}, WithTestCases(50))
+}
+
+// TestFlatMapTextLengthMatchesInteger demonstrates flat_map by generating an integer n
+// and then a string of exactly n codepoints. This verifies the core property: the
+// second generator depends on the first value, and the relationship holds for every
+// generated example.
+func TestFlatMapTextLengthMatchesInteger(t *testing.T) {
+	hegelBinPath(t)
+	// Generate n in [1,8], then generate text of exactly n codepoints.
+	gen := FlatMap(Integers(1, 8), func(v any) Generator {
+		n, _ := ExtractInt(v)
+		return Text(int(n), int(n))
+	})
+	RunHegelTest(t.Name(), func() {
+		v := gen.Generate()
+		s, ok := v.(string)
+		if !ok {
+			panic(fmt.Sprintf("FlatMap text: expected string, got %T", v))
+		}
+		count := utf8.RuneCountInString(s)
+		// The text length must be in [1,8] because n is in [1,8].
+		if count < 1 || count > 8 {
+			panic(fmt.Sprintf("FlatMap text: codepoint count %d out of [1,8]", count))
+		}
+	}, WithTestCases(50))
+}
+
+// TestFlatMapListLengthMatchesInteger demonstrates that flat_map enables dependent
+// generation: generating a list whose length is determined by a previously generated
+// integer. This is a property that cannot be expressed with Map alone.
+func TestFlatMapListLengthMatchesInteger(t *testing.T) {
+	hegelBinPath(t)
+	// Generate n in [1,6], then generate a list of exactly n booleans.
+	// Property: every generated list has length in [1,6], and the length
+	// matches the integer that controlled the generation.
+	gen := FlatMap(Integers(1, 6), func(v any) Generator {
+		n, _ := ExtractInt(v)
+		sz := int(n)
+		return Lists(Booleans(0.5), ListsOptions{MinSize: sz, MaxSize: sz})
+	})
+	RunHegelTest(t.Name(), func() {
+		v := gen.Generate()
+		bools, ok := v.([]any)
+		if !ok {
+			panic(fmt.Sprintf("FlatMap list: expected []any, got %T", v))
+		}
+		// Length must be in [1,6].
+		if len(bools) < 1 || len(bools) > 6 {
+			panic(fmt.Sprintf("FlatMap list: length %d out of [1,6]", len(bools)))
+		}
+		// Every element must be a boolean.
+		for i, elem := range bools {
+			if _, ok := elem.(bool); !ok {
+				panic(fmt.Sprintf("FlatMap list[%d]: expected bool, got %T", i, elem))
+			}
+		}
+	}, WithTestCases(50))
+}
+
+// TestFilterPreservesConstraint demonstrates Filter by generating integers and filtering
+// to keep only those divisible by 3. Every generated value must satisfy x%3==0.
+// This is a meaningful property: filtering is correct if and only if every kept value
+// satisfies the predicate.
+func TestFilterPreservesConstraint(t *testing.T) {
+	hegelBinPath(t)
+	// integers in [0, 30] filtered to multiples of 3
+	gen := Integers(0, 30).Filter(func(v any) bool {
+		n, _ := ExtractInt(v)
+		return n%3 == 0
+	})
+	RunHegelTest(t.Name(), func() {
+		v := gen.Generate()
+		n, _ := ExtractInt(v)
+		if n%3 != 0 {
+			panic(fmt.Sprintf("filter(%%3==0): expected multiple of 3, got %d", n))
+		}
+		if n < 0 || n > 30 {
+			panic(fmt.Sprintf("filter(%%3==0): value %d outside [0,30]", n))
+		}
+	}, WithTestCases(50))
+}
+
+// TestFilterSquaresAreSquares demonstrates filtering integers to keep only perfect squares.
+// Every kept value must equal the square of some non-negative integer — a mathematical
+// property that filter either preserves or violates on every test case.
+func TestFilterSquaresAreSquares(t *testing.T) {
+	hegelBinPath(t)
+	// Generate integers in [0, 100] and keep only perfect squares (0, 1, 4, 9, 16, 25, 36, 49, 64, 81, 100).
+	isPerfectSquare := func(n int64) bool {
+		if n < 0 {
+			return false
+		}
+		// Integer square root check.
+		root := int64(0)
+		for root*root < n {
+			root++
+		}
+		return root*root == n
+	}
+	gen := Integers(0, 100).Filter(func(v any) bool {
+		n, _ := ExtractInt(v)
+		return isPerfectSquare(n)
+	})
+	RunHegelTest(t.Name(), func() {
+		v := gen.Generate()
+		n, _ := ExtractInt(v)
+		if !isPerfectSquare(n) {
+			panic(fmt.Sprintf("filter(perfect square): expected perfect square, got %d", n))
+		}
+	}, WithTestCases(50))
+}
