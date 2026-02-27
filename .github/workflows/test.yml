@@ -28,8 +28,7 @@ jobs:
           ssh-key: ${{ secrets.HEGEL_DEPLOY_KEY }}
 
       - name: Install just
-        run: |
-          curl --proto '=https' --tlsv1.2 -sSf https://just.systems/install.sh | bash -s -- --to /usr/local/bin
+        run: sudo apt-get update && sudo apt-get install -y just
       - uses: astral-sh/setup-uv@d0d8abe699bfb85fec6de9f7adb5ae17292296ff # v6
 
       - uses: actions/setup-go@40f1582b2485089dde7abd97c1529aa768e1baff # v5
