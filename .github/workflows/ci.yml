@@ -1,0 +1,179 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+permissions: {}
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.head_ref || github.run_id }}
+  cancel-in-progress: true
+
+jobs:
+  check-release:
+    name: check release
+    if: github.event_name == 'pull_request'
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+      - name: Check release
+        env:
+          BASE_REF: ${{ github.base_ref }}
+        run: python .github/scripts/release.py check "$BASE_REF"
+
+  lint:
+    name: lint
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
+        with:
+          persist-credentials: false
+
+      - uses: actions/setup-go@40f1582b2485089dde7abd97c1529aa768e1baff # v5
+        with:
+          go-version: '1.23'
+
+      - name: Check formatting
+        run: |
+          gofmt -l .
+          test -z "$(gofmt -l .)"
+
+  test:
+    name: test
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
+        with:
+          persist-credentials: false
+
+      - uses: ./.github/actions/base
+        with:
+          ssh-key: ${{ secrets.HEGEL_DEPLOY_KEY }}
+
+      - name: Install just
+        run: sudo apt-get update && sudo apt-get install -y just
+      - uses: astral-sh/setup-uv@d0d8abe699bfb85fec6de9f7adb5ae17292296ff # v6
+
+      - uses: actions/setup-go@40f1582b2485089dde7abd97c1529aa768e1baff # v5
+        with:
+          go-version: '1.23'
+
+      - run: just setup
+      - name: Run tests
+        run: just test
+
+  docs:
+    name: docs
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
+        with:
+          persist-credentials: false
+
+      - uses: actions/setup-go@40f1582b2485089dde7abd97c1529aa768e1baff # v5
+        with:
+          go-version: '1.23'
+
+      - name: Install just
+        run: sudo apt-get update && sudo apt-get install -y just
+
+      - name: Check doc comments
+        run: just docs
+
+  conformance:
+    name: conformance
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
+        with:
+          persist-credentials: false
+
+      - uses: ./.github/actions/base
+        with:
+          ssh-key: ${{ secrets.HEGEL_DEPLOY_KEY }}
+
+      - name: Install just
+        run: sudo apt-get update && sudo apt-get install -y just
+      - uses: astral-sh/setup-uv@d0d8abe699bfb85fec6de9f7adb5ae17292296ff # v6
+
+      - uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065 # v5
+        with:
+          python-version: "3.13"
+
+      - uses: actions/setup-go@40f1582b2485089dde7abd97c1529aa768e1baff # v5
+        with:
+          go-version: '1.23'
+
+      - run: just setup
+      - run: pip install pytest
+      - run: just conformance
+
+  zizmor:
+    name: zizmor
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
+        with:
+          persist-credentials: false
+      - name: Install zizmor
+        run: pipx install zizmor
+      - name: Run zizmor
+        run: zizmor --format plain .github/
+
+  release:
+    name: release
+    if: github.event_name == 'push' && github.repository == 'antithesishq/hegel-go'
+    needs: [lint, test, docs, conformance, zizmor]
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+      checks: read
+    steps:
+      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
+        with:
+          persist-credentials: false
+
+      - name: Check for RELEASE.md
+        id: check
+        run: |
+          if [ ! -f RELEASE.md ]; then
+            echo "skip=true" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Generate app token
+        if: steps.check.outputs.skip != 'true'
+        uses: actions/create-github-app-token@d72941d797fd3113feb6b93fd0dec494b13a2547 # v1
+        id: app-token
+        with:
+          app-id: ${{ vars.HEGEL_RELEASE_APP_ID }}
+          private-key: ${{ secrets.HEGEL_RELEASE_APP_PRIVATE_KEY }}
+
+      - name: Re-checkout with app token # zizmor: ignore[artipacked]
+        if: steps.check.outputs.skip != 'true'
+        uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
+        with:
+          token: ${{ steps.app-token.outputs.token }}
+
+      - name: Release
+        if: steps.check.outputs.skip != 'true'
+        env:
+          GH_TOKEN: ${{ steps.app-token.outputs.token }}
+        run: python .github/scripts/release.py release
