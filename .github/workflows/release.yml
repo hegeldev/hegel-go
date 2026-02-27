@@ -2,7 +2,7 @@ name: Release
 
 on: # zizmor: ignore[dangerous-triggers]
   workflow_run:
-    workflows: [Check, Conformance]
+    workflows: [Lint, Test, Docs, Conformance]
     types: [completed]
     branches: [main]
 
