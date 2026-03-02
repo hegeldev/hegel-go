@@ -540,7 +540,7 @@ func Floats(minVal, maxVal *float64, allowNaN, allowInfinity *bool, excludeMin, 
 	}
 
 	schema := map[string]any{
-		"type":           "number",
+		"type":           "float",
 		"allow_nan":      nan,
 		"allow_infinity": inf,
 		"exclude_min":    excludeMin,

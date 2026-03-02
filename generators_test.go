@@ -2085,8 +2085,8 @@ func TestFloatsSchemaWithBounds(t *testing.T) {
 	if !ok {
 		t.Fatalf("Floats should return *BasicGenerator, got %T", g)
 	}
-	if bg.schema["type"] != "number" {
-		t.Errorf("type: expected 'number', got %v", bg.schema["type"])
+	if bg.schema["type"] != "float" {
+		t.Errorf("type: expected 'float', got %v", bg.schema["type"])
 	}
 	if bg.schema["allow_nan"] != false {
 		t.Errorf("allow_nan: expected false, got %v", bg.schema["allow_nan"])
