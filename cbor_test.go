@@ -317,35 +317,35 @@ func TestExtractNullInput(t *testing.T) {
 	}
 }
 
-// --- DecodeCBOR / EncodeCBOR ---
+// --- decodeCBOR / encodeCBOR ---
 
 func TestDecodeCBOR(t *testing.T) {
 	b := cborEncode(t, int64(99))
-	v, err := DecodeCBOR(b)
+	v, err := decodeCBOR(b)
 	if err != nil {
-		t.Fatalf("DecodeCBOR: %v", err)
+		t.Fatalf("decodeCBOR: %v", err)
 	}
 	n, err := ExtractInt(v)
 	if err != nil || n != 99 {
-		t.Errorf("DecodeCBOR result: %v, %v", v, err)
+		t.Errorf("decodeCBOR result: %v, %v", v, err)
 	}
 }
 
 func TestDecodeCBORError(t *testing.T) {
 	// 0xFF is not valid CBOR (break code without indefinite-length context)
-	_, err := DecodeCBOR([]byte{0xFF})
+	_, err := decodeCBOR([]byte{0xFF})
 	if err == nil {
-		t.Fatal("DecodeCBOR(invalid): expected error")
+		t.Fatal("decodeCBOR(invalid): expected error")
 	}
 }
 
 func TestEncodeCBOR(t *testing.T) {
-	b, err := EncodeCBOR("hello")
+	b, err := encodeCBOR("hello")
 	if err != nil {
-		t.Fatalf("EncodeCBOR: %v", err)
+		t.Fatalf("encodeCBOR: %v", err)
 	}
 	if len(b) == 0 {
-		t.Error("EncodeCBOR returned empty bytes")
+		t.Error("encodeCBOR returned empty bytes")
 	}
 }
 
@@ -420,8 +420,8 @@ func TestExtractFloatNegativeInt(t *testing.T) {
 
 func TestEncodeCBORError(t *testing.T) {
 	// Functions cannot be CBOR-encoded; this exercises the error return path.
-	_, err := EncodeCBOR(func() {})
+	_, err := encodeCBOR(func() {})
 	if err == nil {
-		t.Fatal("EncodeCBOR(func): expected error")
+		t.Fatal("encodeCBOR(func): expected error")
 	}
 }

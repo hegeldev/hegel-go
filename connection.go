@@ -154,7 +154,7 @@ func (c *connection) dispatch(pkt packet) {
 	ch, ok := c.channels[pkt.ChannelID]
 	c.writerMu.Unlock()
 
-	if bytes.Equal(pkt.Payload, CloseChannelPayload) && pkt.MessageID == CloseChannelMessageID {
+	if bytes.Equal(pkt.Payload, closeChannelPayload) && pkt.MessageID == closeChannelMessageID {
 		// channel close notification — remove the channel.
 		c.writerMu.Lock()
 		delete(c.channels, pkt.ChannelID)
@@ -167,7 +167,7 @@ func (c *connection) dispatch(pkt packet) {
 		if !pkt.IsReply {
 			errMsg := fmt.Sprintf("Message %d sent to non-existent channel %d",
 				pkt.MessageID, pkt.ChannelID)
-			errPayload, encErr := EncodeCBOR(map[string]any{"error": errMsg})
+			errPayload, encErr := encodeCBOR(map[string]any{"error": errMsg})
 			if encErr == nil {
 				c.SendPacket(packet{ //nolint:errcheck
 					ChannelID: pkt.ChannelID,
@@ -273,18 +273,18 @@ func (c *connection) ConnectChannel(id uint32, name string) (*channel, error) {
 	return ch, nil
 }
 
-// RequestError is an error response received from the peer.
-type RequestError struct {
+// requestError is an error response received from the peer.
+type requestError struct {
 	msg       string
 	ErrorType string
 	Data      map[any]any
 }
 
 // Error implements the error interface.
-func (e *RequestError) Error() string { return e.msg }
+func (e *requestError) Error() string { return e.msg }
 
-// newRequestError builds a RequestError from a CBOR-decoded error dict.
-func newRequestError(data map[any]any) *RequestError {
+// newrequestError builds a requestError from a CBOR-decoded error dict.
+func newrequestError(data map[any]any) *requestError {
 	msg, _ := ExtractString(data[any("error")])
 	errType, _ := ExtractString(data[any("type")])
 	rest := make(map[any]any)
@@ -297,14 +297,14 @@ func newRequestError(data map[any]any) *RequestError {
 			rest[k] = v
 		}
 	}
-	return &RequestError{msg: msg, ErrorType: errType, Data: rest}
+	return &requestError{msg: msg, ErrorType: errType, Data: rest}
 }
 
 // resultOrError extracts the "result" field from a CBOR-decoded dict, or returns
-// a *RequestError if the dict contains an "error" field.
+// a *requestError if the dict contains an "error" field.
 func resultOrError(body map[any]any) (any, error) {
 	if _, hasErr := body[any("error")]; hasErr {
-		return nil, newRequestError(body)
+		return nil, newrequestError(body)
 	}
 	return body[any("result")], nil
 }
@@ -349,9 +349,9 @@ func (ch *channel) Close() {
 		// Send asynchronously: write may block if the reader isn't consuming yet.
 		go ch.conn.SendPacket(packet{ //nolint:errcheck
 			ChannelID: ch.channelID,
-			MessageID: CloseChannelMessageID,
+			MessageID: closeChannelMessageID,
 			IsReply:   false,
-			Payload:   CloseChannelPayload,
+			Payload:   closeChannelPayload,
 		})
 	}
 }
@@ -381,7 +381,7 @@ func (ch *channel) SendReplyRaw(msgID uint32, payload []byte) error {
 
 // SendReplyValue sends a CBOR-encoded {"result": v} reply.
 func (ch *channel) SendReplyValue(msgID uint32, v any) error {
-	payload, err := EncodeCBOR(map[string]any{"result": v})
+	payload, err := encodeCBOR(map[string]any{"result": v})
 	if err != nil {
 		return err
 	}
@@ -408,7 +408,7 @@ func (ch *channel) RecvRequest(timeout time.Duration) (uint32, any, error) {
 	if err != nil {
 		return 0, nil, err
 	}
-	v, err := DecodeCBOR(payload)
+	v, err := decodeCBOR(payload)
 	if err != nil {
 		return 0, nil, err
 	}
@@ -432,13 +432,13 @@ func (ch *channel) recvResponseRaw(msgID uint32, timeout time.Duration) ([]byte,
 }
 
 // ReceiveResponse waits for a reply to the given message ID and returns the
-// CBOR-decoded result (unwrapping {"result": v} or raising RequestError).
+// CBOR-decoded result (unwrapping {"result": v} or raising requestError).
 func (ch *channel) ReceiveResponse(msgID uint32, timeout time.Duration) (any, error) {
 	raw, err := ch.recvResponseRaw(msgID, timeout)
 	if err != nil {
 		return nil, err
 	}
-	v, err := DecodeCBOR(raw)
+	v, err := decodeCBOR(raw)
 	if err != nil {
 		return nil, err
 	}

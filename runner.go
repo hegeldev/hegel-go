@@ -103,7 +103,7 @@ func (e *connectionError) Error() string { return e.msg }
 
 func generateFromSchema(schema map[string]any, data *testCaseData) (any, error) {
 	ch := data.channel
-	payload, err := EncodeCBOR(map[string]any{"command": "generate", "schema": schema})
+	payload, err := encodeCBOR(map[string]any{"command": "generate", "schema": schema})
 	if err != nil {
 		panic(fmt.Sprintf("hegel: unreachable: generateFromSchema encode: %v", err))
 	}
@@ -113,7 +113,7 @@ func generateFromSchema(schema map[string]any, data *testCaseData) (any, error) 
 	}
 	v, err := pending.Get()
 	if err != nil {
-		re, ok := err.(*RequestError)
+		re, ok := err.(*requestError)
 		if ok && re.ErrorType == "StopTest" {
 			data.aborted = true
 			return nil, &dataExhausted{msg: "server ran out of data"}
@@ -160,7 +160,7 @@ func Note(message string) {
 // Must be called from within a test body passed to RunHegelTest.
 func Target(value float64, label string) {
 	ch := getChannel()
-	payload, err := EncodeCBOR(map[string]any{
+	payload, err := encodeCBOR(map[string]any{
 		"command": "target",
 		"value":   value,
 		"label":   label,
@@ -282,7 +282,7 @@ func (c *client) runTest(name string, fn func(), opts runOptions) error {
 
 	testCh := c.conn.NewChannel("Test")
 
-	payload, err := EncodeCBOR(map[string]any{
+	payload, err := encodeCBOR(map[string]any{
 		"command":    "run_test",
 		"name":       name,
 		"test_cases": int64(opts.testCases),
@@ -308,7 +308,7 @@ func (c *client) runTest(name string, fn func(), opts runOptions) error {
 		if err != nil {
 			return fmt.Errorf("hegel: test event recv: %w", err)
 		}
-		decoded, err := DecodeCBOR(raw)
+		decoded, err := decodeCBOR(raw)
 		if err != nil {
 			return fmt.Errorf("hegel: test event decode: %w", err)
 		}
@@ -343,7 +343,7 @@ func (c *client) runTest(name string, fn func(), opts runOptions) error {
 
 		default:
 			// Unknown event: send error reply.
-			errPayload, _ := EncodeCBOR(map[string]any{
+			errPayload, _ := encodeCBOR(map[string]any{
 				"error": fmt.Sprintf("unrecognised event %q", event),
 				"type":  "InvalidMessage",
 			})
@@ -368,7 +368,7 @@ doneLoop:
 		if err != nil {
 			return fmt.Errorf("hegel: final case recv: %w", err)
 		}
-		decoded, _ := DecodeCBOR(raw)
+		decoded, _ := decodeCBOR(raw)
 		msg, _ := ExtractDict(decoded)
 		chIDVal := msg[any("channel_id")]
 		chID, _ := ExtractInt(chIDVal)
@@ -387,7 +387,7 @@ doneLoop:
 		if err != nil {
 			return fmt.Errorf("hegel: final case %d recv: %w", i, err)
 		}
-		decoded, _ := DecodeCBOR(raw)
+		decoded, _ := decodeCBOR(raw)
 		msg, _ := ExtractDict(decoded)
 		chIDVal := msg[any("channel_id")]
 		chID, _ := ExtractInt(chIDVal)
@@ -466,7 +466,7 @@ func (c *client) runTestCase(ch *channel, fn func(), isFinal bool) (finalErr err
 				"origin":  nil,
 			}
 		}
-		encoded, err := EncodeCBOR(markPayload)
+		encoded, err := encodeCBOR(markPayload)
 		if err != nil {
 			panic(fmt.Sprintf("hegel: unreachable: mark_complete encode: %v", err))
 		}

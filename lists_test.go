@@ -169,14 +169,14 @@ func TestCompositeListGeneratorProtocol(t *testing.T) {
 	clientConn := fakeServerConn(t, func(serverConn *connection) {
 		ctrl := serverConn.ControlChannel()
 		msgID, payload, _ := ctrl.RecvRequestRaw(5 * time.Second)
-		decoded, _ := DecodeCBOR(payload)
+		decoded, _ := decodeCBOR(payload)
 		m, _ := ExtractDict(decoded)
 		chID, _ := ExtractInt(m[any("channel_id")])
 		ctrl.SendReplyValue(msgID, true) //nolint:errcheck
 
 		testCh, _ := serverConn.ConnectChannel(uint32(chID), "TestCh")
 		caseCh := serverConn.NewChannel("Case")
-		casePayload, _ := EncodeCBOR(map[string]any{
+		casePayload, _ := encodeCBOR(map[string]any{
 			"event":      "test_case",
 			"channel_id": int64(caseCh.ChannelID()),
 			"is_final":   false,
@@ -192,7 +192,7 @@ func TestCompositeListGeneratorProtocol(t *testing.T) {
 
 		// new_collection
 		ncID, ncPayload, _ := caseCh.RecvRequestRaw(5 * time.Second)
-		dec, _ := DecodeCBOR(ncPayload)
+		dec, _ := decodeCBOR(ncPayload)
 		ncm, _ := ExtractDict(dec)
 		cmd, _ := ExtractString(ncm[any("command")])
 		if cmd != "new_collection" {
@@ -259,14 +259,14 @@ func TestCompositeListGeneratorEmptyList(t *testing.T) {
 	clientConn := fakeServerConn(t, func(serverConn *connection) {
 		ctrl := serverConn.ControlChannel()
 		msgID, payload, _ := ctrl.RecvRequestRaw(5 * time.Second)
-		decoded, _ := DecodeCBOR(payload)
+		decoded, _ := decodeCBOR(payload)
 		m, _ := ExtractDict(decoded)
 		chID, _ := ExtractInt(m[any("channel_id")])
 		ctrl.SendReplyValue(msgID, true) //nolint:errcheck
 
 		testCh, _ := serverConn.ConnectChannel(uint32(chID), "TestCh")
 		caseCh := serverConn.NewChannel("Case")
-		casePayload, _ := EncodeCBOR(map[string]any{
+		casePayload, _ := encodeCBOR(map[string]any{
 			"event":      "test_case",
 			"channel_id": int64(caseCh.ChannelID()),
 			"is_final":   false,

@@ -198,7 +198,7 @@ func (g *filteredGenerator) Map(fn func(any) any) Generator {
 // No-op if the test has been aborted.
 func startSpan(label SpanLabel, data *testCaseData) {
 	ch := data.channel
-	payload, err := EncodeCBOR(map[string]any{
+	payload, err := encodeCBOR(map[string]any{
 		"command": "start_span",
 		"label":   int64(label),
 	})
@@ -220,7 +220,7 @@ func stopSpan(discard bool, data *testCaseData) {
 		return
 	}
 	ch := data.channel
-	payload, err := EncodeCBOR(map[string]any{
+	payload, err := encodeCBOR(map[string]any{
 		"command": "stop_span",
 		"discard": discard,
 	})
@@ -266,7 +266,7 @@ type collection struct {
 // It sends the new_collection command immediately.
 func newCollection(minSize, maxSize int, data *testCaseData) *collection {
 	ch := data.channel
-	payload, err := EncodeCBOR(map[string]any{
+	payload, err := encodeCBOR(map[string]any{
 		"command":  "new_collection",
 		"min_size": int64(minSize),
 		"max_size": int64(maxSize),
@@ -280,7 +280,7 @@ func newCollection(minSize, maxSize int, data *testCaseData) *collection {
 	}
 	v, err := pending.Get()
 	if err != nil {
-		re, ok := err.(*RequestError)
+		re, ok := err.(*requestError)
 		if ok && re.ErrorType == "StopTest" {
 			data.aborted = true
 			panic(&dataExhausted{msg: "server ran out of data (new_collection)"})
@@ -299,7 +299,7 @@ func (c *collection) more(data *testCaseData) bool {
 		return false
 	}
 	ch := data.channel
-	payload, err := EncodeCBOR(map[string]any{
+	payload, err := encodeCBOR(map[string]any{
 		"command":    "collection_more",
 		"collection": c.serverName,
 	})
@@ -312,7 +312,7 @@ func (c *collection) more(data *testCaseData) bool {
 	}
 	v, err := pending.Get()
 	if err != nil {
-		re, ok := err.(*RequestError)
+		re, ok := err.(*requestError)
 		if ok && re.ErrorType == "StopTest" {
 			data.aborted = true
 			panic(&dataExhausted{msg: "server ran out of data (collection_more)"})

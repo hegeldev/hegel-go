@@ -47,7 +47,7 @@ func handshakePair(t *testing.T, serverConn, clientConn *connection) {
 // sendErrorReply sends a CBOR-encoded error reply on a channel (test helper replacing
 // the removed SendReplyError method).
 func sendErrorReply(ch *channel, msgID uint32, errMsg, errType string) {
-	payload, _ := EncodeCBOR(map[string]any{
+	payload, _ := encodeCBOR(map[string]any{
 		"error": errMsg,
 		"type":  errType,
 	})
@@ -398,7 +398,7 @@ func TestRequestHandling(t *testing.T) {
 			if err != nil {
 				return
 			}
-			v, _ := DecodeCBOR(payload)
+			v, _ := decodeCBOR(payload)
 			m, _ := ExtractDict(v)
 			x, _ := ExtractInt(m["x"])
 			y, _ := ExtractInt(m["y"])
@@ -456,7 +456,7 @@ func TestPendingRequestCaching(t *testing.T) {
 			if err != nil {
 				return
 			}
-			v, _ := DecodeCBOR(payload)
+			v, _ := decodeCBOR(payload)
 			m, _ := ExtractDict(v)
 			val, _ := ExtractInt(m["value"])
 			ch.SendReplyValue(msgID, val*2) //nolint:errcheck
@@ -809,7 +809,7 @@ func TestSendReplyValueEncodeError(t *testing.T) {
 
 // --- RecvRequest: CBOR decode error path ---
 
-func TestRecvRequestDecodeCBORError(t *testing.T) {
+func TestRecvRequestdecodeCBORError(t *testing.T) {
 	s, _ := socketPair(t)
 	conn := newConnection(s, "Test")
 	defer conn.Close()
@@ -833,7 +833,7 @@ func TestRecvRequestSuccess(t *testing.T) {
 
 	ch := conn.ControlChannel()
 	// Put a valid CBOR-encoded request into the inbox.
-	payload, _ := EncodeCBOR(map[string]any{"cmd": "test"})
+	payload, _ := encodeCBOR(map[string]any{"cmd": "test"})
 	ch.inbox <- packet{ChannelID: 0, MessageID: 1, IsReply: false, Payload: payload}
 
 	msgID, v, err := ch.RecvRequest(100 * time.Millisecond)
@@ -872,7 +872,7 @@ func TestRecvResponseRawProcessError(t *testing.T) {
 
 // --- ReceiveResponse: CBOR decode error ---
 
-func TestReceiveResponseDecodeCBORError(t *testing.T) {
+func TestReceiveResponsedecodeCBORError(t *testing.T) {
 	s, _ := socketPair(t)
 	conn := newConnection(s, "Test")
 	defer conn.Close()
@@ -896,7 +896,7 @@ func TestReceiveResponseExtractDictError(t *testing.T) {
 
 	ch := conn.ControlChannel()
 	// Inject a reply whose payload is a CBOR integer (not a dict).
-	payload, _ := EncodeCBOR(int64(42))
+	payload, _ := encodeCBOR(int64(42))
 	ch.inbox <- packet{ChannelID: 0, MessageID: 1, IsReply: true, Payload: payload}
 
 	_, err := ch.ReceiveResponse(1, 100*time.Millisecond)
@@ -931,7 +931,7 @@ func TestProcessOneMessageRouteReplyNilResponses(t *testing.T) {
 	ch := conn.ControlChannel()
 	// ch.responses is nil (never initialized).
 	// Put a reply packet directly in the inbox and call processOneMessage.
-	payload, _ := EncodeCBOR(map[string]any{"result": int64(7)})
+	payload, _ := encodeCBOR(map[string]any{"result": int64(7)})
 	ch.inbox <- packet{ChannelID: 0, MessageID: 5, IsReply: true, Payload: payload}
 
 	// processOneMessage is called with ch.responses == nil, exercising the init path.
@@ -986,9 +986,9 @@ func mustContain(t *testing.T, s, sub string) {
 
 func mustEncode(t *testing.T, v any) []byte {
 	t.Helper()
-	b, err := EncodeCBOR(v)
+	b, err := encodeCBOR(v)
 	if err != nil {
-		t.Fatalf("EncodeCBOR(%v): %v", v, err)
+		t.Fatalf("encodeCBOR(%v): %v", v, err)
 	}
 	return b
 }

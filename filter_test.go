@@ -200,14 +200,14 @@ func TestFilteredGeneratorGenerateAllFailsCallsAssume(t *testing.T) {
 	clientConn := fakeServerConn(t, func(serverConn *connection) {
 		ctrl := serverConn.ControlChannel()
 		msgID, payload, _ := ctrl.RecvRequestRaw(5 * time.Second)
-		decoded, _ := DecodeCBOR(payload)
+		decoded, _ := decodeCBOR(payload)
 		m, _ := ExtractDict(decoded)
 		chID, _ := ExtractInt(m[any("channel_id")])
 		ctrl.SendReplyValue(msgID, true) //nolint:errcheck
 
 		testCh, _ := serverConn.ConnectChannel(uint32(chID), "TestCh")
 		caseCh := serverConn.NewChannel("Case")
-		casePayload, _ := EncodeCBOR(map[string]any{
+		casePayload, _ := encodeCBOR(map[string]any{
 			"event":      "test_case",
 			"channel_id": int64(caseCh.ChannelID()),
 			"is_final":   false,
@@ -232,7 +232,7 @@ func TestFilteredGeneratorGenerateAllFailsCallsAssume(t *testing.T) {
 
 		// After all attempts fail, Assume(false) is called → mark_complete with status=INVALID
 		mcID, mcPayload, _ := caseCh.RecvRequestRaw(5 * time.Second)
-		decMC, _ := DecodeCBOR(mcPayload)
+		decMC, _ := decodeCBOR(mcPayload)
 		mMC, _ := ExtractDict(decMC)
 		status, _ := ExtractString(mMC[any("status")])
 		gotInvalidStatus = (status == "INVALID")
@@ -333,14 +333,14 @@ func TestFilteredGeneratorGenerateUnitPredicatePasses(t *testing.T) {
 	clientConn := fakeServerConn(t, func(serverConn *connection) {
 		ctrl := serverConn.ControlChannel()
 		msgID, payload, _ := ctrl.RecvRequestRaw(5 * time.Second)
-		decoded, _ := DecodeCBOR(payload)
+		decoded, _ := decodeCBOR(payload)
 		m, _ := ExtractDict(decoded)
 		chID, _ := ExtractInt(m[any("channel_id")])
 		ctrl.SendReplyValue(msgID, true) //nolint:errcheck
 
 		testCh, _ := serverConn.ConnectChannel(uint32(chID), "TestCh")
 		caseCh := serverConn.NewChannel("Case")
-		casePayload, _ := EncodeCBOR(map[string]any{
+		casePayload, _ := encodeCBOR(map[string]any{
 			"event":      "test_case",
 			"channel_id": int64(caseCh.ChannelID()),
 			"is_final":   false,
@@ -396,14 +396,14 @@ func TestFilteredGeneratorGenerateUnitPredicateFailsThenPasses(t *testing.T) {
 	clientConn := fakeServerConn(t, func(serverConn *connection) {
 		ctrl := serverConn.ControlChannel()
 		msgID, payload, _ := ctrl.RecvRequestRaw(5 * time.Second)
-		decoded, _ := DecodeCBOR(payload)
+		decoded, _ := decodeCBOR(payload)
 		m, _ := ExtractDict(decoded)
 		chID, _ := ExtractInt(m[any("channel_id")])
 		ctrl.SendReplyValue(msgID, true) //nolint:errcheck
 
 		testCh, _ := serverConn.ConnectChannel(uint32(chID), "TestCh")
 		caseCh := serverConn.NewChannel("Case")
-		casePayload, _ := EncodeCBOR(map[string]any{
+		casePayload, _ := encodeCBOR(map[string]any{
 			"event":      "test_case",
 			"channel_id": int64(caseCh.ChannelID()),
 			"is_final":   false,
@@ -420,7 +420,7 @@ func TestFilteredGeneratorGenerateUnitPredicateFailsThenPasses(t *testing.T) {
 		caseCh.SendReplyValue(gen1ID, int64(1)) //nolint:errcheck
 		// stop_span(discard=true)
 		sp1ID, sp1Payload, _ := caseCh.RecvRequestRaw(5 * time.Second)
-		dec1, _ := DecodeCBOR(sp1Payload)
+		dec1, _ := decodeCBOR(sp1Payload)
 		m1, _ := ExtractDict(dec1)
 		d1, _ := m1[any("discard")].(bool)
 		if !d1 {
@@ -437,7 +437,7 @@ func TestFilteredGeneratorGenerateUnitPredicateFailsThenPasses(t *testing.T) {
 		caseCh.SendReplyValue(gen2ID, int64(4)) //nolint:errcheck
 		// stop_span(discard=false)
 		sp2ID, sp2Payload, _ := caseCh.RecvRequestRaw(5 * time.Second)
-		dec2, _ := DecodeCBOR(sp2Payload)
+		dec2, _ := decodeCBOR(sp2Payload)
 		m2, _ := ExtractDict(dec2)
 		d2, _ := m2[any("discard")].(bool)
 		if d2 {

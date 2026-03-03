@@ -291,14 +291,14 @@ func TestOneOfPath3UnitFakeServer(t *testing.T) {
 	clientConn := fakeServerConn(t, func(serverConn *connection) {
 		ctrl := serverConn.ControlChannel()
 		msgID, payload, _ := ctrl.RecvRequestRaw(5 * time.Second)
-		decoded, _ := DecodeCBOR(payload)
+		decoded, _ := decodeCBOR(payload)
 		m, _ := ExtractDict(decoded)
 		chID, _ := ExtractInt(m[any("channel_id")])
 		ctrl.SendReplyValue(msgID, true) //nolint:errcheck
 
 		testCh, _ := serverConn.ConnectChannel(uint32(chID), "TestCh")
 		caseCh := serverConn.NewChannel("Case")
-		casePayload, _ := EncodeCBOR(map[string]any{
+		casePayload, _ := encodeCBOR(map[string]any{
 			"event":      "test_case",
 			"channel_id": int64(caseCh.ChannelID()),
 			"is_final":   false,
@@ -601,7 +601,7 @@ func TestOneOfAllBranchesAppear(t *testing.T) {
 }
 
 // TestCompositeOneOfGenerateErrorResponse covers the error path in
-// compositeOneOfGenerator.Generate when the server sends a RequestError
+// compositeOneOfGenerator.Generate when the server sends a requestError
 // in response to the index generate command.
 func TestCompositeOneOfGenerateErrorResponse(t *testing.T) {
 	hegelBinPath(t)
@@ -611,7 +611,7 @@ func TestCompositeOneOfGenerateErrorResponse(t *testing.T) {
 	nonBasic2 := &mappedGenerator{inner: Integers(6, 10), fn: func(v any) any { return v }}
 	gen := &compositeOneOfGenerator{generators: []Generator{nonBasic1, nonBasic2}}
 	err := RunHegelTestE(t.Name(), func() {
-		_ = Draw(gen) // should panic with RequestError
+		_ = Draw(gen) // should panic with requestError
 	})
 	// error_response makes the test appear interesting (failing).
 	_ = err

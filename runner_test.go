@@ -158,7 +158,7 @@ func TestEmptyTest(t *testing.T) {
 func TestErrorResponse(t *testing.T) {
 	hegelBinPath(t)
 	setEnv(t, "HEGEL_PROTOCOL_TEST_MODE", "error_response")
-	// The server sends a RequestError on generate; the test body should
+	// The server sends a requestError on generate; the test body should
 	// see a panic (INTERESTING) and RunHegelTestE should return an error.
 	var gotErr error
 	func() {
@@ -480,7 +480,7 @@ func TestRunTestUnrecognisedEvent(t *testing.T) {
 			serverDone <- err
 			return
 		}
-		decoded, _ := DecodeCBOR(payload)
+		decoded, _ := decodeCBOR(payload)
 		m, _ := ExtractDict(decoded)
 		chIDVal := m[any("channel_id")]
 		chID, _ := ExtractInt(chIDVal)
@@ -496,13 +496,13 @@ func TestRunTestUnrecognisedEvent(t *testing.T) {
 		}
 
 		// Send a bogus event.
-		bogusPayload, _ := EncodeCBOR(map[string]any{"event": "bogus_event"})
+		bogusPayload, _ := encodeCBOR(map[string]any{"event": "bogus_event"})
 		bogusID, _ := testCh.SendRequestRaw(bogusPayload)
 		// Drain the error reply from the client.
 		testCh.recvResponseRaw(bogusID, 5*time.Second) //nolint:errcheck
 
 		// Send test_done.
-		donePayload, _ := EncodeCBOR(map[string]any{
+		donePayload, _ := encodeCBOR(map[string]any{
 			"event": "test_done",
 			"results": map[string]any{
 				"passed":                 true,
@@ -612,7 +612,7 @@ func fakeServerConn(t *testing.T, fn func(serverConn *connection)) *connection {
 // sendTestDone sends a test_done event on testCh with the given results.
 func sendTestDone(t *testing.T, testCh *channel, passed bool, interesting int64) {
 	t.Helper()
-	payload, _ := EncodeCBOR(map[string]any{
+	payload, _ := encodeCBOR(map[string]any{
 		"event": "test_done",
 		"results": map[string]any{
 			"passed":                 passed,
@@ -639,7 +639,7 @@ func runTestOnFakeServer(t *testing.T, testFn func(), serverReply func(caseCh *c
 			t.Errorf("server recv run_test: %v", err)
 			return
 		}
-		decoded, _ := DecodeCBOR(payload)
+		decoded, _ := decodeCBOR(payload)
 		m, _ := ExtractDict(decoded)
 		chIDVal := m[any("channel_id")]
 		chID, _ := ExtractInt(chIDVal)
@@ -654,7 +654,7 @@ func runTestOnFakeServer(t *testing.T, testFn func(), serverReply func(caseCh *c
 
 		// Create a case channel and send test_case.
 		caseCh := serverConn.NewChannel("CaseCh")
-		casePayload, _ := EncodeCBOR(map[string]any{
+		casePayload, _ := encodeCBOR(map[string]any{
 			"event":      "test_case",
 			"channel_id": int64(caseCh.ChannelID()),
 		})
@@ -733,7 +733,7 @@ func TestGetCurrentChannelOutside(t *testing.T) {
 // --- generateFromSchema: StopTest causes DataExhausted ---
 
 func TestGenerateFromSchemaStopTest(t *testing.T) {
-	// Set up a fake channel that returns a StopTest RequestError.
+	// Set up a fake channel that returns a StopTest requestError.
 	s, c := socketPair(t)
 	serverConn := newConnection(s, "S")
 	clientConn := newConnection(c, "C")
@@ -772,7 +772,7 @@ func TestGenerateFromSchemaStopTest(t *testing.T) {
 	}
 }
 
-// --- generateFromSchema: non-StopTest RequestError propagates ---
+// --- generateFromSchema: non-StopTest requestError propagates ---
 
 func TestGenerateFromSchemaNonStopTestError(t *testing.T) {
 	s, c := socketPair(t)
@@ -798,9 +798,9 @@ func TestGenerateFromSchemaNonStopTestError(t *testing.T) {
 	if err == nil {
 		t.Fatal("expected error from generateFromSchema")
 	}
-	_, isRequestError := err.(*RequestError)
+	_, isRequestError := err.(*requestError)
 	if !isRequestError {
-		t.Errorf("expected *RequestError, got %T: %v", err, err)
+		t.Errorf("expected *requestError, got %T: %v", err, err)
 	}
 }
 
@@ -921,7 +921,7 @@ func TestRunTestEventDecodeError(t *testing.T) {
 	clientConn := fakeServerConn(t, func(serverConn *connection) {
 		ctrl := serverConn.ControlChannel()
 		msgID, payload, _ := ctrl.RecvRequestRaw(5 * time.Second)
-		decoded, _ := DecodeCBOR(payload)
+		decoded, _ := decodeCBOR(payload)
 		m, _ := ExtractDict(decoded)
 		chIDVal := m[any("channel_id")]
 		chID, _ := ExtractInt(chIDVal)
@@ -950,7 +950,7 @@ func TestRunTestEventNotDictError(t *testing.T) {
 	clientConn := fakeServerConn(t, func(serverConn *connection) {
 		ctrl := serverConn.ControlChannel()
 		msgID, payload, _ := ctrl.RecvRequestRaw(5 * time.Second)
-		decoded, _ := DecodeCBOR(payload)
+		decoded, _ := decodeCBOR(payload)
 		m, _ := ExtractDict(decoded)
 		chIDVal := m[any("channel_id")]
 		chID, _ := ExtractInt(chIDVal)
@@ -958,7 +958,7 @@ func TestRunTestEventNotDictError(t *testing.T) {
 
 		testCh, _ := serverConn.ConnectChannel(uint32(chID), "TestCh")
 		// Send a CBOR integer (not a dict).
-		badPayload, _ := EncodeCBOR(int64(42))
+		badPayload, _ := encodeCBOR(int64(42))
 		badID, _ := testCh.SendRequestRaw(badPayload)
 		testCh.recvResponseRaw(badID, 2*time.Second) //nolint:errcheck
 		sendTestDone(t, testCh, true, 0)
@@ -977,7 +977,7 @@ func TestRunTestCaseMissingChannel(t *testing.T) {
 	clientConn := fakeServerConn(t, func(serverConn *connection) {
 		ctrl := serverConn.ControlChannel()
 		msgID, payload, _ := ctrl.RecvRequestRaw(5 * time.Second)
-		decoded, _ := DecodeCBOR(payload)
+		decoded, _ := decodeCBOR(payload)
 		m, _ := ExtractDict(decoded)
 		chIDVal := m[any("channel_id")]
 		chID, _ := ExtractInt(chIDVal)
@@ -985,7 +985,7 @@ func TestRunTestCaseMissingChannel(t *testing.T) {
 
 		testCh, _ := serverConn.ConnectChannel(uint32(chID), "TestCh")
 		// Send test_case without channel field.
-		badPayload, _ := EncodeCBOR(map[string]any{"event": "test_case"})
+		badPayload, _ := encodeCBOR(map[string]any{"event": "test_case"})
 		badID, _ := testCh.SendRequestRaw(badPayload)
 		testCh.recvResponseRaw(badID, 2*time.Second) //nolint:errcheck
 		sendTestDone(t, testCh, true, 0)
@@ -1043,7 +1043,7 @@ func TestRunTestEventRecvError(t *testing.T) {
 	clientConn := fakeServerConn(t, func(serverConn *connection) {
 		ctrl := serverConn.ControlChannel()
 		msgID, payload, _ := ctrl.RecvRequestRaw(5 * time.Second)
-		decoded, _ := DecodeCBOR(payload)
+		decoded, _ := decodeCBOR(payload)
 		m, _ := ExtractDict(decoded)
 		chIDVal := m[any("channel_id")]
 		chID, _ := ExtractInt(chIDVal)
@@ -1067,7 +1067,7 @@ func TestRunTestConnectCaseChannelError(t *testing.T) {
 	clientConn := fakeServerConn(t, func(serverConn *connection) {
 		ctrl := serverConn.ControlChannel()
 		msgID, payload, _ := ctrl.RecvRequestRaw(5 * time.Second)
-		decoded, _ := DecodeCBOR(payload)
+		decoded, _ := decodeCBOR(payload)
 		m, _ := ExtractDict(decoded)
 		chIDVal := m[any("channel_id")]
 		chID, _ := ExtractInt(chIDVal)
@@ -1075,7 +1075,7 @@ func TestRunTestConnectCaseChannelError(t *testing.T) {
 
 		testCh, _ := serverConn.ConnectChannel(uint32(chID), "TestCh")
 		// Send test_case with channel ID = 0 (already registered as control).
-		casePayload, _ := EncodeCBOR(map[string]any{
+		casePayload, _ := encodeCBOR(map[string]any{
 			"event":      "test_case",
 			"channel_id": int64(0), // already exists!
 		})
@@ -1099,7 +1099,7 @@ func TestRunTestCaseInteresting(t *testing.T) {
 	}, func(caseCh *channel) {
 		// Receive mark_complete with INTERESTING status.
 		msgID, payload, _ := caseCh.RecvRequestRaw(2 * time.Second)
-		decoded, _ := DecodeCBOR(payload)
+		decoded, _ := decodeCBOR(payload)
 		m, _ := ExtractDict(decoded)
 		statusVal, _ := ExtractString(m[any("status")])
 		if statusVal != "INTERESTING" {
@@ -1135,7 +1135,7 @@ func TestRunTestCaseInvalid(t *testing.T) {
 		Assume(false)
 	}, func(caseCh *channel) {
 		msgID, payload, _ := caseCh.RecvRequestRaw(2 * time.Second)
-		decoded, _ := DecodeCBOR(payload)
+		decoded, _ := decodeCBOR(payload)
 		m, _ := ExtractDict(decoded)
 		statusVal, _ := ExtractString(m[any("status")])
 		if statusVal != "INVALID" {
@@ -1171,7 +1171,7 @@ func TestRunTestCaseMarkCompleteError(t *testing.T) {
 	clientConn := fakeServerConn(t, func(serverConn *connection) {
 		ctrl := serverConn.ControlChannel()
 		msgID, payload, _ := ctrl.RecvRequestRaw(5 * time.Second)
-		decoded, _ := DecodeCBOR(payload)
+		decoded, _ := decodeCBOR(payload)
 		m, _ := ExtractDict(decoded)
 		chIDVal := m[any("channel_id")]
 		chID, _ := ExtractInt(chIDVal)
@@ -1179,7 +1179,7 @@ func TestRunTestCaseMarkCompleteError(t *testing.T) {
 
 		testCh, _ := serverConn.ConnectChannel(uint32(chID), "TestCh")
 		caseCh := serverConn.NewChannel("CaseCh")
-		casePayload, _ := EncodeCBOR(map[string]any{
+		casePayload, _ := encodeCBOR(map[string]any{
 			"event":      "test_case",
 			"channel_id": int64(caseCh.ChannelID()),
 		})
@@ -1202,7 +1202,7 @@ func TestRunTestMultipleInteresting(t *testing.T) {
 	clientConn := fakeServerConn(t, func(serverConn *connection) {
 		ctrl := serverConn.ControlChannel()
 		msgID, payload, _ := ctrl.RecvRequestRaw(5 * time.Second)
-		decoded, _ := DecodeCBOR(payload)
+		decoded, _ := decodeCBOR(payload)
 		m, _ := ExtractDict(decoded)
 		chIDVal := m[any("channel_id")]
 		chID, _ := ExtractInt(chIDVal)
@@ -1211,7 +1211,7 @@ func TestRunTestMultipleInteresting(t *testing.T) {
 		testCh, _ := serverConn.ConnectChannel(uint32(chID), "TestCh")
 
 		// Send test_done with 2 interesting cases immediately.
-		donePayload, _ := EncodeCBOR(map[string]any{
+		donePayload, _ := encodeCBOR(map[string]any{
 			"event": "test_done",
 			"results": map[string]any{
 				"passed":                 false,
@@ -1227,7 +1227,7 @@ func TestRunTestMultipleInteresting(t *testing.T) {
 		// Send 2 final test cases.
 		for i := 0; i < 2; i++ {
 			caseCh := serverConn.NewChannel(fmt.Sprintf("FinalCh%d", i))
-			casePayload, _ := EncodeCBOR(map[string]any{
+			casePayload, _ := encodeCBOR(map[string]any{
 				"event":      "test_case",
 				"channel_id": int64(caseCh.ChannelID()),
 			})
@@ -1255,7 +1255,7 @@ func TestRunTestSingleInterestingConnectError(t *testing.T) {
 	clientConn := fakeServerConn(t, func(serverConn *connection) {
 		ctrl := serverConn.ControlChannel()
 		msgID, payload, _ := ctrl.RecvRequestRaw(5 * time.Second)
-		decoded, _ := DecodeCBOR(payload)
+		decoded, _ := decodeCBOR(payload)
 		m, _ := ExtractDict(decoded)
 		chIDVal := m[any("channel_id")]
 		chID, _ := ExtractInt(chIDVal)
@@ -1264,7 +1264,7 @@ func TestRunTestSingleInterestingConnectError(t *testing.T) {
 		testCh, _ := serverConn.ConnectChannel(uint32(chID), "TestCh")
 
 		// test_done with 1 interesting.
-		donePayload, _ := EncodeCBOR(map[string]any{
+		donePayload, _ := encodeCBOR(map[string]any{
 			"event": "test_done",
 			"results": map[string]any{
 				"passed":                 false,
@@ -1278,7 +1278,7 @@ func TestRunTestSingleInterestingConnectError(t *testing.T) {
 		testCh.recvResponseRaw(doneID, 5*time.Second) //nolint:errcheck
 
 		// Send final test_case with channel 0 (already exists → ConnectChannel fails).
-		casePayload, _ := EncodeCBOR(map[string]any{
+		casePayload, _ := encodeCBOR(map[string]any{
 			"event":      "test_case",
 			"channel_id": int64(0), // control channel, already exists
 		})
@@ -1299,7 +1299,7 @@ func TestRunTestFinalCaseRecvError(t *testing.T) {
 	clientConn := fakeServerConn(t, func(serverConn *connection) {
 		ctrl := serverConn.ControlChannel()
 		msgID, payload, _ := ctrl.RecvRequestRaw(5 * time.Second)
-		decoded, _ := DecodeCBOR(payload)
+		decoded, _ := decodeCBOR(payload)
 		m, _ := ExtractDict(decoded)
 		chIDVal := m[any("channel_id")]
 		chID, _ := ExtractInt(chIDVal)
@@ -1308,7 +1308,7 @@ func TestRunTestFinalCaseRecvError(t *testing.T) {
 		testCh, _ := serverConn.ConnectChannel(uint32(chID), "TestCh")
 
 		// test_done with 1 interesting.
-		donePayload, _ := EncodeCBOR(map[string]any{
+		donePayload, _ := encodeCBOR(map[string]any{
 			"event": "test_done",
 			"results": map[string]any{
 				"passed":                 false,
@@ -1338,7 +1338,7 @@ func TestRunTestMultiInterestingRecvError(t *testing.T) {
 	clientConn := fakeServerConn(t, func(serverConn *connection) {
 		ctrl := serverConn.ControlChannel()
 		msgID, payload, _ := ctrl.RecvRequestRaw(5 * time.Second)
-		decoded, _ := DecodeCBOR(payload)
+		decoded, _ := decodeCBOR(payload)
 		m, _ := ExtractDict(decoded)
 		chIDVal := m[any("channel_id")]
 		chID, _ := ExtractInt(chIDVal)
@@ -1347,7 +1347,7 @@ func TestRunTestMultiInterestingRecvError(t *testing.T) {
 		testCh, _ := serverConn.ConnectChannel(uint32(chID), "TestCh")
 
 		// test_done with 2 interesting.
-		donePayload, _ := EncodeCBOR(map[string]any{
+		donePayload, _ := encodeCBOR(map[string]any{
 			"event": "test_done",
 			"results": map[string]any{
 				"passed":                 false,
@@ -1362,7 +1362,7 @@ func TestRunTestMultiInterestingRecvError(t *testing.T) {
 
 		// Send only 1 final case, then close — 2nd recv should fail.
 		caseCh := serverConn.NewChannel("FinalCh0")
-		casePayload, _ := EncodeCBOR(map[string]any{
+		casePayload, _ := encodeCBOR(map[string]any{
 			"event":      "test_case",
 			"channel_id": int64(caseCh.ChannelID()),
 		})
@@ -1630,7 +1630,7 @@ func TestRunTestSingleInterestingCasePasses(t *testing.T) {
 	clientConn := fakeServerConn(t, func(serverConn *connection) {
 		ctrl := serverConn.ControlChannel()
 		msgID, payload, _ := ctrl.RecvRequestRaw(5 * time.Second)
-		decoded, _ := DecodeCBOR(payload)
+		decoded, _ := decodeCBOR(payload)
 		m, _ := ExtractDict(decoded)
 		chIDVal := m[any("channel_id")]
 		chID, _ := ExtractInt(chIDVal)
@@ -1639,7 +1639,7 @@ func TestRunTestSingleInterestingCasePasses(t *testing.T) {
 		testCh, _ := serverConn.ConnectChannel(uint32(chID), "TestCh")
 
 		// test_done with 1 interesting case.
-		donePayload, _ := EncodeCBOR(map[string]any{
+		donePayload, _ := encodeCBOR(map[string]any{
 			"event": "test_done",
 			"results": map[string]any{
 				"passed":                 false,
@@ -1654,7 +1654,7 @@ func TestRunTestSingleInterestingCasePasses(t *testing.T) {
 
 		// Send final test_case.
 		caseCh := serverConn.NewChannel("FinalCh")
-		casePayload, _ := EncodeCBOR(map[string]any{
+		casePayload, _ := encodeCBOR(map[string]any{
 			"event":      "test_case",
 			"channel_id": int64(caseCh.ChannelID()),
 		})
@@ -1755,7 +1755,7 @@ func TestRunTestMultiInterestingConnectError(t *testing.T) {
 	clientConn := fakeServerConn(t, func(serverConn *connection) {
 		ctrl := serverConn.ControlChannel()
 		msgID, payload, _ := ctrl.RecvRequestRaw(5 * time.Second)
-		decoded, _ := DecodeCBOR(payload)
+		decoded, _ := decodeCBOR(payload)
 		m, _ := ExtractDict(decoded)
 		chIDVal := m[any("channel_id")]
 		chID, _ := ExtractInt(chIDVal)
@@ -1764,7 +1764,7 @@ func TestRunTestMultiInterestingConnectError(t *testing.T) {
 		testCh, _ := serverConn.ConnectChannel(uint32(chID), "TestCh")
 
 		// test_done with 2 interesting cases.
-		donePayload, _ := EncodeCBOR(map[string]any{
+		donePayload, _ := encodeCBOR(map[string]any{
 			"event": "test_done",
 			"results": map[string]any{
 				"passed":                 false,
@@ -1779,7 +1779,7 @@ func TestRunTestMultiInterestingConnectError(t *testing.T) {
 
 		// Send final test_case with channel ID 0 (control channel → already connected).
 		for i := 0; i < 2; i++ {
-			casePayload, _ := EncodeCBOR(map[string]any{
+			casePayload, _ := encodeCBOR(map[string]any{
 				"event":      "test_case",
 				"channel_id": int64(0), // channel 0 exists → ConnectChannel will fail
 			})
@@ -1808,7 +1808,7 @@ func TestRunTestMultiInterestingCasePasses(t *testing.T) {
 	clientConn := fakeServerConn(t, func(serverConn *connection) {
 		ctrl := serverConn.ControlChannel()
 		msgID, payload, _ := ctrl.RecvRequestRaw(5 * time.Second)
-		decoded, _ := DecodeCBOR(payload)
+		decoded, _ := decodeCBOR(payload)
 		m, _ := ExtractDict(decoded)
 		chIDVal := m[any("channel_id")]
 		chID, _ := ExtractInt(chIDVal)
@@ -1817,7 +1817,7 @@ func TestRunTestMultiInterestingCasePasses(t *testing.T) {
 		testCh, _ := serverConn.ConnectChannel(uint32(chID), "TestCh")
 
 		// test_done with 2 interesting cases.
-		donePayload, _ := EncodeCBOR(map[string]any{
+		donePayload, _ := encodeCBOR(map[string]any{
 			"event": "test_done",
 			"results": map[string]any{
 				"passed":                 false,
@@ -1833,7 +1833,7 @@ func TestRunTestMultiInterestingCasePasses(t *testing.T) {
 		// Send 2 final test cases.
 		for i := 0; i < 2; i++ {
 			caseCh := serverConn.NewChannel(fmt.Sprintf("FinalCh%d", i))
-			casePayload, _ := EncodeCBOR(map[string]any{
+			casePayload, _ := encodeCBOR(map[string]any{
 				"event":      "test_case",
 				"channel_id": int64(caseCh.ChannelID()),
 			})

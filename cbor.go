@@ -20,9 +20,9 @@ func mustDecMode() cbor.DecMode {
 	return m
 }
 
-// DecodeCBOR decodes CBOR-encoded bytes into a generic Go value (any).
+// decodeCBOR decodes CBOR-encoded bytes into a generic Go value (any).
 // Maps decode to map[interface{}]interface{} by default.
-func DecodeCBOR(data []byte) (any, error) {
+func decodeCBOR(data []byte) (any, error) {
 	var v any
 	if err := decMode.Unmarshal(data, &v); err != nil {
 		return nil, fmt.Errorf("CBOR decode: %w", err)
@@ -30,8 +30,8 @@ func DecodeCBOR(data []byte) (any, error) {
 	return v, nil
 }
 
-// EncodeCBOR encodes a Go value to CBOR bytes.
-func EncodeCBOR(v any) ([]byte, error) {
+// encodeCBOR encodes a Go value to CBOR bytes.
+func encodeCBOR(v any) ([]byte, error) {
 	b, err := cbor.Marshal(v)
 	if err != nil {
 		return nil, fmt.Errorf("CBOR encode: %w", err)
