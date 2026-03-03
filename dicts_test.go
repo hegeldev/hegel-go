@@ -280,7 +280,7 @@ func TestDictsBasicGenerateHappyPath(t *testing.T) {
 	var gotMap map[any]any
 	err := cli.runTest("dicts_basic_happy", func() {
 		gen := Dicts(Text(0, 5), Integers(0, 100), DictOptions{MinSize: 0, MaxSize: 3, HasMaxSize: true})
-		v := gen.Generate()
+		v := Draw(gen)
 		gotMap, _ = v.(map[any]any)
 	}, runOptions{testCases: 1})
 	if err != nil {
@@ -356,7 +356,7 @@ func TestDictsBasicWithTransforms(t *testing.T) {
 
 	err := cli.runTest("dicts_with_transforms", func() {
 		gen := Dicts(keyGen, valGen, DictOptions{MinSize: 0, MaxSize: 3, HasMaxSize: true})
-		v := gen.Generate()
+		v := Draw(gen)
 		gotMap, _ = v.(map[any]any)
 	}, runOptions{testCases: 1})
 	if err != nil {
@@ -443,7 +443,7 @@ func TestDictsCompositeGenerateHappyPath(t *testing.T) {
 			fn:    func(v any) any { return v },
 		}
 		gen := Dicts(nonBasicKeys, Integers(0, 100), DictOptions{MinSize: 0, MaxSize: 2, HasMaxSize: true})
-		v := gen.Generate()
+		v := Draw(gen)
 		gotMap, _ = v.(map[any]any)
 	}, runOptions{testCases: 1})
 	if err != nil {
@@ -532,7 +532,7 @@ func TestDictsCompositeNoMaxHappyPath(t *testing.T) {
 		}
 		// No max size: hasMax=false, minSize=2 → should use maxSz=2+10=12
 		gen := Dicts(nonBasicKeys, Integers(0, 100), DictOptions{MinSize: 2})
-		_ = gen.Generate()
+		_ = Draw(gen)
 	}, runOptions{testCases: 1})
 	if err != nil {
 		t.Fatalf("runTest: %v", err)
@@ -557,7 +557,7 @@ func TestDictsStopTestOnNewCollection(t *testing.T) {
 			fn:    func(v any) any { return v },
 		}
 		gen := Dicts(nonBasicKeys, Integers(0, 100), DictOptions{MinSize: 0, MaxSize: 3, HasMaxSize: true})
-		_ = gen.Generate()
+		_ = Draw(gen)
 	})
 	// StopTest causes test to be skipped or aborted, not fail
 	_ = err
@@ -574,7 +574,7 @@ func TestDictsStopTestOnCollectionMore(t *testing.T) {
 			fn:    func(v any) any { return v },
 		}
 		gen := Dicts(nonBasicKeys, Integers(0, 100), DictOptions{MinSize: 0, MaxSize: 3, HasMaxSize: true})
-		_ = gen.Generate()
+		_ = Draw(gen)
 	})
 	_ = err
 }
@@ -589,7 +589,7 @@ func TestDictsBasicE2E(t *testing.T) {
 	hegelBinPath(t)
 	RunHegelTest(t.Name(), func() {
 		gen := Dicts(Text(0, 5), Integers(0, 100), DictOptions{MinSize: 0, MaxSize: 3, HasMaxSize: true})
-		v := gen.Generate()
+		v := Draw(gen)
 		m, ok := v.(map[any]any)
 		if !ok {
 			panic(fmt.Sprintf("Dicts: expected map[any]any, got %T", v))
@@ -619,7 +619,7 @@ func TestDictsBasicWithBoundsE2E(t *testing.T) {
 	hegelBinPath(t)
 	RunHegelTest(t.Name(), func() {
 		gen := Dicts(Integers(0, 10), Booleans(0.5), DictOptions{MinSize: 1, MaxSize: 3, HasMaxSize: true})
-		v := gen.Generate()
+		v := Draw(gen)
 		m, ok := v.(map[any]any)
 		if !ok {
 			panic(fmt.Sprintf("Dicts bounded: expected map[any]any, got %T", v))
@@ -653,7 +653,7 @@ func TestDictsCompositeE2E(t *testing.T) {
 			return int64(6) // clamp to > 5
 		})
 		gen := Dicts(nonBasicKeys, Just("val"), DictOptions{MinSize: 0, MaxSize: 3, HasMaxSize: true})
-		v := gen.Generate()
+		v := Draw(gen)
 		m, ok := v.(map[any]any)
 		if !ok {
 			panic(fmt.Sprintf("Dicts composite: expected map[any]any, got %T", v))

@@ -31,7 +31,7 @@ func isPalindrome(s string) bool {
 func main() {
 	// Property 1: reversing twice gives the original string.
 	hegel.RunHegelTest("reverse_twice", func() {
-		s, _ := hegel.Text(0, 50).Generate().(string)
+		s, _ := hegel.Draw(hegel.Text(0, 50)).(string)
 		if reverseString(reverseString(s)) != s {
 			panic(fmt.Sprintf("reverse(reverse(%q)) != %q", s, s))
 		}
@@ -40,7 +40,7 @@ func main() {
 
 	// Property 2: len([]rune(s)) matches utf8.RuneCountInString.
 	hegel.RunHegelTest("rune_count_consistent", func() {
-		s, _ := hegel.Text(0, 100).Generate().(string)
+		s, _ := hegel.Draw(hegel.Text(0, 100)).(string)
 		if len([]rune(s)) != utf8.RuneCountInString(s) {
 			panic(fmt.Sprintf("rune count mismatch for %q", s))
 		}
@@ -50,10 +50,10 @@ func main() {
 	// Property 3: joining and splitting round-trips correctly.
 	hegel.RunHegelTest("join_split_roundtrip", func() {
 		// Generate a list of non-empty words (no commas so the separator is unambiguous).
-		words := hegel.Lists(
+		words := hegel.Draw(hegel.Lists(
 			hegel.FromRegex(`[a-z]+`, true),
 			hegel.ListsOptions{MinSize: 1, MaxSize: 8},
-		).Generate().([]any)
+		)).([]any)
 
 		strs := make([]string, len(words))
 		for i, w := range words {
@@ -77,7 +77,7 @@ func main() {
 
 	// Property 4: ToUpper is idempotent (upper(upper(s)) == upper(s)).
 	hegel.RunHegelTest("to_upper_idempotent", func() {
-		s, _ := hegel.FromRegex(`[a-z ]+`, true).Generate().(string)
+		s, _ := hegel.Draw(hegel.FromRegex(`[a-z ]+`, true)).(string)
 		u1 := strings.ToUpper(s)
 		u2 := strings.ToUpper(u1)
 		if u1 != u2 {
@@ -89,7 +89,7 @@ func main() {
 	// Property 5: Note and Target — use Note to capture the palindrome under test
 	// and Target to push Hegel toward longer strings (making failures more vivid).
 	hegel.RunHegelTest("palindrome_detection", func() {
-		s, _ := hegel.Text(0, 30).Generate().(string)
+		s, _ := hegel.Draw(hegel.Text(0, 30)).(string)
 		hegel.Note(fmt.Sprintf("testing %q (is palindrome: %v)", s, isPalindrome(s)))
 		hegel.Target(float64(utf8.RuneCountInString(s)), "string_length")
 
@@ -103,7 +103,7 @@ func main() {
 	// Property 6: SampledFrom picks a value from the given set.
 	hegel.RunHegelTest("sampled_from_membership", func() {
 		options := []any{"alpha", "beta", "gamma", "delta"}
-		v, _ := hegel.MustSampledFrom(options).Generate().(string)
+		v, _ := hegel.Draw(hegel.MustSampledFrom(options)).(string)
 		found := false
 		for _, o := range options {
 			if v == o.(string) {

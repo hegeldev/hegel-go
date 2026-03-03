@@ -27,29 +27,29 @@ func goroutineID() int64 {
 	return id
 }
 
-// goroutineState holds the per-goroutine test context.
-type goroutineState struct {
+// testCaseData holds the per-test-case context (goroutine-local via sync.Map).
+type testCaseData struct {
 	channel *channel
 	isFinal bool
 	aborted bool
 }
 
-var goroutineStates sync.Map // map[int64]*goroutineState
+var testCaseStore sync.Map // map[int64]*testCaseData
 
-func getState() *goroutineState {
+func getState() *testCaseData {
 	id := goroutineID()
-	if v, ok := goroutineStates.Load(id); ok {
-		return v.(*goroutineState)
+	if v, ok := testCaseStore.Load(id); ok {
+		return v.(*testCaseData)
 	}
 	return nil
 }
 
-func setState(s *goroutineState) {
+func setState(s *testCaseData) {
 	id := goroutineID()
 	if s == nil {
-		goroutineStates.Delete(id)
+		testCaseStore.Delete(id)
 	} else {
-		goroutineStates.Store(id, s)
+		testCaseStore.Store(id, s)
 	}
 }
 
@@ -105,8 +105,8 @@ func (e *connectionError) Error() string { return e.msg }
 
 // --- Public test control functions ---
 
-func generateFromSchema(schema map[string]any) (any, error) {
-	ch := getChannel()
+func generateFromSchema(schema map[string]any, data *testCaseData) (any, error) {
+	ch := data.channel
 	payload, err := EncodeCBOR(map[string]any{"command": "generate", "schema": schema})
 	if err != nil {
 		panic(fmt.Sprintf("hegel: unreachable: generateFromSchema encode: %v", err))
@@ -119,7 +119,7 @@ func generateFromSchema(schema map[string]any) (any, error) {
 	if err != nil {
 		re, ok := err.(*RequestError)
 		if ok && re.ErrorType == "StopTest" {
-			setAborted()
+			data.aborted = true
 			return nil, &dataExhausted{msg: "server ran out of data"}
 		}
 		return nil, err
@@ -127,18 +127,35 @@ func generateFromSchema(schema map[string]any) (any, error) {
 	return v, nil
 }
 
+// Draw generates a value from the given generator.
+// Must be called from within a Hegel test.
+func Draw(gen Generator) any {
+	data := getState()
+	if data == nil {
+		panic("hegel: Draw() cannot be called outside of a Hegel test")
+	}
+	return gen.DoDraw(data)
+}
+
 // Assume rejects the current test case if condition is false.
 // Must be called from within a test body passed to RunHegelTest.
 func Assume(condition bool) {
+	if getState() == nil {
+		panic("hegel: Assume() cannot be called outside of a Hegel test")
+	}
 	if !condition {
 		panic(assumeRejected{})
 	}
 }
 
 // Note prints message to stderr, but only during the final (replay) test case.
-// Safe to call outside a test context (no-op).
+// Must be called from within a Hegel test.
 func Note(message string) {
-	if getCurrentIsFinal() {
+	data := getState()
+	if data == nil {
+		panic("hegel: Note() cannot be called outside of a Hegel test")
+	}
+	if data.isFinal {
 		fmt.Fprintln(os.Stderr, message)
 	}
 }
@@ -396,7 +413,7 @@ doneLoop:
 
 // runTestCase executes one test case and sends mark_complete to the server.
 func (c *client) runTestCase(ch *channel, fn func(), isFinal bool) (finalErr error) {
-	state := &goroutineState{
+	state := &testCaseData{
 		channel: ch,
 		isFinal: isFinal,
 		aborted: false,

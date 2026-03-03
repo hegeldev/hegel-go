@@ -51,7 +51,7 @@ func TestBasicGeneratorGenerateNoTransform(t *testing.T) {
 	var gotVal int64
 	err := cli.runTest("basic_gen_no_transform", func() {
 		g := &BasicGenerator{schema: schema}
-		v := g.Generate()
+		v := Draw(g)
 		gotVal, _ = ExtractInt(v)
 	}, runOptions{testCases: 1})
 	if err != nil {
@@ -102,7 +102,7 @@ func TestBasicGeneratorGenerateWithTransform(t *testing.T) {
 			schema:    schema,
 			transform: func(v any) any { n, _ := ExtractInt(v); return n * 2 },
 		}
-		v := g.Generate()
+		v := Draw(g)
 		gotVal, _ = v.(int64)
 	}, runOptions{testCases: 1})
 	if err != nil {
@@ -221,7 +221,7 @@ func TestMappedGeneratorGenerate(t *testing.T) {
 			inner: inner,
 			fn:    func(v any) any { n, _ := ExtractInt(v); return n * 10 },
 		}
-		v := mg.Generate()
+		v := Draw(mg)
 		gotVal, _ = v.(int64)
 	}, runOptions{testCases: 1})
 	if err != nil {
@@ -751,7 +751,7 @@ func TestIntegersGeneratorHappyPath(t *testing.T) {
 	hegelBinPath(t)
 	var vals []int64
 	RunHegelTest("integers_happy", func() {
-		n := Integers(0, 100).Generate()
+		n := Draw(Integers(0, 100))
 		v, _ := ExtractInt(n)
 		vals = append(vals, v)
 		if v < 0 || v > 100 {
@@ -845,7 +845,7 @@ func TestJustTransformIgnoresInput(t *testing.T) {
 func TestJustE2E(t *testing.T) {
 	hegelBinPath(t)
 	RunHegelTest(t.Name(), func() {
-		v := Just(42).Generate()
+		v := Draw(Just(42))
 		if v.(int) != 42 {
 			panic(fmt.Sprintf("Just: expected 42, got %v", v))
 		}
@@ -858,7 +858,7 @@ func TestJustNonPrimitive(t *testing.T) {
 	type myStruct struct{ x int }
 	val := &myStruct{x: 99}
 	RunHegelTest(t.Name(), func() {
-		v := Just(val).Generate()
+		v := Draw(Just(val))
 		if v != val {
 			panic("Just: pointer identity not preserved")
 		}
@@ -931,7 +931,7 @@ func TestSampledFromSingleElement(t *testing.T) {
 	hegelBinPath(t)
 	g, _ := SampledFrom([]any{"only"})
 	RunHegelTest(t.Name(), func() {
-		v := g.Generate()
+		v := Draw(g)
 		if v != "only" {
 			panic(fmt.Sprintf("SampledFrom single: expected 'only', got %v", v))
 		}
@@ -946,7 +946,7 @@ func TestSampledFromE2E(t *testing.T) {
 	g, _ := SampledFrom(choices)
 	seen := map[string]bool{}
 	RunHegelTest(t.Name(), func() {
-		v := g.Generate()
+		v := Draw(g)
 		s, ok := v.(string)
 		if !ok {
 			panic(fmt.Sprintf("SampledFrom: expected string, got %T", v))
@@ -980,7 +980,7 @@ func TestSampledFromNonPrimitive(t *testing.T) {
 	obj2 := &myStruct{x: 2}
 	g, _ := SampledFrom([]any{obj1, obj2})
 	RunHegelTest(t.Name(), func() {
-		v := g.Generate()
+		v := Draw(g)
 		if v != obj1 && v != obj2 {
 			panic("SampledFrom: value is not one of the original pointers")
 		}
@@ -1019,7 +1019,7 @@ func TestFromRegexE2E(t *testing.T) {
 	// Only digits, 1-5 chars
 	g := FromRegex(`[0-9]{1,5}`, true)
 	RunHegelTest(t.Name(), func() {
-		v := g.Generate()
+		v := Draw(g)
 		s, ok := v.(string)
 		if !ok {
 			panic(fmt.Sprintf("FromRegex: expected string, got %T", v))
@@ -1046,7 +1046,7 @@ func TestBasicGeneratorGenerateErrorResponse(t *testing.T) {
 	setEnv(t, "HEGEL_PROTOCOL_TEST_MODE", "error_response")
 	err := RunHegelTestE(t.Name(), func() {
 		g := &BasicGenerator{schema: map[string]any{"type": "integer"}}
-		_ = g.Generate() // should panic with RequestError → caught as INTERESTING
+		_ = Draw(g) // should panic with RequestError → caught as INTERESTING
 	})
 	// error_response causes the test to appear interesting (failing).
 	_ = err
@@ -1103,7 +1103,7 @@ func TestMapBasicGeneratorE2E(t *testing.T) {
 		t.Fatalf("Map on BasicGenerator should return *BasicGenerator, got %T", gen)
 	}
 	RunHegelTest(t.Name(), func() {
-		v := gen.Generate()
+		v := Draw(gen)
 		n, _ := ExtractInt(v)
 		if n%2 != 0 {
 			panic(fmt.Sprintf("map(x*2): expected even number, got %d", n))
@@ -1133,7 +1133,7 @@ func TestMapChainedBasicGeneratorE2E(t *testing.T) {
 		t.Fatalf("chained Map on BasicGenerator should return *BasicGenerator, got %T", gen)
 	}
 	RunHegelTest(t.Name(), func() {
-		v := gen.Generate()
+		v := Draw(gen)
 		n, _ := ExtractInt(v)
 		// (x+1)*2 is always even. x in [0,100] → result in [2, 202].
 		if n%2 != 0 {
@@ -1167,7 +1167,7 @@ func TestMapNonBasicGeneratorE2E(t *testing.T) {
 		t.Error("mappedGenerator.AsBasic() should return nil")
 	}
 	RunHegelTest(t.Name(), func() {
-		v := gen.Generate()
+		v := Draw(gen)
 		n, _ := ExtractInt(v)
 		// inner is Integers(1,5)*1, map(*3): result is in {3, 6, 9, 12, 15}
 		if n < 3 || n > 15 || n%3 != 0 {
@@ -1404,7 +1404,7 @@ func TestTuples2AllBasicNoTransformE2E(t *testing.T) {
 	hegelBinPath(t)
 	RunHegelTest(t.Name(), func() {
 		gen := Tuples2(Integers(0, 10), Booleans(0.5))
-		v := gen.Generate()
+		v := Draw(gen)
 		result, ok := v.([]any)
 		if !ok {
 			panic(fmt.Sprintf("Tuples2: expected []any, got %T", v))
@@ -1437,7 +1437,7 @@ func TestTuples2WithTransformsE2E(t *testing.T) {
 	})
 	gen := Tuples2(g1, g2)
 	RunHegelTest(t.Name(), func() {
-		v := gen.Generate()
+		v := Draw(gen)
 		result, ok := v.([]any)
 		if !ok {
 			panic(fmt.Sprintf("Tuples2 mapped: expected []any, got %T", v))
@@ -1462,7 +1462,7 @@ func TestTuples3E2E(t *testing.T) {
 	falseBool := false
 	gen := Tuples3(Text(1, 5), Integers(0, 5), Floats(floatPtr(0.0), floatPtr(1.0), &falseBool, &falseBool, false, false))
 	RunHegelTest(t.Name(), func() {
-		v := gen.Generate()
+		v := Draw(gen)
 		result, ok := v.([]any)
 		if !ok {
 			panic(fmt.Sprintf("Tuples3: expected []any, got %T", v))
@@ -1499,7 +1499,7 @@ func TestTuples2NonBasicE2E(t *testing.T) {
 	}
 	gen := Tuples2(nonBasic, Booleans(0.5))
 	RunHegelTest(t.Name(), func() {
-		v := gen.Generate()
+		v := Draw(gen)
 		result, ok := v.([]any)
 		if !ok {
 			panic(fmt.Sprintf("Tuples2 non-basic: expected []any, got %T", v))
@@ -1523,7 +1523,7 @@ func TestTuples4E2E(t *testing.T) {
 	hegelBinPath(t)
 	gen := Tuples4(Integers(0, 5), Booleans(0.5), Text(1, 3), Integers(10, 20))
 	RunHegelTest(t.Name(), func() {
-		v := gen.Generate()
+		v := Draw(gen)
 		result, ok := v.([]any)
 		if !ok {
 			panic(fmt.Sprintf("Tuples4: expected []any, got %T", v))
@@ -1683,7 +1683,7 @@ func TestFilteredGeneratorPredicatePasses(t *testing.T) {
 			source:    &BasicGenerator{schema: map[string]any{"type": "integer"}},
 			predicate: func(v any) bool { return true },
 		}
-		v := g.Generate()
+		v := Draw(g)
 		gotVal, _ = ExtractInt(v)
 	}, runOptions{testCases: 1})
 	if err != nil {
@@ -1754,7 +1754,7 @@ func TestFilteredGeneratorAllAttemptsFailRejectsCase(t *testing.T) {
 			source:    &BasicGenerator{schema: map[string]any{"type": "integer"}},
 			predicate: func(v any) bool { return false }, // always reject
 		}
-		g.Generate()
+		Draw(g)
 	}, runOptions{testCases: 1})
 	if err != nil {
 		t.Fatalf("runTest: %v", err)
@@ -1832,7 +1832,7 @@ func TestFilteredGeneratorPartialAttemptsSucceed(t *testing.T) {
 				return n > 0
 			},
 		}
-		v := g.Generate()
+		v := Draw(g)
 		gotVal, _ = ExtractInt(v)
 	}, runOptions{testCases: 1})
 	if err != nil {
@@ -1855,7 +1855,7 @@ func TestFilteredGeneratorE2EAlwaysPasses(t *testing.T) {
 			n, _ := ExtractInt(v)
 			return n > 50
 		})
-		v := gen.Generate()
+		v := Draw(gen)
 		n, _ := ExtractInt(v)
 		if n <= 50 {
 			panic(fmt.Sprintf("filter(>50): expected n>50, got %d", n))
@@ -1871,7 +1871,7 @@ func TestFilteredGeneratorE2EEvenNumbers(t *testing.T) {
 			n, _ := ExtractInt(v)
 			return n%2 == 0
 		})
-		v := gen.Generate()
+		v := Draw(gen)
 		n, _ := ExtractInt(v)
 		if n%2 != 0 {
 			panic(fmt.Sprintf("filter(even): expected even, got %d", n))
@@ -2261,7 +2261,7 @@ func TestFlatMappedGeneratorGenerate(t *testing.T) {
 			Integers(0, 100),
 			func(v any) Generator { return Integers(0, 100) },
 		)
-		v := gen.Generate()
+		v := Draw(gen)
 		gotVal, _ = ExtractInt(v)
 	}, runOptions{testCases: 1})
 	if err != nil {
@@ -2331,7 +2331,7 @@ func TestFlatMappedGeneratorStartSpanLabel(t *testing.T) {
 	cli := newClient(clientConn)
 	err := cli.runTest("flatmap_label", func() {
 		gen := FlatMap(Integers(0, 10), func(v any) Generator { return Integers(0, 10) })
-		_ = gen.Generate()
+		_ = Draw(gen)
 	}, runOptions{testCases: 1})
 	if err != nil {
 		t.Fatalf("runTest: %v", err)
@@ -2350,7 +2350,7 @@ func TestFlatMappedGeneratorE2E(t *testing.T) {
 		return Text(int(n), int(n)) // exact length = n
 	})
 	RunHegelTest(t.Name(), func() {
-		v := gen.Generate()
+		v := Draw(gen)
 		s, ok := v.(string)
 		if !ok {
 			panic(fmt.Sprintf("flat_map: expected string, got %T", v))
@@ -2374,7 +2374,7 @@ func TestFlatMappedGeneratorDependency(t *testing.T) {
 		return Lists(Integers(0, 100), ListsOptions{MinSize: sz, MaxSize: sz})
 	})
 	RunHegelTest(t.Name(), func() {
-		v := gen.Generate()
+		v := Draw(gen)
 		slice, ok := v.([]any)
 		if !ok {
 			panic(fmt.Sprintf("flat_map dependency: expected []any, got %T", v))

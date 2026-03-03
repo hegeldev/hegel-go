@@ -44,7 +44,7 @@ func main() {
 	gen := hegel.MustSampledFrom(intOptions)
 	n := hegel.GetTestCases()
 	hegel.RunHegelTest("conformance_sampled_from", func() {
-		v := gen.Generate()
+		v := hegel.Draw(gen)
 		val, _ := hegel.ExtractInt(v)
 		hegel.WriteMetrics(map[string]any{
 			"value": val,

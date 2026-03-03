@@ -46,7 +46,7 @@ func TestRunHegelTestPasses(t *testing.T) {
 	called := false
 	RunHegelTest(t.Name(), func() {
 		called = true
-		b := Booleans(0.5).Generate()
+		b := Draw(Booleans(0.5))
 		// A valid assertion: b is either true or false.
 		if b != true && b != false {
 			t.Errorf("expected bool, got %v", b)
@@ -62,7 +62,7 @@ func TestRunHegelTestPasses(t *testing.T) {
 func TestRunHegelTestFails(t *testing.T) {
 	hegelBinPath(t)
 	err := RunHegelTestE(t.Name()+"_inner", func() {
-		x, _ := ExtractInt(Integers(0, 100).Generate())
+		x, _ := ExtractInt(Draw(Integers(0, 100)))
 		// This always fails: no integer < 0 in [0,100]
 		if x >= 0 {
 			panic(fmt.Sprintf("assertion failed: %d >= 0", x))
@@ -89,7 +89,7 @@ func TestAssumeTrue(t *testing.T) {
 	hegelBinPath(t)
 	RunHegelTest(t.Name(), func() {
 		Assume(true)
-		b := Booleans(0.5).Generate()
+		b := Draw(Booleans(0.5))
 		_ = b // use the value
 		if b != true && b != false {
 			panic("expected bool")
@@ -104,7 +104,7 @@ func TestNoteNotFinal(t *testing.T) {
 	// note() should not panic or error when called outside final run
 	RunHegelTest(t.Name(), func() {
 		Note("should not appear")
-		b := Booleans(0.5).Generate()
+		b := Draw(Booleans(0.5))
 		_ = b
 	}, WithTestCases(3))
 }
@@ -114,7 +114,7 @@ func TestNoteNotFinal(t *testing.T) {
 func TestTargetSendsCommand(t *testing.T) {
 	hegelBinPath(t)
 	RunHegelTest(t.Name(), func() {
-		x, _ := ExtractInt(Integers(0, 100).Generate())
+		x, _ := ExtractInt(Draw(Integers(0, 100)))
 		Target(float64(x), "my_target")
 		if x < 0 || x > 100 {
 			panic("out of range")
@@ -129,7 +129,7 @@ func TestStopTestOnGenerate(t *testing.T) {
 	setEnv(t, "HEGEL_PROTOCOL_TEST_MODE", "stop_test_on_generate")
 	// Should complete without error: SDK handles StopTest cleanly.
 	RunHegelTest(t.Name(), func() {
-		Booleans(0.5).Generate()
+		Draw(Booleans(0.5))
 	}, WithTestCases(5))
 }
 
@@ -139,7 +139,7 @@ func TestStopTestOnMarkComplete(t *testing.T) {
 	hegelBinPath(t)
 	setEnv(t, "HEGEL_PROTOCOL_TEST_MODE", "stop_test_on_mark_complete")
 	RunHegelTest(t.Name(), func() {
-		Booleans(0.5).Generate()
+		Draw(Booleans(0.5))
 	}, WithTestCases(5))
 }
 
@@ -168,7 +168,7 @@ func TestErrorResponse(t *testing.T) {
 			}
 		}()
 		gotErr = RunHegelTestE(t.Name()+"_inner", func() {
-			Booleans(0.5).Generate() // server sends error_response here
+			Draw(Booleans(0.5)) // server sends error_response here
 		}, WithTestCases(3))
 	}()
 	// The error from the server causes INTERESTING status → re-raised on final run.
@@ -195,18 +195,18 @@ func TestNestedTestCaseRaises(t *testing.T) {
 	mustContainStr(t, caught.Error(), "nested")
 }
 
-// --- Generate outside context raises ---
+// --- Draw outside context raises ---
 
-func TestGenerateOutsideContext(t *testing.T) {
+func TestDrawOutsideContext(t *testing.T) {
 	defer func() {
 		r := recover()
 		if r == nil {
-			t.Error("expected panic when Generate called outside test context")
+			t.Error("expected panic when Draw called outside test context")
 		}
 		msg := fmt.Sprintf("%v", r)
-		mustContainStr(t, msg, "test context")
+		mustContainStr(t, msg, "Hegel test")
 	}()
-	Booleans(0.5).Generate()
+	Draw(Booleans(0.5))
 }
 
 // --- Assume outside context raises ---
@@ -218,15 +218,25 @@ func TestAssumeOutsideContext(t *testing.T) {
 		if r == nil {
 			t.Error("expected panic from Assume outside test context")
 		}
+		msg := fmt.Sprintf("%v", r)
+		mustContainStr(t, msg, "Hegel test")
 	}()
 	Assume(false)
 }
 
-// --- Note outside context is no-op (isFinal defaults false) ---
+// --- Note outside context panics ---
 
 func TestNoteOutsideContext(t *testing.T) {
-	// Note() called outside a test context should not panic.
-	Note("outside context — safe")
+	// Note() called outside a test context should panic.
+	defer func() {
+		r := recover()
+		if r == nil {
+			t.Error("expected panic from Note outside test context")
+		}
+		msg := fmt.Sprintf("%v", r)
+		mustContainStr(t, msg, "Hegel test")
+	}()
+	Note("outside context — should panic")
 }
 
 // --- Target outside context raises ---
@@ -340,7 +350,7 @@ func TestRunHegelTestSingleCase(t *testing.T) {
 	count := 0
 	RunHegelTest(t.Name(), func() {
 		count++
-		b := Booleans(0.5).Generate()
+		b := Draw(Booleans(0.5))
 		if b != true && b != false {
 			panic("not a bool")
 		}
@@ -361,7 +371,7 @@ func TestConcurrentRunHegelTest(t *testing.T) {
 		go func(idx int) {
 			defer wg.Done()
 			RunHegelTest(fmt.Sprintf("%s_%d", t.Name(), idx), func() {
-				b := Booleans(0.5).Generate()
+				b := Draw(Booleans(0.5))
 				if b != true && b != false {
 					panic("not a bool")
 				}
@@ -376,7 +386,7 @@ func TestConcurrentRunHegelTest(t *testing.T) {
 func TestRunHegelTestESuccess(t *testing.T) {
 	hegelBinPath(t)
 	err := RunHegelTestE(t.Name(), func() {
-		b := Booleans(0.5).Generate()
+		b := Draw(Booleans(0.5))
 		_ = b
 	}, WithTestCases(3))
 	if err != nil {
@@ -391,7 +401,7 @@ func TestWithTestCasesOption(t *testing.T) {
 	count := 0
 	RunHegelTest(t.Name(), func() {
 		count++
-		Booleans(0.5).Generate()
+		Draw(Booleans(0.5))
 	}, WithTestCases(10))
 	// count should be >= 10 (at least the requested cases)
 	if count < 1 {
@@ -695,7 +705,7 @@ func TestConnectionErrorError(t *testing.T) {
 // --- setAborted: sets aborted flag ---
 
 func TestSetAborted(t *testing.T) {
-	state := &goroutineState{}
+	state := &testCaseData{}
 	setState(state)
 	defer setState(nil)
 
@@ -742,14 +752,14 @@ func TestGenerateFromSchemaStopTest(t *testing.T) {
 	}()
 
 	// Set state so getChannel() works.
-	state := &goroutineState{channel: ch}
+	state := &testCaseData{channel: ch}
 	setState(state)
 	defer setState(nil)
 
 	var caught any
 	func() {
 		defer func() { caught = recover() }()
-		Booleans(0.5).Generate()
+		Draw(Booleans(0.5))
 	}()
 	if caught == nil {
 		t.Fatal("expected panic from Generate on StopTest")
@@ -781,11 +791,11 @@ func TestGenerateFromSchemaNonStopTestError(t *testing.T) {
 		serverCh.SendReplyError(msgID, "bad schema", "SchemaError") //nolint:errcheck
 	}()
 
-	state := &goroutineState{channel: ch}
+	state := &testCaseData{channel: ch}
 	setState(state)
 	defer setState(nil)
 
-	_, err := generateFromSchema(map[string]any{"type": "boolean"})
+	_, err := generateFromSchema(map[string]any{"type": "boolean"}, state)
 	if err == nil {
 		t.Fatal("expected error from generateFromSchema")
 	}
@@ -810,14 +820,14 @@ func TestGenerateFromSchemaConnectionError(t *testing.T) {
 	// Close the underlying conn so SendPacket fails.
 	s.Close()
 
-	state := &goroutineState{channel: ch}
+	state := &testCaseData{channel: ch}
 	setState(state)
 	defer setState(nil)
 
 	var caught any
 	func() {
 		defer func() { caught = recover() }()
-		Booleans(0.5).Generate()
+		Draw(Booleans(0.5))
 	}()
 	if caught == nil {
 		t.Fatal("expected panic from Generate on connection error")
@@ -831,9 +841,9 @@ func TestGenerateFromSchemaConnectionError(t *testing.T) {
 // --- Integers generator: basic path via fake server ---
 
 func TestIntegersGenerateUnit(t *testing.T) {
-	// Use a fake server to exercise Integers().Generate().
+	// Use a fake server to exercise Draw(Integers()).
 	err := runTestOnFakeServer(t, func() {
-		n, _ := ExtractInt(Integers(0, 10).Generate())
+		n, _ := ExtractInt(Draw(Integers(0, 10)))
 		if n < 0 || n > 10 {
 			panic(fmt.Sprintf("out of range: %d", n))
 		}
@@ -860,7 +870,7 @@ func TestTargetConnectionError(t *testing.T) {
 	conn.channels[1] = ch
 	s.Close()
 
-	state := &goroutineState{channel: ch}
+	state := &testCaseData{channel: ch}
 	setState(state)
 	defer setState(nil)
 
@@ -892,7 +902,7 @@ func TestTargetResponseError(t *testing.T) {
 		serverCh.SendReplyError(msgID, "target failed", "TargetError") //nolint:errcheck
 	}()
 
-	state := &goroutineState{channel: ch}
+	state := &testCaseData{channel: ch}
 	setState(state)
 	defer setState(nil)
 
@@ -1413,7 +1423,7 @@ func TestExtractPanicOriginError(t *testing.T) {
 // --- Note: isFinal=true prints to stderr ---
 
 func TestNoteIsFinalTrue(t *testing.T) {
-	state := &goroutineState{isFinal: true}
+	state := &testCaseData{isFinal: true}
 	setState(state)
 	defer setState(nil)
 	// Should not panic.
@@ -1516,7 +1526,7 @@ func TestRunHegelTestECallsRunTest(t *testing.T) {
 	called := false
 	err := RunHegelTestE(t.Name(), func() {
 		called = true
-		Booleans(0.5).Generate()
+		Draw(Booleans(0.5))
 	}, WithTestCases(1))
 	if err != nil {
 		t.Errorf("unexpected error: %v", err)
@@ -1536,7 +1546,7 @@ func TestHegelSessionRunTest(t *testing.T) {
 		t.Fatalf("start: %v", err)
 	}
 	err := s.runTest("session_run", func() {
-		Booleans(0.5).Generate()
+		Draw(Booleans(0.5))
 	}, runOptions{testCases: 2})
 	if err != nil {
 		t.Errorf("session.runTest: %v", err)

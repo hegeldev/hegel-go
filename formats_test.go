@@ -147,7 +147,7 @@ func testGeneratorSchema(t *testing.T, g Generator) map[any]any {
 	})
 	cli := newClient(clientConn)
 	cli.runTest("schema_check", func() { //nolint:errcheck
-		g.Generate()
+		Draw(g)
 	}, runOptions{testCases: 1})
 	return gotSchema
 }
@@ -232,7 +232,7 @@ func TestDomainsGeneratesCorrectSchemaWithMax(t *testing.T) {
 func TestEmailsE2E(t *testing.T) {
 	hegelBinPath(t)
 	RunHegelTest(t.Name(), func() {
-		v := Emails().Generate()
+		v := Draw(Emails())
 		s, ok := v.(string)
 		if !ok {
 			panic("Emails generated non-string value")
@@ -247,7 +247,7 @@ func TestEmailsE2E(t *testing.T) {
 func TestURLsE2E(t *testing.T) {
 	hegelBinPath(t)
 	RunHegelTest(t.Name(), func() {
-		v := URLs().Generate()
+		v := Draw(URLs())
 		s, ok := v.(string)
 		if !ok {
 			panic("URLs generated non-string value")
@@ -267,7 +267,7 @@ func isValidDomainChar(r rune) bool {
 func TestDomainsE2E(t *testing.T) {
 	hegelBinPath(t)
 	RunHegelTest(t.Name(), func() {
-		v := Domains(DomainOptions{}).Generate()
+		v := Draw(Domains(DomainOptions{}))
 		s, ok := v.(string)
 		if !ok {
 			panic("Domains generated non-string value")
@@ -285,7 +285,7 @@ func TestDomainsMaxLengthE2E(t *testing.T) {
 	hegelBinPath(t)
 	const maxLen = 20
 	RunHegelTest(t.Name(), func() {
-		v := Domains(DomainOptions{MaxLength: maxLen}).Generate()
+		v := Draw(Domains(DomainOptions{MaxLength: maxLen}))
 		s, ok := v.(string)
 		if !ok {
 			panic("Domains generated non-string value")
@@ -300,7 +300,7 @@ func TestDomainsMaxLengthE2E(t *testing.T) {
 func TestDatesE2E(t *testing.T) {
 	hegelBinPath(t)
 	RunHegelTest(t.Name(), func() {
-		v := Dates().Generate()
+		v := Draw(Dates())
 		s, ok := v.(string)
 		if !ok {
 			panic("Dates generated non-string value")
@@ -320,7 +320,7 @@ func TestDatesE2E(t *testing.T) {
 func TestTimesE2E(t *testing.T) {
 	hegelBinPath(t)
 	RunHegelTest(t.Name(), func() {
-		v := Times().Generate()
+		v := Draw(Times())
 		s, ok := v.(string)
 		if !ok {
 			panic("Times generated non-string value")
@@ -335,7 +335,7 @@ func TestTimesE2E(t *testing.T) {
 func TestDatetimesE2E(t *testing.T) {
 	hegelBinPath(t)
 	RunHegelTest(t.Name(), func() {
-		v := Datetimes().Generate()
+		v := Draw(Datetimes())
 		s, ok := v.(string)
 		if !ok {
 			panic("Datetimes generated non-string value")
