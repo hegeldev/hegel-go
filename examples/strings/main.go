@@ -31,7 +31,7 @@ func isPalindrome(s string) bool {
 func main() {
 	// Property 1: reversing twice gives the original string.
 	hegel.RunHegelTest("reverse_twice", func() {
-		s, _ := hegel.Draw(hegel.Text(0, 50)).(string)
+		s := hegel.Draw(hegel.Text(0, 50))
 		if reverseString(reverseString(s)) != s {
 			panic(fmt.Sprintf("reverse(reverse(%q)) != %q", s, s))
 		}
@@ -40,7 +40,7 @@ func main() {
 
 	// Property 2: len([]rune(s)) matches utf8.RuneCountInString.
 	hegel.RunHegelTest("rune_count_consistent", func() {
-		s, _ := hegel.Draw(hegel.Text(0, 100)).(string)
+		s := hegel.Draw(hegel.Text(0, 100))
 		if len([]rune(s)) != utf8.RuneCountInString(s) {
 			panic(fmt.Sprintf("rune count mismatch for %q", s))
 		}
@@ -53,23 +53,17 @@ func main() {
 		words := hegel.Draw(hegel.Lists(
 			hegel.FromRegex(`[a-z]+`, true),
 			hegel.ListsOptions{MinSize: 1, MaxSize: 8},
-		)).([]any)
+		))
 
-		strs := make([]string, len(words))
-		for i, w := range words {
-			s, _ := w.(string)
-			strs[i] = s
-		}
-
-		joined := strings.Join(strs, ",")
+		joined := strings.Join(words, ",")
 		parts := strings.Split(joined, ",")
 
-		if len(parts) != len(strs) {
-			panic(fmt.Sprintf("split gave %d parts, want %d", len(parts), len(strs)))
+		if len(parts) != len(words) {
+			panic(fmt.Sprintf("split gave %d parts, want %d", len(parts), len(words)))
 		}
-		for i := range strs {
-			if parts[i] != strs[i] {
-				panic(fmt.Sprintf("part[%d]: got %q, want %q", i, parts[i], strs[i]))
+		for i := range words {
+			if parts[i] != words[i] {
+				panic(fmt.Sprintf("part[%d]: got %q, want %q", i, parts[i], words[i]))
 			}
 		}
 	}, hegel.WithTestCases(200))
@@ -77,7 +71,7 @@ func main() {
 
 	// Property 4: ToUpper is idempotent (upper(upper(s)) == upper(s)).
 	hegel.RunHegelTest("to_upper_idempotent", func() {
-		s, _ := hegel.Draw(hegel.FromRegex(`[a-z ]+`, true)).(string)
+		s := hegel.Draw(hegel.FromRegex(`[a-z ]+`, true))
 		u1 := strings.ToUpper(s)
 		u2 := strings.ToUpper(u1)
 		if u1 != u2 {
@@ -89,7 +83,7 @@ func main() {
 	// Property 5: Note and Target — use Note to capture the palindrome under test
 	// and Target to push Hegel toward longer strings (making failures more vivid).
 	hegel.RunHegelTest("palindrome_detection", func() {
-		s, _ := hegel.Draw(hegel.Text(0, 30)).(string)
+		s := hegel.Draw(hegel.Text(0, 30))
 		hegel.Note(fmt.Sprintf("testing %q (is palindrome: %v)", s, isPalindrome(s)))
 		hegel.Target(float64(utf8.RuneCountInString(s)), "string_length")
 
@@ -102,11 +96,11 @@ func main() {
 
 	// Property 6: SampledFrom picks a value from the given set.
 	hegel.RunHegelTest("sampled_from_membership", func() {
-		options := []any{"alpha", "beta", "gamma", "delta"}
-		v, _ := hegel.Draw(hegel.MustSampledFrom(options)).(string)
+		options := []string{"alpha", "beta", "gamma", "delta"}
+		v := hegel.Draw(hegel.MustSampledFrom(options))
 		found := false
 		for _, o := range options {
-			if v == o.(string) {
+			if v == o {
 				found = true
 				break
 			}

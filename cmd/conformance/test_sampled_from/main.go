@@ -19,33 +19,32 @@ func main() {
 	}
 
 	// options is a list of integers
-	var options []any
+	var rawOptions []any
 	if v, ok := params["options"]; ok {
 		if arr, ok := v.([]any); ok {
-			options = arr
+			rawOptions = arr
 		}
 	}
-	if len(options) == 0 {
-		// Default fallback: use [0,1,2]
-		options = []any{any(int64(0)), any(int64(1)), any(int64(2))}
-	}
 
-	// Convert to int64 values
-	intOptions := make([]any, len(options))
-	for i, o := range options {
-		switch x := o.(type) {
-		case float64:
-			intOptions[i] = int64(x)
-		default:
-			intOptions[i] = o
+	// Convert float64 JSON values to []int64
+	var intOptions []int64
+	if len(rawOptions) == 0 {
+		// Default fallback: use [0,1,2]
+		intOptions = []int64{0, 1, 2}
+	} else {
+		intOptions = make([]int64, len(rawOptions))
+		for i, o := range rawOptions {
+			switch x := o.(type) {
+			case float64:
+				intOptions[i] = int64(x)
+			}
 		}
 	}
 
 	gen := hegel.MustSampledFrom(intOptions)
 	n := hegel.GetTestCases()
 	hegel.RunHegelTest("conformance_sampled_from", func() {
-		v := hegel.Draw(gen)
-		val, _ := hegel.ExtractInt(v)
+		val := hegel.Draw(gen)
 		hegel.WriteMetrics(map[string]any{
 			"value": val,
 		})

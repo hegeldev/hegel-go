@@ -16,48 +16,36 @@ import (
 // TestEmailsSchema verifies that Emails() produces the correct schema.
 func TestEmailsSchema(t *testing.T) {
 	g := Emails()
-	bg, ok := g.(*BasicGenerator)
-	if !ok {
-		t.Fatalf("Emails() should return *BasicGenerator, got %T", g)
+	if g.schema["type"] != "email" {
+		t.Errorf("type: expected email, got %v", g.schema["type"])
 	}
-	if bg.schema["type"] != "email" {
-		t.Errorf("type: expected email, got %v", bg.schema["type"])
-	}
-	if len(bg.schema) != 1 {
-		t.Errorf("Emails schema should have exactly 1 key, got %d: %v", len(bg.schema), bg.schema)
+	if len(g.schema) != 1 {
+		t.Errorf("Emails schema should have exactly 1 key, got %d: %v", len(g.schema), g.schema)
 	}
 }
 
 // TestURLsSchema verifies that URLs() produces the correct schema.
 func TestURLsSchema(t *testing.T) {
 	g := URLs()
-	bg, ok := g.(*BasicGenerator)
-	if !ok {
-		t.Fatalf("URLs() should return *BasicGenerator, got %T", g)
+	if g.schema["type"] != "url" {
+		t.Errorf("type: expected url, got %v", g.schema["type"])
 	}
-	if bg.schema["type"] != "url" {
-		t.Errorf("type: expected url, got %v", bg.schema["type"])
-	}
-	if len(bg.schema) != 1 {
-		t.Errorf("URLs schema should have exactly 1 key, got %d: %v", len(bg.schema), bg.schema)
+	if len(g.schema) != 1 {
+		t.Errorf("URLs schema should have exactly 1 key, got %d: %v", len(g.schema), g.schema)
 	}
 }
 
 // TestDomainsSchemaNoMaxLength verifies that Domains() with no MaxLength uses the default (255).
 func TestDomainsSchemaNoMaxLength(t *testing.T) {
 	g := Domains(DomainOptions{})
-	bg, ok := g.(*BasicGenerator)
-	if !ok {
-		t.Fatalf("Domains() should return *BasicGenerator, got %T", g)
+	if g.schema["type"] != "domain" {
+		t.Errorf("type: expected domain, got %v", g.schema["type"])
 	}
-	if bg.schema["type"] != "domain" {
-		t.Errorf("type: expected domain, got %v", bg.schema["type"])
-	}
-	maxLen, hasMax := bg.schema["max_length"]
+	maxLen, hasMax := g.schema["max_length"]
 	if !hasMax {
 		t.Fatal("max_length should always be present in domain schema")
 	}
-	ml, _ := ExtractInt(maxLen)
+	ml, _ := extractInt(maxLen)
 	if ml != 255 {
 		t.Errorf("default max_length: expected 255, got %d", ml)
 	}
@@ -66,18 +54,14 @@ func TestDomainsSchemaNoMaxLength(t *testing.T) {
 // TestDomainsSchemaWithMaxLength verifies that Domains() with MaxLength includes it.
 func TestDomainsSchemaWithMaxLength(t *testing.T) {
 	g := Domains(DomainOptions{MaxLength: 63})
-	bg, ok := g.(*BasicGenerator)
-	if !ok {
-		t.Fatalf("Domains() should return *BasicGenerator, got %T", g)
+	if g.schema["type"] != "domain" {
+		t.Errorf("type: expected domain, got %v", g.schema["type"])
 	}
-	if bg.schema["type"] != "domain" {
-		t.Errorf("type: expected domain, got %v", bg.schema["type"])
-	}
-	maxLen, ok := bg.schema["max_length"]
+	maxLen, ok := g.schema["max_length"]
 	if !ok {
 		t.Fatal("max_length should be present when MaxLength > 0")
 	}
-	ml, _ := ExtractInt(maxLen)
+	ml, _ := extractInt(maxLen)
 	if ml != 63 {
 		t.Errorf("max_length: expected 63, got %d", ml)
 	}
@@ -86,45 +70,33 @@ func TestDomainsSchemaWithMaxLength(t *testing.T) {
 // TestDatesSchema verifies that Dates() produces the correct schema.
 func TestDatesSchema(t *testing.T) {
 	g := Dates()
-	bg, ok := g.(*BasicGenerator)
-	if !ok {
-		t.Fatalf("Dates() should return *BasicGenerator, got %T", g)
+	if g.schema["type"] != "date" {
+		t.Errorf("type: expected date, got %v", g.schema["type"])
 	}
-	if bg.schema["type"] != "date" {
-		t.Errorf("type: expected date, got %v", bg.schema["type"])
-	}
-	if len(bg.schema) != 1 {
-		t.Errorf("Dates schema should have exactly 1 key, got %d: %v", len(bg.schema), bg.schema)
+	if len(g.schema) != 1 {
+		t.Errorf("Dates schema should have exactly 1 key, got %d: %v", len(g.schema), g.schema)
 	}
 }
 
 // TestTimesSchema verifies that Times() produces the correct schema.
 func TestTimesSchema(t *testing.T) {
 	g := Times()
-	bg, ok := g.(*BasicGenerator)
-	if !ok {
-		t.Fatalf("Times() should return *BasicGenerator, got %T", g)
+	if g.schema["type"] != "time" {
+		t.Errorf("type: expected time, got %v", g.schema["type"])
 	}
-	if bg.schema["type"] != "time" {
-		t.Errorf("type: expected time, got %v", bg.schema["type"])
-	}
-	if len(bg.schema) != 1 {
-		t.Errorf("Times schema should have exactly 1 key, got %d: %v", len(bg.schema), bg.schema)
+	if len(g.schema) != 1 {
+		t.Errorf("Times schema should have exactly 1 key, got %d: %v", len(g.schema), g.schema)
 	}
 }
 
 // TestDatetimesSchema verifies that Datetimes() produces the correct schema.
 func TestDatetimesSchema(t *testing.T) {
 	g := Datetimes()
-	bg, ok := g.(*BasicGenerator)
-	if !ok {
-		t.Fatalf("Datetimes() should return *BasicGenerator, got %T", g)
+	if g.schema["type"] != "datetime" {
+		t.Errorf("type: expected datetime, got %v", g.schema["type"])
 	}
-	if bg.schema["type"] != "datetime" {
-		t.Errorf("type: expected datetime, got %v", bg.schema["type"])
-	}
-	if len(bg.schema) != 1 {
-		t.Errorf("Datetimes schema should have exactly 1 key, got %d: %v", len(bg.schema), bg.schema)
+	if len(g.schema) != 1 {
+		t.Errorf("Datetimes schema should have exactly 1 key, got %d: %v", len(g.schema), g.schema)
 	}
 }
 
@@ -134,15 +106,15 @@ func TestDatetimesSchema(t *testing.T) {
 
 // testGeneratorSchema runs a single generate request using the given generator
 // and returns the schema that was received by the fake server.
-func testGeneratorSchema(t *testing.T, g Generator) map[any]any {
+func testGeneratorSchema[T any](t *testing.T, g *Generator[T]) map[any]any {
 	t.Helper()
 	var gotSchema map[any]any
 	clientConn := fakeTestEnv(t, func(caseCh *channel) {
 		genID, genPayload, _ := caseCh.RecvRequestRaw(5 * time.Second)
 		decoded, _ := DecodeCBOR(genPayload)
-		m, _ := ExtractDict(decoded)
+		m, _ := extractDict(decoded)
 		schemaVal := m[any("schema")]
-		gotSchema, _ = ExtractDict(schemaVal)
+		gotSchema, _ = extractDict(schemaVal)
 		caseCh.SendReplyValue(genID, "test-value") //nolint:errcheck
 	})
 	cli := newClient(clientConn)
@@ -202,7 +174,7 @@ func TestDomainsGeneratesCorrectSchemaNoMax(t *testing.T) {
 	if !hasMax {
 		t.Fatal("max_length should always be in domain schema")
 	}
-	ml, _ := ExtractInt(maxLen)
+	ml, _ := extractInt(maxLen)
 	if ml != 255 {
 		t.Errorf("default max_length: expected 255, got %d", ml)
 	}
@@ -218,7 +190,7 @@ func TestDomainsGeneratesCorrectSchemaWithMax(t *testing.T) {
 	if !ok {
 		t.Fatal("max_length should be in schema when MaxLength > 0")
 	}
-	ml, _ := ExtractInt(maxLen)
+	ml, _ := extractInt(maxLen)
 	if ml != 30 {
 		t.Errorf("max_length: expected 30, got %d", ml)
 	}
@@ -232,11 +204,7 @@ func TestDomainsGeneratesCorrectSchemaWithMax(t *testing.T) {
 func TestEmailsE2E(t *testing.T) {
 	hegelBinPath(t)
 	RunHegelTest(t.Name(), func() {
-		v := Draw(Emails())
-		s, ok := v.(string)
-		if !ok {
-			panic("Emails generated non-string value")
-		}
+		s := Draw(Emails())
 		if !strings.Contains(s, "@") {
 			panic("email does not contain '@': " + s)
 		}
@@ -247,11 +215,7 @@ func TestEmailsE2E(t *testing.T) {
 func TestURLsE2E(t *testing.T) {
 	hegelBinPath(t)
 	RunHegelTest(t.Name(), func() {
-		v := Draw(URLs())
-		s, ok := v.(string)
-		if !ok {
-			panic("URLs generated non-string value")
-		}
+		s := Draw(URLs())
 		if !strings.HasPrefix(s, "http://") && !strings.HasPrefix(s, "https://") {
 			panic("url does not start with http:// or https://: " + s)
 		}
@@ -267,11 +231,7 @@ func isValidDomainChar(r rune) bool {
 func TestDomainsE2E(t *testing.T) {
 	hegelBinPath(t)
 	RunHegelTest(t.Name(), func() {
-		v := Draw(Domains(DomainOptions{}))
-		s, ok := v.(string)
-		if !ok {
-			panic("Domains generated non-string value")
-		}
+		s := Draw(Domains(DomainOptions{}))
 		for _, r := range s {
 			if !isValidDomainChar(r) {
 				panic("domain contains invalid character '" + string(r) + "': " + s)
@@ -285,11 +245,7 @@ func TestDomainsMaxLengthE2E(t *testing.T) {
 	hegelBinPath(t)
 	const maxLen = 20
 	RunHegelTest(t.Name(), func() {
-		v := Draw(Domains(DomainOptions{MaxLength: maxLen}))
-		s, ok := v.(string)
-		if !ok {
-			panic("Domains generated non-string value")
-		}
+		s := Draw(Domains(DomainOptions{MaxLength: maxLen}))
 		if len(s) > maxLen {
 			panic("domain exceeds max_length constraint: " + s)
 		}
@@ -300,11 +256,7 @@ func TestDomainsMaxLengthE2E(t *testing.T) {
 func TestDatesE2E(t *testing.T) {
 	hegelBinPath(t)
 	RunHegelTest(t.Name(), func() {
-		v := Draw(Dates())
-		s, ok := v.(string)
-		if !ok {
-			panic("Dates generated non-string value")
-		}
+		s := Draw(Dates())
 		parsed, err := time.Parse("2006-01-02", s)
 		if err != nil {
 			panic("date not parseable as YYYY-MM-DD: " + s + " err: " + err.Error())
@@ -320,11 +272,7 @@ func TestDatesE2E(t *testing.T) {
 func TestTimesE2E(t *testing.T) {
 	hegelBinPath(t)
 	RunHegelTest(t.Name(), func() {
-		v := Draw(Times())
-		s, ok := v.(string)
-		if !ok {
-			panic("Times generated non-string value")
-		}
+		s := Draw(Times())
 		if !strings.Contains(s, ":") {
 			panic("time does not contain ':': " + s)
 		}
@@ -335,11 +283,7 @@ func TestTimesE2E(t *testing.T) {
 func TestDatetimesE2E(t *testing.T) {
 	hegelBinPath(t)
 	RunHegelTest(t.Name(), func() {
-		v := Draw(Datetimes())
-		s, ok := v.(string)
-		if !ok {
-			panic("Datetimes generated non-string value")
-		}
+		s := Draw(Datetimes())
 		if !strings.Contains(s, "T") {
 			panic("datetime does not contain 'T': " + s)
 		}

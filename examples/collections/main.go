@@ -17,7 +17,7 @@ func main() {
 		lst := hegel.Draw(hegel.Lists(
 			hegel.IntegersUnbounded(),
 			hegel.ListsOptions{MinSize: 2, MaxSize: 10},
-		)).([]any)
+		))
 
 		if len(lst) < 2 || len(lst) > 10 {
 			panic(fmt.Sprintf("list length %d out of [2,10]", len(lst)))
@@ -27,20 +27,11 @@ func main() {
 
 	// Property 2: sorting a list of integers is idempotent (sort(sort(x)) == sort(x)).
 	hegel.RunHegelTest("sort_idempotent", func() {
-		lst := hegel.Draw(hegel.Lists(
+		nums := hegel.Draw(hegel.Lists(
 			hegel.Integers(-1000, 1000),
 			hegel.ListsOptions{MinSize: 0, MaxSize: 20},
-		)).([]any)
+		))
 
-		toInts := func(s []any) []int64 {
-			out := make([]int64, len(s))
-			for i, v := range s {
-				n, _ := hegel.ExtractInt(v)
-				out[i] = n
-			}
-			return out
-		}
-		nums := toInts(lst)
 		sorted1 := make([]int64, len(nums))
 		copy(sorted1, nums)
 		sort.Slice(sorted1, func(i, j int) bool { return sorted1[i] < sorted1[j] })
@@ -63,7 +54,7 @@ func main() {
 			hegel.Integers(-100, 100),
 			hegel.Integers(-100, 100),
 			hegel.DictOptions{MinSize: 1, MaxSize: 5, HasMaxSize: true},
-		)).(map[any]any)
+		))
 
 		if len(d) < 1 || len(d) > 5 {
 			panic(fmt.Sprintf("dict size %d out of [1,5]", len(d)))
@@ -71,29 +62,28 @@ func main() {
 	}, hegel.WithTestCases(200))
 	fmt.Println("✅ dict sizes are within bounds")
 
-	// Property 4: Tuples2 produces a slice of exactly two elements.
-	hegel.RunHegelTest("tuple2_length", func() {
+	// Property 4: Tuples2 produces a pair with both fields populated.
+	hegel.RunHegelTest("tuple2_fields", func() {
 		pair := hegel.Draw(hegel.Tuples2(
 			hegel.Integers(0, 100),
 			hegel.Text(0, 10),
-		)).([]any)
+		))
 
-		if len(pair) != 2 {
-			panic(fmt.Sprintf("tuple2 has %d elements, want 2", len(pair)))
+		if pair.A < 0 || pair.A > 100 {
+			panic(fmt.Sprintf("tuple2.A %d out of [0,100]", pair.A))
+		}
+		if len([]rune(pair.B)) > 10 {
+			panic(fmt.Sprintf("tuple2.B %q exceeds max size 10", pair.B))
 		}
 	}, hegel.WithTestCases(100))
-	fmt.Println("✅ Tuples2 always produces exactly 2 elements")
+	fmt.Println("✅ Tuples2 always produces a pair with valid fields")
 
 	// Property 5: OneOf produces values from one of the given generators.
 	hegel.RunHegelTest("one_of_membership", func() {
-		v := hegel.Draw(hegel.OneOf(
+		n := hegel.Draw(hegel.OneOf(
 			hegel.Integers(1, 10),
 			hegel.Integers(100, 200),
 		))
-		n, err := hegel.ExtractInt(v)
-		if err != nil {
-			panic(fmt.Sprintf("not an int: %v", v))
-		}
 		if !((n >= 1 && n <= 10) || (n >= 100 && n <= 200)) {
 			panic(fmt.Sprintf("value %d not in either range", n))
 		}
@@ -106,23 +96,17 @@ func main() {
 		if v == nil {
 			return // nil is always acceptable
 		}
-		n, err := hegel.ExtractInt(v)
-		if err != nil {
-			panic(fmt.Sprintf("expected int, got %T: %v", v, v))
-		}
-		if n < 1 || n > 100 {
-			panic(fmt.Sprintf("value %d out of range [1, 100]", n))
+		if *v < 1 || *v > 100 {
+			panic(fmt.Sprintf("value %d out of range [1, 100]", *v))
 		}
 	}, hegel.WithTestCases(200))
 	fmt.Println("✅ Optional produces nil or a value in range")
 
 	// Property 7: Map transforms values correctly.
 	hegel.RunHegelTest("map_doubles", func() {
-		doubled := hegel.Draw(hegel.Integers(0, 500).Map(func(v any) any {
-			n, _ := hegel.ExtractInt(v)
-			return n * 2
+		n := hegel.Draw(hegel.Map(hegel.Integers(0, 500), func(v int64) int64 {
+			return v * 2
 		}))
-		n, _ := hegel.ExtractInt(doubled)
 		if n%2 != 0 {
 			panic(fmt.Sprintf("doubled value %d is not even", n))
 		}
@@ -131,11 +115,11 @@ func main() {
 
 	// Property 8: dependent generation — list length matches a generated count.
 	hegel.RunHegelTest("list_length_matches_count", func() {
-		count, _ := hegel.ExtractInt(hegel.Draw(hegel.Integers(1, 8)))
+		count := hegel.Draw(hegel.Integers(1, 8))
 		lst := hegel.Draw(hegel.Lists(
 			hegel.IntegersUnbounded(),
 			hegel.ListsOptions{MinSize: int(count), MaxSize: int(count)},
-		)).([]any)
+		))
 
 		if int64(len(lst)) != count {
 			panic(fmt.Sprintf("list length %d != count %d", len(lst), count))

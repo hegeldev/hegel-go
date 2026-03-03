@@ -316,11 +316,11 @@ func (e *RequestError) Error() string { return e.msg }
 
 // newRequestError builds a RequestError from a CBOR-decoded error dict.
 func newRequestError(data map[any]any) *RequestError {
-	msg, _ := ExtractString(data[any("error")])
-	errType, _ := ExtractString(data[any("type")])
+	msg, _ := extractString(data[any("error")])
+	errType, _ := extractString(data[any("type")])
 	rest := make(map[any]any)
 	for k, v := range data {
-		s, err := ExtractString(k)
+		s, err := extractString(k)
 		if err != nil {
 			continue
 		}
@@ -485,7 +485,7 @@ func (ch *channel) ReceiveResponse(msgID uint32, timeout time.Duration) (any, er
 	if err != nil {
 		return nil, err
 	}
-	m, err := ExtractDict(v)
+	m, err := extractDict(v)
 	if err != nil {
 		return nil, err
 	}

@@ -12,35 +12,34 @@ import (
 // Lists generator unit tests
 // =============================================================================
 
-// TestListsBasicElementSchema verifies that Lists on a BasicGenerator (no transform)
-// produces a BasicGenerator with the correct list schema and no transform.
+// TestListsBasicElementSchema verifies that Lists on a basic generator (no user transform)
+// produces a basic Generator with the correct list schema.
 func TestListsBasicElementSchema(t *testing.T) {
 	elem := Integers(0, 100)
 	gen := Lists(elem, ListsOptions{MinSize: 2, MaxSize: 10})
-	bg, ok := gen.(*BasicGenerator)
-	if !ok {
-		t.Fatalf("Lists(basic) should return *BasicGenerator, got %T", gen)
+	if !gen.isBasic() {
+		t.Fatal("Lists(basic) should return a basic generator")
 	}
-	if bg.schema["type"] != "list" {
-		t.Errorf("schema type: expected 'list', got %v", bg.schema["type"])
+	if gen.schema["type"] != "list" {
+		t.Errorf("schema type: expected 'list', got %v", gen.schema["type"])
 	}
-	elemSchema, ok := bg.schema["elements"].(map[string]any)
+	elemSchema, ok := gen.schema["elements"].(map[string]any)
 	if !ok {
-		t.Fatalf("schema elements: expected map[string]any, got %T", bg.schema["elements"])
+		t.Fatalf("schema elements: expected map[string]any, got %T", gen.schema["elements"])
 	}
 	if elemSchema["type"] != "integer" {
 		t.Errorf("elements type: expected 'integer', got %v", elemSchema["type"])
 	}
-	minV, _ := ExtractInt(bg.schema["min_size"])
+	minV, _ := extractInt(gen.schema["min_size"])
 	if minV != 2 {
 		t.Errorf("min_size: expected 2, got %d", minV)
 	}
-	maxV, _ := ExtractInt(bg.schema["max_size"])
+	maxV, _ := extractInt(gen.schema["max_size"])
 	if maxV != 10 {
 		t.Errorf("max_size: expected 10, got %d", maxV)
 	}
-	if bg.transform != nil {
-		t.Error("transform should be nil for basic element with no transform")
+	if gen.transform == nil {
+		t.Error("transform should not be nil for basic generator")
 	}
 }
 
@@ -48,92 +47,78 @@ func TestListsBasicElementSchema(t *testing.T) {
 func TestListsBasicElementNoMaxSchema(t *testing.T) {
 	elem := Integers(0, 100)
 	gen := Lists(elem, ListsOptions{MinSize: 0, MaxSize: -1})
-	bg, ok := gen.(*BasicGenerator)
-	if !ok {
-		t.Fatalf("Lists(basic, no max) should return *BasicGenerator, got %T", gen)
+	if !gen.isBasic() {
+		t.Fatal("Lists(basic, no max) should return a basic generator")
 	}
-	if _, hasMax := bg.schema["max_size"]; hasMax {
+	if _, hasMax := gen.schema["max_size"]; hasMax {
 		t.Error("max_size should not be present when MaxSize < 0")
 	}
 }
 
-// TestListsBasicElementWithTransformSchema verifies that Lists on a BasicGenerator with
+// TestListsBasicElementWithTransformSchema verifies that Lists on a basic generator with
 // a transform applies the transform element-wise in the list transform.
 func TestListsBasicElementWithTransformSchema(t *testing.T) {
-	// Integers(0, 100) mapped to double: BasicGenerator with transform.
-	elem := Integers(0, 100).Map(func(v any) any {
-		n, _ := ExtractInt(v)
-		return n * 2
+	// Integers(0, 100) mapped to double: basic generator with transform.
+	elem := Map(Integers(0, 100), func(v int64) int64 {
+		return v * 2
 	})
 	gen := Lists(elem, ListsOptions{MinSize: 0, MaxSize: 5})
-	bg, ok := gen.(*BasicGenerator)
-	if !ok {
-		t.Fatalf("Lists(basic with transform) should return *BasicGenerator, got %T", gen)
+	if !gen.isBasic() {
+		t.Fatal("Lists(basic with transform) should return a basic generator")
 	}
-	if bg.schema["type"] != "list" {
-		t.Errorf("schema type: expected 'list', got %v", bg.schema["type"])
+	if gen.schema["type"] != "list" {
+		t.Errorf("schema type: expected 'list', got %v", gen.schema["type"])
 	}
-	if bg.transform == nil {
+	if gen.transform == nil {
 		t.Fatal("transform should not be nil for element with transform")
 	}
 	// Apply the transform to a raw []any and verify element-wise doubling.
 	raw := []any{uint64(3), uint64(7), uint64(0)}
-	result := bg.transform(raw)
-	resultSlice, ok := result.([]any)
-	if !ok {
-		t.Fatalf("transform result should be []any, got %T", result)
-	}
-	if len(resultSlice) != 3 {
-		t.Fatalf("transform result length: expected 3, got %d", len(resultSlice))
+	result := gen.transform(raw)
+	if len(result) != 3 {
+		t.Fatalf("transform result length: expected 3, got %d", len(result))
 	}
 	for i, want := range []int64{6, 14, 0} {
-		got, _ := ExtractInt(resultSlice[i])
-		if got != want {
-			t.Errorf("transform result[%d]: expected %d, got %d", i, want, got)
+		if result[i] != want {
+			t.Errorf("transform result[%d]: expected %d, got %d", i, want, result[i])
 		}
 	}
 }
 
 // TestListsBasicElementWithTransformNonSlicePassthrough verifies that the list transform
-// passes through non-slice values unchanged (defensive path in transform).
+// returns nil for non-slice values (defensive path in transform).
 func TestListsBasicElementWithTransformNonSlicePassthrough(t *testing.T) {
-	elem := Integers(0, 10).Map(func(v any) any { return v })
+	elem := Map(Integers(0, 10), func(v int64) int64 { return v })
 	gen := Lists(elem, ListsOptions{MinSize: 0, MaxSize: 5})
-	bg, ok := gen.(*BasicGenerator)
-	if !ok {
-		t.Fatalf("expected *BasicGenerator, got %T", gen)
+	if !gen.isBasic() {
+		t.Fatal("expected basic generator")
 	}
-	// Pass a non-slice value to the transform — should be returned as-is.
-	result := bg.transform("not-a-slice")
-	if result != "not-a-slice" {
-		t.Errorf("non-slice passthrough: expected 'not-a-slice', got %v", result)
+	// Pass a non-slice value to the transform — should return nil.
+	result := gen.transform("not-a-slice")
+	if result != nil {
+		t.Errorf("non-slice passthrough: expected nil, got %v", result)
 	}
 }
 
 // TestListsNonBasicElementReturnsComposite verifies that Lists on a non-basic generator
-// returns a compositeListGenerator (not a BasicGenerator).
+// returns a non-basic Generator.
 func TestListsNonBasicElementReturnsComposite(t *testing.T) {
-	// mappedGenerator is non-basic.
-	inner := Integers(0, 10)
-	nonBasic := &mappedGenerator{inner: inner, fn: func(v any) any { return v }}
+	// Filter makes a generator non-basic.
+	nonBasic := Filter(Integers(0, 10), func(v int64) bool { return true })
 	gen := Lists(nonBasic, ListsOptions{MinSize: 1, MaxSize: 3})
-	if _, ok := gen.(*compositeListGenerator); !ok {
-		t.Fatalf("Lists(non-basic) should return *compositeListGenerator, got %T", gen)
-	}
-	if gen.AsBasic() != nil {
-		t.Error("compositeListGenerator.AsBasic() should return nil")
+	if gen.isBasic() {
+		t.Fatal("Lists(non-basic) should return a non-basic generator")
 	}
 }
 
-// TestCompositeListGeneratorMap verifies that mapping a compositeListGenerator
-// returns a mappedGenerator.
+// TestCompositeListGeneratorMap verifies that mapping a non-basic list generator
+// returns a non-basic generator.
 func TestCompositeListGeneratorMap(t *testing.T) {
-	inner := Integers(0, 10)
-	nonBasic := &mappedGenerator{inner: inner, fn: func(v any) any { return v }}
+	nonBasic := Filter(Integers(0, 10), func(v int64) bool { return true })
 	gen := Lists(nonBasic, ListsOptions{MinSize: 0, MaxSize: 3})
-	mapped := gen.Map(func(v any) any { return v })
-	if _, ok := mapped.(*mappedGenerator); !ok {
-		t.Fatalf("Map on compositeListGenerator should return *mappedGenerator, got %T", mapped)
+	mapped := Map(gen, func(v []int64) []int64 { return v })
+	if mapped.isBasic() {
+		t.Fatal("Map on non-basic list generator should return a non-basic generator")
 	}
 }
 
@@ -141,11 +126,10 @@ func TestCompositeListGeneratorMap(t *testing.T) {
 func TestListsNegativeMinSizeClampedToZero(t *testing.T) {
 	elem := Integers(0, 100)
 	gen := Lists(elem, ListsOptions{MinSize: -5, MaxSize: 10})
-	bg, ok := gen.(*BasicGenerator)
-	if !ok {
-		t.Fatalf("expected *BasicGenerator, got %T", gen)
+	if !gen.isBasic() {
+		t.Fatal("expected basic generator")
 	}
-	minV, _ := ExtractInt(bg.schema["min_size"])
+	minV, _ := extractInt(gen.schema["min_size"])
 	if minV != 0 {
 		t.Errorf("negative MinSize should be clamped to 0, got %d", minV)
 	}
@@ -158,20 +142,18 @@ func TestListsNegativeMinSizeClampedToZero(t *testing.T) {
 // TestCompositeListGeneratorProtocol tests the collection protocol for composite lists
 // using a fake server (no real hegel binary needed).
 func TestCompositeListGeneratorProtocol(t *testing.T) {
-	// Non-basic generator: mappedGenerator wrapping integers
-	inner := Integers(0, 10)
-	nonBasic := &mappedGenerator{inner: inner, fn: func(v any) any {
-		n, _ := ExtractInt(v)
-		return n * 2
-	}}
+	// Non-basic generator: Map on a filtered integers generator
+	nonBasic := Map(Filter(Integers(0, 10), func(v int64) bool { return true }), func(v int64) int64 {
+		return v * 2
+	})
 	gen := Lists(nonBasic, ListsOptions{MinSize: 1, MaxSize: 3})
 
 	clientConn := fakeServerConn(t, func(serverConn *connection) {
 		ctrl := serverConn.ControlChannel()
 		msgID, payload, _ := ctrl.RecvRequestRaw(5 * time.Second)
 		decoded, _ := DecodeCBOR(payload)
-		m, _ := ExtractDict(decoded)
-		chID, _ := ExtractInt(m[any("channel_id")])
+		m, _ := extractDict(decoded)
+		chID, _ := extractInt(m[any("channel_id")])
 		ctrl.SendReplyValue(msgID, true) //nolint:errcheck
 
 		testCh, _ := serverConn.ConnectChannel(uint32(chID), "TestCh")
@@ -184,7 +166,7 @@ func TestCompositeListGeneratorProtocol(t *testing.T) {
 		caseID, _ := testCh.SendRequestRaw(casePayload)
 		testCh.recvResponseRaw(caseID, 5*time.Second) //nolint:errcheck
 
-		// Expect: start_span(list), new_collection, more→true, start_span(mapped), generate, stop_span, more→false, stop_span, mark_complete
+		// Expect: start_span(list), new_collection, more→true, start_span(mapped), start_span(filter), generate, stop_span(filter), stop_span(mapped), more→false, stop_span(list), mark_complete
 
 		// start_span for list
 		ssID, _, _ := caseCh.RecvRequestRaw(5 * time.Second)
@@ -193,8 +175,8 @@ func TestCompositeListGeneratorProtocol(t *testing.T) {
 		// new_collection
 		ncID, ncPayload, _ := caseCh.RecvRequestRaw(5 * time.Second)
 		dec, _ := DecodeCBOR(ncPayload)
-		ncm, _ := ExtractDict(dec)
-		cmd, _ := ExtractString(ncm[any("command")])
+		ncm, _ := extractDict(dec)
+		cmd, _ := extractString(ncm[any("command")])
 		if cmd != "new_collection" {
 			t.Errorf("expected new_collection, got %s", cmd)
 		}
@@ -204,15 +186,23 @@ func TestCompositeListGeneratorProtocol(t *testing.T) {
 		m1ID, _, _ := caseCh.RecvRequestRaw(5 * time.Second)
 		caseCh.SendReplyValue(m1ID, true) //nolint:errcheck
 
-		// start_span for mappedGenerator
+		// start_span for mapped (Map wraps Filter)
 		mssID, _, _ := caseCh.RecvRequestRaw(5 * time.Second)
 		caseCh.SendReplyValue(mssID, nil) //nolint:errcheck
 
-		// generate (element)
+		// start_span for filter (inner)
+		fssID, _, _ := caseCh.RecvRequestRaw(5 * time.Second)
+		caseCh.SendReplyValue(fssID, nil) //nolint:errcheck
+
+		// generate (element from inner Integers)
 		genID, _, _ := caseCh.RecvRequestRaw(5 * time.Second)
 		caseCh.SendReplyValue(genID, int64(3)) //nolint:errcheck
 
-		// stop_span for mappedGenerator
+		// stop_span for filter
+		fspID, _, _ := caseCh.RecvRequestRaw(5 * time.Second)
+		caseCh.SendReplyValue(fspID, nil) //nolint:errcheck
+
+		// stop_span for mapped
 		mspID, _, _ := caseCh.RecvRequestRaw(5 * time.Second)
 		caseCh.SendReplyValue(mspID, nil) //nolint:errcheck
 
@@ -232,10 +222,10 @@ func TestCompositeListGeneratorProtocol(t *testing.T) {
 	})
 
 	cli := newClient(clientConn)
-	var gotResult []any
+	var gotResult []int64
 	err := cli.runTest("composite_list_proto", func() {
 		result := Draw(gen)
-		gotResult, _ = result.([]any)
+		gotResult = result
 	}, runOptions{testCases: 1})
 	if err != nil {
 		t.Fatalf("runTest: %v", err)
@@ -243,25 +233,23 @@ func TestCompositeListGeneratorProtocol(t *testing.T) {
 	if len(gotResult) != 1 {
 		t.Fatalf("expected 1 element, got %d", len(gotResult))
 	}
-	v, _ := ExtractInt(gotResult[0])
-	if v != 6 { // 3 * 2 = 6
-		t.Errorf("expected 6 (3*2), got %d", v)
+	if gotResult[0] != 6 { // 3 * 2 = 6
+		t.Errorf("expected 6 (3*2), got %d", gotResult[0])
 	}
 }
 
 // TestCompositeListGeneratorEmptyList tests that a composite list with no elements
-// returns an empty (but non-nil via append behavior) slice.
+// returns a nil slice.
 func TestCompositeListGeneratorEmptyList(t *testing.T) {
-	inner := Integers(0, 10)
-	nonBasic := &mappedGenerator{inner: inner, fn: func(v any) any { return v }}
+	nonBasic := Filter(Integers(0, 10), func(v int64) bool { return true })
 	gen := Lists(nonBasic, ListsOptions{MinSize: 0, MaxSize: 3})
 
 	clientConn := fakeServerConn(t, func(serverConn *connection) {
 		ctrl := serverConn.ControlChannel()
 		msgID, payload, _ := ctrl.RecvRequestRaw(5 * time.Second)
 		decoded, _ := DecodeCBOR(payload)
-		m, _ := ExtractDict(decoded)
-		chID, _ := ExtractInt(m[any("channel_id")])
+		m, _ := extractDict(decoded)
+		chID, _ := extractInt(m[any("channel_id")])
 		ctrl.SendReplyValue(msgID, true) //nolint:errcheck
 
 		testCh, _ := serverConn.ConnectChannel(uint32(chID), "TestCh")
@@ -301,8 +289,7 @@ func TestCompositeListGeneratorEmptyList(t *testing.T) {
 	var gotLen int = -1
 	err := cli.runTest("composite_list_empty", func() {
 		result := Draw(gen)
-		slice, _ := result.([]any)
-		gotLen = len(slice)
+		gotLen = len(result)
 	}, runOptions{testCases: 1})
 	if err != nil {
 		t.Fatalf("runTest: %v", err)
@@ -322,12 +309,7 @@ func TestListsBasicIntegersE2E(t *testing.T) {
 	hegelBinPath(t)
 	RunHegelTest("lists_basic_integers_e2e", func() {
 		xs := Draw(Lists(Integers(0, 100), ListsOptions{MinSize: 0, MaxSize: 10}))
-		slice, ok := xs.([]any)
-		if !ok {
-			panic(fmt.Sprintf("Lists: expected []any, got %T", xs))
-		}
-		for _, x := range slice {
-			v, _ := ExtractInt(x)
+		for _, v := range xs {
 			if v < 0 || v > 100 {
 				panic(fmt.Sprintf("Lists: element %d out of range [0, 100]", v))
 			}
@@ -341,36 +323,24 @@ func TestListsWithSizeBoundsE2E(t *testing.T) {
 	hegelBinPath(t)
 	RunHegelTest("lists_with_bounds_e2e", func() {
 		xs := Draw(Lists(Booleans(0.5), ListsOptions{MinSize: 3, MaxSize: 5}))
-		slice, ok := xs.([]any)
-		if !ok {
-			panic(fmt.Sprintf("Lists: expected []any, got %T", xs))
-		}
-		if len(slice) < 3 || len(slice) > 5 {
-			panic(fmt.Sprintf("Lists: length %d out of [3, 5]", len(slice)))
+		if len(xs) < 3 || len(xs) > 5 {
+			panic(fmt.Sprintf("Lists: length %d out of [3, 5]", len(xs)))
 		}
 	}, WithTestCases(50))
 }
 
 // TestListsNonBasicElementE2E verifies that Lists with a non-basic element generator
-// (filtered integers) always produces elements satisfying the filter condition.
+// (filtered integers) always produces elements satisfying the transform condition.
 func TestListsNonBasicElementE2E(t *testing.T) {
 	hegelBinPath(t)
-	// Filtered generator: integers in [0,100] keeping only even ones.
-	filtered := Integers(0, 100).Map(func(v any) any {
-		n, _ := ExtractInt(v)
-		// Only keep even — transform to ensure "even" semantics (round to nearest even).
+	// Non-basic: Filter makes it composite, then Map to ensure even semantics.
+	nonBasic := Map(Filter(Integers(0, 100), func(v int64) bool { return true }), func(n int64) int64 {
 		return (n / 2) * 2
 	})
-	nonBasic := &mappedGenerator{inner: filtered, fn: func(v any) any { return v }}
 
 	RunHegelTest("lists_non_basic_e2e", func() {
 		xs := Draw(Lists(nonBasic, ListsOptions{MinSize: 0, MaxSize: 5}))
-		slice, ok := xs.([]any)
-		if !ok {
-			panic(fmt.Sprintf("Lists(non-basic): expected []any, got %T", xs))
-		}
-		for _, x := range slice {
-			n, _ := ExtractInt(x)
+		for _, n := range xs {
 			if n%2 != 0 {
 				panic(fmt.Sprintf("Lists(non-basic): expected even element, got %d", n))
 			}
@@ -384,41 +354,27 @@ func TestListsNestedE2E(t *testing.T) {
 	hegelBinPath(t)
 	RunHegelTest("lists_nested_e2e", func() {
 		outer := Draw(Lists(Lists(Booleans(0.5), ListsOptions{MinSize: 0, MaxSize: 3}), ListsOptions{MinSize: 0, MaxSize: 3}))
-		outerSlice, ok := outer.([]any)
-		if !ok {
-			panic(fmt.Sprintf("nested Lists: expected []any outer, got %T", outer))
-		}
-		for i, inner := range outerSlice {
-			innerSlice, ok := inner.([]any)
-			if !ok {
-				panic(fmt.Sprintf("nested Lists[%d]: expected []any inner, got %T", i, inner))
-			}
-			for j, b := range innerSlice {
-				if _, ok := b.(bool); !ok {
-					panic(fmt.Sprintf("nested Lists[%d][%d]: expected bool, got %T", i, j, b))
-				}
+		for i, inner := range outer {
+			_ = i
+			for j, b := range inner {
+				_ = j
+				_ = b // b is already bool, no assertion needed
 			}
 		}
 	}, WithTestCases(50))
 }
 
-// TestListsBasicWithTransformE2E verifies that Lists on a BasicGenerator with a transform
+// TestListsBasicWithTransformE2E verifies that Lists on a basic generator with a transform
 // applies the transform element-wise to the result.
 func TestListsBasicWithTransformE2E(t *testing.T) {
 	hegelBinPath(t)
 	// Map Integers(0,10) → double. Lists wraps this into a list schema with element transform.
-	doubled := Integers(0, 10).Map(func(v any) any {
-		n, _ := ExtractInt(v)
-		return n * 2
+	doubled := Map(Integers(0, 10), func(v int64) int64 {
+		return v * 2
 	})
 	RunHegelTest("lists_basic_transform_e2e", func() {
 		xs := Draw(Lists(doubled, ListsOptions{MinSize: 0, MaxSize: 5}))
-		slice, ok := xs.([]any)
-		if !ok {
-			panic(fmt.Sprintf("Lists(basic+transform): expected []any, got %T", xs))
-		}
-		for _, x := range slice {
-			n, _ := ExtractInt(x)
+		for _, n := range xs {
 			if n%2 != 0 || n < 0 || n > 20 {
 				panic(fmt.Sprintf("Lists(basic+transform): element %d should be even in [0,20]", n))
 			}

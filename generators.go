@@ -43,152 +43,46 @@ const (
 	LabelEnumVariant SpanLabel = 15
 )
 
-// --- Generator interface ---
+// --- Generator[T] ---
 
-// Generator is the core abstraction for value generation in Hegel.
-// Use Draw(gen) to produce a value from a Generator inside a Hegel test.
-type Generator interface {
-	// DoDraw produces a value from the Hegel server using the given goroutine state.
-	// Callers should use the public Draw() function instead of calling this directly.
-	DoDraw(data *testCaseData) any
-
-	// AsBasic returns the underlying BasicGenerator if this generator is
-	// a basic (schema-only) generator, or nil otherwise.
-	// Used internally to optimise composed generators.
-	AsBasic() *BasicGenerator
-
-	// Map returns a new generator that applies fn to each generated value.
-	Map(fn func(any) any) Generator
-
-	// Filter returns a new generator that only produces values satisfying pred.
-	// It tries up to 3 times per test case; if all attempts fail, the test case
-	// is rejected via Assume(false). The result is always non-basic.
-	Filter(pred func(any) bool) Generator
+// Generator is the core type-safe value generation type in Hegel.
+// Use [Draw] to produce a value from a Generator inside a Hegel test.
+//
+// Generators are constructed via primitive constructors (e.g. [Integers],
+// [Text]) and combined via free functions ([Map], [Filter], [FlatMap],
+// [Lists], [Dicts], [OneOf], etc.).
+type Generator[T any] struct {
+	drawFn            func(*testCaseData) T
+	schema            map[string]any // nil = non-basic (composite)
+	transform         func(any) T    // for basic generators: raw CBOR → T
+	identityTransform bool           // true if transform is just type coercion (no user logic)
 }
 
-// --- BasicGenerator ---
-
-// BasicGenerator is a generator backed by a single JSON-schema sent to the
-// Hegel server. An optional transform function is applied to the raw value.
-// Mapping a BasicGenerator preserves the schema optimisation.
-type BasicGenerator struct {
-	schema    map[string]any
-	transform func(any) any // nil means identity
+// isBasic returns true if this generator has a schema (can be sent in a single generate command).
+func (g *Generator[T]) isBasic() bool {
+	return g.schema != nil
 }
 
-// DoDraw sends a generate command to the server and returns the result,
-// applying any registered transform.
-func (g *BasicGenerator) DoDraw(data *testCaseData) any {
-	v, err := generateFromSchema(g.schema, data)
-	if err != nil {
-		panic(err)
+// newBasicGenerator creates a basic (schema-backed) generator.
+func newBasicGenerator[T any](schema map[string]any, transform func(any) T, identity bool) *Generator[T] {
+	g := &Generator[T]{
+		schema:            schema,
+		transform:         transform,
+		identityTransform: identity,
 	}
-	if g.transform != nil {
-		return g.transform(v)
-	}
-	return v
-}
-
-// AsBasic returns g itself — BasicGenerator is its own basic form.
-func (g *BasicGenerator) AsBasic() *BasicGenerator { return g }
-
-// Filter returns a filteredGenerator that only produces values satisfying pred.
-func (g *BasicGenerator) Filter(pred func(any) bool) Generator {
-	return &filteredGenerator{source: g, predicate: pred}
-}
-
-// Map returns a new BasicGenerator with the same schema and a composed
-// transform function (preserving the single-generate-call optimisation).
-func (g *BasicGenerator) Map(fn func(any) any) Generator {
-	if g.transform != nil {
-		prev := g.transform
-		return &BasicGenerator{
-			schema:    g.schema,
-			transform: func(v any) any { return fn(prev(v)) },
+	g.drawFn = func(data *testCaseData) T {
+		v, err := generateFromSchema(schema, data)
+		if err != nil {
+			panic(err)
 		}
+		return transform(v)
 	}
-	return &BasicGenerator{
-		schema:    g.schema,
-		transform: fn,
-	}
+	return g
 }
 
-// --- mappedGenerator ---
-
-// mappedGenerator wraps a non-basic generator and applies a transform.
-// It emits start_span / stop_span around the inner Generate call so the
-// server can track the mapping for better shrinking.
-type mappedGenerator struct {
-	inner Generator
-	fn    func(any) any
-}
-
-// DoDraw calls the inner generator inside a MAPPED span and applies fn.
-func (g *mappedGenerator) DoDraw(data *testCaseData) any {
-	var result any
-	group(LabelMapped, func() {
-		result = g.fn(g.inner.DoDraw(data))
-	}, data)
-	return result
-}
-
-// AsBasic returns nil — mappedGenerator is not a basic generator.
-func (g *mappedGenerator) AsBasic() *BasicGenerator { return nil }
-
-// Filter returns a filteredGenerator that only produces values satisfying pred.
-func (g *mappedGenerator) Filter(pred func(any) bool) Generator {
-	return &filteredGenerator{source: g, predicate: pred}
-}
-
-// Map returns a new mappedGenerator that composes fn with g's transform.
-func (g *mappedGenerator) Map(fn func(any) any) Generator {
-	return &mappedGenerator{
-		inner: g,
-		fn:    fn,
-	}
-}
-
-// --- filteredGenerator ---
-
-// filteredGenerator wraps a source generator and a predicate, retrying up to
-// maxFilterAttempts times before rejecting the test case via Assume(false).
-// Each attempt is wrapped in a discardable FILTER span so the server can
-// reclaim the data budget for failed attempts.
-type filteredGenerator struct {
-	source    Generator
-	predicate func(any) bool
-}
-
-const maxFilterAttempts = 3
-
-// DoDraw tries up to maxFilterAttempts times to produce a value from source
-// that satisfies predicate. Each attempt is wrapped in a FILTER span; spans
-// for failed attempts are discarded. If all attempts fail, the test case is
-// rejected via panic(assumeRejected{}).
-func (g *filteredGenerator) DoDraw(data *testCaseData) any {
-	for range maxFilterAttempts {
-		startSpan(LabelFilter, data)
-		value := g.source.DoDraw(data)
-		if g.predicate(value) {
-			stopSpan(false, data)
-			return value
-		}
-		stopSpan(true, data)
-	}
-	panic(assumeRejected{})
-}
-
-// AsBasic returns nil — filteredGenerator is never a basic generator.
-func (g *filteredGenerator) AsBasic() *BasicGenerator { return nil }
-
-// Filter returns a new filteredGenerator composed from this one and pred.
-func (g *filteredGenerator) Filter(pred func(any) bool) Generator {
-	return &filteredGenerator{source: g, predicate: pred}
-}
-
-// Map returns a new mappedGenerator that applies fn to values from this generator.
-func (g *filteredGenerator) Map(fn func(any) any) Generator {
-	return &mappedGenerator{inner: g, fn: fn}
+// newCompositeGenerator creates a non-basic generator with a custom draw function.
+func newCompositeGenerator[T any](drawFn func(*testCaseData) T) *Generator[T] {
+	return &Generator[T]{drawFn: drawFn}
 }
 
 // --- Span helpers ---
@@ -287,7 +181,7 @@ func newCollection(minSize, maxSize int, data *testCaseData) *collection {
 		}
 		panic(fmt.Sprintf("hegel: unreachable: new_collection error: %v", err))
 	}
-	name, _ := ExtractString(v)
+	name, _ := extractString(v)
 	return &collection{serverName: name}
 }
 
@@ -326,156 +220,46 @@ func (c *collection) more(data *testCaseData) bool {
 	return more
 }
 
-// --- Built-in generators ---
+// --- Primitive constructors ---
+
+// toInt64 converts a CBOR-decoded value to int64 (for use as a Generator transform).
+func toInt64(v any) int64 { n, _ := extractInt(v); return n }
+
+// toFloat64 converts a CBOR-decoded value to float64 (for use as a Generator transform).
+func toFloat64(v any) float64 { f, _ := extractFloat(v); return f }
+
+// toString converts a CBOR-decoded value to string (for use as a Generator transform).
+func toString(v any) string { s, _ := v.(string); return s }
+
+// toBool converts a CBOR-decoded value to bool (for use as a Generator transform).
+func toBool(v any) bool { b, _ := v.(bool); return b }
+
+// toBytes converts a CBOR-decoded value to []byte (for use as a Generator transform).
+func toBytes(v any) []byte { b, _ := v.([]byte); return b }
 
 // Integers returns a Generator that produces integer values in [minVal, maxVal].
-func Integers(minVal, maxVal int64) Generator {
-	return &BasicGenerator{
-		schema: map[string]any{
+func Integers(minVal, maxVal int64) *Generator[int64] {
+	return newBasicGenerator(
+		map[string]any{
 			"type":      "integer",
 			"min_value": minVal,
 			"max_value": maxVal,
 		},
-	}
+		toInt64, true,
+	)
 }
 
 // IntegersUnbounded returns a Generator that produces unbounded integer values.
-func IntegersUnbounded() Generator {
-	return &BasicGenerator{
-		schema: map[string]any{
-			"type": "integer",
-		},
-	}
-}
-
-// Emails returns a Generator that produces email address strings.
-func Emails() Generator {
-	return &BasicGenerator{
-		schema: map[string]any{
-			"type": "email",
-		},
-	}
-}
-
-// URLs returns a Generator that produces URL strings.
-func URLs() Generator {
-	return &BasicGenerator{
-		schema: map[string]any{
-			"type": "url",
-		},
-	}
-}
-
-// DomainOptions holds options for the Domains generator.
-type DomainOptions struct {
-	// MaxLength is the maximum length of the domain name.
-	// Zero means use the default maximum length (255, matching RFC 1035).
-	MaxLength int
-}
-
-// defaultDomainMaxLength is the default maximum domain name length per RFC 1035,
-// matching hypothesis's default for domains().
-const defaultDomainMaxLength = 255
-
-// Domains returns a Generator that produces domain name strings.
-// If opts.MaxLength > 0, generated domains will not exceed that length.
-// Otherwise, the default maximum length of 255 is used.
-func Domains(opts DomainOptions) Generator {
-	maxLen := opts.MaxLength
-	if maxLen <= 0 {
-		maxLen = defaultDomainMaxLength
-	}
-	schema := map[string]any{
-		"type":       "domain",
-		"max_length": int64(maxLen),
-	}
-	return &BasicGenerator{schema: schema}
-}
-
-// Dates returns a Generator that produces ISO 8601 date strings (YYYY-MM-DD).
-func Dates() Generator {
-	return &BasicGenerator{
-		schema: map[string]any{
-			"type": "date",
-		},
-	}
-}
-
-// Times returns a Generator that produces time strings (HH:MM:SS or similar).
-func Times() Generator {
-	return &BasicGenerator{
-		schema: map[string]any{
-			"type": "time",
-		},
-	}
-}
-
-// Datetimes returns a Generator that produces ISO 8601 datetime strings.
-func Datetimes() Generator {
-	return &BasicGenerator{
-		schema: map[string]any{
-			"type": "datetime",
-		},
-	}
-}
-
-// Just returns a Generator that always produces the given constant value.
-// The schema uses {"const": null} and the transform ignores the server result.
-func Just(value any) *BasicGenerator {
-	return &BasicGenerator{
-		schema:    map[string]any{"const": nil},
-		transform: func(_ any) any { return value },
-	}
-}
-
-// SampledFrom returns a Generator that picks uniformly at random from values.
-// The server generates an integer index in [0, len(values)-1], which is mapped
-// to the corresponding element. Returns an error if values is empty.
-func SampledFrom(values []any) (*BasicGenerator, error) {
-	elements := make([]any, len(values))
-	copy(elements, values)
-	if len(elements) == 0 {
-		return nil, fmt.Errorf("sampled_from requires at least one element")
-	}
-	schema := map[string]any{
-		"type":      "integer",
-		"min_value": int64(0),
-		"max_value": int64(len(elements) - 1),
-	}
-	return &BasicGenerator{
-		schema: schema,
-		transform: func(v any) any {
-			idx, _ := ExtractInt(v)
-			return elements[idx]
-		},
-	}, nil
-}
-
-// MustSampledFrom returns a Generator that picks uniformly at random from values.
-// Panics if values is empty.
-func MustSampledFrom(values []any) *BasicGenerator {
-	g, err := SampledFrom(values)
-	if err != nil {
-		panic(err)
-	}
-	return g
-}
-
-// FromRegex returns a Generator that produces strings matching the given regular expression.
-// If fullmatch is true (the default), the entire string must match.
-func FromRegex(pattern string, fullmatch bool) *BasicGenerator {
-	return &BasicGenerator{
-		schema: map[string]any{
-			"type":      "regex",
-			"pattern":   pattern,
-			"fullmatch": fullmatch,
-		},
-	}
+func IntegersUnbounded() *Generator[int64] {
+	return newBasicGenerator(
+		map[string]any{"type": "integer"},
+		toInt64, true,
+	)
 }
 
 // IntegersFrom returns a Generator that produces integers with optional bounds.
 // Pass nil for minVal or maxVal to leave that bound unbounded.
-func IntegersFrom(minVal, maxVal *int64) Generator {
+func IntegersFrom(minVal, maxVal *int64) *Generator[int64] {
 	schema := map[string]any{"type": "integer"}
 	if minVal != nil {
 		schema["min_value"] = *minVal
@@ -483,7 +267,7 @@ func IntegersFrom(minVal, maxVal *int64) Generator {
 	if maxVal != nil {
 		schema["max_value"] = *maxVal
 	}
-	return &BasicGenerator{schema: schema}
+	return newBasicGenerator(schema, toInt64, true)
 }
 
 // Floats returns a Generator that produces float64 values.
@@ -493,7 +277,7 @@ func IntegersFrom(minVal, maxVal *int64) Generator {
 // both bounds are nil. allowInfinity controls whether +/-Inf is permitted; if nil,
 // defaults to true unless both bounds are set.
 // excludeMin and excludeMax make the respective bound exclusive.
-func Floats(minVal, maxVal *float64, allowNaN, allowInfinity *bool, excludeMin, excludeMax bool) Generator {
+func Floats(minVal, maxVal *float64, allowNaN, allowInfinity *bool, excludeMin, excludeMax bool) *Generator[float64] {
 	hasMin := minVal != nil
 	hasMax := maxVal != nil
 
@@ -522,23 +306,21 @@ func Floats(minVal, maxVal *float64, allowNaN, allowInfinity *bool, excludeMin, 
 	if hasMax {
 		schema["max_value"] = *maxVal
 	}
-	return &BasicGenerator{schema: schema}
+	return newBasicGenerator(schema, toFloat64, true)
 }
 
 // Booleans returns a Generator that produces boolean values with probability p
 // of generating true. p must be in [0, 1]; 0.5 gives equal probability.
-func Booleans(p float64) Generator {
-	return &BasicGenerator{
-		schema: map[string]any{
-			"type": "boolean",
-			"p":    p,
-		},
-	}
+func Booleans(p float64) *Generator[bool] {
+	return newBasicGenerator(
+		map[string]any{"type": "boolean", "p": p},
+		toBool, true,
+	)
 }
 
 // Text returns a Generator that produces string values with codepoint count in
 // [minSize, maxSize]. Pass maxSize < 0 for unbounded.
-func Text(minSize int, maxSize int) Generator {
+func Text(minSize int, maxSize int) *Generator[string] {
 	schema := map[string]any{
 		"type":     "string",
 		"min_size": int64(minSize),
@@ -546,13 +328,12 @@ func Text(minSize int, maxSize int) Generator {
 	if maxSize >= 0 {
 		schema["max_size"] = int64(maxSize)
 	}
-	return &BasicGenerator{schema: schema}
+	return newBasicGenerator(schema, toString, true)
 }
 
 // Binary returns a Generator that produces byte slices with length in
 // [minSize, maxSize]. Pass maxSize < 0 for unbounded.
-// The server returns CBOR byte strings decoded directly as []byte.
-func Binary(minSize int, maxSize int) Generator {
+func Binary(minSize int, maxSize int) *Generator[[]byte] {
 	schema := map[string]any{
 		"type":     "binary",
 		"min_size": int64(minSize),
@@ -560,383 +341,85 @@ func Binary(minSize int, maxSize int) Generator {
 	if maxSize >= 0 {
 		schema["max_size"] = int64(maxSize)
 	}
-	return &BasicGenerator{schema: schema}
+	return newBasicGenerator(schema, toBytes, true)
 }
 
-// --- Lists generator ---
-
-// ListsOptions holds optional size constraints for the Lists generator.
-type ListsOptions struct {
-	// MinSize is the minimum number of elements (inclusive). Defaults to 0.
-	MinSize int
-	// MaxSize is the maximum number of elements (inclusive). Negative means unbounded.
-	MaxSize int
+// Just returns a Generator that always produces the given constant value.
+// The schema uses {"const": null} and the transform ignores the server result.
+func Just[T any](value T) *Generator[T] {
+	return newBasicGenerator(
+		map[string]any{"const": nil},
+		func(_ any) T { return value },
+		false,
+	)
 }
 
-// Lists returns a Generator that produces slices of values from the elements generator.
-//
-// If elements is a BasicGenerator (schema-backed), the list is generated with a single
-// server call using a list schema, and the element transform (if any) is applied to each
-// item in the result. This is the fast path.
-//
-// If elements is a non-basic generator (e.g., filtered), the collection protocol is used:
-// the server controls iteration via new_collection / collection_more, and each element is
-// generated individually inside a LabelList span.
-//
-// opts.MinSize defaults to 0; opts.MaxSize < 0 means no upper bound.
-func Lists(elements Generator, opts ListsOptions) Generator {
-	minSize := opts.MinSize
-	if minSize < 0 {
-		minSize = 0
+// FromRegex returns a Generator that produces strings matching the given regular expression.
+// If fullmatch is true (the default), the entire string must match.
+func FromRegex(pattern string, fullmatch bool) *Generator[string] {
+	return newBasicGenerator(
+		map[string]any{
+			"type":      "regex",
+			"pattern":   pattern,
+			"fullmatch": fullmatch,
+		},
+		toString, true,
+	)
+}
+
+// --- Format generators ---
+
+// Emails returns a Generator that produces email address strings.
+func Emails() *Generator[string] {
+	return newBasicGenerator(map[string]any{"type": "email"}, toString, true)
+}
+
+// URLs returns a Generator that produces URL strings.
+func URLs() *Generator[string] {
+	return newBasicGenerator(map[string]any{"type": "url"}, toString, true)
+}
+
+// DomainOptions holds options for the Domains generator.
+type DomainOptions struct {
+	// MaxLength is the maximum length of the domain name.
+	// Zero means use the default maximum length (255, matching RFC 1035).
+	MaxLength int
+}
+
+// defaultDomainMaxLength is the default maximum domain name length per RFC 1035,
+// matching hypothesis's default for domains().
+const defaultDomainMaxLength = 255
+
+// Domains returns a Generator that produces domain name strings.
+// If opts.MaxLength > 0, generated domains will not exceed that length.
+// Otherwise, the default maximum length of 255 is used.
+func Domains(opts DomainOptions) *Generator[string] {
+	maxLen := opts.MaxLength
+	if maxLen <= 0 {
+		maxLen = defaultDomainMaxLength
 	}
-
-	bg := elements.AsBasic()
-	if bg != nil {
-		// Fast path: build a list schema using the element's raw schema.
-		rawSchema := map[string]any{
-			"type":     "list",
-			"elements": bg.schema,
-			"min_size": int64(minSize),
-		}
-		if opts.MaxSize >= 0 {
-			rawSchema["max_size"] = int64(opts.MaxSize)
-		}
-		if bg.transform != nil {
-			t := bg.transform
-			listTransform := func(raw any) any {
-				rawSlice, ok := raw.([]any)
-				if !ok {
-					return raw
-				}
-				result := make([]any, len(rawSlice))
-				for i, x := range rawSlice {
-					result[i] = t(x)
-				}
-				return result
-			}
-			return &BasicGenerator{schema: rawSchema, transform: listTransform}
-		}
-		return &BasicGenerator{schema: rawSchema}
-	}
-
-	// Non-basic path: use collection protocol.
-	return &compositeListGenerator{
-		elements: elements,
-		minSize:  minSize,
-		maxSize:  opts.MaxSize,
-	}
+	return newBasicGenerator(
+		map[string]any{"type": "domain", "max_length": int64(maxLen)},
+		toString, true,
+	)
 }
 
-// compositeListGenerator generates a list using the collection protocol.
-// Used when the element generator is non-basic (e.g., filtered).
-type compositeListGenerator struct {
-	elements Generator
-	minSize  int
-	maxSize  int
+// Dates returns a Generator that produces ISO 8601 date strings (YYYY-MM-DD).
+func Dates() *Generator[string] {
+	return newBasicGenerator(map[string]any{"type": "date"}, toString, true)
 }
 
-// DoDraw produces a list by using the collection protocol inside a LabelList span.
-func (g *compositeListGenerator) DoDraw(data *testCaseData) any {
-	var result []any
-	startSpan(LabelList, data)
-	panicked := true
-	defer func() {
-		stopSpan(panicked, data)
-	}()
-	coll := newCollection(g.minSize, g.maxSize, data)
-	for coll.more(data) {
-		result = append(result, g.elements.DoDraw(data))
-	}
-	panicked = false
-	return result
+// Times returns a Generator that produces time strings (HH:MM:SS or similar).
+func Times() *Generator[string] {
+	return newBasicGenerator(map[string]any{"type": "time"}, toString, true)
 }
 
-// AsBasic returns nil — compositeListGenerator is not a basic generator.
-func (g *compositeListGenerator) AsBasic() *BasicGenerator { return nil }
-
-// Filter returns a filteredGenerator that only produces values satisfying pred.
-func (g *compositeListGenerator) Filter(pred func(any) bool) Generator {
-	return &filteredGenerator{source: g, predicate: pred}
+// Datetimes returns a Generator that produces ISO 8601 datetime strings.
+func Datetimes() *Generator[string] {
+	return newBasicGenerator(map[string]any{"type": "datetime"}, toString, true)
 }
 
-// Map returns a new mappedGenerator wrapping g.
-func (g *compositeListGenerator) Map(fn func(any) any) Generator {
-	return &mappedGenerator{inner: g, fn: fn}
-}
-
-// --- Dicts generator ---
-
-// DictOptions holds optional parameters for the Dicts generator.
-type DictOptions struct {
-	// MinSize is the minimum number of key-value pairs. Defaults to 0.
-	MinSize int
-	// MaxSize is the maximum number of key-value pairs. Negative means unbounded.
-	MaxSize int
-	// HasMaxSize indicates whether MaxSize should be applied.
-	HasMaxSize bool
-}
-
-// Dicts returns a Generator that produces map[any]any values with keys from
-// the keys generator and values from the values generator.
-//
-// When both keys and values are BasicGenerators, a single schema-based
-// generate command is sent to the server (the fast path). Otherwise, the
-// collection protocol is used to build the map incrementally.
-//
-// Use DictOptions to control MinSize and MaxSize of the generated maps.
-func Dicts(keys, values Generator, opts DictOptions) Generator {
-	keyBasic := keys.AsBasic()
-	valBasic := values.AsBasic()
-	if keyBasic != nil && valBasic != nil {
-		// Fast path: both generators are basic — compose a single schema.
-		rawSchema := map[string]any{
-			"type":     "dict",
-			"keys":     keyBasic.schema,
-			"values":   valBasic.schema,
-			"min_size": int64(opts.MinSize),
-		}
-		if opts.HasMaxSize {
-			rawSchema["max_size"] = int64(opts.MaxSize)
-		}
-		keyTransform := keyBasic.transform
-		valTransform := valBasic.transform
-		if keyTransform == nil && valTransform == nil {
-			return &BasicGenerator{
-				schema: rawSchema,
-				transform: func(v any) any {
-					return pairsToMap(v, nil, nil)
-				},
-			}
-		}
-		return &BasicGenerator{
-			schema: rawSchema,
-			transform: func(v any) any {
-				return pairsToMap(v, keyTransform, valTransform)
-			},
-		}
-	}
-	// Slow path: use the collection protocol.
-	return &compositeDictGenerator{
-		keys:    keys,
-		values:  values,
-		minSize: opts.MinSize,
-		maxSize: opts.MaxSize,
-		hasMax:  opts.HasMaxSize,
-	}
-}
-
-// pairsToMap converts a CBOR-decoded pair list [[k,v], ...] to a map[any]any,
-// applying optional key and value transforms.
-func pairsToMap(v any, keyTransform, valTransform func(any) any) any {
-	result := map[any]any{}
-	pairs, ok := v.([]any)
-	if !ok {
-		return result
-	}
-	for _, pair := range pairs {
-		kv, ok := pair.([]any)
-		if !ok || len(kv) < 2 {
-			continue
-		}
-		k := kv[0]
-		val := kv[1]
-		if keyTransform != nil {
-			k = keyTransform(k)
-		}
-		if valTransform != nil {
-			val = valTransform(val)
-		}
-		result[k] = val
-	}
-	return result
-}
-
-// compositeDictGenerator generates maps using the collection protocol for
-// non-basic key or value generators.
-type compositeDictGenerator struct {
-	keys    Generator
-	values  Generator
-	minSize int
-	maxSize int
-	hasMax  bool
-}
-
-// DoDraw implements Generator by using the MAP span and collection protocol.
-func (g *compositeDictGenerator) DoDraw(data *testCaseData) any {
-	var result any
-	discardableGroup(LabelMap, func() {
-		maxSz := g.maxSize
-		if !g.hasMax {
-			maxSz = g.minSize + 10
-		}
-		coll := newCollection(g.minSize, maxSz, data)
-		m := map[any]any{}
-		for coll.more(data) {
-			group(LabelMapEntry, func() {
-				k := g.keys.DoDraw(data)
-				v := g.values.DoDraw(data)
-				m[k] = v
-			}, data)
-		}
-		result = m
-	}, data)
-	return result
-}
-
-// AsBasic returns nil — compositeDictGenerator is not a basic generator.
-func (g *compositeDictGenerator) AsBasic() *BasicGenerator { return nil }
-
-// Filter returns a filteredGenerator that only produces values satisfying pred.
-func (g *compositeDictGenerator) Filter(pred func(any) bool) Generator {
-	return &filteredGenerator{source: g, predicate: pred}
-}
-
-// Map returns a new mappedGenerator wrapping this generator.
-func (g *compositeDictGenerator) Map(fn func(any) any) Generator {
-	return &mappedGenerator{inner: g, fn: fn}
-}
-
-// --- OneOf generator ---
-
-// compositeOneOfGenerator is a one_of generator for generators that cannot all
-// be represented as BasicGenerators (e.g. filtered generators). It generates an
-// integer index and delegates to the selected branch, wrapped in a ONE_OF span.
-type compositeOneOfGenerator struct {
-	generators []Generator
-}
-
-// DoDraw picks one of the generators at random (via the Hegel server) and
-// returns a value from that generator, wrapped in a ONE_OF span.
-func (g *compositeOneOfGenerator) DoDraw(data *testCaseData) any {
-	var result any
-	group(LabelOneOf, func() {
-		n := len(g.generators)
-		idx, err := generateFromSchema(map[string]any{
-			"type":      "integer",
-			"min_value": int64(0),
-			"max_value": int64(n - 1),
-		}, data)
-		if err != nil {
-			panic(fmt.Sprintf("hegel: unreachable: OneOf generateFromSchema: %v", err))
-		}
-		i, _ := ExtractInt(idx)
-		result = g.generators[i].DoDraw(data)
-	}, data)
-	return result
-}
-
-// AsBasic returns nil — compositeOneOfGenerator is not a basic generator.
-func (g *compositeOneOfGenerator) AsBasic() *BasicGenerator { return nil }
-
-// Filter returns a filteredGenerator that only produces values satisfying pred.
-func (g *compositeOneOfGenerator) Filter(pred func(any) bool) Generator {
-	return &filteredGenerator{source: g, predicate: pred}
-}
-
-// Map returns a new mappedGenerator that applies fn to each generated value.
-func (g *compositeOneOfGenerator) Map(fn func(any) any) Generator {
-	return &mappedGenerator{inner: g, fn: fn}
-}
-
-// OneOf returns a Generator that produces values from one of the given generators.
-//
-// Path 1 — all basic with identity transforms: schema {"one_of": [s1, s2, ...]}
-// Path 2 — all basic with some transforms: tagged-tuple schema, transform dispatches by tag
-// Path 3 — any non-basic: compositeOneOfGenerator using ONE_OF span
-//
-// Requires at least 2 generators.
-func OneOf(generators ...Generator) Generator {
-	if len(generators) < 2 {
-		panic("hegel: OneOf requires at least 2 generators")
-	}
-
-	// Check if all generators are basic.
-	allBasic := true
-	for _, g := range generators {
-		if g.AsBasic() == nil {
-			allBasic = false
-			break
-		}
-	}
-
-	if !allBasic {
-		// Path 3: composite
-		gens := make([]Generator, len(generators))
-		copy(gens, generators)
-		return &compositeOneOfGenerator{generators: gens}
-	}
-
-	// All are basic — collect them.
-	basics := make([]*BasicGenerator, len(generators))
-	for i, g := range generators {
-		basics[i] = g.AsBasic()
-	}
-
-	// Check if all have identity (nil) transforms.
-	allIdentity := true
-	for _, bg := range basics {
-		if bg.transform != nil {
-			allIdentity = false
-			break
-		}
-	}
-
-	if allIdentity {
-		// Path 1: simple {"one_of": [s1, s2, ...]}
-		schemas := make([]any, len(basics))
-		for i, bg := range basics {
-			schemas[i] = bg.schema
-		}
-		return &BasicGenerator{
-			schema: map[string]any{"one_of": schemas},
-		}
-	}
-
-	// Path 2: tagged tuples — wrap each branch as {"type":"tuple","elements":[{"const":i},schema]}
-	taggedSchemas := make([]any, len(basics))
-	for i, bg := range basics {
-		taggedSchemas[i] = map[string]any{
-			"type": "tuple",
-			"elements": []any{
-				map[string]any{"const": int64(i)},
-				bg.schema,
-			},
-		}
-	}
-
-	// Capture transforms slice (each entry may be nil = identity).
-	transforms := make([]func(any) any, len(basics))
-	for i, bg := range basics {
-		transforms[i] = bg.transform
-	}
-
-	applyTagged := func(tagged any) any {
-		// tagged is a CBOR-decoded tuple: []any{tag, value}
-		elems, _ := tagged.([]any)
-		if len(elems) < 2 {
-			return tagged
-		}
-		tag, _ := ExtractInt(elems[0])
-		value := elems[1]
-		if t := transforms[tag]; t != nil {
-			return t(value)
-		}
-		return value
-	}
-
-	return &BasicGenerator{
-		schema:    map[string]any{"one_of": taggedSchemas},
-		transform: applyTagged,
-	}
-}
-
-// Optional returns a Generator that produces either nil or a value from element.
-// It is equivalent to OneOf(Just(nil), element).
-func Optional(element Generator) Generator {
-	return OneOf(Just(nil), element)
-}
-
-// --- IPAddresses generator ---
+// --- IP Addresses ---
 
 // IPAddressVersion specifies which IP version to generate.
 type IPAddressVersion int
@@ -958,175 +441,500 @@ type IPAddressOptions struct {
 // With Version=4 it generates IPv4 addresses (dotted decimal).
 // With Version=6 it generates IPv6 addresses (colon hex).
 // With Version=0 (default) it generates either IPv4 or IPv6.
-func IPAddresses(opts IPAddressOptions) Generator {
+func IPAddresses(opts IPAddressOptions) *Generator[string] {
 	switch opts.Version {
 	case IPVersion4:
-		return &BasicGenerator{schema: map[string]any{"type": "ipv4"}}
+		return newBasicGenerator(map[string]any{"type": "ipv4"}, toString, true)
 	case IPVersion6:
-		return &BasicGenerator{schema: map[string]any{"type": "ipv6"}}
+		return newBasicGenerator(map[string]any{"type": "ipv6"}, toString, true)
 	default:
 		return OneOf(
-			&BasicGenerator{schema: map[string]any{"type": "ipv4"}},
-			&BasicGenerator{schema: map[string]any{"type": "ipv6"}},
+			newBasicGenerator[string](map[string]any{"type": "ipv4"}, toString, true),
+			newBasicGenerator[string](map[string]any{"type": "ipv6"}, toString, true),
 		)
 	}
 }
 
-// --- Tuple generators ---
+// --- Free-function combinators ---
 
-// compositeTupleGenerator generates a tuple by generating each element
-// separately inside a TUPLE span. Used when one or more elements are
-// non-basic (cannot be represented as a single schema).
-type compositeTupleGenerator struct {
-	elements []Generator
+const maxFilterAttempts = 3
+
+// Map returns a new generator that applies fn to each value produced by g.
+// If g is a basic generator, the schema is preserved and the transform is composed
+// (preserving the single-generate-call optimisation).
+func Map[T, U any](g *Generator[T], fn func(T) U) *Generator[U] {
+	if g.schema != nil {
+		// Basic path: preserve schema, compose transforms.
+		oldTransform := g.transform
+		return newBasicGenerator(g.schema, func(v any) U {
+			return fn(oldTransform(v))
+		}, false)
+	}
+	// Non-basic path: wrap in a MAPPED span.
+	oldDraw := g.drawFn
+	return newCompositeGenerator(func(data *testCaseData) U {
+		var result U
+		group(LabelMapped, func() {
+			result = fn(oldDraw(data))
+		}, data)
+		return result
+	})
 }
 
-// DoDraw produces a []any tuple by generating each element in sequence
-// inside a TUPLE span.
-func (g *compositeTupleGenerator) DoDraw(data *testCaseData) any {
-	result := make([]any, len(g.elements))
-	group(LabelTuple, func() {
-		for i, elem := range g.elements {
-			result[i] = elem.DoDraw(data)
+// Filter returns a new generator that only produces values from g satisfying pred.
+// It tries up to 3 times per test case; if all attempts fail, the test case
+// is rejected via Assume(false). The result is always non-basic.
+func Filter[T any](g *Generator[T], pred func(T) bool) *Generator[T] {
+	oldDraw := g.drawFn
+	return newCompositeGenerator(func(data *testCaseData) T {
+		for range maxFilterAttempts {
+			startSpan(LabelFilter, data)
+			value := oldDraw(data)
+			if pred(value) {
+				stopSpan(false, data)
+				return value
+			}
+			stopSpan(true, data)
 		}
-	}, data)
+		panic(assumeRejected{})
+	})
+}
+
+// FlatMap returns a new generator for dependent generation. It generates a value
+// from g, passes it to fn, and generates from the returned generator.
+// Always non-basic — wrapped in a FLAT_MAP span.
+func FlatMap[T, U any](g *Generator[T], fn func(T) *Generator[U]) *Generator[U] {
+	oldDraw := g.drawFn
+	return newCompositeGenerator(func(data *testCaseData) U {
+		var result U
+		discardableGroup(LabelFlatMap, func() {
+			first := oldDraw(data)
+			secondGen := fn(first)
+			result = secondGen.drawFn(data)
+		}, data)
+		return result
+	})
+}
+
+// SampledFrom returns a Generator that picks uniformly at random from values.
+// The server generates an integer index in [0, len(values)-1], which is mapped
+// to the corresponding element. Returns an error if values is empty.
+func SampledFrom[T any](values []T) (*Generator[T], error) {
+	elements := make([]T, len(values))
+	copy(elements, values)
+	if len(elements) == 0 {
+		return nil, fmt.Errorf("sampled_from requires at least one element")
+	}
+	schema := map[string]any{
+		"type":      "integer",
+		"min_value": int64(0),
+		"max_value": int64(len(elements) - 1),
+	}
+	return newBasicGenerator(schema, func(v any) T {
+		idx, _ := extractInt(v)
+		return elements[idx]
+	}, false), nil
+}
+
+// MustSampledFrom returns a Generator that picks uniformly at random from values.
+// Panics if values is empty.
+func MustSampledFrom[T any](values []T) *Generator[T] {
+	g, err := SampledFrom(values)
+	if err != nil {
+		panic(err)
+	}
+	return g
+}
+
+// --- Lists generator ---
+
+// ListsOptions holds optional size constraints for the Lists generator.
+type ListsOptions struct {
+	// MinSize is the minimum number of elements (inclusive). Defaults to 0.
+	MinSize int
+	// MaxSize is the maximum number of elements (inclusive). Negative means unbounded.
+	MaxSize int
+}
+
+// Lists returns a Generator that produces slices of values from the elem generator.
+//
+// If elem is a basic generator (schema-backed), the list is generated with a single
+// server call using a list schema. This is the fast path.
+//
+// If elem is a non-basic generator (e.g., filtered), the collection protocol is used:
+// the server controls iteration via new_collection / collection_more.
+func Lists[T any](elem *Generator[T], opts ListsOptions) *Generator[[]T] {
+	minSize := opts.MinSize
+	if minSize < 0 {
+		minSize = 0
+	}
+
+	if elem.schema != nil {
+		// Fast path: build a list schema.
+		rawSchema := map[string]any{
+			"type":     "list",
+			"elements": elem.schema,
+			"min_size": int64(minSize),
+		}
+		if opts.MaxSize >= 0 {
+			rawSchema["max_size"] = int64(opts.MaxSize)
+		}
+		et := elem.transform
+		return newBasicGenerator(rawSchema, func(v any) []T {
+			rawSlice, ok := v.([]any)
+			if !ok {
+				return nil
+			}
+			result := make([]T, len(rawSlice))
+			for i, x := range rawSlice {
+				result[i] = et(x)
+			}
+			return result
+		}, false)
+	}
+
+	// Non-basic path: use collection protocol.
+	elemDraw := elem.drawFn
+	maxSize := opts.MaxSize
+	return newCompositeGenerator(func(data *testCaseData) []T {
+		var result []T
+		startSpan(LabelList, data)
+		panicked := true
+		defer func() {
+			stopSpan(panicked, data)
+		}()
+		coll := newCollection(minSize, maxSize, data)
+		for coll.more(data) {
+			result = append(result, elemDraw(data))
+		}
+		panicked = false
+		return result
+	})
+}
+
+// --- Dicts generator ---
+
+// DictOptions holds optional parameters for the Dicts generator.
+type DictOptions struct {
+	// MinSize is the minimum number of key-value pairs. Defaults to 0.
+	MinSize int
+	// MaxSize is the maximum number of key-value pairs. Negative means unbounded.
+	MaxSize int
+	// HasMaxSize indicates whether MaxSize should be applied.
+	HasMaxSize bool
+}
+
+// Dicts returns a Generator that produces map[K]V values with keys from
+// the keys generator and values from the vals generator.
+//
+// When both keys and vals are basic generators, a single schema-based
+// generate command is sent to the server (the fast path). Otherwise, the
+// collection protocol is used to build the map incrementally.
+func Dicts[K comparable, V any](keys *Generator[K], vals *Generator[V], opts DictOptions) *Generator[map[K]V] {
+	if keys.schema != nil && vals.schema != nil {
+		// Fast path: both generators are basic — compose a single schema.
+		rawSchema := map[string]any{
+			"type":     "dict",
+			"keys":     keys.schema,
+			"values":   vals.schema,
+			"min_size": int64(opts.MinSize),
+		}
+		if opts.HasMaxSize {
+			rawSchema["max_size"] = int64(opts.MaxSize)
+		}
+		kt := keys.transform
+		vt := vals.transform
+		return newBasicGenerator(rawSchema, func(v any) map[K]V {
+			return pairsToMap(v, kt, vt)
+		}, false)
+	}
+
+	// Slow path: use the collection protocol.
+	keyDraw := keys.drawFn
+	valDraw := vals.drawFn
+	return newCompositeGenerator(func(data *testCaseData) map[K]V {
+		var result map[K]V
+		discardableGroup(LabelMap, func() {
+			maxSz := opts.MaxSize
+			if !opts.HasMaxSize {
+				maxSz = opts.MinSize + 10
+			}
+			coll := newCollection(opts.MinSize, maxSz, data)
+			result = make(map[K]V)
+			for coll.more(data) {
+				group(LabelMapEntry, func() {
+					k := keyDraw(data)
+					v := valDraw(data)
+					result[k] = v
+				}, data)
+			}
+		}, data)
+		return result
+	})
+}
+
+// pairsToMap converts a CBOR-decoded pair list [[k,v], ...] to a map[K]V,
+// applying key and value transforms.
+func pairsToMap[K comparable, V any](v any, keyTransform func(any) K, valTransform func(any) V) map[K]V {
+	result := make(map[K]V)
+	pairs, ok := v.([]any)
+	if !ok {
+		return result
+	}
+	for _, pair := range pairs {
+		kv, ok := pair.([]any)
+		if !ok || len(kv) < 2 {
+			continue
+		}
+		result[keyTransform(kv[0])] = valTransform(kv[1])
+	}
 	return result
 }
 
-// AsBasic returns nil — compositeTupleGenerator is not a basic generator.
-func (g *compositeTupleGenerator) AsBasic() *BasicGenerator { return nil }
+// --- OneOf generator ---
 
-// Filter returns a filteredGenerator that only produces values satisfying pred.
-func (g *compositeTupleGenerator) Filter(pred func(any) bool) Generator {
-	return &filteredGenerator{source: g, predicate: pred}
-}
-
-// Map returns a new mappedGenerator that applies fn to each generated tuple.
-func (g *compositeTupleGenerator) Map(fn func(any) any) Generator {
-	return &mappedGenerator{inner: g, fn: fn}
-}
-
-// tupleBasic builds a BasicGenerator for a tuple from a slice of BasicGenerators.
-// If all transforms are nil, no transform is attached. Otherwise, a per-position
-// transform is composed.
-func tupleBasic(basics []*BasicGenerator) *BasicGenerator {
-	schemas := make([]any, len(basics))
-	for i, b := range basics {
-		schemas[i] = b.schema
+// OneOf returns a Generator that produces values from one of the given generators.
+//
+// Path 1 — all basic with identity transforms: schema {"one_of": [s1, s2, ...]}
+// Path 2 — all basic with some user transforms: tagged-tuple schema, transform dispatches by tag
+// Path 3 — any non-basic: composite using ONE_OF span
+//
+// Requires at least 2 generators.
+func OneOf[T any](gens ...*Generator[T]) *Generator[T] {
+	if len(gens) < 2 {
+		panic("hegel: OneOf requires at least 2 generators")
 	}
-	combined := map[string]any{
-		"type":     "tuple",
-		"elements": schemas,
-	}
-	// Check if any element has a transform.
-	hasTransform := false
-	for _, b := range basics {
-		if b.transform != nil {
-			hasTransform = true
+
+	// Check if all generators are basic.
+	allBasic := true
+	for _, g := range gens {
+		if g.schema == nil {
+			allBasic = false
 			break
 		}
 	}
-	if !hasTransform {
-		return &BasicGenerator{schema: combined}
-	}
-	// Capture transforms for per-position application.
-	transforms := make([]func(any) any, len(basics))
-	for i, b := range basics {
-		transforms[i] = b.transform
-	}
-	applyTransforms := func(raw any) any {
-		rawSlice, _ := raw.([]any)
-		result := make([]any, len(rawSlice))
-		for i, v := range rawSlice {
-			if transforms[i] != nil {
-				result[i] = transforms[i](v)
-			} else {
-				result[i] = v
-			}
+
+	if !allBasic {
+		// Path 3: composite
+		draws := make([]func(*testCaseData) T, len(gens))
+		for i, g := range gens {
+			draws[i] = g.drawFn
 		}
-		return result
+		return newCompositeGenerator(func(data *testCaseData) T {
+			var result T
+			group(LabelOneOf, func() {
+				n := len(draws)
+				idx, err := generateFromSchema(map[string]any{
+					"type":      "integer",
+					"min_value": int64(0),
+					"max_value": int64(n - 1),
+				}, data)
+				if err != nil {
+					panic(fmt.Sprintf("hegel: unreachable: OneOf generateFromSchema: %v", err))
+				}
+				i := toInt64(idx)
+				result = draws[i](data)
+			}, data)
+			return result
+		})
 	}
-	return &BasicGenerator{schema: combined, transform: applyTransforms}
+
+	// All are basic — check if all have identity transforms.
+	allIdentity := true
+	for _, g := range gens {
+		if !g.identityTransform {
+			allIdentity = false
+			break
+		}
+	}
+
+	if allIdentity {
+		// Path 1: simple {"one_of": [s1, s2, ...]}
+		schemas := make([]any, len(gens))
+		for i, g := range gens {
+			schemas[i] = g.schema
+		}
+		return newBasicGenerator(
+			map[string]any{"one_of": schemas},
+			gens[0].transform,
+			true,
+		)
+	}
+
+	// Path 2: tagged tuples — wrap each branch as {"type":"tuple","elements":[{"const":i},schema]}
+	taggedSchemas := make([]any, len(gens))
+	for i, g := range gens {
+		taggedSchemas[i] = map[string]any{
+			"type": "tuple",
+			"elements": []any{
+				map[string]any{"const": int64(i)},
+				g.schema,
+			},
+		}
+	}
+
+	// Capture transforms slice.
+	transforms := make([]func(any) T, len(gens))
+	for i, g := range gens {
+		transforms[i] = g.transform
+	}
+
+	return newBasicGenerator(
+		map[string]any{"one_of": taggedSchemas},
+		func(tagged any) T {
+			elems, _ := tagged.([]any)
+			if len(elems) < 2 {
+				var zero T
+				return zero
+			}
+			tag := toInt64(elems[0])
+			return transforms[tag](elems[1])
+		},
+		false,
+	)
 }
 
-// Tuples2 returns a Generator that produces 2-element tuples ([]any of length 2).
+// Optional returns a Generator that produces either nil (*T == nil) or
+// a pointer to a value from element (*T != nil).
+func Optional[T any](element *Generator[T]) *Generator[*T] {
+	nilGen := Just[*T](nil)
+	nonNilGen := Map(element, func(v T) *T { return &v })
+	return OneOf(nilGen, nonNilGen)
+}
+
+// --- Tuple types ---
+
+// Tuple2 holds a pair of values.
+type Tuple2[A, B any] struct {
+	A A
+	B B
+}
+
+// Tuple3 holds a triple of values.
+type Tuple3[A, B, C any] struct {
+	A A
+	B B
+	C C
+}
+
+// Tuple4 holds a quadruple of values.
+type Tuple4[A, B, C, D any] struct {
+	A A
+	B B
+	C C
+	D D
+}
+
+// --- Tuple generators ---
+
+// Tuples2 returns a Generator that produces 2-element tuples.
 // If both elements are basic (schema-backed), a single generate command is sent.
 // Otherwise, elements are generated separately inside a TUPLE span.
-func Tuples2(g1, g2 Generator) Generator {
-	b1 := g1.AsBasic()
-	b2 := g2.AsBasic()
-	if b1 != nil && b2 != nil {
-		return tupleBasic([]*BasicGenerator{b1, b2})
+func Tuples2[A, B any](g1 *Generator[A], g2 *Generator[B]) *Generator[Tuple2[A, B]] {
+	if g1.schema != nil && g2.schema != nil {
+		schemas := []any{g1.schema, g2.schema}
+		combined := map[string]any{"type": "tuple", "elements": schemas}
+		t1 := g1.transform
+		t2 := g2.transform
+		return newBasicGenerator(combined, func(v any) Tuple2[A, B] {
+			elems, _ := v.([]any)
+			var a A
+			var b B
+			if len(elems) >= 2 {
+				a = t1(elems[0])
+				b = t2(elems[1])
+			}
+			return Tuple2[A, B]{A: a, B: b}
+		}, false)
 	}
-	return &compositeTupleGenerator{elements: []Generator{g1, g2}}
+	// Composite path.
+	d1 := g1.drawFn
+	d2 := g2.drawFn
+	return newCompositeGenerator(func(data *testCaseData) Tuple2[A, B] {
+		var result Tuple2[A, B]
+		group(LabelTuple, func() {
+			result.A = d1(data)
+			result.B = d2(data)
+		}, data)
+		return result
+	})
 }
 
-// Tuples3 returns a Generator that produces 3-element tuples ([]any of length 3).
-// If all elements are basic (schema-backed), a single generate command is sent.
+// Tuples3 returns a Generator that produces 3-element tuples.
+// If all elements are basic, a single generate command is sent.
 // Otherwise, elements are generated separately inside a TUPLE span.
-func Tuples3(g1, g2, g3 Generator) Generator {
-	b1 := g1.AsBasic()
-	b2 := g2.AsBasic()
-	b3 := g3.AsBasic()
-	if b1 != nil && b2 != nil && b3 != nil {
-		return tupleBasic([]*BasicGenerator{b1, b2, b3})
+func Tuples3[A, B, C any](g1 *Generator[A], g2 *Generator[B], g3 *Generator[C]) *Generator[Tuple3[A, B, C]] {
+	if g1.schema != nil && g2.schema != nil && g3.schema != nil {
+		schemas := []any{g1.schema, g2.schema, g3.schema}
+		combined := map[string]any{"type": "tuple", "elements": schemas}
+		t1 := g1.transform
+		t2 := g2.transform
+		t3 := g3.transform
+		return newBasicGenerator(combined, func(v any) Tuple3[A, B, C] {
+			elems, _ := v.([]any)
+			var a A
+			var b B
+			var c C
+			if len(elems) >= 3 {
+				a = t1(elems[0])
+				b = t2(elems[1])
+				c = t3(elems[2])
+			}
+			return Tuple3[A, B, C]{A: a, B: b, C: c}
+		}, false)
 	}
-	return &compositeTupleGenerator{elements: []Generator{g1, g2, g3}}
+	d1 := g1.drawFn
+	d2 := g2.drawFn
+	d3 := g3.drawFn
+	return newCompositeGenerator(func(data *testCaseData) Tuple3[A, B, C] {
+		var result Tuple3[A, B, C]
+		group(LabelTuple, func() {
+			result.A = d1(data)
+			result.B = d2(data)
+			result.C = d3(data)
+		}, data)
+		return result
+	})
 }
 
-// --- FlatMappedGenerator ---
-
-// FlatMappedGenerator is a generator for dependent generation.
-// It generates a value from a source generator, passes it to f, and then
-// generates from the generator returned by f. The whole operation is wrapped
-// in a FLAT_MAP span.
-type FlatMappedGenerator struct {
-	source Generator
-	f      func(any) Generator
-}
-
-// FlatMap returns a new FlatMappedGenerator that generates a value from g,
-// passes it to f, and generates from the returned generator.
-// Always non-basic — wrapped in a FLAT_MAP span (label 11).
-func FlatMap(g Generator, f func(any) Generator) Generator {
-	return &FlatMappedGenerator{source: g, f: f}
-}
-
-// DoDraw generates a value from the source generator, passes it to f,
-// and generates from the returned generator, all inside a FLAT_MAP span.
-func (g *FlatMappedGenerator) DoDraw(data *testCaseData) any {
-	var result any
-	discardableGroup(LabelFlatMap, func() {
-		first := g.source.DoDraw(data)
-		secondGen := g.f(first)
-		result = secondGen.DoDraw(data)
-	}, data)
-	return result
-}
-
-// AsBasic returns nil — FlatMappedGenerator is never a basic generator.
-func (g *FlatMappedGenerator) AsBasic() *BasicGenerator { return nil }
-
-// Filter returns a filteredGenerator that only produces values satisfying pred.
-func (g *FlatMappedGenerator) Filter(pred func(any) bool) Generator {
-	return &filteredGenerator{source: g, predicate: pred}
-}
-
-// Map returns a new mappedGenerator that applies fn to each generated value.
-func (g *FlatMappedGenerator) Map(fn func(any) any) Generator {
-	return &mappedGenerator{inner: g, fn: fn}
-}
-
-// Tuples4 returns a Generator that produces 4-element tuples ([]any of length 4).
-// If all elements are basic (schema-backed), a single generate command is sent.
+// Tuples4 returns a Generator that produces 4-element tuples.
+// If all elements are basic, a single generate command is sent.
 // Otherwise, elements are generated separately inside a TUPLE span.
-func Tuples4(g1, g2, g3, g4 Generator) Generator {
-	b1 := g1.AsBasic()
-	b2 := g2.AsBasic()
-	b3 := g3.AsBasic()
-	b4 := g4.AsBasic()
-	if b1 != nil && b2 != nil && b3 != nil && b4 != nil {
-		return tupleBasic([]*BasicGenerator{b1, b2, b3, b4})
+func Tuples4[A, B, C, D any](g1 *Generator[A], g2 *Generator[B], g3 *Generator[C], g4 *Generator[D]) *Generator[Tuple4[A, B, C, D]] {
+	if g1.schema != nil && g2.schema != nil && g3.schema != nil && g4.schema != nil {
+		schemas := []any{g1.schema, g2.schema, g3.schema, g4.schema}
+		combined := map[string]any{"type": "tuple", "elements": schemas}
+		t1 := g1.transform
+		t2 := g2.transform
+		t3 := g3.transform
+		t4 := g4.transform
+		return newBasicGenerator(combined, func(v any) Tuple4[A, B, C, D] {
+			elems, _ := v.([]any)
+			var a A
+			var b B
+			var c C
+			var d D
+			if len(elems) >= 4 {
+				a = t1(elems[0])
+				b = t2(elems[1])
+				c = t3(elems[2])
+				d = t4(elems[3])
+			}
+			return Tuple4[A, B, C, D]{A: a, B: b, C: c, D: d}
+		}, false)
 	}
-	return &compositeTupleGenerator{elements: []Generator{g1, g2, g3, g4}}
+	d1 := g1.drawFn
+	d2 := g2.drawFn
+	d3 := g3.drawFn
+	d4 := g4.drawFn
+	return newCompositeGenerator(func(data *testCaseData) Tuple4[A, B, C, D] {
+		var result Tuple4[A, B, C, D]
+		group(LabelTuple, func() {
+			result.A = d1(data)
+			result.B = d2(data)
+			result.C = d3(data)
+			result.D = d4(data)
+		}, data)
+		return result
+	})
 }

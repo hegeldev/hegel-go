@@ -39,10 +39,10 @@ func EncodeCBOR(v any) ([]byte, error) {
 	return b, nil
 }
 
-// ExtractInt extracts an integer value from a CBOR-decoded value.
+// extractInt extracts an integer value from a CBOR-decoded value.
 // The fxamacker/cbor library decodes CBOR integers as uint64 (positive) or
 // int64 (negative), so both are handled.
-func ExtractInt(v any) (int64, error) {
+func extractInt(v any) (int64, error) {
 	switch x := v.(type) {
 	case int64:
 		return x, nil
@@ -53,10 +53,10 @@ func ExtractInt(v any) (int64, error) {
 	}
 }
 
-// ExtractFloat extracts a float64 from a CBOR-decoded value.
+// extractFloat extracts a float64 from a CBOR-decoded value.
 // CBOR integers are also accepted and converted to float64, since the protocol
 // may encode whole-number floats as integers.
-func ExtractFloat(v any) (float64, error) {
+func extractFloat(v any) (float64, error) {
 	switch x := v.(type) {
 	case float64:
 		return x, nil
@@ -71,8 +71,8 @@ func ExtractFloat(v any) (float64, error) {
 	}
 }
 
-// ExtractString extracts a string from a CBOR-decoded value.
-func ExtractString(v any) (string, error) {
+// extractString extracts a string from a CBOR-decoded value.
+func extractString(v any) (string, error) {
 	s, ok := v.(string)
 	if !ok {
 		return "", fmt.Errorf("expected string, got %T", v)
@@ -80,8 +80,8 @@ func ExtractString(v any) (string, error) {
 	return s, nil
 }
 
-// ExtractBool extracts a bool from a CBOR-decoded value.
-func ExtractBool(v any) (bool, error) {
+// extractBool extracts a bool from a CBOR-decoded value.
+func extractBool(v any) (bool, error) {
 	b, ok := v.(bool)
 	if !ok {
 		return false, fmt.Errorf("expected bool, got %T", v)
@@ -89,8 +89,8 @@ func ExtractBool(v any) (bool, error) {
 	return b, nil
 }
 
-// ExtractBytes extracts a []byte from a CBOR-decoded value.
-func ExtractBytes(v any) ([]byte, error) {
+// extractBytes extracts a []byte from a CBOR-decoded value.
+func extractBytes(v any) ([]byte, error) {
 	b, ok := v.([]byte)
 	if !ok {
 		return nil, fmt.Errorf("expected bytes, got %T", v)
@@ -98,8 +98,8 @@ func ExtractBytes(v any) ([]byte, error) {
 	return b, nil
 }
 
-// ExtractList extracts a []any slice from a CBOR-decoded value.
-func ExtractList(v any) ([]any, error) {
+// extractList extracts a []any slice from a CBOR-decoded value.
+func extractList(v any) ([]any, error) {
 	l, ok := v.([]any)
 	if !ok {
 		return nil, fmt.Errorf("expected list, got %T", v)
@@ -107,10 +107,10 @@ func ExtractList(v any) ([]any, error) {
 	return l, nil
 }
 
-// ExtractDict extracts a map[any]any from a CBOR-decoded value.
+// extractDict extracts a map[any]any from a CBOR-decoded value.
 // The fxamacker/cbor library decodes CBOR maps with interface{} keys when
 // decoding to any.
-func ExtractDict(v any) (map[any]any, error) {
+func extractDict(v any) (map[any]any, error) {
 	switch m := v.(type) {
 	case map[any]any:
 		return m, nil

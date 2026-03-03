@@ -22,8 +22,7 @@ func TestIntegersFromE2E(t *testing.T) {
 	minV := int64(10)
 	maxV := int64(50)
 	RunHegelTest("integers_from_e2e", func() {
-		n := Draw(IntegersFrom(&minV, &maxV))
-		v, _ := ExtractInt(n)
+		v := Draw(IntegersFrom(&minV, &maxV))
 		if v < 10 || v > 50 {
 			panic("integers_from: out of range [10, 50]")
 		}
@@ -33,12 +32,9 @@ func TestIntegersFromE2E(t *testing.T) {
 func TestIntegersFromUnboundedE2E(t *testing.T) {
 	hegelBinPath(t)
 	RunHegelTest("integers_from_unbounded_e2e", func() {
-		n := Draw(IntegersFrom(nil, nil))
-		// Unbounded integers may be int64, uint64, or *big.Int for very large values.
-		// Verify the value is non-nil (any integer type is valid).
-		if n == nil {
-			panic("integers_from unbounded: got nil value")
-		}
+		v := Draw(IntegersFrom(nil, nil))
+		// Unbounded integers return int64 directly — any value is valid.
+		_ = v
 	}, WithTestCases(20))
 }
 
@@ -46,11 +42,7 @@ func TestFloatsE2E_WithBounds(t *testing.T) {
 	hegelBinPath(t)
 	falseBool := false
 	RunHegelTest("floats_e2e_bounded", func() {
-		f := Draw(Floats(floatPtr(0.0), floatPtr(1.0), &falseBool, &falseBool, false, false))
-		fv, ok := f.(float64)
-		if !ok {
-			panic("floats: expected float64")
-		}
+		fv := Draw(Floats(floatPtr(0.0), floatPtr(1.0), &falseBool, &falseBool, false, false))
 		if math.IsNaN(fv) {
 			panic("floats: NaN not allowed when allow_nan=false")
 		}
@@ -66,23 +58,16 @@ func TestFloatsE2E_WithBounds(t *testing.T) {
 func TestFloatsE2E_Unbounded(t *testing.T) {
 	hegelBinPath(t)
 	RunHegelTest("floats_e2e_unbounded", func() {
-		f := Draw(Floats(nil, nil, nil, nil, false, false))
+		fv := Draw(Floats(nil, nil, nil, nil, false, false))
 		// Unbounded floats may produce NaN or Inf — any float64 is valid.
-		_, ok := f.(float64)
-		if !ok {
-			panic("floats: expected float64 value")
-		}
+		_ = fv
 	}, WithTestCases(50))
 }
 
 func TestFloatsE2E_OnlyMin(t *testing.T) {
 	hegelBinPath(t)
 	RunHegelTest("floats_e2e_only_min", func() {
-		f := Draw(Floats(floatPtr(0.0), nil, nil, nil, false, false))
-		fv, ok := f.(float64)
-		if !ok {
-			panic("floats: expected float64")
-		}
+		fv := Draw(Floats(floatPtr(0.0), nil, nil, nil, false, false))
 		// allow_nan is false (has min), allow_infinity is true (no max)
 		// Value should be >= 0.0 or Inf; NaN not allowed.
 		if math.IsNaN(fv) {
@@ -95,21 +80,15 @@ func TestBooleansE2E(t *testing.T) {
 	hegelBinPath(t)
 	RunHegelTest("booleans_e2e", func() {
 		b := Draw(Booleans(0.5))
-		_, ok := b.(bool)
-		if !ok {
-			panic("booleans: expected bool")
-		}
+		// Draw returns bool directly — any value is valid.
+		_ = b
 	}, WithTestCases(50))
 }
 
 func TestTextE2E(t *testing.T) {
 	hegelBinPath(t)
 	RunHegelTest("text_e2e", func() {
-		s := Draw(Text(2, 8))
-		sv, ok := s.(string)
-		if !ok {
-			panic("text: expected string")
-		}
+		sv := Draw(Text(2, 8))
 		count := utf8.RuneCountInString(sv)
 		if count < 2 || count > 8 {
 			panic("text: codepoint count out of range [2, 8]")
@@ -120,11 +99,7 @@ func TestTextE2E(t *testing.T) {
 func TestTextE2E_Unbounded(t *testing.T) {
 	hegelBinPath(t)
 	RunHegelTest("text_e2e_unbounded", func() {
-		s := Draw(Text(0, -1))
-		sv, ok := s.(string)
-		if !ok {
-			panic("text: expected string")
-		}
+		sv := Draw(Text(0, -1))
 		if !utf8.ValidString(sv) {
 			panic("text: invalid UTF-8 string")
 		}
@@ -134,11 +109,7 @@ func TestTextE2E_Unbounded(t *testing.T) {
 func TestBinaryE2E(t *testing.T) {
 	hegelBinPath(t)
 	RunHegelTest("binary_e2e", func() {
-		b := Draw(Binary(1, 10))
-		bv, ok := b.([]byte)
-		if !ok {
-			panic("binary: expected []byte")
-		}
+		bv := Draw(Binary(1, 10))
 		if len(bv) < 1 || len(bv) > 10 {
 			panic("binary: byte length out of range [1, 10]")
 		}
@@ -148,10 +119,8 @@ func TestBinaryE2E(t *testing.T) {
 func TestBinaryE2E_Unbounded(t *testing.T) {
 	hegelBinPath(t)
 	RunHegelTest("binary_e2e_unbounded", func() {
-		b := Draw(Binary(0, -1))
-		_, ok := b.([]byte)
-		if !ok {
-			panic("binary: expected []byte")
-		}
+		bv := Draw(Binary(0, -1))
+		// Draw returns []byte directly — any value is valid.
+		_ = bv
 	}, WithTestCases(50))
 }

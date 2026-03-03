@@ -389,7 +389,7 @@ func TestResultOrErrorReturnsResult(t *testing.T) {
 	if err != nil {
 		t.Fatalf("resultOrError: %v", err)
 	}
-	n, _ := ExtractInt(v)
+	n, _ := extractInt(v)
 	if n != 42 {
 		t.Errorf("result = %v, want 42", v)
 	}
@@ -414,15 +414,15 @@ func TestRequestHandling(t *testing.T) {
 			if err != nil {
 				return nil, err
 			}
-			m, err := ExtractDict(v)
+			m, err := extractDict(v)
 			if err != nil {
 				return nil, err
 			}
-			x, err := ExtractInt(m["x"])
+			x, err := extractInt(m["x"])
 			if err != nil {
 				return nil, err
 			}
-			y, err := ExtractInt(m["y"])
+			y, err := extractInt(m["y"])
 			if err != nil {
 				return nil, err
 			}
@@ -451,13 +451,13 @@ func TestRequestHandling(t *testing.T) {
 		t.Fatalf("pending.Get: %v", err)
 	}
 
-	m, err := ExtractDict(result)
+	m, err := extractDict(result)
 	if err != nil {
-		t.Fatalf("ExtractDict: %v", err)
+		t.Fatalf("extractDict: %v", err)
 	}
-	sum, err := ExtractInt(m["sum"])
+	sum, err := extractInt(m["sum"])
 	if err != nil {
-		t.Fatalf("ExtractInt sum: %v", err)
+		t.Fatalf("extractInt sum: %v", err)
 	}
 	if sum != 5 {
 		t.Errorf("sum = %d, want 5", sum)
@@ -480,8 +480,8 @@ func TestPendingRequestCaching(t *testing.T) {
 		ch := serverConn.NewChannel("PR")
 		ch.HandleRequests(func(payload []byte) (any, error) {
 			v, _ := DecodeCBOR(payload)
-			m, _ := ExtractDict(v)
-			val, _ := ExtractInt(m["value"])
+			m, _ := extractDict(v)
+			val, _ := extractInt(m["value"])
 			return val * 2, nil
 		}, nil)
 	}()
@@ -507,8 +507,8 @@ func TestPendingRequestCaching(t *testing.T) {
 		t.Fatalf("Get 2: %v", err)
 	}
 
-	n1, _ := ExtractInt(v1)
-	n2, _ := ExtractInt(v2)
+	n1, _ := extractInt(v1)
+	n2, _ := extractInt(v2)
 	if n1 != 42 || n2 != 42 {
 		t.Errorf("pending caching: got %d, %d; want 42, 42", n1, n2)
 	}
@@ -546,7 +546,7 @@ func TestReceiveResponse(t *testing.T) {
 	if err != nil {
 		t.Fatalf("ReceiveResponse: %v", err)
 	}
-	n, _ := ExtractInt(result)
+	n, _ := extractInt(result)
 	if n != 42 {
 		t.Errorf("result = %d, want 42", n)
 	}
@@ -989,7 +989,7 @@ func TestReceiveResponseDecodeCBORError(t *testing.T) {
 	}
 }
 
-// --- ReceiveResponse: ExtractDict error (payload is not a map) ---
+// --- ReceiveResponse: extractDict error (payload is not a map) ---
 
 func TestReceiveResponseExtractDictError(t *testing.T) {
 	s, _ := socketPair(t)
@@ -1003,7 +1003,7 @@ func TestReceiveResponseExtractDictError(t *testing.T) {
 
 	_, err := ch.ReceiveResponse(1, 100*time.Millisecond)
 	if err == nil {
-		t.Fatal("expected ExtractDict error from ReceiveResponse")
+		t.Fatal("expected extractDict error from ReceiveResponse")
 	}
 }
 

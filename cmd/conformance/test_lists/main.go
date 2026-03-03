@@ -51,52 +51,60 @@ func main() {
 		}
 	}
 
-	var elemGen hegel.Generator
-	elemGen = hegel.IntegersFrom(minValPtr, maxValPtr)
+	elemGen := hegel.IntegersFrom(minValPtr, maxValPtr)
 
 	// When running collection StopTest modes, force the collection protocol
 	// by wrapping the element generator with a no-op Filter. This makes it
 	// non-basic, so Lists uses new_collection/collection_more instead of a
 	// single generate command with a list schema.
 	testMode := os.Getenv("HEGEL_PROTOCOL_TEST_MODE")
-	if strings.Contains(testMode, "collection") {
-		elemGen = elemGen.Filter(func(any) bool { return true })
-	}
 
 	opts := hegel.ListsOptions{
 		MinSize: minSize,
 		MaxSize: maxSize,
 	}
-	gen := hegel.Lists(elemGen, opts)
+
 	n := hegel.GetTestCases()
 
-	hegel.RunHegelTest("conformance_lists", func() {
-		raw := hegel.Draw(gen)
-		items, _ := raw.([]any)
-		size := len(items)
-
-		var minElem, maxElem any
-		if size > 0 {
-			minVal := int64(math.MaxInt64)
-			maxVal := int64(math.MinInt64)
-			for _, item := range items {
-				v, _ := hegel.ExtractInt(item)
-				if v < minVal {
-					minVal = v
-				}
-				if v > maxVal {
-					maxVal = v
-				}
-			}
-			minElem = minVal
-			maxElem = maxVal
-		}
-
-		hegel.WriteMetrics(map[string]any{
-			"size":        size,
-			"min_element": minElem,
-			"max_element": maxElem,
-		})
-	}, hegel.WithTestCases(n))
+	if strings.Contains(testMode, "collection") {
+		filteredGen := hegel.Filter(elemGen, func(int64) bool { return true })
+		gen := hegel.Lists(filteredGen, opts)
+		hegel.RunHegelTest("conformance_lists", func() {
+			items := hegel.Draw(gen)
+			writeListMetrics(items)
+		}, hegel.WithTestCases(n))
+	} else {
+		gen := hegel.Lists(elemGen, opts)
+		hegel.RunHegelTest("conformance_lists", func() {
+			items := hegel.Draw(gen)
+			writeListMetrics(items)
+		}, hegel.WithTestCases(n))
+	}
 	os.Exit(0)
+}
+
+func writeListMetrics(items []int64) {
+	size := len(items)
+
+	var minElem, maxElem any
+	if size > 0 {
+		minVal := int64(math.MaxInt64)
+		maxVal := int64(math.MinInt64)
+		for _, v := range items {
+			if v < minVal {
+				minVal = v
+			}
+			if v > maxVal {
+				maxVal = v
+			}
+		}
+		minElem = minVal
+		maxElem = maxVal
+	}
+
+	hegel.WriteMetrics(map[string]any{
+		"size":        size,
+		"min_element": minElem,
+		"max_element": maxElem,
+	})
 }

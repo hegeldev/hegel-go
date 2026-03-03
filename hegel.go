@@ -10,15 +10,17 @@
 //
 //	func TestMyProperty(t *testing.T) {
 //	    hegel.RunHegelTest("my_property", func() {
-//	        n, _ := hegel.ExtractInt(hegel.Draw(hegel.Integers(0, 100)))
+//	        n := hegel.Draw(hegel.Integers(0, 100))
 //	        if n < 0 || n > 100 {
 //	            panic("out of range")
 //	        }
 //	    }, hegel.WithTestCases(50))
 //	}
 //
-// Inside the test body, use [Draw] to produce values from the composable [Generator]
-// types returned by functions such as [Integers], [Booleans], [Text], [Lists], and [OneOf].
+// Inside the test body, use [Draw] to produce typed values from the composable
+// [Generator] types returned by functions such as [Integers], [Booleans], [Text],
+// [Lists], and [OneOf]. Combinators like [Map], [Filter], and [FlatMap] are
+// top-level functions that compose generators.
 //
 // Use [Assume] to filter invalid inputs, [Note] to attach debug messages that
 // appear only on the minimal failing example, and [Target] to guide Hegel
@@ -31,7 +33,7 @@
 //  1. Wire protocol (readPacket, writePacket) — 20-byte header, CBOR payload, CRC32
 //  2. Connection and channels (connection, channel) — Unix socket multiplexing
 //  3. Test runner ([RunHegelTest], [RunHegelTestE]) — subprocess lifecycle, test loop
-//  4. Generators ([Generator], [BasicGenerator], [Lists], [Dicts], …) — value generation
+//  4. Generators ([Generator], [Lists], [Dicts], …) — type-safe value generation
 //
 // See the README and docs/getting-started.md for a full tutorial.
 package hegel

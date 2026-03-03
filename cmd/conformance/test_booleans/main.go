@@ -12,7 +12,7 @@ import (
 func main() {
 	n := hegel.GetTestCases()
 	hegel.RunHegelTest("conformance_booleans", func() {
-		v := hegel.Draw(hegel.Booleans(0.5)).(bool)
+		v := hegel.Draw(hegel.Booleans(0.5))
 		hegel.WriteMetrics(map[string]any{
 			"value": v,
 		})

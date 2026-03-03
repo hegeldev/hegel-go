@@ -62,7 +62,7 @@ func TestRunHegelTestPasses(t *testing.T) {
 func TestRunHegelTestFails(t *testing.T) {
 	hegelBinPath(t)
 	err := RunHegelTestE(t.Name()+"_inner", func() {
-		x, _ := ExtractInt(Draw(Integers(0, 100)))
+		x := Draw(Integers(0, 100))
 		// This always fails: no integer < 0 in [0,100]
 		if x >= 0 {
 			panic(fmt.Sprintf("assertion failed: %d >= 0", x))
@@ -114,7 +114,7 @@ func TestNoteNotFinal(t *testing.T) {
 func TestTargetSendsCommand(t *testing.T) {
 	hegelBinPath(t)
 	RunHegelTest(t.Name(), func() {
-		x, _ := ExtractInt(Draw(Integers(0, 100)))
+		x := Draw(Integers(0, 100))
 		Target(float64(x), "my_target")
 		if x < 0 || x > 100 {
 			panic("out of range")
@@ -414,8 +414,7 @@ func TestWithTestCasesOption(t *testing.T) {
 func TestStopTestOnCollectionMore(t *testing.T) {
 	hegelBinPath(t)
 	setEnv(t, "HEGEL_PROTOCOL_TEST_MODE", "stop_test_on_collection_more")
-	// Use Lists with a non-basic (filtered) generator to exercise collection_more.
-	nonBasic := Integers(0, 100).Filter(func(v any) bool { return true })
+	nonBasic := Filter(Integers(0, 10), func(v int64) bool { return true })
 	err := RunHegelTestE(t.Name(), func() {
 		Draw(Lists(nonBasic, ListsOptions{MinSize: 0, MaxSize: 10}))
 	})
@@ -427,8 +426,7 @@ func TestStopTestOnCollectionMore(t *testing.T) {
 func TestStopTestOnNewCollection(t *testing.T) {
 	hegelBinPath(t)
 	setEnv(t, "HEGEL_PROTOCOL_TEST_MODE", "stop_test_on_new_collection")
-	// Use Lists with a non-basic (filtered) generator to exercise new_collection.
-	nonBasic := Integers(0, 100).Filter(func(v any) bool { return true })
+	nonBasic := Filter(Integers(0, 10), func(v int64) bool { return true })
 	err := RunHegelTestE(t.Name(), func() {
 		Draw(Lists(nonBasic, ListsOptions{MinSize: 0, MaxSize: 10}))
 	})
@@ -484,9 +482,9 @@ func TestRunTestUnrecognisedEvent(t *testing.T) {
 			return
 		}
 		decoded, _ := DecodeCBOR(payload)
-		m, _ := ExtractDict(decoded)
+		m, _ := extractDict(decoded)
 		chIDVal := m[any("channel_id")]
-		chID, _ := ExtractInt(chIDVal)
+		chID, _ := extractInt(chIDVal)
 
 		// Ack the run_test.
 		ctrl.SendReplyValue(msgID, true) //nolint:errcheck
@@ -643,9 +641,9 @@ func runTestOnFakeServer(t *testing.T, testFn func(), serverReply func(caseCh *c
 			return
 		}
 		decoded, _ := DecodeCBOR(payload)
-		m, _ := ExtractDict(decoded)
+		m, _ := extractDict(decoded)
 		chIDVal := m[any("channel_id")]
-		chID, _ := ExtractInt(chIDVal)
+		chID, _ := extractInt(chIDVal)
 		ctrl.SendReplyValue(msgID, true) //nolint:errcheck
 
 		// Connect test channel.
@@ -845,7 +843,7 @@ func TestGenerateFromSchemaConnectionError(t *testing.T) {
 func TestIntegersGenerateUnit(t *testing.T) {
 	// Use a fake server to exercise Draw(Integers()).
 	err := runTestOnFakeServer(t, func() {
-		n, _ := ExtractInt(Draw(Integers(0, 10)))
+		n := Draw(Integers(0, 10))
 		if n < 0 || n > 10 {
 			panic(fmt.Sprintf("out of range: %d", n))
 		}
@@ -925,9 +923,9 @@ func TestRunTestEventDecodeError(t *testing.T) {
 		ctrl := serverConn.ControlChannel()
 		msgID, payload, _ := ctrl.RecvRequestRaw(5 * time.Second)
 		decoded, _ := DecodeCBOR(payload)
-		m, _ := ExtractDict(decoded)
+		m, _ := extractDict(decoded)
 		chIDVal := m[any("channel_id")]
-		chID, _ := ExtractInt(chIDVal)
+		chID, _ := extractInt(chIDVal)
 		ctrl.SendReplyValue(msgID, true) //nolint:errcheck
 
 		testCh, _ := serverConn.ConnectChannel(uint32(chID), "TestCh")
@@ -954,9 +952,9 @@ func TestRunTestEventNotDictError(t *testing.T) {
 		ctrl := serverConn.ControlChannel()
 		msgID, payload, _ := ctrl.RecvRequestRaw(5 * time.Second)
 		decoded, _ := DecodeCBOR(payload)
-		m, _ := ExtractDict(decoded)
+		m, _ := extractDict(decoded)
 		chIDVal := m[any("channel_id")]
-		chID, _ := ExtractInt(chIDVal)
+		chID, _ := extractInt(chIDVal)
 		ctrl.SendReplyValue(msgID, true) //nolint:errcheck
 
 		testCh, _ := serverConn.ConnectChannel(uint32(chID), "TestCh")
@@ -981,9 +979,9 @@ func TestRunTestCaseMissingChannel(t *testing.T) {
 		ctrl := serverConn.ControlChannel()
 		msgID, payload, _ := ctrl.RecvRequestRaw(5 * time.Second)
 		decoded, _ := DecodeCBOR(payload)
-		m, _ := ExtractDict(decoded)
+		m, _ := extractDict(decoded)
 		chIDVal := m[any("channel_id")]
-		chID, _ := ExtractInt(chIDVal)
+		chID, _ := extractInt(chIDVal)
 		ctrl.SendReplyValue(msgID, true) //nolint:errcheck
 
 		testCh, _ := serverConn.ConnectChannel(uint32(chID), "TestCh")
@@ -1047,9 +1045,9 @@ func TestRunTestEventRecvError(t *testing.T) {
 		ctrl := serverConn.ControlChannel()
 		msgID, payload, _ := ctrl.RecvRequestRaw(5 * time.Second)
 		decoded, _ := DecodeCBOR(payload)
-		m, _ := ExtractDict(decoded)
+		m, _ := extractDict(decoded)
 		chIDVal := m[any("channel_id")]
-		chID, _ := ExtractInt(chIDVal)
+		chID, _ := extractInt(chIDVal)
 		ctrl.SendReplyValue(msgID, true) //nolint:errcheck
 
 		// Don't connect the test channel — just close the connection.
@@ -1071,9 +1069,9 @@ func TestRunTestConnectCaseChannelError(t *testing.T) {
 		ctrl := serverConn.ControlChannel()
 		msgID, payload, _ := ctrl.RecvRequestRaw(5 * time.Second)
 		decoded, _ := DecodeCBOR(payload)
-		m, _ := ExtractDict(decoded)
+		m, _ := extractDict(decoded)
 		chIDVal := m[any("channel_id")]
-		chID, _ := ExtractInt(chIDVal)
+		chID, _ := extractInt(chIDVal)
 		ctrl.SendReplyValue(msgID, true) //nolint:errcheck
 
 		testCh, _ := serverConn.ConnectChannel(uint32(chID), "TestCh")
@@ -1103,8 +1101,8 @@ func TestRunTestCaseInteresting(t *testing.T) {
 		// Receive mark_complete with INTERESTING status.
 		msgID, payload, _ := caseCh.RecvRequestRaw(2 * time.Second)
 		decoded, _ := DecodeCBOR(payload)
-		m, _ := ExtractDict(decoded)
-		statusVal, _ := ExtractString(m[any("status")])
+		m, _ := extractDict(decoded)
+		statusVal, _ := extractString(m[any("status")])
 		if statusVal != "INTERESTING" {
 			// Still ack to unblock.
 		}
@@ -1139,8 +1137,8 @@ func TestRunTestCaseInvalid(t *testing.T) {
 	}, func(caseCh *channel) {
 		msgID, payload, _ := caseCh.RecvRequestRaw(2 * time.Second)
 		decoded, _ := DecodeCBOR(payload)
-		m, _ := ExtractDict(decoded)
-		statusVal, _ := ExtractString(m[any("status")])
+		m, _ := extractDict(decoded)
+		statusVal, _ := extractString(m[any("status")])
 		if statusVal != "INVALID" {
 			t.Errorf("expected INVALID status, got %q", statusVal)
 		}
@@ -1175,9 +1173,9 @@ func TestRunTestCaseMarkCompleteError(t *testing.T) {
 		ctrl := serverConn.ControlChannel()
 		msgID, payload, _ := ctrl.RecvRequestRaw(5 * time.Second)
 		decoded, _ := DecodeCBOR(payload)
-		m, _ := ExtractDict(decoded)
+		m, _ := extractDict(decoded)
 		chIDVal := m[any("channel_id")]
-		chID, _ := ExtractInt(chIDVal)
+		chID, _ := extractInt(chIDVal)
 		ctrl.SendReplyValue(msgID, true) //nolint:errcheck
 
 		testCh, _ := serverConn.ConnectChannel(uint32(chID), "TestCh")
@@ -1206,9 +1204,9 @@ func TestRunTestMultipleInteresting(t *testing.T) {
 		ctrl := serverConn.ControlChannel()
 		msgID, payload, _ := ctrl.RecvRequestRaw(5 * time.Second)
 		decoded, _ := DecodeCBOR(payload)
-		m, _ := ExtractDict(decoded)
+		m, _ := extractDict(decoded)
 		chIDVal := m[any("channel_id")]
-		chID, _ := ExtractInt(chIDVal)
+		chID, _ := extractInt(chIDVal)
 		ctrl.SendReplyValue(msgID, true) //nolint:errcheck
 
 		testCh, _ := serverConn.ConnectChannel(uint32(chID), "TestCh")
@@ -1259,9 +1257,9 @@ func TestRunTestSingleInterestingConnectError(t *testing.T) {
 		ctrl := serverConn.ControlChannel()
 		msgID, payload, _ := ctrl.RecvRequestRaw(5 * time.Second)
 		decoded, _ := DecodeCBOR(payload)
-		m, _ := ExtractDict(decoded)
+		m, _ := extractDict(decoded)
 		chIDVal := m[any("channel_id")]
-		chID, _ := ExtractInt(chIDVal)
+		chID, _ := extractInt(chIDVal)
 		ctrl.SendReplyValue(msgID, true) //nolint:errcheck
 
 		testCh, _ := serverConn.ConnectChannel(uint32(chID), "TestCh")
@@ -1303,9 +1301,9 @@ func TestRunTestFinalCaseRecvError(t *testing.T) {
 		ctrl := serverConn.ControlChannel()
 		msgID, payload, _ := ctrl.RecvRequestRaw(5 * time.Second)
 		decoded, _ := DecodeCBOR(payload)
-		m, _ := ExtractDict(decoded)
+		m, _ := extractDict(decoded)
 		chIDVal := m[any("channel_id")]
-		chID, _ := ExtractInt(chIDVal)
+		chID, _ := extractInt(chIDVal)
 		ctrl.SendReplyValue(msgID, true) //nolint:errcheck
 
 		testCh, _ := serverConn.ConnectChannel(uint32(chID), "TestCh")
@@ -1342,9 +1340,9 @@ func TestRunTestMultiInterestingRecvError(t *testing.T) {
 		ctrl := serverConn.ControlChannel()
 		msgID, payload, _ := ctrl.RecvRequestRaw(5 * time.Second)
 		decoded, _ := DecodeCBOR(payload)
-		m, _ := ExtractDict(decoded)
+		m, _ := extractDict(decoded)
 		chIDVal := m[any("channel_id")]
-		chID, _ := ExtractInt(chIDVal)
+		chID, _ := extractInt(chIDVal)
 		ctrl.SendReplyValue(msgID, true) //nolint:errcheck
 
 		testCh, _ := serverConn.ConnectChannel(uint32(chID), "TestCh")
@@ -1634,9 +1632,9 @@ func TestRunTestSingleInterestingCasePasses(t *testing.T) {
 		ctrl := serverConn.ControlChannel()
 		msgID, payload, _ := ctrl.RecvRequestRaw(5 * time.Second)
 		decoded, _ := DecodeCBOR(payload)
-		m, _ := ExtractDict(decoded)
+		m, _ := extractDict(decoded)
 		chIDVal := m[any("channel_id")]
-		chID, _ := ExtractInt(chIDVal)
+		chID, _ := extractInt(chIDVal)
 		ctrl.SendReplyValue(msgID, true) //nolint:errcheck
 
 		testCh, _ := serverConn.ConnectChannel(uint32(chID), "TestCh")
@@ -1759,9 +1757,9 @@ func TestRunTestMultiInterestingConnectError(t *testing.T) {
 		ctrl := serverConn.ControlChannel()
 		msgID, payload, _ := ctrl.RecvRequestRaw(5 * time.Second)
 		decoded, _ := DecodeCBOR(payload)
-		m, _ := ExtractDict(decoded)
+		m, _ := extractDict(decoded)
 		chIDVal := m[any("channel_id")]
-		chID, _ := ExtractInt(chIDVal)
+		chID, _ := extractInt(chIDVal)
 		ctrl.SendReplyValue(msgID, true) //nolint:errcheck
 
 		testCh, _ := serverConn.ConnectChannel(uint32(chID), "TestCh")
@@ -1812,9 +1810,9 @@ func TestRunTestMultiInterestingCasePasses(t *testing.T) {
 		ctrl := serverConn.ControlChannel()
 		msgID, payload, _ := ctrl.RecvRequestRaw(5 * time.Second)
 		decoded, _ := DecodeCBOR(payload)
-		m, _ := ExtractDict(decoded)
+		m, _ := extractDict(decoded)
 		chIDVal := m[any("channel_id")]
-		chID, _ := ExtractInt(chIDVal)
+		chID, _ := extractInt(chIDVal)
 		ctrl.SendReplyValue(msgID, true) //nolint:errcheck
 
 		testCh, _ := serverConn.ConnectChannel(uint32(chID), "TestCh")
@@ -1937,6 +1935,27 @@ func TestFindHegelLookPathAndFallback(t *testing.T) {
 	os.Setenv("PATH", oldPath) //nolint:errcheck
 	if result != "hegel" {
 		t.Errorf("findHegel fallback: got %q, want \"hegel\"", result)
+	}
+}
+
+// --- findHegel: cwd venv discovery ---
+
+func TestFindHegelCwdVenv(t *testing.T) {
+	// Create a temp dir with .venv/bin/hegel, chdir there, and verify findHegel returns it.
+	origCwd, _ := os.Getwd()
+	tmp := t.TempDir()
+	hegelBin := filepath.Join(tmp, ".venv", "bin", "hegel")
+	os.MkdirAll(filepath.Dir(hegelBin), 0o755)           //nolint:errcheck
+	os.WriteFile(hegelBin, []byte("#!/bin/sh\n"), 0o755) //nolint:errcheck
+	os.Chdir(tmp)                                        //nolint:errcheck
+	defer os.Chdir(origCwd)                              //nolint:errcheck
+
+	result := findHegel()
+	// Resolve symlinks for comparison (macOS: /var -> /private/var).
+	resolvedResult, _ := filepath.EvalSymlinks(result)
+	resolvedExpected, _ := filepath.EvalSymlinks(hegelBin)
+	if resolvedResult != resolvedExpected {
+		t.Errorf("findHegel with cwd venv: got %q, want %q", result, hegelBin)
 	}
 }
 

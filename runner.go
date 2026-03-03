@@ -125,12 +125,12 @@ func generateFromSchema(schema map[string]any, data *testCaseData) (any, error) 
 
 // Draw generates a value from the given generator.
 // Must be called from within a Hegel test.
-func Draw(gen Generator) any {
+func Draw[T any](gen *Generator[T]) T {
 	data := getState()
 	if data == nil {
 		panic("hegel: Draw() cannot be called outside of a Hegel test")
 	}
-	return gen.DoDraw(data)
+	return gen.drawFn(data)
 }
 
 // Assume rejects the current test case if condition is false.
@@ -312,17 +312,17 @@ func (c *client) runTest(name string, fn func(), opts runOptions) error {
 		if err != nil {
 			return fmt.Errorf("hegel: test event decode: %w", err)
 		}
-		msg, err := ExtractDict(decoded)
+		msg, err := extractDict(decoded)
 		if err != nil {
 			return fmt.Errorf("hegel: test event not a dict: %w", err)
 		}
 		eventVal := msg[any("event")]
-		event, _ := ExtractString(eventVal)
+		event, _ := extractString(eventVal)
 
 		switch event {
 		case "test_case":
 			chIDVal := msg[any("channel_id")]
-			chID, err := ExtractInt(chIDVal)
+			chID, err := extractInt(chIDVal)
 			if err != nil {
 				return fmt.Errorf("hegel: test_case missing channel_id: %w", err)
 			}
@@ -338,7 +338,7 @@ func (c *client) runTest(name string, fn func(), opts runOptions) error {
 		case "test_done":
 			testCh.SendReplyValue(msgID, true) //nolint:errcheck
 			resultsVal := msg[any("results")]
-			resultData, _ = ExtractDict(resultsVal)
+			resultData, _ = extractDict(resultsVal)
 			goto doneLoop
 
 		default:
@@ -357,7 +357,7 @@ doneLoop:
 	}
 
 	nInterestingVal := resultData[any("interesting_test_cases")]
-	nInteresting, _ := ExtractInt(nInterestingVal)
+	nInteresting, _ := extractInt(nInterestingVal)
 	if nInteresting == 0 {
 		return nil
 	}
@@ -369,9 +369,9 @@ doneLoop:
 			return fmt.Errorf("hegel: final case recv: %w", err)
 		}
 		decoded, _ := DecodeCBOR(raw)
-		msg, _ := ExtractDict(decoded)
+		msg, _ := extractDict(decoded)
 		chIDVal := msg[any("channel_id")]
-		chID, _ := ExtractInt(chIDVal)
+		chID, _ := extractInt(chIDVal)
 		testCh.SendReplyValue(msgID, nil) //nolint:errcheck
 		caseCh, err := c.conn.ConnectChannel(uint32(chID), "FinalCase")
 		if err != nil {
@@ -388,9 +388,9 @@ doneLoop:
 			return fmt.Errorf("hegel: final case %d recv: %w", i, err)
 		}
 		decoded, _ := DecodeCBOR(raw)
-		msg, _ := ExtractDict(decoded)
+		msg, _ := extractDict(decoded)
 		chIDVal := msg[any("channel_id")]
-		chID, _ := ExtractInt(chIDVal)
+		chID, _ := extractInt(chIDVal)
 		testCh.SendReplyValue(msgID, nil) //nolint:errcheck
 		caseCh, err := c.conn.ConnectChannel(uint32(chID), fmt.Sprintf("FinalCase%d", i))
 		if err != nil {
