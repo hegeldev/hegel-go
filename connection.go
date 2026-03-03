@@ -10,9 +10,6 @@ import (
 	"time"
 )
 
-// protocolVersion is the version string used in handshakes.
-const protocolVersion = "0.3"
-
 // handshakePrefix is the prefix expected at the start of a valid handshake response.
 const handshakePrefix = "Hegel/"
 
@@ -28,7 +25,6 @@ type connectionState int
 const (
 	stateUnresolved connectionState = iota
 	stateClient
-	stateServer
 )
 
 // connection manages a multiplexed socket with a demand-driven reader.
@@ -229,27 +225,6 @@ func (c *connection) SendHandshakeVersion() (string, error) {
 	return strings.TrimPrefix(decoded, handshakePrefix), nil
 }
 
-// ReceiveHandshake performs the server side of the handshake.
-func (c *connection) ReceiveHandshake() error {
-	c.writerMu.Lock()
-	if c.state != stateUnresolved {
-		c.writerMu.Unlock()
-		return fmt.Errorf("handshake already established")
-	}
-	c.state = stateServer
-	c.writerMu.Unlock()
-
-	msgID, payload, err := c.controlCh.RecvRequestRaw(10 * time.Second)
-	if err != nil {
-		return err
-	}
-	if !bytes.Equal(payload, handshakeRequest) {
-		return fmt.Errorf("bad handshake: expected %q, got %q", handshakeRequest, payload)
-	}
-	response := []byte(handshakePrefix + protocolVersion)
-	return c.controlCh.SendReplyRaw(msgID, response)
-}
-
 // NewChannel allocates a new client-side logical channel. Panics if called before
 // the handshake is complete (matching Python's ValueError).
 func (c *connection) NewChannel(name string) *channel {
@@ -260,14 +235,8 @@ func (c *connection) NewChannel(name string) *channel {
 		panic("Cannot create a new channel before handshake has been performed")
 	}
 
-	var channelID uint32
-	if c.state == stateClient {
-		// Client channels are odd: (counter << 1) | 1
-		channelID = uint32((c.nextChannelID << 1) | 1)
-	} else {
-		// Server channels are even: (counter << 1) | 0
-		channelID = uint32(c.nextChannelID << 1)
-	}
+	// Client channels are odd: (counter << 1) | 1
+	channelID := uint32((c.nextChannelID << 1) | 1)
 	c.nextChannelID++
 
 	ch := &channel{
@@ -419,18 +388,6 @@ func (ch *channel) SendReplyValue(msgID uint32, v any) error {
 	return ch.SendReplyRaw(msgID, payload)
 }
 
-// SendReplyError sends a CBOR-encoded error reply with the given message and type.
-func (ch *channel) SendReplyError(msgID uint32, errMsg, errType string) error {
-	payload, err := EncodeCBOR(map[string]any{
-		"error": errMsg,
-		"type":  errType,
-	})
-	if err != nil {
-		panic(fmt.Sprintf("hegel: unreachable: SendReplyError encode: %v", err))
-	}
-	return ch.SendReplyRaw(msgID, payload)
-}
-
 // RecvRequestRaw waits for the next server-initiated request and returns
 // (messageID, payload, error). timeout <= 0 means no timeout.
 func (ch *channel) RecvRequestRaw(timeout time.Duration) (uint32, []byte, error) {
@@ -545,28 +502,6 @@ func (ch *channel) Request(payload []byte) (*pendingRequest, error) {
 		return nil, err
 	}
 	return &pendingRequest{ch: ch, msgID: msgID}, nil
-}
-
-// HandleRequests processes incoming requests with handler until stopFn returns true.
-// The handler receives the raw CBOR request payload and returns a Go value (any) that
-// will be sent as {"result": v}. On error, {"error": ..., "type": ...} is sent.
-// If stopFn is nil, it runs indefinitely until the connection dies.
-func (ch *channel) HandleRequests(handler func([]byte) (any, error), stopFn func() bool) {
-	for {
-		if stopFn != nil && stopFn() {
-			return
-		}
-		msgID, payload, err := ch.RecvRequestRaw(0)
-		if err != nil {
-			return
-		}
-		result, handlerErr := handler(payload)
-		if handlerErr != nil {
-			ch.SendReplyError(msgID, handlerErr.Error(), fmt.Sprintf("%T", handlerErr)) //nolint:errcheck
-		} else {
-			ch.SendReplyValue(msgID, result) //nolint:errcheck
-		}
-	}
 }
 
 // pendingRequest is a future for an in-flight request.
