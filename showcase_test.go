@@ -196,7 +196,7 @@ func TestBooleansWithHighP(t *testing.T) {
 
 // TestMapDoubledIntegersAreEven demonstrates that mapping integers by doubling
 // always produces even numbers — a fundamental arithmetic property.
-// Uses BasicGenerator.Map which preserves the schema (single server round-trip).
+// Uses basicGenerator.Map which preserves the schema (single server round-trip).
 func TestMapDoubledIntegersAreEven(t *testing.T) {
 	hegelBinPath(t)
 	doubled := Integers(-50, 50).Map(func(v any) any {
@@ -486,7 +486,7 @@ func TestTuples3StringIntFloatTriples(t *testing.T) {
 func TestFlatMapTextLengthMatchesInteger(t *testing.T) {
 	hegelBinPath(t)
 	// Generate n in [1,8], then generate text of exactly n codepoints.
-	gen := FlatMap(Integers(1, 8), func(v any) Generator {
+	gen := flatMap(Integers(1, 8), func(v any) Generator {
 		n, _ := ExtractInt(v)
 		return Text(int(n), int(n))
 	})
@@ -494,12 +494,12 @@ func TestFlatMapTextLengthMatchesInteger(t *testing.T) {
 		v := Draw(gen)
 		s, ok := v.(string)
 		if !ok {
-			panic(fmt.Sprintf("FlatMap text: expected string, got %T", v))
+			panic(fmt.Sprintf("flatMap text: expected string, got %T", v))
 		}
 		count := utf8.RuneCountInString(s)
 		// The text length must be in [1,8] because n is in [1,8].
 		if count < 1 || count > 8 {
-			panic(fmt.Sprintf("FlatMap text: codepoint count %d out of [1,8]", count))
+			panic(fmt.Sprintf("flatMap text: codepoint count %d out of [1,8]", count))
 		}
 	}, WithTestCases(50))
 }
@@ -512,7 +512,7 @@ func TestFlatMapListLengthMatchesInteger(t *testing.T) {
 	// Generate n in [1,6], then generate a list of exactly n booleans.
 	// Property: every generated list has length in [1,6], and the length
 	// matches the integer that controlled the generation.
-	gen := FlatMap(Integers(1, 6), func(v any) Generator {
+	gen := flatMap(Integers(1, 6), func(v any) Generator {
 		n, _ := ExtractInt(v)
 		sz := int(n)
 		return Lists(Booleans(0.5), ListsOptions{MinSize: sz, MaxSize: sz})
@@ -521,16 +521,16 @@ func TestFlatMapListLengthMatchesInteger(t *testing.T) {
 		v := Draw(gen)
 		bools, ok := v.([]any)
 		if !ok {
-			panic(fmt.Sprintf("FlatMap list: expected []any, got %T", v))
+			panic(fmt.Sprintf("flatMap list: expected []any, got %T", v))
 		}
 		// Length must be in [1,6].
 		if len(bools) < 1 || len(bools) > 6 {
-			panic(fmt.Sprintf("FlatMap list: length %d out of [1,6]", len(bools)))
+			panic(fmt.Sprintf("flatMap list: length %d out of [1,6]", len(bools)))
 		}
 		// Every element must be a boolean.
 		for i, elem := range bools {
 			if _, ok := elem.(bool); !ok {
-				panic(fmt.Sprintf("FlatMap list[%d]: expected bool, got %T", i, elem))
+				panic(fmt.Sprintf("flatMap list[%d]: expected bool, got %T", i, elem))
 			}
 		}
 	}, WithTestCases(50))

@@ -7,10 +7,10 @@ import (
 )
 
 // =============================================================================
-// Generator interface and BasicGenerator tests
+// Generator interface and basicGenerator tests
 // =============================================================================
 
-// --- BasicGenerator: generate with no transform ---
+// --- basicGenerator: generate with no transform ---
 
 func TestBasicGeneratorGenerateNoTransform(t *testing.T) {
 	// Set up fake server that responds to a generate command with int64(42).
@@ -50,7 +50,7 @@ func TestBasicGeneratorGenerateNoTransform(t *testing.T) {
 	cli := newClient(clientConn)
 	var gotVal int64
 	err := cli.runTest("basic_gen_no_transform", func() {
-		g := &BasicGenerator{schema: schema}
+		g := &basicGenerator{schema: schema}
 		v := Draw(g)
 		gotVal, _ = ExtractInt(v)
 	}, runOptions{testCases: 1})
@@ -62,7 +62,7 @@ func TestBasicGeneratorGenerateNoTransform(t *testing.T) {
 	}
 }
 
-// --- BasicGenerator: generate with transform ---
+// --- basicGenerator: generate with transform ---
 
 func TestBasicGeneratorGenerateWithTransform(t *testing.T) {
 	schema := map[string]any{"type": "integer"}
@@ -98,7 +98,7 @@ func TestBasicGeneratorGenerateWithTransform(t *testing.T) {
 	var gotVal int64
 	err := cli.runTest("basic_gen_with_transform", func() {
 		// transform: multiply by 2
-		g := &BasicGenerator{
+		g := &basicGenerator{
 			schema:    schema,
 			transform: func(v any) any { n, _ := ExtractInt(v); return n * 2 },
 		}
@@ -113,11 +113,11 @@ func TestBasicGeneratorGenerateWithTransform(t *testing.T) {
 	}
 }
 
-// --- BasicGenerator.Map: no existing transform ---
+// --- basicGenerator.Map: no existing transform ---
 
 func TestBasicGeneratorMapNoTransform(t *testing.T) {
 	schema := map[string]any{"type": "boolean"}
-	g := &BasicGenerator{schema: schema}
+	g := &basicGenerator{schema: schema}
 	mapped := g.Map(func(v any) any {
 		b, _ := v.(bool)
 		if b {
@@ -125,10 +125,10 @@ func TestBasicGeneratorMapNoTransform(t *testing.T) {
 		}
 		return "no"
 	})
-	// Map on BasicGenerator returns another BasicGenerator with same schema.
-	bg, ok := mapped.(*BasicGenerator)
+	// Map on basicGenerator returns another basicGenerator with same schema.
+	bg, ok := mapped.(*basicGenerator)
 	if !ok {
-		t.Fatalf("Map on BasicGenerator should return *BasicGenerator, got %T", mapped)
+		t.Fatalf("Map on basicGenerator should return *basicGenerator, got %T", mapped)
 	}
 	if bg.schema["type"] != "boolean" {
 		t.Errorf("schema not preserved by Map")
@@ -138,11 +138,11 @@ func TestBasicGeneratorMapNoTransform(t *testing.T) {
 	}
 }
 
-// --- BasicGenerator.Map: compose transforms ---
+// --- basicGenerator.Map: compose transforms ---
 
 func TestBasicGeneratorMapComposesTransforms(t *testing.T) {
 	schema := map[string]any{"type": "integer"}
-	g := &BasicGenerator{
+	g := &basicGenerator{
 		schema:    schema,
 		transform: func(v any) any { n, _ := ExtractInt(v); return n + 1 },
 	}
@@ -151,9 +151,9 @@ func TestBasicGeneratorMapComposesTransforms(t *testing.T) {
 		n, _ := ExtractInt(v)
 		return n * 2
 	})
-	bg, ok := mapped.(*BasicGenerator)
+	bg, ok := mapped.(*basicGenerator)
 	if !ok {
-		t.Fatalf("double Map should return *BasicGenerator")
+		t.Fatalf("double Map should return *basicGenerator")
 	}
 	// Simulate applying: start with int64(5) → +1 → 6 → *2 → 12
 	result := bg.transform(int64(5))
@@ -163,10 +163,10 @@ func TestBasicGeneratorMapComposesTransforms(t *testing.T) {
 	}
 }
 
-// --- BasicGenerator.AsBasic ---
+// --- basicGenerator.AsBasic ---
 
 func TestBasicGeneratorAsBasic(t *testing.T) {
-	g := &BasicGenerator{schema: map[string]any{"type": "boolean"}}
+	g := &basicGenerator{schema: map[string]any{"type": "boolean"}}
 	ab := g.AsBasic()
 	if ab != g {
 		t.Error("AsBasic should return itself")
@@ -216,7 +216,7 @@ func TestMappedGeneratorGenerate(t *testing.T) {
 	cli := newClient(clientConn)
 	var gotVal int64
 	err := cli.runTest("mapped_gen", func() {
-		inner := &BasicGenerator{schema: schema}
+		inner := &basicGenerator{schema: schema}
 		mg := &mappedGenerator{
 			inner: inner,
 			fn:    func(v any) any { n, _ := ExtractInt(v); return n * 10 },
@@ -236,7 +236,7 @@ func TestMappedGeneratorGenerate(t *testing.T) {
 
 func TestMappedGeneratorAsBasic(t *testing.T) {
 	mg := &mappedGenerator{
-		inner: &BasicGenerator{schema: map[string]any{"type": "integer"}},
+		inner: &basicGenerator{schema: map[string]any{"type": "integer"}},
 		fn:    func(v any) any { return v },
 	}
 	if mg.AsBasic() != nil {
@@ -244,14 +244,14 @@ func TestMappedGeneratorAsBasic(t *testing.T) {
 	}
 }
 
-// --- mappedGenerator.Map returns BasicGenerator when inner is BasicGenerator ---
+// --- mappedGenerator.Map returns basicGenerator when inner is basicGenerator ---
 
 func TestMappedGeneratorMapOnBasicInner(t *testing.T) {
-	inner := &BasicGenerator{schema: map[string]any{"type": "integer"}}
-	// Map on BasicGenerator returns BasicGenerator.
+	inner := &basicGenerator{schema: map[string]any{"type": "integer"}}
+	// Map on basicGenerator returns basicGenerator.
 	result := inner.Map(func(v any) any { return v })
-	if _, ok := result.(*BasicGenerator); !ok {
-		t.Errorf("Map on BasicGenerator should return *BasicGenerator")
+	if _, ok := result.(*basicGenerator); !ok {
+		t.Errorf("Map on basicGenerator should return *basicGenerator")
 	}
 }
 
@@ -324,24 +324,24 @@ func TestCollectionMoreCachesFalse(t *testing.T) {
 func TestLabelConstants(t *testing.T) {
 	cases := []struct {
 		name string
-		val  SpanLabel
+		val  spanLabel
 		want int
 	}{
-		{"List", LabelList, 1},
-		{"ListElement", LabelListElement, 2},
-		{"Set", LabelSet, 3},
-		{"SetElement", LabelSetElement, 4},
-		{"Map", LabelMap, 5},
-		{"MapEntry", LabelMapEntry, 6},
-		{"Tuple", LabelTuple, 7},
-		{"OneOf", LabelOneOf, 8},
-		{"Optional", LabelOptional, 9},
-		{"FixedDict", LabelFixedDict, 10},
-		{"FlatMap", LabelFlatMap, 11},
-		{"Filter", LabelFilter, 12},
-		{"Mapped", LabelMapped, 13},
-		{"SampledFrom", LabelSampledFrom, 14},
-		{"EnumVariant", LabelEnumVariant, 15},
+		{"List", labelList, 1},
+		{"ListElement", labelListElement, 2},
+		{"Set", labelSet, 3},
+		{"SetElement", labelSetElement, 4},
+		{"Map", labelMap, 5},
+		{"MapEntry", labelMapEntry, 6},
+		{"Tuple", labelTuple, 7},
+		{"OneOf", labelOneOf, 8},
+		{"Optional", labelOptional, 9},
+		{"FixedDict", labelFixedDict, 10},
+		{"FlatMap", labelFlatMap, 11},
+		{"Filter", labelFilter, 12},
+		{"Mapped", labelMapped, 13},
+		{"SampledFrom", labelSampledFrom, 14},
+		{"EnumVariant", labelEnumVariant, 15},
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
@@ -376,9 +376,9 @@ func TestIntegersGeneratorHappyPath(t *testing.T) {
 
 func TestIntegersSchema(t *testing.T) {
 	g := Integers(-5, 5)
-	bg, ok := g.(*BasicGenerator)
+	bg, ok := g.(*basicGenerator)
 	if !ok {
-		t.Fatalf("Integers should return *BasicGenerator")
+		t.Fatalf("Integers should return *basicGenerator")
 	}
 	min, _ := ExtractInt(bg.schema["min_value"])
 	max, _ := ExtractInt(bg.schema["max_value"])
@@ -397,9 +397,9 @@ func TestIntegersSchema(t *testing.T) {
 
 func TestIntegersNoBounds(t *testing.T) {
 	g := IntegersUnbounded()
-	bg, ok := g.(*BasicGenerator)
+	bg, ok := g.(*basicGenerator)
 	if !ok {
-		t.Fatalf("IntegersUnbounded should return *BasicGenerator")
+		t.Fatalf("IntegersUnbounded should return *basicGenerator")
 	}
 	if _, hasMin := bg.schema["min_value"]; hasMin {
 		t.Error("min_value should not be present when no min bound given")
@@ -645,16 +645,16 @@ func TestFromRegexE2E(t *testing.T) {
 }
 
 // =============================================================================
-// BasicGenerator.Generate error path (line 78-79)
+// basicGenerator.Generate error path (line 78-79)
 // =============================================================================
 
 // TestBasicGeneratorGenerateErrorResponse covers the error path in
-// BasicGenerator.Generate when generateFromSchema returns a non-StopTest error.
+// basicGenerator.Generate when generateFromSchema returns a non-StopTest error.
 func TestBasicGeneratorGenerateErrorResponse(t *testing.T) {
 	hegelBinPath(t)
 	setEnv(t, "HEGEL_PROTOCOL_TEST_MODE", "error_response")
 	err := RunHegelTestE(t.Name(), func() {
-		g := &BasicGenerator{schema: map[string]any{"type": "integer"}}
+		g := &basicGenerator{schema: map[string]any{"type": "integer"}}
 		_ = Draw(g) // should panic with requestError → caught as INTERESTING
 	})
 	// error_response causes the test to appear interesting (failing).
@@ -666,10 +666,10 @@ func TestBasicGeneratorGenerateErrorResponse(t *testing.T) {
 // =============================================================================
 
 func TestGeneratorMapOnNonBasic(t *testing.T) {
-	// A custom generator that is not a BasicGenerator.
+	// A custom generator that is not a basicGenerator.
 	schema := map[string]any{"type": "integer"}
-	inner := &BasicGenerator{schema: schema}
-	// mappedGenerator is not a BasicGenerator.
+	inner := &basicGenerator{schema: schema}
+	// mappedGenerator is not a basicGenerator.
 	mg := &mappedGenerator{inner: inner, fn: func(v any) any { return v }}
 	mapped := mg.Map(func(v any) any { return v })
 	// Mapping a non-basic generator should produce a mappedGenerator.
@@ -700,16 +700,16 @@ func TestMustSampledFromHappyPath(t *testing.T) {
 // =============================================================================
 
 // TestMapBasicGeneratorE2E verifies that mapping Integers(0,100) by doubling
-// always produces even values in [0, 200], and the result is still a BasicGenerator.
+// always produces even values in [0, 200], and the result is still a basicGenerator.
 func TestMapBasicGeneratorE2E(t *testing.T) {
 	hegelBinPath(t)
 	gen := Integers(0, 100).Map(func(v any) any {
 		n, _ := ExtractInt(v)
 		return n * 2
 	})
-	// Map on basic generator must preserve BasicGenerator type.
-	if _, ok := gen.(*BasicGenerator); !ok {
-		t.Fatalf("Map on BasicGenerator should return *BasicGenerator, got %T", gen)
+	// Map on basic generator must preserve basicGenerator type.
+	if _, ok := gen.(*basicGenerator); !ok {
+		t.Fatalf("Map on basicGenerator should return *basicGenerator, got %T", gen)
 	}
 	RunHegelTest(t.Name(), func() {
 		v := Draw(gen)
@@ -723,8 +723,8 @@ func TestMapBasicGeneratorE2E(t *testing.T) {
 	}, WithTestCases(50))
 }
 
-// TestMapChainedBasicGeneratorE2E verifies that chaining two maps on a BasicGenerator
-// preserves the BasicGenerator type and composes the transforms correctly.
+// TestMapChainedBasicGeneratorE2E verifies that chaining two maps on a basicGenerator
+// preserves the basicGenerator type and composes the transforms correctly.
 // Integers(0,100).Map(x+1).Map(x*2): result must be even, in [2, 202].
 func TestMapChainedBasicGeneratorE2E(t *testing.T) {
 	hegelBinPath(t)
@@ -737,9 +737,9 @@ func TestMapChainedBasicGeneratorE2E(t *testing.T) {
 			n, _ := ExtractInt(v)
 			return n * 2
 		})
-	// Both chained maps should still return a BasicGenerator (schema preserved).
-	if _, ok := gen.(*BasicGenerator); !ok {
-		t.Fatalf("chained Map on BasicGenerator should return *BasicGenerator, got %T", gen)
+	// Both chained maps should still return a basicGenerator (schema preserved).
+	if _, ok := gen.(*basicGenerator); !ok {
+		t.Fatalf("chained Map on basicGenerator should return *basicGenerator, got %T", gen)
 	}
 	RunHegelTest(t.Name(), func() {
 		v := Draw(gen)
@@ -756,10 +756,10 @@ func TestMapChainedBasicGeneratorE2E(t *testing.T) {
 
 // TestMapNonBasicGeneratorE2E verifies that mapping a mappedGenerator (non-basic)
 // wraps it in a MAPPED span and applies the transform correctly.
-// The result must be a mappedGenerator (not BasicGenerator).
+// The result must be a mappedGenerator (not basicGenerator).
 func TestMapNonBasicGeneratorE2E(t *testing.T) {
 	hegelBinPath(t)
-	// Create a non-basic generator by wrapping a BasicGenerator in mappedGenerator.
+	// Create a non-basic generator by wrapping a basicGenerator in mappedGenerator.
 	inner := Integers(1, 5)
 	nonBasic := &mappedGenerator{
 		inner: inner,
@@ -785,13 +785,13 @@ func TestMapNonBasicGeneratorE2E(t *testing.T) {
 	}, WithTestCases(50))
 }
 
-// TestMapSchemaPreservedUnit verifies unit-level schema properties of Map on BasicGenerator.
+// TestMapSchemaPreservedUnit verifies unit-level schema properties of Map on basicGenerator.
 func TestMapSchemaPreservedUnit(t *testing.T) {
 	base := Integers(0, 100)
 	mapped := base.Map(func(v any) any { return v })
-	bg, ok := mapped.(*BasicGenerator)
+	bg, ok := mapped.(*basicGenerator)
 	if !ok {
-		t.Fatalf("Map on BasicGenerator: expected *BasicGenerator, got %T", mapped)
+		t.Fatalf("Map on basicGenerator: expected *basicGenerator, got %T", mapped)
 	}
 	if bg.schema["type"] != "integer" {
 		t.Errorf("schema type: expected 'integer', got %v", bg.schema["type"])
@@ -799,7 +799,7 @@ func TestMapSchemaPreservedUnit(t *testing.T) {
 	if bg.transform == nil {
 		t.Error("transform should not be nil after Map")
 	}
-	// Map on BasicGenerator must preserve min/max bounds in the schema.
+	// Map on basicGenerator must preserve min/max bounds in the schema.
 	minV, _ := ExtractInt(bg.schema["min_value"])
 	maxV, _ := ExtractInt(bg.schema["max_value"])
 	if minV != 0 {
@@ -809,13 +809,13 @@ func TestMapSchemaPreservedUnit(t *testing.T) {
 		t.Errorf("max_value: expected 100, got %d", maxV)
 	}
 
-	// Double Map on BasicGenerator: schema still preserved, transforms compose correctly.
+	// Double Map on basicGenerator: schema still preserved, transforms compose correctly.
 	doubled := base.
 		Map(func(v any) any { n, _ := ExtractInt(v); return n + 10 }).
 		Map(func(v any) any { n, _ := ExtractInt(v); return n * 2 })
-	bg2, ok := doubled.(*BasicGenerator)
+	bg2, ok := doubled.(*basicGenerator)
 	if !ok {
-		t.Fatalf("double Map on BasicGenerator: expected *BasicGenerator, got %T", doubled)
+		t.Fatalf("double Map on basicGenerator: expected *basicGenerator, got %T", doubled)
 	}
 	if bg2.schema["type"] != "integer" {
 		t.Errorf("double map schema type: expected 'integer', got %v", bg2.schema["type"])
@@ -840,14 +840,14 @@ func TestMapSchemaPreservedUnit(t *testing.T) {
 // =============================================================================
 
 // TestTuples2AllBasicNoTransform verifies that Tuples2 of two basic (no-transform)
-// generators returns a BasicGenerator with schema type=tuple and two elements.
+// generators returns a basicGenerator with schema type=tuple and two elements.
 func TestTuples2AllBasicNoTransform(t *testing.T) {
 	g1 := Integers(0, 10)
 	g2 := Booleans(0.5)
 	gen := Tuples2(g1, g2)
-	bg, ok := gen.(*BasicGenerator)
+	bg, ok := gen.(*basicGenerator)
 	if !ok {
-		t.Fatalf("Tuples2 of basic generators should return *BasicGenerator, got %T", gen)
+		t.Fatalf("Tuples2 of basic generators should return *basicGenerator, got %T", gen)
 	}
 	if bg.schema["type"] != "tuple" {
 		t.Errorf("schema type: expected 'tuple', got %v", bg.schema["type"])
@@ -870,7 +870,7 @@ func TestTuples2AllBasicNoTransform(t *testing.T) {
 }
 
 // TestTuples2AllBasicWithTransforms verifies that Tuples2 of mapped basic generators
-// returns a BasicGenerator with the raw schemas (not transformed), and the combined
+// returns a basicGenerator with the raw schemas (not transformed), and the combined
 // transform applies per-position transforms.
 func TestTuples2AllBasicWithTransforms(t *testing.T) {
 	g1 := Integers(0, 10).Map(func(v any) any {
@@ -881,17 +881,17 @@ func TestTuples2AllBasicWithTransforms(t *testing.T) {
 		n, _ := v.(int)
 		return n + 1
 	})
-	// Both g1 and g2 are *BasicGenerator with transforms.
-	if _, ok := g1.(*BasicGenerator); !ok {
-		t.Fatalf("g1 should be *BasicGenerator, got %T", g1)
+	// Both g1 and g2 are *basicGenerator with transforms.
+	if _, ok := g1.(*basicGenerator); !ok {
+		t.Fatalf("g1 should be *basicGenerator, got %T", g1)
 	}
-	if _, ok := g2.(*BasicGenerator); !ok {
-		t.Fatalf("g2 should be *BasicGenerator, got %T", g2)
+	if _, ok := g2.(*basicGenerator); !ok {
+		t.Fatalf("g2 should be *basicGenerator, got %T", g2)
 	}
 	gen := Tuples2(g1, g2)
-	bg, ok := gen.(*BasicGenerator)
+	bg, ok := gen.(*basicGenerator)
 	if !ok {
-		t.Fatalf("Tuples2 of mapped basic generators should return *BasicGenerator, got %T", gen)
+		t.Fatalf("Tuples2 of mapped basic generators should return *basicGenerator, got %T", gen)
 	}
 	if bg.schema["type"] != "tuple" {
 		t.Errorf("schema type: expected 'tuple', got %v", bg.schema["type"])
@@ -923,7 +923,7 @@ func TestTuples2AllBasicWithTransforms(t *testing.T) {
 }
 
 // TestTuples2MixedBasicNonBasic verifies that Tuples2 with a non-basic element
-// returns a compositeTupleGenerator, not a BasicGenerator.
+// returns a compositeTupleGenerator, not a basicGenerator.
 func TestTuples2MixedBasicNonBasic(t *testing.T) {
 	// Create a non-basic generator by wrapping in mappedGenerator.
 	nonBasic := &mappedGenerator{
@@ -940,13 +940,13 @@ func TestTuples2MixedBasicNonBasic(t *testing.T) {
 	}
 }
 
-// TestTuples3AllBasic verifies that Tuples3 of all-basic generators returns a BasicGenerator
+// TestTuples3AllBasic verifies that Tuples3 of all-basic generators returns a basicGenerator
 // with schema type=tuple and three elements.
 func TestTuples3AllBasic(t *testing.T) {
 	gen := Tuples3(Integers(0, 5), Booleans(0.5), Text(1, 5))
-	bg, ok := gen.(*BasicGenerator)
+	bg, ok := gen.(*basicGenerator)
 	if !ok {
-		t.Fatalf("Tuples3 of basic generators should return *BasicGenerator, got %T", gen)
+		t.Fatalf("Tuples3 of basic generators should return *basicGenerator, got %T", gen)
 	}
 	if bg.schema["type"] != "tuple" {
 		t.Errorf("schema type: expected 'tuple', got %v", bg.schema["type"])
@@ -970,13 +970,13 @@ func TestTuples3WithNonBasic(t *testing.T) {
 	}
 }
 
-// TestTuples4AllBasic verifies that Tuples4 of all-basic generators returns a BasicGenerator
+// TestTuples4AllBasic verifies that Tuples4 of all-basic generators returns a basicGenerator
 // with schema type=tuple and four elements.
 func TestTuples4AllBasic(t *testing.T) {
 	gen := Tuples4(Integers(0, 5), Booleans(0.5), Text(1, 5), IntegersUnbounded())
-	bg, ok := gen.(*BasicGenerator)
+	bg, ok := gen.(*basicGenerator)
 	if !ok {
-		t.Fatalf("Tuples4 of basic generators should return *BasicGenerator, got %T", gen)
+		t.Fatalf("Tuples4 of basic generators should return *basicGenerator, got %T", gen)
 	}
 	elements, ok := bg.schema["elements"].([]any)
 	if !ok {
@@ -1162,17 +1162,17 @@ func TestTuples4E2E(t *testing.T) {
 // TestTuples2BasicOneTransformOneNil verifies that when one element has a transform
 // and the other does not (nil), the nil position passes the raw value through.
 func TestTuples2BasicOneTransformOneNil(t *testing.T) {
-	// g1: BasicGenerator with a transform (doubles)
-	// g2: BasicGenerator without a transform (identity)
+	// g1: basicGenerator with a transform (doubles)
+	// g2: basicGenerator without a transform (identity)
 	g1 := Integers(0, 10).Map(func(v any) any {
 		n, _ := ExtractInt(v)
 		return n * 2
 	})
 	g2 := Integers(0, 5) // no transform
 	gen := Tuples2(g1, g2)
-	bg, ok := gen.(*BasicGenerator)
+	bg, ok := gen.(*basicGenerator)
 	if !ok {
-		t.Fatalf("expected *BasicGenerator, got %T", gen)
+		t.Fatalf("expected *basicGenerator, got %T", gen)
 	}
 	if bg.transform == nil {
 		t.Fatal("transform should not be nil (g1 has a transform)")
@@ -1212,12 +1212,12 @@ func TestFilteredGeneratorAsBasic(t *testing.T) {
 	}
 }
 
-// TestFilteredGeneratorFromBasicIsNotBasic verifies that Filter on a BasicGenerator
-// returns a filteredGenerator (not a BasicGenerator).
+// TestFilteredGeneratorFromBasicIsNotBasic verifies that Filter on a basicGenerator
+// returns a filteredGenerator (not a basicGenerator).
 func TestFilteredGeneratorFromBasicIsNotBasic(t *testing.T) {
 	g := Integers(0, 100).Filter(func(v any) bool { return true })
 	if _, ok := g.(*filteredGenerator); !ok {
-		t.Fatalf("Filter on BasicGenerator should return *filteredGenerator, got %T", g)
+		t.Fatalf("Filter on basicGenerator should return *filteredGenerator, got %T", g)
 	}
 }
 
@@ -1289,7 +1289,7 @@ func TestFilteredGeneratorPredicatePasses(t *testing.T) {
 	cli := newClient(clientConn)
 	err := cli.runTest("filter_passes", func() {
 		g := &filteredGenerator{
-			source:    &BasicGenerator{schema: map[string]any{"type": "integer"}},
+			source:    &basicGenerator{schema: map[string]any{"type": "integer"}},
 			predicate: func(v any) bool { return true },
 		}
 		v := Draw(g)
@@ -1360,7 +1360,7 @@ func TestFilteredGeneratorAllAttemptsFailRejectsCase(t *testing.T) {
 	cli := newClient(clientConn)
 	err := cli.runTest("filter_exhaust", func() {
 		g := &filteredGenerator{
-			source:    &BasicGenerator{schema: map[string]any{"type": "integer"}},
+			source:    &basicGenerator{schema: map[string]any{"type": "integer"}},
 			predicate: func(v any) bool { return false }, // always reject
 		}
 		Draw(g)
@@ -1434,7 +1434,7 @@ func TestFilteredGeneratorPartialAttemptsSucceed(t *testing.T) {
 	cli := newClient(clientConn)
 	err := cli.runTest("filter_partial", func() {
 		g := &filteredGenerator{
-			source: &BasicGenerator{schema: map[string]any{"type": "integer"}},
+			source: &basicGenerator{schema: map[string]any{"type": "integer"}},
 			predicate: func(v any) bool {
 				attemptNum++
 				n, _ := ExtractInt(v)
@@ -1520,20 +1520,20 @@ func TestFilterOnNonBasicGenerators(t *testing.T) {
 	if _, ok := fg5.(*filteredGenerator); !ok {
 		t.Errorf("Filter on compositeTupleGenerator should return *filteredGenerator, got %T", fg5)
 	}
-	// FlatMappedGenerator.Filter
-	fm := &FlatMappedGenerator{source: Integers(0, 5), f: func(v any) Generator { return Integers(0, 5) }}
+	// flatMappedGenerator.Filter
+	fm := &flatMappedGenerator{source: Integers(0, 5), f: func(v any) Generator { return Integers(0, 5) }}
 	fg6 := fm.Filter(func(v any) bool { return true })
 	if _, ok := fg6.(*filteredGenerator); !ok {
-		t.Errorf("Filter on FlatMappedGenerator should return *filteredGenerator, got %T", fg6)
+		t.Errorf("Filter on flatMappedGenerator should return *filteredGenerator, got %T", fg6)
 	}
 }
 
 // TestBooleansSchema verifies that Booleans produces a schema with type=boolean and p field.
 func TestBooleansSchema(t *testing.T) {
 	g := Booleans(0.5)
-	bg, ok := g.(*BasicGenerator)
+	bg, ok := g.(*basicGenerator)
 	if !ok {
-		t.Fatalf("Booleans should return *BasicGenerator, got %T", g)
+		t.Fatalf("Booleans should return *basicGenerator, got %T", g)
 	}
 	if bg.schema["type"] != "boolean" {
 		t.Errorf("type: expected 'boolean', got %v", bg.schema["type"])
@@ -1554,7 +1554,7 @@ func TestBooleansSchema(t *testing.T) {
 // TestBooleansP1Schema verifies that Booleans(1.0) stores p=1.0.
 func TestBooleansP1Schema(t *testing.T) {
 	g := Booleans(1.0)
-	bg := g.(*BasicGenerator)
+	bg := g.(*basicGenerator)
 	if bg.schema["p"] != 1.0 {
 		t.Errorf("p: expected 1.0, got %v", bg.schema["p"])
 	}
@@ -1563,9 +1563,9 @@ func TestBooleansP1Schema(t *testing.T) {
 // TestTextSchema verifies that Text produces the correct schema structure.
 func TestTextSchema(t *testing.T) {
 	g := Text(3, 10)
-	bg, ok := g.(*BasicGenerator)
+	bg, ok := g.(*basicGenerator)
 	if !ok {
-		t.Fatalf("Text should return *BasicGenerator, got %T", g)
+		t.Fatalf("Text should return *basicGenerator, got %T", g)
 	}
 	if bg.schema["type"] != "string" {
 		t.Errorf("type: expected 'string', got %v", bg.schema["type"])
@@ -1587,7 +1587,7 @@ func TestTextSchema(t *testing.T) {
 // TestTextSchemaNoMax verifies that Text with maxSize<0 omits max_size from schema.
 func TestTextSchemaNoMax(t *testing.T) {
 	g := Text(0, -1)
-	bg := g.(*BasicGenerator)
+	bg := g.(*basicGenerator)
 	if _, hasMax := bg.schema["max_size"]; hasMax {
 		t.Error("max_size should not be present when maxSize < 0")
 	}
@@ -1600,9 +1600,9 @@ func TestTextSchemaNoMax(t *testing.T) {
 // TestBinarySchema verifies that Binary produces the correct schema structure.
 func TestBinarySchema(t *testing.T) {
 	g := Binary(1, 20)
-	bg, ok := g.(*BasicGenerator)
+	bg, ok := g.(*basicGenerator)
 	if !ok {
-		t.Fatalf("Binary should return *BasicGenerator, got %T", g)
+		t.Fatalf("Binary should return *basicGenerator, got %T", g)
 	}
 	if bg.schema["type"] != "binary" {
 		t.Errorf("type: expected 'binary', got %v", bg.schema["type"])
@@ -1628,7 +1628,7 @@ func TestBinarySchema(t *testing.T) {
 // TestBinarySchemaNoMax verifies that Binary with maxSize<0 omits max_size from schema.
 func TestBinarySchemaNoMax(t *testing.T) {
 	g := Binary(0, -1)
-	bg := g.(*BasicGenerator)
+	bg := g.(*basicGenerator)
 	if _, hasMax := bg.schema["max_size"]; hasMax {
 		t.Error("max_size should not be present when maxSize < 0")
 	}
@@ -1639,9 +1639,9 @@ func TestIntegersFromSchema(t *testing.T) {
 	minV := int64(-10)
 	maxV := int64(10)
 	g := IntegersFrom(&minV, &maxV)
-	bg, ok := g.(*BasicGenerator)
+	bg, ok := g.(*basicGenerator)
 	if !ok {
-		t.Fatalf("IntegersFrom should return *BasicGenerator, got %T", g)
+		t.Fatalf("IntegersFrom should return *basicGenerator, got %T", g)
 	}
 	if bg.schema["type"] != "integer" {
 		t.Errorf("type: expected 'integer', got %v", bg.schema["type"])
@@ -1660,7 +1660,7 @@ func TestIntegersFromSchema(t *testing.T) {
 func TestIntegersFromSchemaOnlyMin(t *testing.T) {
 	minV := int64(5)
 	g := IntegersFrom(&minV, nil)
-	bg := g.(*BasicGenerator)
+	bg := g.(*basicGenerator)
 	if _, hasMax := bg.schema["max_value"]; hasMax {
 		t.Error("max_value should not be present when maxVal is nil")
 	}
@@ -1674,7 +1674,7 @@ func TestIntegersFromSchemaOnlyMin(t *testing.T) {
 func TestIntegersFromSchemaOnlyMax(t *testing.T) {
 	maxV := int64(99)
 	g := IntegersFrom(nil, &maxV)
-	bg := g.(*BasicGenerator)
+	bg := g.(*basicGenerator)
 	if _, hasMin := bg.schema["min_value"]; hasMin {
 		t.Error("min_value should not be present when minVal is nil")
 	}
@@ -1690,9 +1690,9 @@ func TestFloatsSchemaWithBounds(t *testing.T) {
 	maxV := 1.0
 	falseV := false
 	g := Floats(&minV, &maxV, &falseV, &falseV, false, false)
-	bg, ok := g.(*BasicGenerator)
+	bg, ok := g.(*basicGenerator)
 	if !ok {
-		t.Fatalf("Floats should return *BasicGenerator, got %T", g)
+		t.Fatalf("Floats should return *basicGenerator, got %T", g)
 	}
 	if bg.schema["type"] != "float" {
 		t.Errorf("type: expected 'float', got %v", bg.schema["type"])
@@ -1726,7 +1726,7 @@ func TestFloatsSchemaWithBounds(t *testing.T) {
 // TestFloatsSchemaUnbounded verifies that Floats with no bounds defaults allow_nan=true, allow_infinity=true.
 func TestFloatsSchemaUnbounded(t *testing.T) {
 	g := Floats(nil, nil, nil, nil, false, false)
-	bg := g.(*BasicGenerator)
+	bg := g.(*basicGenerator)
 	if bg.schema["allow_nan"] != true {
 		t.Errorf("allow_nan: expected true (no bounds), got %v", bg.schema["allow_nan"])
 	}
@@ -1745,7 +1745,7 @@ func TestFloatsSchemaUnbounded(t *testing.T) {
 func TestFloatsSchemaOnlyMin(t *testing.T) {
 	minV := 0.0
 	g := Floats(&minV, nil, nil, nil, false, false)
-	bg := g.(*BasicGenerator)
+	bg := g.(*basicGenerator)
 	// has_min=true, has_max=false → allow_nan=false, allow_infinity=true
 	if bg.schema["allow_nan"] != false {
 		t.Errorf("allow_nan: expected false when min set, got %v", bg.schema["allow_nan"])
@@ -1759,7 +1759,7 @@ func TestFloatsSchemaOnlyMin(t *testing.T) {
 func TestFloatsSchemaOnlyMax(t *testing.T) {
 	maxV := 1.0
 	g := Floats(nil, &maxV, nil, nil, false, false)
-	bg := g.(*BasicGenerator)
+	bg := g.(*basicGenerator)
 	// has_min=false, has_max=true → allow_nan=false, allow_infinity=true
 	if bg.schema["allow_nan"] != false {
 		t.Errorf("allow_nan: expected false when max set, got %v", bg.schema["allow_nan"])
@@ -1775,7 +1775,7 @@ func TestFloatsSchemaExcludeBounds(t *testing.T) {
 	maxV := 1.0
 	falseV := false
 	g := Floats(&minV, &maxV, &falseV, &falseV, true, true)
-	bg := g.(*BasicGenerator)
+	bg := g.(*basicGenerator)
 	if bg.schema["exclude_min"] != true {
 		t.Errorf("exclude_min: expected true, got %v", bg.schema["exclude_min"])
 	}
@@ -1785,41 +1785,41 @@ func TestFloatsSchemaExcludeBounds(t *testing.T) {
 }
 
 // =============================================================================
-// FlatMappedGenerator tests
+// flatMappedGenerator tests
 // =============================================================================
 
-// TestFlatMappedGeneratorAsBasicReturnsNil verifies that FlatMappedGenerator.AsBasic() returns nil.
+// TestFlatMappedGeneratorAsBasicReturnsNil verifies that flatMappedGenerator.AsBasic() returns nil.
 func TestFlatMappedGeneratorAsBasicReturnsNil(t *testing.T) {
 	gen := FlatMap(Integers(1, 5), func(v any) Generator {
 		return Integers(0, 10)
 	})
 	if gen.AsBasic() != nil {
-		t.Error("FlatMappedGenerator.AsBasic() should return nil")
+		t.Error("flatMappedGenerator.AsBasic() should return nil")
 	}
 }
 
-// TestFlatMappedGeneratorIsNotBasic verifies that FlatMap returns a *FlatMappedGenerator (not BasicGenerator).
+// TestFlatMappedGeneratorIsNotBasic verifies that FlatMap returns a *flatMappedGenerator (not basicGenerator).
 func TestFlatMappedGeneratorIsNotBasic(t *testing.T) {
 	gen := FlatMap(IntegersUnbounded(), func(v any) Generator {
 		return IntegersUnbounded()
 	})
-	if _, ok := gen.(*FlatMappedGenerator); !ok {
-		t.Fatalf("FlatMap should return *FlatMappedGenerator, got %T", gen)
+	if _, ok := gen.(*flatMappedGenerator); !ok {
+		t.Fatalf("FlatMap should return *flatMappedGenerator, got %T", gen)
 	}
-	// FlatMappedGenerator is never a BasicGenerator.
-	if _, ok := gen.(*BasicGenerator); ok {
-		t.Error("FlatMap result should not be a *BasicGenerator")
+	// flatMappedGenerator is never a basicGenerator.
+	if _, ok := gen.(*basicGenerator); ok {
+		t.Error("FlatMap result should not be a *basicGenerator")
 	}
 }
 
-// TestFlatMappedGeneratorMapReturnsMapped verifies that Map on FlatMappedGenerator returns a mappedGenerator.
+// TestFlatMappedGeneratorMapReturnsMapped verifies that Map on flatMappedGenerator returns a mappedGenerator.
 func TestFlatMappedGeneratorMapReturnsMapped(t *testing.T) {
 	gen := FlatMap(Integers(1, 5), func(v any) Generator {
 		return Integers(0, 10)
 	})
 	mapped := gen.Map(func(v any) any { return v })
 	if _, ok := mapped.(*mappedGenerator); !ok {
-		t.Fatalf("Map on FlatMappedGenerator should return *mappedGenerator, got %T", mapped)
+		t.Fatalf("Map on flatMappedGenerator should return *mappedGenerator, got %T", mapped)
 	}
 }
 
@@ -1945,8 +1945,8 @@ func TestFlatMappedGeneratorStartSpanLabel(t *testing.T) {
 	if err != nil {
 		t.Fatalf("runTest: %v", err)
 	}
-	if gotLabel != int64(LabelFlatMap) {
-		t.Errorf("start_span label: expected %d (LabelFlatMap), got %d", LabelFlatMap, gotLabel)
+	if gotLabel != int64(labelFlatMap) {
+		t.Errorf("start_span label: expected %d (labelFlatMap), got %d", labelFlatMap, gotLabel)
 	}
 }
 

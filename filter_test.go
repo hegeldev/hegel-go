@@ -13,12 +13,12 @@ import (
 // =============================================================================
 
 // TestBasicGeneratorFilterReturnsfilteredGenerator verifies that calling Filter
-// on a BasicGenerator returns a *filteredGenerator.
+// on a basicGenerator returns a *filteredGenerator.
 func TestBasicGeneratorFilterReturnsfilteredGenerator(t *testing.T) {
 	g := Integers(0, 100)
 	filtered := g.Filter(func(v any) bool { return true })
 	if _, ok := filtered.(*filteredGenerator); !ok {
-		t.Fatalf("BasicGenerator.Filter should return *filteredGenerator, got %T", filtered)
+		t.Fatalf("basicGenerator.Filter should return *filteredGenerator, got %T", filtered)
 	}
 	// filteredGenerator is not a basic generator.
 	if filtered.AsBasic() != nil {
@@ -130,15 +130,15 @@ func TestCompositeTupleGeneratorFilterReturnsfilteredGenerator(t *testing.T) {
 }
 
 // TestFlatMappedGeneratorFilterReturnsfilteredGenerator verifies that calling
-// Filter on a FlatMappedGenerator returns a *filteredGenerator.
+// Filter on a flatMappedGenerator returns a *filteredGenerator.
 func TestFlatMappedGeneratorFilterReturnsfilteredGenerator(t *testing.T) {
-	flatGen := FlatMap(Integers(1, 5), func(v any) Generator {
+	flatGen := flatMap(Integers(1, 5), func(v any) Generator {
 		n, _ := ExtractInt(v)
 		return Integers(0, n)
 	})
 	filtered := flatGen.Filter(func(v any) bool { return true })
 	if _, ok := filtered.(*filteredGenerator); !ok {
-		t.Fatalf("FlatMappedGenerator.Filter should return *filteredGenerator, got %T", filtered)
+		t.Fatalf("flatMappedGenerator.Filter should return *filteredGenerator, got %T", filtered)
 	}
 }
 
@@ -217,7 +217,7 @@ func TestFilteredGeneratorGenerateAllFailsCallsAssume(t *testing.T) {
 
 		// maxFilterAttempts = 3: handle three start_span + generate + stop_span(discard=true) cycles.
 		for i := 0; i < maxFilterAttempts; i++ {
-			// start_span(LabelFilter)
+			// start_span(labelFilter)
 			ssID, _, _ := caseCh.RecvRequestRaw(5 * time.Second)
 			caseCh.SendReplyValue(ssID, nil) //nolint:errcheck
 
@@ -243,7 +243,7 @@ func TestFilteredGeneratorGenerateAllFailsCallsAssume(t *testing.T) {
 
 	cli := newClient(clientConn)
 	err := cli.runTest("filter_all_fail", func() {
-		inner := &BasicGenerator{schema: schema}
+		inner := &basicGenerator{schema: schema}
 		fg := &filteredGenerator{
 			source: inner,
 			predicate: func(v any) bool {
@@ -327,7 +327,7 @@ func TestFilteredGeneratorGenerateThenMap(t *testing.T) {
 
 // TestFilteredGeneratorGenerateUnitPredicatePasses exercises filteredGenerator.Generate
 // in the case where the predicate passes on the first try, using a fake server.
-// This covers the predicate-passes branch: StartSpan → generate → predicate=true → StopSpan(false) → return.
+// This covers the predicate-passes branch: startSpan → generate → predicate=true → stopSpan(false) → return.
 func TestFilteredGeneratorGenerateUnitPredicatePasses(t *testing.T) {
 	schema := map[string]any{"type": "integer"}
 	clientConn := fakeServerConn(t, func(serverConn *connection) {
@@ -348,7 +348,7 @@ func TestFilteredGeneratorGenerateUnitPredicatePasses(t *testing.T) {
 		caseID, _ := testCh.SendRequestRaw(casePayload)
 		testCh.recvResponseRaw(caseID, 5*time.Second) //nolint:errcheck
 
-		// filteredGenerator.Generate: start_span(LabelFilter)
+		// filteredGenerator.Generate: start_span(labelFilter)
 		ssID, _, _ := caseCh.RecvRequestRaw(5 * time.Second)
 		caseCh.SendReplyValue(ssID, nil) //nolint:errcheck
 
@@ -356,7 +356,7 @@ func TestFilteredGeneratorGenerateUnitPredicatePasses(t *testing.T) {
 		genID, _, _ := caseCh.RecvRequestRaw(5 * time.Second)
 		caseCh.SendReplyValue(genID, int64(42)) //nolint:errcheck
 
-		// predicate passes → StopSpan(false)
+		// predicate passes → stopSpan(false)
 		spID, _, _ := caseCh.RecvRequestRaw(5 * time.Second)
 		caseCh.SendReplyValue(spID, nil) //nolint:errcheck
 
@@ -370,7 +370,7 @@ func TestFilteredGeneratorGenerateUnitPredicatePasses(t *testing.T) {
 	cli := newClient(clientConn)
 	var gotVal int64
 	err := cli.runTest("filter_predicate_passes", func() {
-		inner := &BasicGenerator{schema: schema}
+		inner := &basicGenerator{schema: schema}
 		fg := &filteredGenerator{
 			source:    inner,
 			predicate: func(v any) bool { return true },
@@ -412,7 +412,7 @@ func TestFilteredGeneratorGenerateUnitPredicateFailsThenPasses(t *testing.T) {
 		testCh.recvResponseRaw(caseID, 5*time.Second) //nolint:errcheck
 
 		// --- First attempt: predicate fails ---
-		// start_span(LabelFilter)
+		// start_span(labelFilter)
 		ss1ID, _, _ := caseCh.RecvRequestRaw(5 * time.Second)
 		caseCh.SendReplyValue(ss1ID, nil) //nolint:errcheck
 		// generate → value 1 (odd — fails even predicate)
@@ -429,7 +429,7 @@ func TestFilteredGeneratorGenerateUnitPredicateFailsThenPasses(t *testing.T) {
 		caseCh.SendReplyValue(sp1ID, nil) //nolint:errcheck
 
 		// --- Second attempt: predicate passes ---
-		// start_span(LabelFilter)
+		// start_span(labelFilter)
 		ss2ID, _, _ := caseCh.RecvRequestRaw(5 * time.Second)
 		caseCh.SendReplyValue(ss2ID, nil) //nolint:errcheck
 		// generate → value 4 (even — passes)
@@ -455,7 +455,7 @@ func TestFilteredGeneratorGenerateUnitPredicateFailsThenPasses(t *testing.T) {
 	cli := newClient(clientConn)
 	var gotVal int64
 	err := cli.runTest("filter_fail_then_pass", func() {
-		inner := &BasicGenerator{schema: schema}
+		inner := &basicGenerator{schema: schema}
 		fg := &filteredGenerator{
 			source: inner,
 			predicate: func(v any) bool {

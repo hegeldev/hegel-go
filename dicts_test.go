@@ -14,14 +14,14 @@ import (
 // =============================================================================
 
 // TestDictsBasicSchema verifies that Dicts with two basic generators produces
-// a BasicGenerator with a dict schema containing the expected fields.
+// a basicGenerator with a dict schema containing the expected fields.
 func TestDictsBasicSchema(t *testing.T) {
 	keys := Text(0, 5)
 	vals := Integers(0, 100)
 	gen := Dicts(keys, vals, DictOptions{MinSize: 0, MaxSize: 3, HasMaxSize: true})
-	bg, ok := gen.(*BasicGenerator)
+	bg, ok := gen.(*basicGenerator)
 	if !ok {
-		t.Fatalf("Dicts(basic, basic) should return *BasicGenerator, got %T", gen)
+		t.Fatalf("Dicts(basic, basic) should return *basicGenerator, got %T", gen)
 	}
 	if bg.schema["type"] != "dict" {
 		t.Errorf("schema type: expected 'dict', got %v", bg.schema["type"])
@@ -53,9 +53,9 @@ func TestDictsBasicSchema(t *testing.T) {
 // TestDictsBasicSchemaNoMaxSize verifies that when HasMaxSize=false, max_size is omitted.
 func TestDictsBasicSchemaNoMaxSize(t *testing.T) {
 	gen := Dicts(Text(0, 5), Integers(0, 100), DictOptions{MinSize: 1})
-	bg, ok := gen.(*BasicGenerator)
+	bg, ok := gen.(*basicGenerator)
 	if !ok {
-		t.Fatalf("expected *BasicGenerator, got %T", gen)
+		t.Fatalf("expected *basicGenerator, got %T", gen)
 	}
 	if _, has := bg.schema["max_size"]; has {
 		t.Error("max_size should not be present when HasMaxSize=false")
@@ -65,9 +65,9 @@ func TestDictsBasicSchemaNoMaxSize(t *testing.T) {
 // TestDictsBasicSchemaMinSize verifies that MinSize is propagated to the schema.
 func TestDictsBasicSchemaMinSize(t *testing.T) {
 	gen := Dicts(Text(0, 5), Integers(0, 100), DictOptions{MinSize: 2, MaxSize: 5, HasMaxSize: true})
-	bg, ok := gen.(*BasicGenerator)
+	bg, ok := gen.(*basicGenerator)
 	if !ok {
-		t.Fatalf("expected *BasicGenerator, got %T", gen)
+		t.Fatalf("expected *basicGenerator, got %T", gen)
 	}
 	minSz, _ := ExtractInt(bg.schema["min_size"])
 	if minSz != 2 {
@@ -75,7 +75,7 @@ func TestDictsBasicSchemaMinSize(t *testing.T) {
 	}
 }
 
-// TestDictsAsBasic verifies BasicGenerator path returns non-nil from AsBasic.
+// TestDictsAsBasic verifies basicGenerator path returns non-nil from AsBasic.
 func TestDictsAsBasic(t *testing.T) {
 	gen := Dicts(Text(0, 5), Integers(0, 100), DictOptions{})
 	if gen.AsBasic() == nil {
@@ -300,7 +300,7 @@ func TestDictsBasicGenerateHappyPath(t *testing.T) {
 	}
 }
 
-// TestDictsBasicWithTransforms verifies that the BasicGenerator path applies
+// TestDictsBasicWithTransforms verifies that the basicGenerator path applies
 // key and value transforms when the inner generators have transforms.
 func TestDictsBasicWithTransforms(t *testing.T) {
 	// Key generator with transform: text → uppercase key
@@ -397,11 +397,11 @@ func TestDictsCompositeGenerateHappyPath(t *testing.T) {
 		testCh.recvResponseRaw(caseID, 5*time.Second) //nolint:errcheck
 
 		// Expected sequence:
-		// 1. start_span (MAP)  [from DiscardableGroup]
+		// 1. start_span (MAP)  [from discardableGroup]
 		// 2. new_collection
 		// 3. collection_more → true
-		// 4. start_span (MAP_ENTRY)  [from Group(LabelMapEntry, ...)]
-		// 5. start_span (MAPPED)  [from mappedGenerator.Generate → Group(LabelMapped, ...)]
+		// 4. start_span (MAP_ENTRY)  [from group(labelMapEntry, ...)]
+		// 5. start_span (MAPPED)  [from mappedGenerator.Generate → group(labelMapped, ...)]
 		// 6. generate key  [from inner Integers]
 		// 7. stop_span (MAPPED)
 		// 8. generate value  [from Integers(0,100), no span]

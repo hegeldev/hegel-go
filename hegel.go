@@ -31,7 +31,7 @@
 //  1. Wire protocol (readPacket, writePacket) — 20-byte header, CBOR payload, CRC32
 //  2. Connection and channels (connection, channel) — Unix socket multiplexing
 //  3. Test runner ([RunHegelTest], [RunHegelTestE]) — subprocess lifecycle, test loop
-//  4. Generators ([Generator], [BasicGenerator], [Lists], [Dicts], …) — value generation
+//  4. Generators ([Generator], [basicGenerator], [Lists], [Dicts], …) — value generation
 //
 // See the README and docs/getting-started.md for a full tutorial.
 package hegel

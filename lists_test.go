@@ -12,14 +12,14 @@ import (
 // Lists generator unit tests
 // =============================================================================
 
-// TestListsBasicElementSchema verifies that Lists on a BasicGenerator (no transform)
-// produces a BasicGenerator with the correct list schema and no transform.
+// TestListsBasicElementSchema verifies that Lists on a basicGenerator (no transform)
+// produces a basicGenerator with the correct list schema and no transform.
 func TestListsBasicElementSchema(t *testing.T) {
 	elem := Integers(0, 100)
 	gen := Lists(elem, ListsOptions{MinSize: 2, MaxSize: 10})
-	bg, ok := gen.(*BasicGenerator)
+	bg, ok := gen.(*basicGenerator)
 	if !ok {
-		t.Fatalf("Lists(basic) should return *BasicGenerator, got %T", gen)
+		t.Fatalf("Lists(basic) should return *basicGenerator, got %T", gen)
 	}
 	if bg.schema["type"] != "list" {
 		t.Errorf("schema type: expected 'list', got %v", bg.schema["type"])
@@ -48,27 +48,27 @@ func TestListsBasicElementSchema(t *testing.T) {
 func TestListsBasicElementNoMaxSchema(t *testing.T) {
 	elem := Integers(0, 100)
 	gen := Lists(elem, ListsOptions{MinSize: 0, MaxSize: -1})
-	bg, ok := gen.(*BasicGenerator)
+	bg, ok := gen.(*basicGenerator)
 	if !ok {
-		t.Fatalf("Lists(basic, no max) should return *BasicGenerator, got %T", gen)
+		t.Fatalf("Lists(basic, no max) should return *basicGenerator, got %T", gen)
 	}
 	if _, hasMax := bg.schema["max_size"]; hasMax {
 		t.Error("max_size should not be present when MaxSize < 0")
 	}
 }
 
-// TestListsBasicElementWithTransformSchema verifies that Lists on a BasicGenerator with
+// TestListsBasicElementWithTransformSchema verifies that Lists on a basicGenerator with
 // a transform applies the transform element-wise in the list transform.
 func TestListsBasicElementWithTransformSchema(t *testing.T) {
-	// Integers(0, 100) mapped to double: BasicGenerator with transform.
+	// Integers(0, 100) mapped to double: basicGenerator with transform.
 	elem := Integers(0, 100).Map(func(v any) any {
 		n, _ := ExtractInt(v)
 		return n * 2
 	})
 	gen := Lists(elem, ListsOptions{MinSize: 0, MaxSize: 5})
-	bg, ok := gen.(*BasicGenerator)
+	bg, ok := gen.(*basicGenerator)
 	if !ok {
-		t.Fatalf("Lists(basic with transform) should return *BasicGenerator, got %T", gen)
+		t.Fatalf("Lists(basic with transform) should return *basicGenerator, got %T", gen)
 	}
 	if bg.schema["type"] != "list" {
 		t.Errorf("schema type: expected 'list', got %v", bg.schema["type"])
@@ -99,9 +99,9 @@ func TestListsBasicElementWithTransformSchema(t *testing.T) {
 func TestListsBasicElementWithTransformNonSlicePassthrough(t *testing.T) {
 	elem := Integers(0, 10).Map(func(v any) any { return v })
 	gen := Lists(elem, ListsOptions{MinSize: 0, MaxSize: 5})
-	bg, ok := gen.(*BasicGenerator)
+	bg, ok := gen.(*basicGenerator)
 	if !ok {
-		t.Fatalf("expected *BasicGenerator, got %T", gen)
+		t.Fatalf("expected *basicGenerator, got %T", gen)
 	}
 	// Pass a non-slice value to the transform — should be returned as-is.
 	result := bg.transform("not-a-slice")
@@ -111,7 +111,7 @@ func TestListsBasicElementWithTransformNonSlicePassthrough(t *testing.T) {
 }
 
 // TestListsNonBasicElementReturnsComposite verifies that Lists on a non-basic generator
-// returns a compositeListGenerator (not a BasicGenerator).
+// returns a compositeListGenerator (not a basicGenerator).
 func TestListsNonBasicElementReturnsComposite(t *testing.T) {
 	// mappedGenerator is non-basic.
 	inner := Integers(0, 10)
@@ -141,9 +141,9 @@ func TestCompositeListGeneratorMap(t *testing.T) {
 func TestListsNegativeMinSizeClampedToZero(t *testing.T) {
 	elem := Integers(0, 100)
 	gen := Lists(elem, ListsOptions{MinSize: -5, MaxSize: 10})
-	bg, ok := gen.(*BasicGenerator)
+	bg, ok := gen.(*basicGenerator)
 	if !ok {
-		t.Fatalf("expected *BasicGenerator, got %T", gen)
+		t.Fatalf("expected *basicGenerator, got %T", gen)
 	}
 	minV, _ := ExtractInt(bg.schema["min_size"])
 	if minV != 0 {
@@ -402,7 +402,7 @@ func TestListsNestedE2E(t *testing.T) {
 	}, WithTestCases(50))
 }
 
-// TestListsBasicWithTransformE2E verifies that Lists on a BasicGenerator with a transform
+// TestListsBasicWithTransformE2E verifies that Lists on a basicGenerator with a transform
 // applies the transform element-wise to the result.
 func TestListsBasicWithTransformE2E(t *testing.T) {
 	hegelBinPath(t)

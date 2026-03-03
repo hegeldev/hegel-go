@@ -283,8 +283,8 @@ type requestError struct {
 // Error implements the error interface.
 func (e *requestError) Error() string { return e.msg }
 
-// newrequestError builds a requestError from a CBOR-decoded error dict.
-func newrequestError(data map[any]any) *requestError {
+// newRequestError builds a requestError from a CBOR-decoded error dict.
+func newRequestError(data map[any]any) *requestError {
 	msg, _ := ExtractString(data[any("error")])
 	errType, _ := ExtractString(data[any("type")])
 	rest := make(map[any]any)
@@ -304,7 +304,7 @@ func newrequestError(data map[any]any) *requestError {
 // a *requestError if the dict contains an "error" field.
 func resultOrError(body map[any]any) (any, error) {
 	if _, hasErr := body[any("error")]; hasErr {
-		return nil, newrequestError(body)
+		return nil, newRequestError(body)
 	}
 	return body[any("result")], nil
 }

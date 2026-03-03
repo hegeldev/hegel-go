@@ -16,9 +16,9 @@ import (
 // TestEmailsSchema verifies that Emails() produces the correct schema.
 func TestEmailsSchema(t *testing.T) {
 	g := Emails()
-	bg, ok := g.(*BasicGenerator)
+	bg, ok := g.(*basicGenerator)
 	if !ok {
-		t.Fatalf("Emails() should return *BasicGenerator, got %T", g)
+		t.Fatalf("Emails() should return *basicGenerator, got %T", g)
 	}
 	if bg.schema["type"] != "email" {
 		t.Errorf("type: expected email, got %v", bg.schema["type"])
@@ -31,9 +31,9 @@ func TestEmailsSchema(t *testing.T) {
 // TestURLsSchema verifies that URLs() produces the correct schema.
 func TestURLsSchema(t *testing.T) {
 	g := URLs()
-	bg, ok := g.(*BasicGenerator)
+	bg, ok := g.(*basicGenerator)
 	if !ok {
-		t.Fatalf("URLs() should return *BasicGenerator, got %T", g)
+		t.Fatalf("URLs() should return *basicGenerator, got %T", g)
 	}
 	if bg.schema["type"] != "url" {
 		t.Errorf("type: expected url, got %v", bg.schema["type"])
@@ -46,9 +46,9 @@ func TestURLsSchema(t *testing.T) {
 // TestDomainsSchemaNoMaxLength verifies that Domains() with no MaxLength uses the default (255).
 func TestDomainsSchemaNoMaxLength(t *testing.T) {
 	g := Domains(DomainOptions{})
-	bg, ok := g.(*BasicGenerator)
+	bg, ok := g.(*basicGenerator)
 	if !ok {
-		t.Fatalf("Domains() should return *BasicGenerator, got %T", g)
+		t.Fatalf("Domains() should return *basicGenerator, got %T", g)
 	}
 	if bg.schema["type"] != "domain" {
 		t.Errorf("type: expected domain, got %v", bg.schema["type"])
@@ -66,9 +66,9 @@ func TestDomainsSchemaNoMaxLength(t *testing.T) {
 // TestDomainsSchemaWithMaxLength verifies that Domains() with MaxLength includes it.
 func TestDomainsSchemaWithMaxLength(t *testing.T) {
 	g := Domains(DomainOptions{MaxLength: 63})
-	bg, ok := g.(*BasicGenerator)
+	bg, ok := g.(*basicGenerator)
 	if !ok {
-		t.Fatalf("Domains() should return *BasicGenerator, got %T", g)
+		t.Fatalf("Domains() should return *basicGenerator, got %T", g)
 	}
 	if bg.schema["type"] != "domain" {
 		t.Errorf("type: expected domain, got %v", bg.schema["type"])
@@ -86,9 +86,9 @@ func TestDomainsSchemaWithMaxLength(t *testing.T) {
 // TestDatesSchema verifies that Dates() produces the correct schema.
 func TestDatesSchema(t *testing.T) {
 	g := Dates()
-	bg, ok := g.(*BasicGenerator)
+	bg, ok := g.(*basicGenerator)
 	if !ok {
-		t.Fatalf("Dates() should return *BasicGenerator, got %T", g)
+		t.Fatalf("Dates() should return *basicGenerator, got %T", g)
 	}
 	if bg.schema["type"] != "date" {
 		t.Errorf("type: expected date, got %v", bg.schema["type"])
@@ -101,9 +101,9 @@ func TestDatesSchema(t *testing.T) {
 // TestTimesSchema verifies that Times() produces the correct schema.
 func TestTimesSchema(t *testing.T) {
 	g := Times()
-	bg, ok := g.(*BasicGenerator)
+	bg, ok := g.(*basicGenerator)
 	if !ok {
-		t.Fatalf("Times() should return *BasicGenerator, got %T", g)
+		t.Fatalf("Times() should return *basicGenerator, got %T", g)
 	}
 	if bg.schema["type"] != "time" {
 		t.Errorf("type: expected time, got %v", bg.schema["type"])
@@ -116,9 +116,9 @@ func TestTimesSchema(t *testing.T) {
 // TestDatetimesSchema verifies that Datetimes() produces the correct schema.
 func TestDatetimesSchema(t *testing.T) {
 	g := Datetimes()
-	bg, ok := g.(*BasicGenerator)
+	bg, ok := g.(*basicGenerator)
 	if !ok {
-		t.Fatalf("Datetimes() should return *BasicGenerator, got %T", g)
+		t.Fatalf("Datetimes() should return *basicGenerator, got %T", g)
 	}
 	if bg.schema["type"] != "datetime" {
 		t.Errorf("type: expected datetime, got %v", bg.schema["type"])

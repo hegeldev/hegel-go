@@ -20,9 +20,9 @@ func TestOneOfPath1Schema(t *testing.T) {
 	g2 := Booleans(0.5)
 	combined := OneOf(g1, g2)
 
-	bg, ok := combined.(*BasicGenerator)
+	bg, ok := combined.(*basicGenerator)
 	if !ok {
-		t.Fatalf("OneOf all-identity-basic should return *BasicGenerator, got %T", combined)
+		t.Fatalf("OneOf all-identity-basic should return *basicGenerator, got %T", combined)
 	}
 	oneOf, hasOneOf := bg.schema["one_of"]
 	if !hasOneOf {
@@ -52,7 +52,7 @@ func TestOneOfPath1Schema(t *testing.T) {
 	}
 	// AsBasic() returns itself
 	if bg.AsBasic() != bg {
-		t.Error("AsBasic should return itself for BasicGenerator")
+		t.Error("AsBasic should return itself for basicGenerator")
 	}
 }
 
@@ -85,16 +85,16 @@ func TestOneOfPath1E2E(t *testing.T) {
 // OneOf — Path 2: all basic, some have transforms
 // =============================================================================
 
-// TestOneOfPath2Schema verifies that OneOf with mapped BasicGenerators produces
+// TestOneOfPath2Schema verifies that OneOf with mapped basicGenerators produces
 // a tagged-tuple schema.
 func TestOneOfPath2Schema(t *testing.T) {
 	gen1 := Just(int64(1)).Map(func(v any) any { n, _ := ExtractInt(v); return n * 2 })
 	gen2 := Just(int64(2)).Map(func(v any) any { n, _ := ExtractInt(v); return n * 3 })
 	combined := OneOf(gen1, gen2)
 
-	bg, ok := combined.(*BasicGenerator)
+	bg, ok := combined.(*basicGenerator)
 	if !ok {
-		t.Fatalf("OneOf Path 2 should return *BasicGenerator, got %T", combined)
+		t.Fatalf("OneOf Path 2 should return *basicGenerator, got %T", combined)
 	}
 	oneOf, hasOneOf := bg.schema["one_of"]
 	if !hasOneOf {
@@ -141,7 +141,7 @@ func TestOneOfPath2Transform(t *testing.T) {
 	gen2 := Just(int64(2)).Map(func(v any) any { n, _ := ExtractInt(v); return n * 3 })
 	combined := OneOf(gen1, gen2)
 
-	bg := combined.(*BasicGenerator)
+	bg := combined.(*basicGenerator)
 
 	// Simulate tag=0, value=int64(1) → transform 0 (*2) → 2
 	result0 := bg.transform([]any{int64(0), int64(1)})
@@ -166,9 +166,9 @@ func TestOneOfPath2TransformNilBranch(t *testing.T) {
 	gen2 := Just(int64(5)).Map(func(v any) any { n, _ := ExtractInt(v); return n * 10 }) // has transform
 	combined := OneOf(gen1, gen2)
 
-	bg, ok := combined.(*BasicGenerator)
+	bg, ok := combined.(*basicGenerator)
 	if !ok {
-		t.Fatalf("expected *BasicGenerator, got %T", combined)
+		t.Fatalf("expected *basicGenerator, got %T", combined)
 	}
 	// tag=0: identity branch — return value as-is
 	result0 := bg.transform([]any{int64(0), int64(7)})
@@ -189,7 +189,7 @@ func TestOneOfPath2TransformShortTuple(t *testing.T) {
 	gen1 := Just(int64(1)).Map(func(v any) any { return v })
 	gen2 := Just(int64(2)).Map(func(v any) any { return v })
 	combined := OneOf(gen1, gen2)
-	bg := combined.(*BasicGenerator)
+	bg := combined.(*basicGenerator)
 	// Call with fewer-than-2 elements — should return tagged as-is
 	result := bg.transform([]any{int64(0)})
 	elems, ok := result.([]any)
@@ -221,7 +221,7 @@ func TestOneOfPath2E2E(t *testing.T) {
 // TestOneOfPath3IsComposite verifies that OneOf with a non-basic generator
 // returns a compositeOneOfGenerator.
 func TestOneOfPath3IsComposite(t *testing.T) {
-	// A filteredGenerator (from Filter) is not a BasicGenerator.
+	// A filteredGenerator (from Filter) is not a basicGenerator.
 	filtered := Integers(0, 10).Map(func(v any) any { return v }) // still basic
 	// mappedGenerator of mappedGenerator is still not basic if it's non-basic…
 	// Actually just use a mappedGenerator wrapping mappedGenerator
@@ -253,7 +253,7 @@ func TestOneOfPath3MapReturnsMapGen(t *testing.T) {
 // using the real hegel binary.
 func TestOneOfPath3E2E(t *testing.T) {
 	hegelBinPath(t)
-	// nonBasic: a mappedGenerator (not a *BasicGenerator)
+	// nonBasic: a mappedGenerator (not a *basicGenerator)
 	nonBasic := &mappedGenerator{
 		inner: Integers(0, 1000),
 		fn:    func(v any) any { return v }, // identity, but still a mappedGenerator
@@ -306,7 +306,7 @@ func TestOneOfPath3UnitFakeServer(t *testing.T) {
 		caseID, _ := testCh.SendRequestRaw(casePayload)
 		testCh.recvResponseRaw(caseID, 5*time.Second) //nolint:errcheck
 
-		// Expect: start_span(LabelOneOf), start_span(LabelMapped), generate(index=0),
+		// Expect: start_span(labelOneOf), start_span(labelMapped), generate(index=0),
 		// generate(inner), stop_span(mapped), stop_span(oneof), mark_complete
 		// start_span (ONE_OF)
 		ssID1, _, _ := caseCh.RecvRequestRaw(5 * time.Second)
@@ -370,9 +370,9 @@ func TestOptionalSchema(t *testing.T) {
 	// Optional(basicGen with no transform) → Path 2 because Just has a transform.
 	// just(nil) has a transform (always returns nil), so we expect Path 2 (tagged tuples).
 	g := Optional(Integers(0, 10))
-	bg, ok := g.(*BasicGenerator)
+	bg, ok := g.(*basicGenerator)
 	if !ok {
-		t.Fatalf("Optional(basicGen) should return *BasicGenerator, got %T", g)
+		t.Fatalf("Optional(basicGen) should return *basicGenerator, got %T", g)
 	}
 	if _, hasOneOf := bg.schema["one_of"]; !hasOneOf {
 		t.Errorf("Optional schema should have 'one_of' key; got %v", bg.schema)
@@ -443,9 +443,9 @@ func TestOptionalNonBasicE2E(t *testing.T) {
 // TestIPAddressesV4Schema verifies that IPAddresses(v4) produces {"type":"ipv4"}.
 func TestIPAddressesV4Schema(t *testing.T) {
 	g := IPAddresses(IPAddressOptions{Version: IPVersion4})
-	bg, ok := g.(*BasicGenerator)
+	bg, ok := g.(*basicGenerator)
 	if !ok {
-		t.Fatalf("IPAddresses(v4) should return *BasicGenerator, got %T", g)
+		t.Fatalf("IPAddresses(v4) should return *basicGenerator, got %T", g)
 	}
 	if bg.schema["type"] != "ipv4" {
 		t.Errorf("IPAddresses(v4) type: expected ipv4, got %v", bg.schema["type"])
@@ -455,9 +455,9 @@ func TestIPAddressesV4Schema(t *testing.T) {
 // TestIPAddressesV6Schema verifies that IPAddresses(v6) produces {"type":"ipv6"}.
 func TestIPAddressesV6Schema(t *testing.T) {
 	g := IPAddresses(IPAddressOptions{Version: IPVersion6})
-	bg, ok := g.(*BasicGenerator)
+	bg, ok := g.(*basicGenerator)
 	if !ok {
-		t.Fatalf("IPAddresses(v6) should return *BasicGenerator, got %T", g)
+		t.Fatalf("IPAddresses(v6) should return *basicGenerator, got %T", g)
 	}
 	if bg.schema["type"] != "ipv6" {
 		t.Errorf("IPAddresses(v6) type: expected ipv6, got %v", bg.schema["type"])
@@ -467,9 +467,9 @@ func TestIPAddressesV6Schema(t *testing.T) {
 // TestIPAddressesDefaultIsOneOf verifies that IPAddresses(no version) returns a OneOf generator.
 func TestIPAddressesDefaultIsOneOf(t *testing.T) {
 	g := IPAddresses(IPAddressOptions{})
-	bg, ok := g.(*BasicGenerator)
+	bg, ok := g.(*basicGenerator)
 	if !ok {
-		t.Fatalf("IPAddresses(default) should return *BasicGenerator, got %T", g)
+		t.Fatalf("IPAddresses(default) should return *basicGenerator, got %T", g)
 	}
 	// Should be a one_of of ipv4 and ipv6
 	oneOf, hasOneOf := bg.schema["one_of"]
