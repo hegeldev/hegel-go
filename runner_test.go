@@ -471,10 +471,7 @@ func TestRunTestUnrecognisedEvent(t *testing.T) {
 	serverDone := make(chan error, 1)
 	go func() {
 		defer close(serverDone)
-		if err := serverConn.ReceiveHandshake(); err != nil {
-			serverDone <- err
-			return
-		}
+		rawHandshakeResponder(t, serverConn)
 		ctrl := serverConn.ControlChannel()
 
 		// Receive run_test command.
@@ -561,7 +558,7 @@ func TestRunTestCaseFinalFlag(t *testing.T) {
 	clientConn := newConnection(c, "C")
 
 	go func() {
-		serverConn.ReceiveHandshake() //nolint:errcheck
+		rawHandshakeResponder(t, serverConn)
 	}()
 	clientConn.SendHandshake() //nolint:errcheck
 
@@ -600,7 +597,7 @@ func fakeServerConn(t *testing.T, fn func(serverConn *connection)) *connection {
 
 	serverReady := make(chan struct{})
 	go func() {
-		serverConn.ReceiveHandshake() //nolint:errcheck
+		rawHandshakeResponder(t, serverConn)
 		close(serverReady)
 		fn(serverConn)
 	}()
@@ -741,7 +738,7 @@ func TestGenerateFromSchemaStopTest(t *testing.T) {
 	serverConn := newConnection(s, "S")
 	clientConn := newConnection(c, "C")
 	go func() {
-		serverConn.ReceiveHandshake() //nolint:errcheck
+		rawHandshakeResponder(t, serverConn)
 	}()
 	clientConn.SendHandshake() //nolint:errcheck
 	ch := clientConn.NewChannel("test")
@@ -750,7 +747,7 @@ func TestGenerateFromSchemaStopTest(t *testing.T) {
 	serverCh, _ := serverConn.ConnectChannel(ch.ChannelID(), "test")
 	go func() {
 		msgID, _, _ := serverCh.RecvRequestRaw(2 * time.Second)
-		serverCh.SendReplyError(msgID, "no more data", "StopTest") //nolint:errcheck
+		sendErrorReply(serverCh, msgID, "no more data", "StopTest")
 	}()
 
 	// Set state so getChannel() works.
@@ -782,7 +779,7 @@ func TestGenerateFromSchemaNonStopTestError(t *testing.T) {
 	serverConn := newConnection(s, "S")
 	clientConn := newConnection(c, "C")
 	go func() {
-		serverConn.ReceiveHandshake() //nolint:errcheck
+		rawHandshakeResponder(t, serverConn)
 	}()
 	clientConn.SendHandshake() //nolint:errcheck
 	ch := clientConn.NewChannel("test")
@@ -790,7 +787,7 @@ func TestGenerateFromSchemaNonStopTestError(t *testing.T) {
 	serverCh, _ := serverConn.ConnectChannel(ch.ChannelID(), "test")
 	go func() {
 		msgID, _, _ := serverCh.RecvRequestRaw(2 * time.Second)
-		serverCh.SendReplyError(msgID, "bad schema", "SchemaError") //nolint:errcheck
+		sendErrorReply(serverCh, msgID, "bad schema", "SchemaError")
 	}()
 
 	state := &testCaseData{channel: ch}
@@ -893,7 +890,7 @@ func TestTargetResponseError(t *testing.T) {
 	serverConn := newConnection(s, "S")
 	clientConn := newConnection(c, "C")
 	go func() {
-		serverConn.ReceiveHandshake() //nolint:errcheck
+		rawHandshakeResponder(t, serverConn)
 	}()
 	clientConn.SendHandshake() //nolint:errcheck
 	ch := clientConn.NewChannel("test")
@@ -901,7 +898,7 @@ func TestTargetResponseError(t *testing.T) {
 	serverCh, _ := serverConn.ConnectChannel(ch.ChannelID(), "test")
 	go func() {
 		msgID, _, _ := serverCh.RecvRequestRaw(2 * time.Second)
-		serverCh.SendReplyError(msgID, "target failed", "TargetError") //nolint:errcheck
+		sendErrorReply(serverCh, msgID, "target failed", "TargetError")
 	}()
 
 	state := &testCaseData{channel: ch}
@@ -1008,7 +1005,7 @@ func TestRunTestSendError(t *testing.T) {
 	serverConn := newConnection(s, "S")
 	clientConn := newConnection(c, "C")
 	go func() {
-		serverConn.ReceiveHandshake() //nolint:errcheck
+		rawHandshakeResponder(t, serverConn)
 	}()
 	clientConn.SendHandshake() //nolint:errcheck
 
@@ -1030,7 +1027,7 @@ func TestRunTestAckError(t *testing.T) {
 		ctrl := serverConn.ControlChannel()
 		msgID, _, _ := ctrl.RecvRequestRaw(5 * time.Second)
 		// Reply with an error instead of ack.
-		ctrl.SendReplyError(msgID, "cannot run test", "ServerError") //nolint:errcheck
+		sendErrorReply(ctrl, msgID, "cannot run test", "ServerError")
 	})
 
 	cli := newClient(clientConn)
