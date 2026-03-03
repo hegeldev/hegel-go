@@ -54,13 +54,9 @@ func setState(s *testCaseData) {
 }
 
 // getCurrentIsFinal returns true if the current test case is a final (replay) run.
-// Returns false if not in a test context.
+// Must be called from within a test body.
 func getCurrentIsFinal() bool {
-	s := getState()
-	if s == nil {
-		return false
-	}
-	return s.isFinal
+	return getState().isFinal
 }
 
 func getCurrentChannel() *channel {

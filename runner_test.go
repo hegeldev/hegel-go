@@ -414,9 +414,10 @@ func TestWithTestCasesOption(t *testing.T) {
 func TestStopTestOnCollectionMore(t *testing.T) {
 	hegelBinPath(t)
 	setEnv(t, "HEGEL_PROTOCOL_TEST_MODE", "stop_test_on_collection_more")
+	// Use Lists with a non-basic (filtered) generator to exercise collection_more.
+	nonBasic := Integers(0, 100).Filter(func(v any) bool { return true })
 	err := RunHegelTestE(t.Name(), func() {
-		coll := NewCollection(0, 10)
-		_ = coll.More()
+		Draw(Lists(nonBasic, ListsOptions{MinSize: 0, MaxSize: 10}))
 	})
 	_ = err // StopTest causes abort, not necessarily an error return
 }
@@ -426,9 +427,10 @@ func TestStopTestOnCollectionMore(t *testing.T) {
 func TestStopTestOnNewCollection(t *testing.T) {
 	hegelBinPath(t)
 	setEnv(t, "HEGEL_PROTOCOL_TEST_MODE", "stop_test_on_new_collection")
+	// Use Lists with a non-basic (filtered) generator to exercise new_collection.
+	nonBasic := Integers(0, 100).Filter(func(v any) bool { return true })
 	err := RunHegelTestE(t.Name(), func() {
-		coll := NewCollection(0, 10)
-		_ = coll.More()
+		Draw(Lists(nonBasic, ListsOptions{MinSize: 0, MaxSize: 10}))
 	})
 	_ = err // StopTest causes abort, not necessarily an error return
 }

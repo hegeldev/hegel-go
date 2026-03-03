@@ -197,9 +197,6 @@ func (g *filteredGenerator) Map(fn func(any) any) Generator {
 // label identifies the kind of span (e.g. LabelList, LabelMapped).
 // No-op if the test has been aborted.
 func startSpan(label SpanLabel, data *testCaseData) {
-	if data.aborted {
-		return
-	}
 	ch := data.channel
 	payload, err := EncodeCBOR(map[string]any{
 		"command": "start_span",
@@ -237,28 +234,6 @@ func stopSpan(discard bool, data *testCaseData) {
 	pending.Get() //nolint:errcheck
 }
 
-// StartSpan notifies the server that a new generation span has started.
-// label identifies the kind of span (e.g. LabelList, LabelMapped).
-// Must be called from within a test body. No-op if the test has been aborted.
-func StartSpan(label SpanLabel) {
-	s := getState()
-	if s == nil || s.aborted {
-		return
-	}
-	startSpan(label, s)
-}
-
-// StopSpan notifies the server that the current generation span has ended.
-// If discard is true, the span's data should be discarded from the shrinking budget.
-// No-op if the test has been aborted.
-func StopSpan(discard bool) {
-	s := getState()
-	if s == nil || s.aborted {
-		return
-	}
-	stopSpan(discard, s)
-}
-
 // group runs fn inside a start_span / stop_span pair with the given label.
 // The span is never discarded (discard=false).
 func group(label SpanLabel, fn func(), data *testCaseData) {
@@ -277,28 +252,6 @@ func discardableGroup(label SpanLabel, fn func(), data *testCaseData) {
 	}()
 	fn()
 	panicked = false
-}
-
-// Group runs fn inside a start_span / stop_span pair with the given label.
-// The span is never discarded (discard=false).
-// Must be called from within a test body.
-func Group(label SpanLabel, fn func()) {
-	s := getState()
-	if s == nil {
-		return
-	}
-	group(label, fn, s)
-}
-
-// DiscardableGroup runs fn inside a start_span / stop_span pair.
-// If fn panics, the span is ended with discard=true before re-panicking.
-// Must be called from within a test body.
-func DiscardableGroup(label SpanLabel, fn func()) {
-	s := getState()
-	if s == nil {
-		return
-	}
-	discardableGroup(label, fn, s)
 }
 
 // --- Collection protocol ---
@@ -371,68 +324,6 @@ func (c *collection) more(data *testCaseData) bool {
 		c.finished = true
 	}
 	return more
-}
-
-// reject tells the server that the last generated element should not count
-// toward the collection's size budget (e.g. because it was filtered out).
-// No-op if the collection has already finished.
-func (c *collection) reject(data *testCaseData) {
-	if c.finished {
-		return
-	}
-	ch := data.channel
-	payload, err := EncodeCBOR(map[string]any{
-		"command":    "collection_reject",
-		"collection": c.serverName,
-	})
-	if err != nil {
-		panic(fmt.Sprintf("hegel: unreachable: collection.reject encode: %v", err))
-	}
-	pending, err := ch.Request(payload)
-	if err != nil {
-		panic(fmt.Sprintf("hegel: unreachable: reject request: %v", err))
-	}
-	pending.Get() //nolint:errcheck
-}
-
-// Collection manages a server-side collection (list/set/map) generation session.
-// Use NewCollection to create one, then call More in a loop, and optionally
-// Reject to discard the last element.
-type Collection struct {
-	inner *collection
-}
-
-// NewCollection starts a new collection on the server with the given size bounds.
-// It sends the new_collection command immediately.
-// Must be called from within a test body.
-func NewCollection(minSize, maxSize int) *Collection {
-	data := getState()
-	if data == nil {
-		panic("hegel: NewCollection() cannot be called outside of a Hegel test")
-	}
-	return &Collection{inner: newCollection(minSize, maxSize, data)}
-}
-
-// More asks the server whether another element should be generated.
-// Returns false when the collection is exhausted; subsequent calls return false
-// without sending any messages.
-func (c *Collection) More() bool {
-	data := getState()
-	if data == nil {
-		panic("hegel: Collection.More() cannot be called outside of a Hegel test")
-	}
-	return c.inner.more(data)
-}
-
-// Reject tells the server that the last generated element should not count
-// toward the collection's size budget (e.g. because it was filtered out).
-// No-op if the collection has already finished.
-func (c *Collection) Reject() {
-	data := getState()
-	if data == nil {
-		panic("hegel: Collection.Reject() cannot be called outside of a Hegel test")
-	}
-	c.inner.reject(data)
 }
 
 // --- Built-in generators ---
