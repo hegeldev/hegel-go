@@ -1,4 +1,5 @@
-package hegel
+// Package conformance provides shared helpers for the hegel conformance test binaries.
+package conformance
 
 import (
 	"encoding/json"

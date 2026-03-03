@@ -8,6 +8,7 @@ import (
 	"os"
 
 	hegel "github.com/antithesishq/hegel-go"
+	"github.com/antithesishq/hegel-go/internal/conformance"
 )
 
 func main() {
@@ -56,7 +57,7 @@ func main() {
 	}
 
 	gen := hegel.Floats(minPtr, maxPtr, allowNaN, allowInfinity, excludeMin, excludeMax)
-	n := hegel.GetTestCases()
+	n := conformance.GetTestCases()
 	hegel.RunHegelTest("conformance_floats", func() {
 		raw := hegel.Draw(gen)
 		val, _ := hegel.ExtractFloat(raw)
@@ -71,7 +72,7 @@ func main() {
 		} else {
 			m["value"] = nil
 		}
-		hegel.WriteMetrics(m)
+		conformance.WriteMetrics(m)
 	}, hegel.WithTestCases(n))
 	os.Exit(0)
 }

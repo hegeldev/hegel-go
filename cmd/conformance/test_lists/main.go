@@ -13,6 +13,7 @@ import (
 	"strings"
 
 	hegel "github.com/antithesishq/hegel-go"
+	"github.com/antithesishq/hegel-go/internal/conformance"
 )
 
 func main() {
@@ -68,7 +69,7 @@ func main() {
 		MaxSize: maxSize,
 	}
 	gen := hegel.Lists(elemGen, opts)
-	n := hegel.GetTestCases()
+	n := conformance.GetTestCases()
 
 	hegel.RunHegelTest("conformance_lists", func() {
 		raw := hegel.Draw(gen)
@@ -92,7 +93,7 @@ func main() {
 			maxElem = maxVal
 		}
 
-		hegel.WriteMetrics(map[string]any{
+		conformance.WriteMetrics(map[string]any{
 			"size":        size,
 			"min_element": minElem,
 			"max_element": maxElem,

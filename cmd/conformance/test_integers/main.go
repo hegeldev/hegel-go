@@ -8,6 +8,7 @@ import (
 	"os"
 
 	hegel "github.com/antithesishq/hegel-go"
+	"github.com/antithesishq/hegel-go/internal/conformance"
 )
 
 func main() {
@@ -36,11 +37,11 @@ func main() {
 	}
 
 	gen := hegel.IntegersFrom(minPtr, maxPtr)
-	n := hegel.GetTestCases()
+	n := conformance.GetTestCases()
 	hegel.RunHegelTest("conformance_integers", func() {
 		v := hegel.Draw(gen)
 		val, _ := hegel.ExtractInt(v)
-		hegel.WriteMetrics(map[string]any{
+		conformance.WriteMetrics(map[string]any{
 			"value": val,
 		})
 	}, hegel.WithTestCases(n))

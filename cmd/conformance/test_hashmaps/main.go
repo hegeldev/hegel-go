@@ -9,6 +9,7 @@ import (
 	"os"
 
 	hegel "github.com/antithesishq/hegel-go"
+	"github.com/antithesishq/hegel-go/internal/conformance"
 )
 
 func main() {
@@ -81,7 +82,7 @@ func main() {
 		HasMaxSize: true,
 	}
 	gen := hegel.Dicts(keysGen, valsGen, opts)
-	n := hegel.GetTestCases()
+	n := conformance.GetTestCases()
 
 	hegel.RunHegelTest("conformance_hashmaps", func() {
 		raw := hegel.Draw(gen)
@@ -138,7 +139,7 @@ func main() {
 			maxValueOut = maxIntVal
 		}
 
-		hegel.WriteMetrics(map[string]any{
+		conformance.WriteMetrics(map[string]any{
 			"size":      size,
 			"min_key":   minKeyOut,
 			"max_key":   maxKeyOut,
