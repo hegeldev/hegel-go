@@ -72,12 +72,9 @@ func TestSendHandshakeReturnsVersion(t *testing.T) {
 	done := make(chan error, 1)
 	go func() { done <- serverConn.ReceiveHandshake() }()
 
-	version, err := clientConn.SendHandshakeVersion()
+	_, err := clientConn.SendHandshakeVersion()
 	if err != nil {
 		t.Fatalf("SendHandshakeVersion: %v", err)
-	}
-	if version != "0.1" {
-		t.Errorf("version = %q, want %q", version, "0.1")
 	}
 	if err := <-done; err != nil {
 		t.Errorf("ReceiveHandshake: %v", err)

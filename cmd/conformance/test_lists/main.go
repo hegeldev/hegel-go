@@ -71,7 +71,7 @@ func main() {
 	n := hegel.GetTestCases()
 
 	hegel.RunHegelTest("conformance_lists", func() {
-		raw := gen.Generate()
+		raw := hegel.Draw(gen)
 		items, _ := raw.([]any)
 		size := len(items)
 

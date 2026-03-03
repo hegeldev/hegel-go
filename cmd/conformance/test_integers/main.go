@@ -38,7 +38,7 @@ func main() {
 	gen := hegel.IntegersFrom(minPtr, maxPtr)
 	n := hegel.GetTestCases()
 	hegel.RunHegelTest("conformance_integers", func() {
-		v := gen.Generate()
+		v := hegel.Draw(gen)
 		val, _ := hegel.ExtractInt(v)
 		hegel.WriteMetrics(map[string]any{
 			"value": val,

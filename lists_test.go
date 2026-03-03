@@ -234,7 +234,7 @@ func TestCompositeListGeneratorProtocol(t *testing.T) {
 	cli := newClient(clientConn)
 	var gotResult []any
 	err := cli.runTest("composite_list_proto", func() {
-		result := gen.Generate()
+		result := Draw(gen)
 		gotResult, _ = result.([]any)
 	}, runOptions{testCases: 1})
 	if err != nil {
@@ -300,7 +300,7 @@ func TestCompositeListGeneratorEmptyList(t *testing.T) {
 	cli := newClient(clientConn)
 	var gotLen int = -1
 	err := cli.runTest("composite_list_empty", func() {
-		result := gen.Generate()
+		result := Draw(gen)
 		slice, _ := result.([]any)
 		gotLen = len(slice)
 	}, runOptions{testCases: 1})
@@ -321,7 +321,7 @@ func TestCompositeListGeneratorEmptyList(t *testing.T) {
 func TestListsBasicIntegersE2E(t *testing.T) {
 	hegelBinPath(t)
 	RunHegelTest("lists_basic_integers_e2e", func() {
-		xs := Lists(Integers(0, 100), ListsOptions{MinSize: 0, MaxSize: 10}).Generate()
+		xs := Draw(Lists(Integers(0, 100), ListsOptions{MinSize: 0, MaxSize: 10}))
 		slice, ok := xs.([]any)
 		if !ok {
 			panic(fmt.Sprintf("Lists: expected []any, got %T", xs))
@@ -340,7 +340,7 @@ func TestListsBasicIntegersE2E(t *testing.T) {
 func TestListsWithSizeBoundsE2E(t *testing.T) {
 	hegelBinPath(t)
 	RunHegelTest("lists_with_bounds_e2e", func() {
-		xs := Lists(Booleans(0.5), ListsOptions{MinSize: 3, MaxSize: 5}).Generate()
+		xs := Draw(Lists(Booleans(0.5), ListsOptions{MinSize: 3, MaxSize: 5}))
 		slice, ok := xs.([]any)
 		if !ok {
 			panic(fmt.Sprintf("Lists: expected []any, got %T", xs))
@@ -364,7 +364,7 @@ func TestListsNonBasicElementE2E(t *testing.T) {
 	nonBasic := &mappedGenerator{inner: filtered, fn: func(v any) any { return v }}
 
 	RunHegelTest("lists_non_basic_e2e", func() {
-		xs := Lists(nonBasic, ListsOptions{MinSize: 0, MaxSize: 5}).Generate()
+		xs := Draw(Lists(nonBasic, ListsOptions{MinSize: 0, MaxSize: 5}))
 		slice, ok := xs.([]any)
 		if !ok {
 			panic(fmt.Sprintf("Lists(non-basic): expected []any, got %T", xs))
@@ -383,7 +383,7 @@ func TestListsNonBasicElementE2E(t *testing.T) {
 func TestListsNestedE2E(t *testing.T) {
 	hegelBinPath(t)
 	RunHegelTest("lists_nested_e2e", func() {
-		outer := Lists(Lists(Booleans(0.5), ListsOptions{MinSize: 0, MaxSize: 3}), ListsOptions{MinSize: 0, MaxSize: 3}).Generate()
+		outer := Draw(Lists(Lists(Booleans(0.5), ListsOptions{MinSize: 0, MaxSize: 3}), ListsOptions{MinSize: 0, MaxSize: 3}))
 		outerSlice, ok := outer.([]any)
 		if !ok {
 			panic(fmt.Sprintf("nested Lists: expected []any outer, got %T", outer))
@@ -412,7 +412,7 @@ func TestListsBasicWithTransformE2E(t *testing.T) {
 		return n * 2
 	})
 	RunHegelTest("lists_basic_transform_e2e", func() {
-		xs := Lists(doubled, ListsOptions{MinSize: 0, MaxSize: 5}).Generate()
+		xs := Draw(Lists(doubled, ListsOptions{MinSize: 0, MaxSize: 5}))
 		slice, ok := xs.([]any)
 		if !ok {
 			panic(fmt.Sprintf("Lists(basic+transform): expected []any, got %T", xs))

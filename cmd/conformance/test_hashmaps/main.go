@@ -84,7 +84,7 @@ func main() {
 	n := hegel.GetTestCases()
 
 	hegel.RunHegelTest("conformance_hashmaps", func() {
-		raw := gen.Generate()
+		raw := hegel.Draw(gen)
 		m, _ := raw.(map[any]any)
 		size := len(m)
 

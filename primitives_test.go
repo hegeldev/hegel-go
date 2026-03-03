@@ -22,7 +22,7 @@ func TestIntegersFromE2E(t *testing.T) {
 	minV := int64(10)
 	maxV := int64(50)
 	RunHegelTest("integers_from_e2e", func() {
-		n := IntegersFrom(&minV, &maxV).Generate()
+		n := Draw(IntegersFrom(&minV, &maxV))
 		v, _ := ExtractInt(n)
 		if v < 10 || v > 50 {
 			panic("integers_from: out of range [10, 50]")
@@ -33,7 +33,7 @@ func TestIntegersFromE2E(t *testing.T) {
 func TestIntegersFromUnboundedE2E(t *testing.T) {
 	hegelBinPath(t)
 	RunHegelTest("integers_from_unbounded_e2e", func() {
-		n := IntegersFrom(nil, nil).Generate()
+		n := Draw(IntegersFrom(nil, nil))
 		// Unbounded integers may be int64, uint64, or *big.Int for very large values.
 		// Verify the value is non-nil (any integer type is valid).
 		if n == nil {
@@ -46,7 +46,7 @@ func TestFloatsE2E_WithBounds(t *testing.T) {
 	hegelBinPath(t)
 	falseBool := false
 	RunHegelTest("floats_e2e_bounded", func() {
-		f := Floats(floatPtr(0.0), floatPtr(1.0), &falseBool, &falseBool, false, false).Generate()
+		f := Draw(Floats(floatPtr(0.0), floatPtr(1.0), &falseBool, &falseBool, false, false))
 		fv, ok := f.(float64)
 		if !ok {
 			panic("floats: expected float64")
@@ -66,7 +66,7 @@ func TestFloatsE2E_WithBounds(t *testing.T) {
 func TestFloatsE2E_Unbounded(t *testing.T) {
 	hegelBinPath(t)
 	RunHegelTest("floats_e2e_unbounded", func() {
-		f := Floats(nil, nil, nil, nil, false, false).Generate()
+		f := Draw(Floats(nil, nil, nil, nil, false, false))
 		// Unbounded floats may produce NaN or Inf — any float64 is valid.
 		_, ok := f.(float64)
 		if !ok {
@@ -78,7 +78,7 @@ func TestFloatsE2E_Unbounded(t *testing.T) {
 func TestFloatsE2E_OnlyMin(t *testing.T) {
 	hegelBinPath(t)
 	RunHegelTest("floats_e2e_only_min", func() {
-		f := Floats(floatPtr(0.0), nil, nil, nil, false, false).Generate()
+		f := Draw(Floats(floatPtr(0.0), nil, nil, nil, false, false))
 		fv, ok := f.(float64)
 		if !ok {
 			panic("floats: expected float64")
@@ -94,7 +94,7 @@ func TestFloatsE2E_OnlyMin(t *testing.T) {
 func TestBooleansE2E(t *testing.T) {
 	hegelBinPath(t)
 	RunHegelTest("booleans_e2e", func() {
-		b := Booleans(0.5).Generate()
+		b := Draw(Booleans(0.5))
 		_, ok := b.(bool)
 		if !ok {
 			panic("booleans: expected bool")
@@ -105,7 +105,7 @@ func TestBooleansE2E(t *testing.T) {
 func TestTextE2E(t *testing.T) {
 	hegelBinPath(t)
 	RunHegelTest("text_e2e", func() {
-		s := Text(2, 8).Generate()
+		s := Draw(Text(2, 8))
 		sv, ok := s.(string)
 		if !ok {
 			panic("text: expected string")
@@ -120,7 +120,7 @@ func TestTextE2E(t *testing.T) {
 func TestTextE2E_Unbounded(t *testing.T) {
 	hegelBinPath(t)
 	RunHegelTest("text_e2e_unbounded", func() {
-		s := Text(0, -1).Generate()
+		s := Draw(Text(0, -1))
 		sv, ok := s.(string)
 		if !ok {
 			panic("text: expected string")
@@ -134,7 +134,7 @@ func TestTextE2E_Unbounded(t *testing.T) {
 func TestBinaryE2E(t *testing.T) {
 	hegelBinPath(t)
 	RunHegelTest("binary_e2e", func() {
-		b := Binary(1, 10).Generate()
+		b := Draw(Binary(1, 10))
 		bv, ok := b.([]byte)
 		if !ok {
 			panic("binary: expected []byte")
@@ -148,7 +148,7 @@ func TestBinaryE2E(t *testing.T) {
 func TestBinaryE2E_Unbounded(t *testing.T) {
 	hegelBinPath(t)
 	RunHegelTest("binary_e2e_unbounded", func() {
-		b := Binary(0, -1).Generate()
+		b := Draw(Binary(0, -1))
 		_, ok := b.([]byte)
 		if !ok {
 			panic("binary: expected []byte")

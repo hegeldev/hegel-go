@@ -63,7 +63,7 @@ func TestOneOfPath1E2E(t *testing.T) {
 	sawBool := false
 	combined := OneOf(Integers(0, 1000), Booleans(0.5))
 	RunHegelTest(t.Name(), func() {
-		v := combined.Generate()
+		v := Draw(combined)
 		switch v.(type) {
 		case uint64, int64:
 			sawInt = true
@@ -206,7 +206,7 @@ func TestOneOfPath2E2E(t *testing.T) {
 	combined := OneOf(gen1, gen2)
 
 	RunHegelTest(t.Name(), func() {
-		v := combined.Generate()
+		v := Draw(combined)
 		n, _ := ExtractInt(v)
 		if n != 2 && n != 6 {
 			panic(fmt.Sprintf("OneOf Path2: expected 2 or 6, got %d", n))
@@ -264,7 +264,7 @@ func TestOneOfPath3E2E(t *testing.T) {
 	sawInt := false
 	sawStr := false
 	RunHegelTest(t.Name(), func() {
-		v := combined.Generate()
+		v := Draw(combined)
 		switch v.(type) {
 		case uint64, int64:
 			sawInt = true
@@ -336,7 +336,7 @@ func TestOneOfPath3UnitFakeServer(t *testing.T) {
 	cli := newClient(clientConn)
 	var got int64
 	err := cli.runTest("composite_oneof_unit", func() {
-		v := gen.Generate()
+		v := Draw(gen)
 		got, _ = ExtractInt(v)
 	}, runOptions{testCases: 1})
 	if err != nil {
@@ -386,7 +386,7 @@ func TestOptionalE2E(t *testing.T) {
 	sawInt := false
 	g := Optional(Integers(0, 100))
 	RunHegelTest(t.Name(), func() {
-		v := g.Generate()
+		v := Draw(g)
 		if v == nil {
 			sawNil = true
 		} else {
@@ -421,7 +421,7 @@ func TestOptionalNonBasicE2E(t *testing.T) {
 	sawNil := false
 	sawVal := false
 	RunHegelTest(t.Name(), func() {
-		v := g.Generate()
+		v := Draw(g)
 		if v == nil {
 			sawNil = true
 		} else {
@@ -487,7 +487,7 @@ func TestIPAddressesV4E2E(t *testing.T) {
 	hegelBinPath(t)
 	g := IPAddresses(IPAddressOptions{Version: IPVersion4})
 	RunHegelTest(t.Name(), func() {
-		v := g.Generate()
+		v := Draw(g)
 		s, ok := v.(string)
 		if !ok {
 			panic(fmt.Sprintf("IPAddresses v4: expected string, got %T", v))
@@ -503,7 +503,7 @@ func TestIPAddressesV6E2E(t *testing.T) {
 	hegelBinPath(t)
 	g := IPAddresses(IPAddressOptions{Version: IPVersion6})
 	RunHegelTest(t.Name(), func() {
-		v := g.Generate()
+		v := Draw(g)
 		s, ok := v.(string)
 		if !ok {
 			panic(fmt.Sprintf("IPAddresses v6: expected string, got %T", v))
@@ -521,7 +521,7 @@ func TestIPAddressesDefaultE2E(t *testing.T) {
 	sawV6 := false
 	g := IPAddresses(IPAddressOptions{})
 	RunHegelTest(t.Name(), func() {
-		v := g.Generate()
+		v := Draw(g)
 		s, ok := v.(string)
 		if !ok {
 			panic(fmt.Sprintf("IPAddresses default: expected string, got %T", v))
@@ -552,7 +552,7 @@ func TestOneOfWithMapMixedTypesE2E(t *testing.T) {
 		Just(true),
 	)
 	RunHegelTest(t.Name(), func() {
-		v := gen.Generate()
+		v := Draw(gen)
 		switch val := v.(type) {
 		case int64:
 			if val%2 != 0 || val < 0 || val > 20 {
@@ -580,7 +580,7 @@ func TestOneOfAllBranchesAppear(t *testing.T) {
 	sawB := false
 	gen := OneOf(Text(1, 3), Text(4, 6))
 	RunHegelTest(t.Name(), func() {
-		v := gen.Generate()
+		v := Draw(gen)
 		s, ok := v.(string)
 		if !ok {
 			panic(fmt.Sprintf("OneOf text branches: expected string, got %T", v))
@@ -611,7 +611,7 @@ func TestCompositeOneOfGenerateErrorResponse(t *testing.T) {
 	nonBasic2 := &mappedGenerator{inner: Integers(6, 10), fn: func(v any) any { return v }}
 	gen := &compositeOneOfGenerator{generators: []Generator{nonBasic1, nonBasic2}}
 	err := RunHegelTestE(t.Name(), func() {
-		_ = gen.Generate() // should panic with RequestError
+		_ = Draw(gen) // should panic with RequestError
 	})
 	// error_response makes the test appear interesting (failing).
 	_ = err

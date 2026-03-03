@@ -153,7 +153,7 @@ func TestFilteredGeneratorGeneratePredicatePassesFirstTry(t *testing.T) {
 	// Filter that always passes: every value is accepted on first try.
 	gen := Integers(0, 100).Filter(func(v any) bool { return true })
 	RunHegelTest(t.Name(), func() {
-		v := gen.Generate()
+		v := Draw(gen)
 		n, err := ExtractInt(v)
 		if err != nil {
 			panic(fmt.Sprintf("Filter: expected int, got %T: %v", v, v))
@@ -174,7 +174,7 @@ func TestFilteredGeneratorGenerateWithRealPredicate(t *testing.T) {
 		return n%2 == 0
 	})
 	RunHegelTest(t.Name(), func() {
-		v := gen.Generate()
+		v := Draw(gen)
 		n, err := ExtractInt(v)
 		if err != nil {
 			panic(fmt.Sprintf("Filter even: expected int, got %T: %v", v, v))
@@ -250,7 +250,7 @@ func TestFilteredGeneratorGenerateAllFailsCallsAssume(t *testing.T) {
 				return false // always reject
 			},
 		}
-		fg.Generate() // should call Assume(false) after 3 attempts
+		Draw(fg) // should call Assume(false) after 3 attempts
 	}, runOptions{testCases: 1})
 	if err != nil {
 		t.Fatalf("runTest: %v", err)
@@ -276,7 +276,7 @@ func TestFilteredGeneratorGenerateChainedFilters(t *testing.T) {
 			return n%4 == 0
 		})
 	RunHegelTest(t.Name(), func() {
-		v := gen.Generate()
+		v := Draw(gen)
 		n, err := ExtractInt(v)
 		if err != nil {
 			panic(fmt.Sprintf("chained filter: expected int, got %T: %v", v, v))
@@ -305,7 +305,7 @@ func TestFilteredGeneratorGenerateThenMap(t *testing.T) {
 		t.Fatalf("Filter.Map should return *mappedGenerator, got %T", gen)
 	}
 	RunHegelTest(t.Name(), func() {
-		v := gen.Generate()
+		v := Draw(gen)
 		n, _ := ExtractInt(v)
 		// After filtering odd [1,20] and multiplying by 10: values like 10,30,50,...190
 		if n%20 != 10 && n%20 != 30 && n%2 != 0 {
@@ -375,7 +375,7 @@ func TestFilteredGeneratorGenerateUnitPredicatePasses(t *testing.T) {
 			source:    inner,
 			predicate: func(v any) bool { return true },
 		}
-		v := fg.Generate()
+		v := Draw(fg)
 		gotVal, _ = ExtractInt(v)
 	}, runOptions{testCases: 1})
 	if err != nil {
@@ -463,7 +463,7 @@ func TestFilteredGeneratorGenerateUnitPredicateFailsThenPasses(t *testing.T) {
 				return n%2 == 0 // only even
 			},
 		}
-		v := fg.Generate()
+		v := Draw(fg)
 		gotVal, _ = ExtractInt(v)
 	}, runOptions{testCases: 1})
 	if err != nil {

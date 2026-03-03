@@ -51,7 +51,7 @@ func TestBasicGeneratorGenerateNoTransform(t *testing.T) {
 	var gotVal int64
 	err := cli.runTest("basic_gen_no_transform", func() {
 		g := &BasicGenerator{schema: schema}
-		v := g.Generate()
+		v := Draw(g)
 		gotVal, _ = ExtractInt(v)
 	}, runOptions{testCases: 1})
 	if err != nil {
@@ -102,7 +102,7 @@ func TestBasicGeneratorGenerateWithTransform(t *testing.T) {
 			schema:    schema,
 			transform: func(v any) any { n, _ := ExtractInt(v); return n * 2 },
 		}
-		v := g.Generate()
+		v := Draw(g)
 		gotVal, _ = v.(int64)
 	}, runOptions{testCases: 1})
 	if err != nil {
@@ -221,7 +221,7 @@ func TestMappedGeneratorGenerate(t *testing.T) {
 			inner: inner,
 			fn:    func(v any) any { n, _ := ExtractInt(v); return n * 10 },
 		}
-		v := mg.Generate()
+		v := Draw(mg)
 		gotVal, _ = v.(int64)
 	}, runOptions{testCases: 1})
 	if err != nil {
@@ -289,307 +289,7 @@ func fakeTestEnv(t *testing.T, fn func(caseCh *channel)) *connection {
 	})
 }
 
-// --- StartSpan and StopSpan ---
-
-func TestStartStopSpan(t *testing.T) {
-	var gotStartLabel int64
-	var gotStopDiscard bool
-	clientConn := fakeTestEnv(t, func(caseCh *channel) {
-		// start_span
-		ssID, ssPayload, _ := caseCh.RecvRequestRaw(5 * time.Second)
-		decoded, _ := DecodeCBOR(ssPayload)
-		m, _ := ExtractDict(decoded)
-		gotStartLabel, _ = ExtractInt(m[any("label")])
-		caseCh.SendReplyValue(ssID, nil) //nolint:errcheck
-		// stop_span
-		spID, spPayload, _ := caseCh.RecvRequestRaw(5 * time.Second)
-		decoded2, _ := DecodeCBOR(spPayload)
-		m2, _ := ExtractDict(decoded2)
-		b, _ := m2[any("discard")].(bool)
-		gotStopDiscard = b
-		caseCh.SendReplyValue(spID, nil) //nolint:errcheck
-	})
-
-	cli := newClient(clientConn)
-	err := cli.runTest("spans", func() {
-		StartSpan(LabelMapped)
-		StopSpan(false)
-	}, runOptions{testCases: 1})
-	if err != nil {
-		t.Fatalf("runTest: %v", err)
-	}
-	if gotStartLabel != int64(LabelMapped) {
-		t.Errorf("start_span label: expected %d, got %d", LabelMapped, gotStartLabel)
-	}
-	if gotStopDiscard {
-		t.Error("stop_span discard should be false")
-	}
-}
-
-// --- StopSpan with discard=true ---
-
-func TestStopSpanDiscard(t *testing.T) {
-	var gotDiscard bool
-	clientConn := fakeTestEnv(t, func(caseCh *channel) {
-		// start_span
-		ssID, _, _ := caseCh.RecvRequestRaw(5 * time.Second)
-		caseCh.SendReplyValue(ssID, nil) //nolint:errcheck
-		// stop_span
-		spID, spPayload, _ := caseCh.RecvRequestRaw(5 * time.Second)
-		decoded, _ := DecodeCBOR(spPayload)
-		m, _ := ExtractDict(decoded)
-		b, _ := m[any("discard")].(bool)
-		gotDiscard = b
-		caseCh.SendReplyValue(spID, nil) //nolint:errcheck
-	})
-
-	cli := newClient(clientConn)
-	err := cli.runTest("stop_span_discard", func() {
-		StartSpan(LabelList)
-		StopSpan(true)
-	}, runOptions{testCases: 1})
-	if err != nil {
-		t.Fatalf("runTest: %v", err)
-	}
-	if !gotDiscard {
-		t.Error("stop_span discard should be true")
-	}
-}
-
-// --- StartSpan no-op when aborted ---
-
-func TestStartSpanNoOpWhenAborted(t *testing.T) {
-	// When aborted=true, StartSpan and StopSpan must not send any messages.
-	clientConn := fakeTestEnv(t, func(caseCh *channel) {
-		// No messages expected (no start/stop span).
-		// The test fn will set aborted then call StartSpan/StopSpan.
-	})
-
-	cli := newClient(clientConn)
-	err := cli.runTest("span_noop_aborted", func() {
-		// Directly set the aborted flag.
-		setAborted()
-		StartSpan(LabelList) // should be no-op
-		StopSpan(false)      // should be no-op
-	}, runOptions{testCases: 1})
-	if err != nil {
-		t.Fatalf("runTest: %v", err)
-	}
-}
-
-// --- Group helper ---
-
-func TestGroup(t *testing.T) {
-	var cmds []string
-	// Use fakeServerConn directly to control all message handling.
-	clientConn := fakeServerConn(t, func(serverConn *connection) {
-		ctrl := serverConn.ControlChannel()
-		msgID, payload, _ := ctrl.RecvRequestRaw(5 * time.Second)
-		decoded, _ := DecodeCBOR(payload)
-		m, _ := ExtractDict(decoded)
-		chID, _ := ExtractInt(m[any("channel_id")])
-		ctrl.SendReplyValue(msgID, true) //nolint:errcheck
-
-		testCh, _ := serverConn.ConnectChannel(uint32(chID), "TestCh")
-		caseCh := serverConn.NewChannel("Case")
-		casePayload, _ := EncodeCBOR(map[string]any{
-			"event":      "test_case",
-			"channel_id": int64(caseCh.ChannelID()),
-			"is_final":   false,
-		})
-		caseID, _ := testCh.SendRequestRaw(casePayload)
-		testCh.recvResponseRaw(caseID, 5*time.Second) //nolint:errcheck
-
-		// Receive exactly: start_span, stop_span, mark_complete.
-		for i := 0; i < 3; i++ {
-			mid, pl, _ := caseCh.RecvRequestRaw(5 * time.Second)
-			dec, _ := DecodeCBOR(pl)
-			mp, _ := ExtractDict(dec)
-			cmd, _ := ExtractString(mp[any("command")])
-			cmds = append(cmds, cmd)
-			caseCh.SendReplyValue(mid, nil) //nolint:errcheck
-		}
-
-		sendTestDone(t, testCh, true, 0)
-	})
-
-	cli := newClient(clientConn)
-	err := cli.runTest("group_test", func() {
-		Group(LabelTuple, func() {
-			// nothing inside, just test the wrapping
-		})
-	}, runOptions{testCases: 1})
-	if err != nil {
-		t.Fatalf("runTest: %v", err)
-	}
-	if len(cmds) < 3 {
-		t.Fatalf("expected at least start_span, stop_span, mark_complete; got %v", cmds)
-	}
-	if cmds[0] != "start_span" {
-		t.Errorf("first cmd: expected start_span, got %s", cmds[0])
-	}
-	if cmds[1] != "stop_span" {
-		t.Errorf("second cmd: expected stop_span, got %s", cmds[1])
-	}
-}
-
-// --- DiscardableGroup: no panic ---
-
-func TestDiscardableGroupNoPanic(t *testing.T) {
-	var cmds []string
-	clientConn := fakeServerConn(t, func(serverConn *connection) {
-		ctrl := serverConn.ControlChannel()
-		msgID, payload, _ := ctrl.RecvRequestRaw(5 * time.Second)
-		decoded, _ := DecodeCBOR(payload)
-		m, _ := ExtractDict(decoded)
-		chID, _ := ExtractInt(m[any("channel_id")])
-		ctrl.SendReplyValue(msgID, true) //nolint:errcheck
-
-		testCh, _ := serverConn.ConnectChannel(uint32(chID), "TestCh")
-		caseCh := serverConn.NewChannel("Case")
-		casePayload, _ := EncodeCBOR(map[string]any{
-			"event":      "test_case",
-			"channel_id": int64(caseCh.ChannelID()),
-			"is_final":   false,
-		})
-		caseID, _ := testCh.SendRequestRaw(casePayload)
-		testCh.recvResponseRaw(caseID, 5*time.Second) //nolint:errcheck
-
-		// Receive exactly: start_span, stop_span, mark_complete.
-		for i := 0; i < 3; i++ {
-			mid, pl, _ := caseCh.RecvRequestRaw(5 * time.Second)
-			dec, _ := DecodeCBOR(pl)
-			mp, _ := ExtractDict(dec)
-			cmd, _ := ExtractString(mp[any("command")])
-			cmds = append(cmds, cmd)
-			caseCh.SendReplyValue(mid, nil) //nolint:errcheck
-		}
-
-		sendTestDone(t, testCh, true, 0)
-	})
-
-	cli := newClient(clientConn)
-	err := cli.runTest("discardable_group_ok", func() {
-		DiscardableGroup(LabelFilter, func() {
-			// runs normally
-		})
-	}, runOptions{testCases: 1})
-	if err != nil {
-		t.Fatalf("runTest: %v", err)
-	}
-	// should have start_span, stop_span(discard=false), mark_complete
-	if len(cmds) < 2 || cmds[0] != "start_span" {
-		t.Errorf("expected start_span first; got %v", cmds)
-	}
-}
-
-// --- DiscardableGroup: panic propagates with discard=true ---
-
-func TestDiscardableGroupPanic(t *testing.T) {
-	var stopDiscardVal bool
-	clientConn := fakeTestEnv(t, func(caseCh *channel) {
-		// start_span
-		ssID, _, _ := caseCh.RecvRequestRaw(5 * time.Second)
-		caseCh.SendReplyValue(ssID, nil) //nolint:errcheck
-		// stop_span (discard=true because panic propagated)
-		spID, spPayload, _ := caseCh.RecvRequestRaw(5 * time.Second)
-		decoded, _ := DecodeCBOR(spPayload)
-		m, _ := ExtractDict(decoded)
-		b, _ := m[any("discard")].(bool)
-		stopDiscardVal = b
-		caseCh.SendReplyValue(spID, nil) //nolint:errcheck
-	})
-
-	cli := newClient(clientConn)
-	err := cli.runTest("discardable_group_panic", func() {
-		DiscardableGroup(LabelFilter, func() {
-			panic("inner panic")
-		})
-	}, runOptions{testCases: 1})
-	// The panic inside DiscardableGroup should propagate out as INTERESTING.
-	_ = err // may be nil (non-final case doesn't return error) or error
-	if !stopDiscardVal {
-		t.Error("stop_span should have discard=true when inner fn panics")
-	}
-}
-
-// =============================================================================
-// Collection protocol tests
-// =============================================================================
-
-// --- NewCollection: basic ---
-
-func TestNewCollection(t *testing.T) {
-	var gotCmd string
-	var gotMin, gotMax int64
-	clientConn := fakeTestEnv(t, func(caseCh *channel) {
-		// new_collection
-		ncID, ncPayload, _ := caseCh.RecvRequestRaw(5 * time.Second)
-		decoded, _ := DecodeCBOR(ncPayload)
-		m, _ := ExtractDict(decoded)
-		gotCmd, _ = ExtractString(m[any("command")])
-		gotMin, _ = ExtractInt(m[any("min_size")])
-		gotMax, _ = ExtractInt(m[any("max_size")])
-		caseCh.SendReplyValue(ncID, "coll_1") //nolint:errcheck
-
-		// collection_more → false (done immediately)
-		moreID, _, _ := caseCh.RecvRequestRaw(5 * time.Second)
-		caseCh.SendReplyValue(moreID, false) //nolint:errcheck
-	})
-
-	cli := newClient(clientConn)
-	err := cli.runTest("new_collection", func() {
-		coll := NewCollection(2, 10)
-		more := coll.More()
-		_ = more
-	}, runOptions{testCases: 1})
-	if err != nil {
-		t.Fatalf("runTest: %v", err)
-	}
-	if gotCmd != "new_collection" {
-		t.Errorf("expected new_collection, got %s", gotCmd)
-	}
-	if gotMin != 2 {
-		t.Errorf("expected min_size=2, got %d", gotMin)
-	}
-	if gotMax != 10 {
-		t.Errorf("expected max_size=10, got %d", gotMax)
-	}
-}
-
-// --- Collection.More: returns true then false ---
-
-func TestCollectionMore(t *testing.T) {
-	var moreCount int
-	clientConn := fakeTestEnv(t, func(caseCh *channel) {
-		// new_collection
-		ncID, _, _ := caseCh.RecvRequestRaw(5 * time.Second)
-		caseCh.SendReplyValue(ncID, "coll_x") //nolint:errcheck
-
-		// first more → true
-		m1ID, _, _ := caseCh.RecvRequestRaw(5 * time.Second)
-		caseCh.SendReplyValue(m1ID, true) //nolint:errcheck
-		// second more → false
-		m2ID, _, _ := caseCh.RecvRequestRaw(5 * time.Second)
-		caseCh.SendReplyValue(m2ID, false) //nolint:errcheck
-	})
-
-	cli := newClient(clientConn)
-	err := cli.runTest("coll_more", func() {
-		coll := NewCollection(0, 5)
-		for coll.More() {
-			moreCount++
-		}
-	}, runOptions{testCases: 1})
-	if err != nil {
-		t.Fatalf("runTest: %v", err)
-	}
-	if moreCount != 1 {
-		t.Errorf("expected 1 more loop iteration, got %d", moreCount)
-	}
-}
-
-// --- Collection.More: cached false after first false ---
+// --- collection.more: cached false after first false ---
 
 func TestCollectionMoreCachesFalse(t *testing.T) {
 	clientConn := fakeTestEnv(t, func(caseCh *channel) {
@@ -597,16 +297,17 @@ func TestCollectionMoreCachesFalse(t *testing.T) {
 		ncID, _, _ := caseCh.RecvRequestRaw(5 * time.Second)
 		caseCh.SendReplyValue(ncID, "coll_y") //nolint:errcheck
 
-		// Only one more request (the second More() call should be cached).
+		// Only one more request — the second more() call should be cached.
 		moreID, _, _ := caseCh.RecvRequestRaw(5 * time.Second)
 		caseCh.SendReplyValue(moreID, false) //nolint:errcheck
 	})
 
 	cli := newClient(clientConn)
 	err := cli.runTest("coll_cache", func() {
-		coll := NewCollection(0, 1)
-		r1 := coll.More()
-		r2 := coll.More() // should be cached false, no network call
+		data := getState()
+		coll := newCollection(0, 1, data)
+		r1 := coll.more(data)
+		r2 := coll.more(data) // should be cached false, no network call
 		if r1 || r2 {
 			panic("expected both to be false")
 		}
@@ -614,98 +315,6 @@ func TestCollectionMoreCachesFalse(t *testing.T) {
 	if err != nil {
 		t.Fatalf("runTest: %v", err)
 	}
-}
-
-// --- Collection.Reject ---
-
-func TestCollectionReject(t *testing.T) {
-	var gotRejectCmd string
-	clientConn := fakeTestEnv(t, func(caseCh *channel) {
-		// new_collection
-		ncID, _, _ := caseCh.RecvRequestRaw(5 * time.Second)
-		caseCh.SendReplyValue(ncID, "coll_r") //nolint:errcheck
-
-		// more → true
-		moreID, _, _ := caseCh.RecvRequestRaw(5 * time.Second)
-		caseCh.SendReplyValue(moreID, true) //nolint:errcheck
-
-		// collection_reject
-		rejID, rejPayload, _ := caseCh.RecvRequestRaw(5 * time.Second)
-		decoded, _ := DecodeCBOR(rejPayload)
-		m, _ := ExtractDict(decoded)
-		gotRejectCmd, _ = ExtractString(m[any("command")])
-		caseCh.SendReplyValue(rejID, nil) //nolint:errcheck
-
-		// more → false
-		m2ID, _, _ := caseCh.RecvRequestRaw(5 * time.Second)
-		caseCh.SendReplyValue(m2ID, false) //nolint:errcheck
-	})
-
-	cli := newClient(clientConn)
-	err := cli.runTest("coll_reject", func() {
-		coll := NewCollection(0, 5)
-		if coll.More() {
-			coll.Reject()
-		}
-		for coll.More() {
-		}
-	}, runOptions{testCases: 1})
-	if err != nil {
-		t.Fatalf("runTest: %v", err)
-	}
-	if gotRejectCmd != "collection_reject" {
-		t.Errorf("expected collection_reject, got %s", gotRejectCmd)
-	}
-}
-
-// --- Collection.Reject no-op after finished ---
-
-func TestCollectionRejectNoOpAfterFinished(t *testing.T) {
-	clientConn := fakeTestEnv(t, func(caseCh *channel) {
-		// new_collection
-		ncID, _, _ := caseCh.RecvRequestRaw(5 * time.Second)
-		caseCh.SendReplyValue(ncID, "coll_nop") //nolint:errcheck
-
-		// more → false immediately
-		moreID, _, _ := caseCh.RecvRequestRaw(5 * time.Second)
-		caseCh.SendReplyValue(moreID, false) //nolint:errcheck
-		// No collection_reject should follow.
-	})
-
-	cli := newClient(clientConn)
-	err := cli.runTest("coll_reject_noop", func() {
-		coll := NewCollection(0, 1)
-		coll.More()   // false → finished
-		coll.Reject() // no-op
-	}, runOptions{testCases: 1})
-	if err != nil {
-		t.Fatalf("runTest: %v", err)
-	}
-}
-
-// --- Collection StopTest on new_collection ---
-
-func TestCollectionStopTestOnNewCollection(t *testing.T) {
-	hegelBinPath(t)
-	setEnv(t, "HEGEL_PROTOCOL_TEST_MODE", "stop_test_on_new_collection")
-	err := RunHegelTestE("coll_stop_new", func() {
-		coll := NewCollection(0, 5)
-		_ = coll.More()
-	})
-	// Should not error — the test was stopped, not failed.
-	_ = err
-}
-
-// --- Collection StopTest on collection_more ---
-
-func TestCollectionStopTestOnCollectionMore(t *testing.T) {
-	hegelBinPath(t)
-	setEnv(t, "HEGEL_PROTOCOL_TEST_MODE", "stop_test_on_collection_more")
-	err := RunHegelTestE("coll_stop_more", func() {
-		coll := NewCollection(0, 5)
-		_ = coll.More()
-	})
-	_ = err
 }
 
 // =============================================================================
@@ -751,7 +360,7 @@ func TestIntegersGeneratorHappyPath(t *testing.T) {
 	hegelBinPath(t)
 	var vals []int64
 	RunHegelTest("integers_happy", func() {
-		n := Integers(0, 100).Generate()
+		n := Draw(Integers(0, 100))
 		v, _ := ExtractInt(n)
 		vals = append(vals, v)
 		if v < 0 || v > 100 {
@@ -845,7 +454,7 @@ func TestJustTransformIgnoresInput(t *testing.T) {
 func TestJustE2E(t *testing.T) {
 	hegelBinPath(t)
 	RunHegelTest(t.Name(), func() {
-		v := Just(42).Generate()
+		v := Draw(Just(42))
 		if v.(int) != 42 {
 			panic(fmt.Sprintf("Just: expected 42, got %v", v))
 		}
@@ -858,7 +467,7 @@ func TestJustNonPrimitive(t *testing.T) {
 	type myStruct struct{ x int }
 	val := &myStruct{x: 99}
 	RunHegelTest(t.Name(), func() {
-		v := Just(val).Generate()
+		v := Draw(Just(val))
 		if v != val {
 			panic("Just: pointer identity not preserved")
 		}
@@ -931,7 +540,7 @@ func TestSampledFromSingleElement(t *testing.T) {
 	hegelBinPath(t)
 	g, _ := SampledFrom([]any{"only"})
 	RunHegelTest(t.Name(), func() {
-		v := g.Generate()
+		v := Draw(g)
 		if v != "only" {
 			panic(fmt.Sprintf("SampledFrom single: expected 'only', got %v", v))
 		}
@@ -946,7 +555,7 @@ func TestSampledFromE2E(t *testing.T) {
 	g, _ := SampledFrom(choices)
 	seen := map[string]bool{}
 	RunHegelTest(t.Name(), func() {
-		v := g.Generate()
+		v := Draw(g)
 		s, ok := v.(string)
 		if !ok {
 			panic(fmt.Sprintf("SampledFrom: expected string, got %T", v))
@@ -980,7 +589,7 @@ func TestSampledFromNonPrimitive(t *testing.T) {
 	obj2 := &myStruct{x: 2}
 	g, _ := SampledFrom([]any{obj1, obj2})
 	RunHegelTest(t.Name(), func() {
-		v := g.Generate()
+		v := Draw(g)
 		if v != obj1 && v != obj2 {
 			panic("SampledFrom: value is not one of the original pointers")
 		}
@@ -1019,7 +628,7 @@ func TestFromRegexE2E(t *testing.T) {
 	// Only digits, 1-5 chars
 	g := FromRegex(`[0-9]{1,5}`, true)
 	RunHegelTest(t.Name(), func() {
-		v := g.Generate()
+		v := Draw(g)
 		s, ok := v.(string)
 		if !ok {
 			panic(fmt.Sprintf("FromRegex: expected string, got %T", v))
@@ -1046,7 +655,7 @@ func TestBasicGeneratorGenerateErrorResponse(t *testing.T) {
 	setEnv(t, "HEGEL_PROTOCOL_TEST_MODE", "error_response")
 	err := RunHegelTestE(t.Name(), func() {
 		g := &BasicGenerator{schema: map[string]any{"type": "integer"}}
-		_ = g.Generate() // should panic with RequestError → caught as INTERESTING
+		_ = Draw(g) // should panic with RequestError → caught as INTERESTING
 	})
 	// error_response causes the test to appear interesting (failing).
 	_ = err
@@ -1103,7 +712,7 @@ func TestMapBasicGeneratorE2E(t *testing.T) {
 		t.Fatalf("Map on BasicGenerator should return *BasicGenerator, got %T", gen)
 	}
 	RunHegelTest(t.Name(), func() {
-		v := gen.Generate()
+		v := Draw(gen)
 		n, _ := ExtractInt(v)
 		if n%2 != 0 {
 			panic(fmt.Sprintf("map(x*2): expected even number, got %d", n))
@@ -1133,7 +742,7 @@ func TestMapChainedBasicGeneratorE2E(t *testing.T) {
 		t.Fatalf("chained Map on BasicGenerator should return *BasicGenerator, got %T", gen)
 	}
 	RunHegelTest(t.Name(), func() {
-		v := gen.Generate()
+		v := Draw(gen)
 		n, _ := ExtractInt(v)
 		// (x+1)*2 is always even. x in [0,100] → result in [2, 202].
 		if n%2 != 0 {
@@ -1167,7 +776,7 @@ func TestMapNonBasicGeneratorE2E(t *testing.T) {
 		t.Error("mappedGenerator.AsBasic() should return nil")
 	}
 	RunHegelTest(t.Name(), func() {
-		v := gen.Generate()
+		v := Draw(gen)
 		n, _ := ExtractInt(v)
 		// inner is Integers(1,5)*1, map(*3): result is in {3, 6, 9, 12, 15}
 		if n < 3 || n > 15 || n%3 != 0 {
@@ -1404,7 +1013,7 @@ func TestTuples2AllBasicNoTransformE2E(t *testing.T) {
 	hegelBinPath(t)
 	RunHegelTest(t.Name(), func() {
 		gen := Tuples2(Integers(0, 10), Booleans(0.5))
-		v := gen.Generate()
+		v := Draw(gen)
 		result, ok := v.([]any)
 		if !ok {
 			panic(fmt.Sprintf("Tuples2: expected []any, got %T", v))
@@ -1437,7 +1046,7 @@ func TestTuples2WithTransformsE2E(t *testing.T) {
 	})
 	gen := Tuples2(g1, g2)
 	RunHegelTest(t.Name(), func() {
-		v := gen.Generate()
+		v := Draw(gen)
 		result, ok := v.([]any)
 		if !ok {
 			panic(fmt.Sprintf("Tuples2 mapped: expected []any, got %T", v))
@@ -1462,7 +1071,7 @@ func TestTuples3E2E(t *testing.T) {
 	falseBool := false
 	gen := Tuples3(Text(1, 5), Integers(0, 5), Floats(floatPtr(0.0), floatPtr(1.0), &falseBool, &falseBool, false, false))
 	RunHegelTest(t.Name(), func() {
-		v := gen.Generate()
+		v := Draw(gen)
 		result, ok := v.([]any)
 		if !ok {
 			panic(fmt.Sprintf("Tuples3: expected []any, got %T", v))
@@ -1499,7 +1108,7 @@ func TestTuples2NonBasicE2E(t *testing.T) {
 	}
 	gen := Tuples2(nonBasic, Booleans(0.5))
 	RunHegelTest(t.Name(), func() {
-		v := gen.Generate()
+		v := Draw(gen)
 		result, ok := v.([]any)
 		if !ok {
 			panic(fmt.Sprintf("Tuples2 non-basic: expected []any, got %T", v))
@@ -1523,7 +1132,7 @@ func TestTuples4E2E(t *testing.T) {
 	hegelBinPath(t)
 	gen := Tuples4(Integers(0, 5), Booleans(0.5), Text(1, 3), Integers(10, 20))
 	RunHegelTest(t.Name(), func() {
-		v := gen.Generate()
+		v := Draw(gen)
 		result, ok := v.([]any)
 		if !ok {
 			panic(fmt.Sprintf("Tuples4: expected []any, got %T", v))
@@ -1683,7 +1292,7 @@ func TestFilteredGeneratorPredicatePasses(t *testing.T) {
 			source:    &BasicGenerator{schema: map[string]any{"type": "integer"}},
 			predicate: func(v any) bool { return true },
 		}
-		v := g.Generate()
+		v := Draw(g)
 		gotVal, _ = ExtractInt(v)
 	}, runOptions{testCases: 1})
 	if err != nil {
@@ -1754,7 +1363,7 @@ func TestFilteredGeneratorAllAttemptsFailRejectsCase(t *testing.T) {
 			source:    &BasicGenerator{schema: map[string]any{"type": "integer"}},
 			predicate: func(v any) bool { return false }, // always reject
 		}
-		g.Generate()
+		Draw(g)
 	}, runOptions{testCases: 1})
 	if err != nil {
 		t.Fatalf("runTest: %v", err)
@@ -1832,7 +1441,7 @@ func TestFilteredGeneratorPartialAttemptsSucceed(t *testing.T) {
 				return n > 0
 			},
 		}
-		v := g.Generate()
+		v := Draw(g)
 		gotVal, _ = ExtractInt(v)
 	}, runOptions{testCases: 1})
 	if err != nil {
@@ -1855,7 +1464,7 @@ func TestFilteredGeneratorE2EAlwaysPasses(t *testing.T) {
 			n, _ := ExtractInt(v)
 			return n > 50
 		})
-		v := gen.Generate()
+		v := Draw(gen)
 		n, _ := ExtractInt(v)
 		if n <= 50 {
 			panic(fmt.Sprintf("filter(>50): expected n>50, got %d", n))
@@ -1871,7 +1480,7 @@ func TestFilteredGeneratorE2EEvenNumbers(t *testing.T) {
 			n, _ := ExtractInt(v)
 			return n%2 == 0
 		})
-		v := gen.Generate()
+		v := Draw(gen)
 		n, _ := ExtractInt(v)
 		if n%2 != 0 {
 			panic(fmt.Sprintf("filter(even): expected even, got %d", n))
@@ -2085,8 +1694,8 @@ func TestFloatsSchemaWithBounds(t *testing.T) {
 	if !ok {
 		t.Fatalf("Floats should return *BasicGenerator, got %T", g)
 	}
-	if bg.schema["type"] != "number" {
-		t.Errorf("type: expected 'number', got %v", bg.schema["type"])
+	if bg.schema["type"] != "float" {
+		t.Errorf("type: expected 'float', got %v", bg.schema["type"])
 	}
 	if bg.schema["allow_nan"] != false {
 		t.Errorf("allow_nan: expected false, got %v", bg.schema["allow_nan"])
@@ -2261,7 +1870,7 @@ func TestFlatMappedGeneratorGenerate(t *testing.T) {
 			Integers(0, 100),
 			func(v any) Generator { return Integers(0, 100) },
 		)
-		v := gen.Generate()
+		v := Draw(gen)
 		gotVal, _ = ExtractInt(v)
 	}, runOptions{testCases: 1})
 	if err != nil {
@@ -2331,7 +1940,7 @@ func TestFlatMappedGeneratorStartSpanLabel(t *testing.T) {
 	cli := newClient(clientConn)
 	err := cli.runTest("flatmap_label", func() {
 		gen := FlatMap(Integers(0, 10), func(v any) Generator { return Integers(0, 10) })
-		_ = gen.Generate()
+		_ = Draw(gen)
 	}, runOptions{testCases: 1})
 	if err != nil {
 		t.Fatalf("runTest: %v", err)
@@ -2350,7 +1959,7 @@ func TestFlatMappedGeneratorE2E(t *testing.T) {
 		return Text(int(n), int(n)) // exact length = n
 	})
 	RunHegelTest(t.Name(), func() {
-		v := gen.Generate()
+		v := Draw(gen)
 		s, ok := v.(string)
 		if !ok {
 			panic(fmt.Sprintf("flat_map: expected string, got %T", v))
@@ -2374,7 +1983,7 @@ func TestFlatMappedGeneratorDependency(t *testing.T) {
 		return Lists(Integers(0, 100), ListsOptions{MinSize: sz, MaxSize: sz})
 	})
 	RunHegelTest(t.Name(), func() {
-		v := gen.Generate()
+		v := Draw(gen)
 		slice, ok := v.([]any)
 		if !ok {
 			panic(fmt.Sprintf("flat_map dependency: expected []any, got %T", v))
