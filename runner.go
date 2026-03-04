@@ -14,20 +14,6 @@ import (
 	"time"
 )
 
-// runningTest tracks whether we're already inside a Hegel test body.
-// Uses sync/atomic-free approach: only checked from the same goroutine that sets it.
-var runningTest sync.Map // map[int64]bool
-
-// goroutineID returns the current goroutine's numeric ID.
-func goroutineID() int64 {
-	var buf [32]byte
-	n := runtime.Stack(buf[:], false)
-	// Stack output starts with "goroutine N [..."
-	var id int64
-	fmt.Sscanf(string(buf[:n]), "goroutine %d ", &id)
-	return id
-}
-
 // TestCase holds the per-test-case context.
 type TestCase struct {
 	channel *channel
@@ -192,14 +178,6 @@ func stderrNoteFn(msg string) {
 
 // runHegel is the shared implementation for Run, MustRun, and Case.
 func runHegel(name string, fn testBody, noteFn func(string), opts []Option) error {
-	// Check for nested call.
-	gid := goroutineID()
-	if _, already := runningTest.Load(gid); already {
-		return fmt.Errorf("hegel: nested test call — cannot run %q inside a test body", name)
-	}
-	runningTest.Store(gid, true)
-	defer runningTest.Delete(gid)
-
 	o := runOptions{testCases: 100}
 	for _, opt := range opts {
 		opt(&o)

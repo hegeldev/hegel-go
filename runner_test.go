@@ -191,27 +191,6 @@ func TestErrorResponse(t *testing.T) {
 	_ = gotErr // we just verify it doesn't deadlock or hang
 }
 
-// --- Nested test case raises error ---
-
-func TestNestedTestCaseRaises(t *testing.T) {
-	hegelBinPath(t)
-	var caught error
-	if _err := runHegel(t.Name(), func(s *TestCase) {
-		// Trying to run a test inside a test should return an error.
-		err := runHegel("nested", func(_ *TestCase) {}, stderrNoteFn, []Option{WithTestCases(1)})
-		if err != nil {
-			caught = err
-			s.Assume(false) // skip this test case once we've recorded the error
-		}
-	}, stderrNoteFn, []Option{WithTestCases(1)}); _err != nil {
-		panic(_err)
-	}
-	if caught == nil {
-		t.Error("expected error when nesting RunHegelTest inside test body")
-	}
-	mustContainStr(t, caught.Error(), "nested")
-}
-
 // --- Draw outside context: calling Draw with nil-channel state panics ---
 
 func TestDrawWithNilChannelState(t *testing.T) {
@@ -1506,21 +1485,6 @@ func TestRunHegelTestPanicsOnFailure(t *testing.T) {
 	}
 }
 
-// --- RunHegelTestE: nested call returns error ---
-
-func TestRunHegelTestENestedCall(t *testing.T) {
-	hegelBinPath(t)
-	if _err := runHegel(t.Name(), func(s *TestCase) {
-		err := runHegel("nested", func(_ *TestCase) {}, stderrNoteFn, []Option{WithTestCases(1)})
-		if err == nil {
-			panic("expected nested RunHegelTestE to fail")
-		}
-		s.Assume(false) // reject so we don't loop forever
-	}, stderrNoteFn, []Option{WithTestCases(3)}); _err != nil {
-		panic(_err)
-	}
-}
-
 // --- RunHegelTestE: calls session.runTest ---
 
 func TestRunHegelTestECallsRunTest(t *testing.T) {
@@ -2257,51 +2221,6 @@ func TestCaseSuccess(t *testing.T) {
 		_ = Draw[bool](ht, Booleans(0.5))
 		ht.Note("test note via Case") // exercises noteFn = t.Log on final case
 	}, WithTestCases(1)))
-}
-
-// =============================================================================
-// runHegel: nested call detection
-// =============================================================================
-
-func TestRunHegelNestedCall(t *testing.T) {
-	serverConn := fakeGlobalSession(t)
-
-	go func() {
-		ctrl := serverConn.ControlChannel()
-		msgID, payload, _ := ctrl.RecvRequestRaw(5 * time.Second)
-		decoded, _ := decodeCBOR(payload)
-		m, _ := extractCBORDict(decoded)
-		chID, _ := extractCBORInt(m[any("channel_id")])
-		ctrl.SendReplyValue(msgID, true) //nolint:errcheck
-
-		testCh, _ := serverConn.ConnectChannel(uint32(chID), "TestCh")
-		caseCh := serverConn.NewChannel("Case")
-		casePayload, _ := encodeCBOR(map[string]any{
-			"event":      "test_case",
-			"channel_id": int64(caseCh.ChannelID()),
-			"is_final":   false,
-		})
-		caseID, _ := testCh.SendRequestRaw(casePayload)
-		testCh.recvResponseRaw(caseID, 5*time.Second) //nolint:errcheck
-
-		// Receive mark_complete.
-		mcID, _, _ := caseCh.RecvRequestRaw(2 * time.Second)
-		caseCh.SendReplyValue(mcID, nil) //nolint:errcheck
-
-		sendTestDone(t, testCh, true, 0)
-	}()
-
-	var nestedErr error
-	err := Run("outer", func(s *TestCase) {
-		nestedErr = Run("inner", func(*TestCase) {}, WithTestCases(1))
-	}, WithTestCases(1))
-	if err != nil {
-		t.Fatalf("outer Run: %v", err)
-	}
-	if nestedErr == nil {
-		t.Error("expected nested Run to return an error")
-	}
-	mustContainStr(t, nestedErr.Error(), "nested test call")
 }
 
 // =============================================================================
