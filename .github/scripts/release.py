@@ -63,7 +63,7 @@ def get_current_version() -> str:
 
 def add_changelog(path: Path, *, version: str, content: str) -> None:
     date = datetime.now(timezone.utc).strftime("%Y-%m-%d")
-    entry = f"## {version} - {date}\n\n{content}\n"
+    entry = f"## {version} - {date}\n\n{content}"
 
     existing = path.read_text()
     assert existing.startswith("# Changelog")
