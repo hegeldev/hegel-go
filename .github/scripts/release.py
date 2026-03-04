@@ -85,8 +85,8 @@ def check(base_ref: str) -> None:
     release_file = ROOT / "RELEASE.md"
     if not release_file.exists():
         lines = [
-            "Changes to source files require a RELEASE.md file.",
-            "You can find an example in RELEASE-sample.md.",
+            "Every pull request to hegel-go requires a RELEASE.md file.",
+            "You can find an example and instructions in RELEASE-sample.md.",
         ]
         width = max(len(l) for l in lines) + 6
         border = " ".join("*" * ((width + 1) // 2))
