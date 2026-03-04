@@ -68,84 +68,104 @@ func main() {
 		}
 	}
 
-	var keysGen hegel.Generator
-	if keyType == "string" {
-		keysGen = hegel.Text(0, -1)
-	} else {
-		keysGen = hegel.Integers(minKey, maxKey)
-	}
-
 	valsGen := hegel.Integers(minVal, maxVal)
 	opts := hegel.DictOptions{
 		MinSize:    minSize,
 		MaxSize:    maxSize,
 		HasMaxSize: true,
 	}
-	gen := hegel.Dicts(keysGen, valsGen, opts)
 	n := conformance.GetTestCases()
 
-	hegel.RunHegelTest("conformance_hashmaps", func() {
-		raw := hegel.Draw(gen)
-		m, _ := raw.(map[any]any)
-		size := len(m)
+	if keyType == "string" {
+		keysGen := hegel.Text(0, -1)
+		gen := hegel.Dicts(keysGen, valsGen, opts)
 
-		var minKeyOut, maxKeyOut, minValueOut, maxValueOut any
-		if size > 0 {
-			minIntKey := int64(math.MaxInt64)
-			maxIntKey := int64(math.MinInt64)
-			minIntVal := int64(math.MaxInt64)
-			maxIntVal := int64(math.MinInt64)
-			minStrKey := ""
-			maxStrKey := ""
-			firstKey := true
+		hegel.MustRun("conformance_hashmaps", func(s *hegel.TestCase) {
+			m := hegel.Draw(s, gen)
+			size := len(m)
 
-			for k, v := range m {
-				val, _ := hegel.ExtractInt(v)
-				if val < minIntVal {
-					minIntVal = val
+			var minKeyOut, maxKeyOut, minValueOut, maxValueOut any
+			if size > 0 {
+				minIntVal := int64(math.MaxInt64)
+				maxIntVal := int64(math.MinInt64)
+				minStrKey := ""
+				maxStrKey := ""
+				firstKey := true
+
+				for k, v := range m {
+					if v < minIntVal {
+						minIntVal = v
+					}
+					if v > maxIntVal {
+						maxIntVal = v
+					}
+					if firstKey || k < minStrKey {
+						minStrKey = k
+					}
+					if firstKey || k > maxStrKey {
+						maxStrKey = k
+					}
+					firstKey = false
 				}
-				if val > maxIntVal {
-					maxIntVal = val
-				}
 
-				if keyType == "string" {
-					ks, _ := hegel.ExtractString(k)
-					if firstKey || ks < minStrKey {
-						minStrKey = ks
-					}
-					if firstKey || ks > maxStrKey {
-						maxStrKey = ks
-					}
-				} else {
-					ki, _ := hegel.ExtractInt(k)
-					if ki < minIntKey {
-						minIntKey = ki
-					}
-					if ki > maxIntKey {
-						maxIntKey = ki
-					}
-				}
-				firstKey = false
-			}
-
-			if keyType == "string" {
 				minKeyOut = minStrKey
 				maxKeyOut = maxStrKey
-			} else {
+				minValueOut = minIntVal
+				maxValueOut = maxIntVal
+			}
+
+			conformance.WriteMetrics(map[string]any{
+				"size":      size,
+				"min_key":   minKeyOut,
+				"max_key":   maxKeyOut,
+				"min_value": minValueOut,
+				"max_value": maxValueOut,
+			})
+		}, hegel.WithTestCases(n))
+	} else {
+		keysGen := hegel.Integers(minKey, maxKey)
+		gen := hegel.Dicts(keysGen, valsGen, opts)
+
+		hegel.MustRun("conformance_hashmaps", func(s *hegel.TestCase) {
+			m := hegel.Draw(s, gen)
+			size := len(m)
+
+			var minKeyOut, maxKeyOut, minValueOut, maxValueOut any
+			if size > 0 {
+				minIntKey := int64(math.MaxInt64)
+				maxIntKey := int64(math.MinInt64)
+				minIntVal := int64(math.MaxInt64)
+				maxIntVal := int64(math.MinInt64)
+
+				for k, v := range m {
+					if v < minIntVal {
+						minIntVal = v
+					}
+					if v > maxIntVal {
+						maxIntVal = v
+					}
+					if k < minIntKey {
+						minIntKey = k
+					}
+					if k > maxIntKey {
+						maxIntKey = k
+					}
+				}
+
 				minKeyOut = minIntKey
 				maxKeyOut = maxIntKey
+				minValueOut = minIntVal
+				maxValueOut = maxIntVal
 			}
-			minValueOut = minIntVal
-			maxValueOut = maxIntVal
-		}
 
-		conformance.WriteMetrics(map[string]any{
-			"size":      size,
-			"min_key":   minKeyOut,
-			"max_key":   maxKeyOut,
-			"min_value": minValueOut,
-			"max_value": maxValueOut,
-		})
-	}, hegel.WithTestCases(n))
+			conformance.WriteMetrics(map[string]any{
+				"size":      size,
+				"min_key":   minKeyOut,
+				"max_key":   maxKeyOut,
+				"min_value": minValueOut,
+				"max_value": maxValueOut,
+			})
+		}, hegel.WithTestCases(n))
+	}
 	os.Exit(0)
 }

@@ -32,21 +32,22 @@ func main() {
 	}
 
 	// Convert to int64 values
-	intOptions := make([]any, len(options))
+	int64Options := make([]int64, len(options))
 	for i, o := range options {
 		switch x := o.(type) {
 		case float64:
-			intOptions[i] = int64(x)
+			int64Options[i] = int64(x)
+		case int64:
+			int64Options[i] = x
 		default:
-			intOptions[i] = o
+			int64Options[i] = 0
 		}
 	}
 
-	gen := hegel.MustSampledFrom(intOptions)
+	gen := hegel.SampledFrom(int64Options)
 	n := conformance.GetTestCases()
-	hegel.RunHegelTest("conformance_sampled_from", func() {
-		v := hegel.Draw(gen)
-		val, _ := hegel.ExtractInt(v)
+	hegel.MustRun("conformance_sampled_from", func(s *hegel.TestCase) {
+		val := hegel.Draw(s, gen)
 		conformance.WriteMetrics(map[string]any{
 			"value": val,
 		})

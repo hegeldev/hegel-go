@@ -143,14 +143,20 @@ def is_false_positive(file: str, start_line: int, end_line: int) -> bool:
             # Skip unreachable panics (may be inline: "if err != nil { panic(...unreachable...) }")
             if "panic(" in content and "unreachable" in content.lower():
                 continue
-            # Skip if-guard lines for unreachable panics:
-            # "if condition {" followed only by a panic on the next line
+            # Skip if-guard lines for unreachable panics or untestable t.Fatal:
+            # "if condition {" followed by a panic or t.Fatal on the next line
             if content.endswith("{") and "if " in content and i + 1 < len(lines):
                 next_content = lines[i + 1].strip()
                 if next_content.startswith("panic(") and "unreachable" in next_content.lower():
                     continue
+                if next_content == "t.Fatal(err)":
+                    continue
             # Skip loop-exhaustion guard: "if !more { break }" from frames.Next()
             if content in ("if !more {", "break"):
+                continue
+            # Skip t.Fatal(err) in error-check blocks — untestable because
+            # sub-test failures propagate to the parent test.
+            if content == "t.Fatal(err)":
                 continue
             # Any other content means it's real uncovered code
             return False

@@ -19,7 +19,7 @@
 //
 // Or use [Run] in standalone binaries:
 //
-//	err := hegel.Run("my_property", func(s hegel.State) {
+//	err := hegel.Run("my_property", func(s *hegel.TestCase) {
 //	    n := hegel.Draw(s, hegel.Integers(0, 100))
 //	    if n < 0 || n > 100 {
 //	        panic("out of range")
@@ -40,8 +40,3 @@
 //
 // See the README and docs/getting-started.md for a full tutorial.
 package hegel
-
-// Version returns the current version of the Hegel Go SDK.
-func Version() string {
-	return "0.1.0"
-}

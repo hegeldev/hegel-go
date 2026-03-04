@@ -52,36 +52,38 @@ func main() {
 		}
 	}
 
-	var elemGen hegel.Generator
-	elemGen = hegel.IntegersFrom(minValPtr, maxValPtr)
+	elemGen := hegel.IntegersFrom(minValPtr, maxValPtr)
 
 	// When running collection StopTest modes, force the collection protocol
 	// by wrapping the element generator with a no-op Filter. This makes it
 	// non-basic, so Lists uses new_collection/collection_more instead of a
 	// single generate command with a list schema.
 	testMode := os.Getenv("HEGEL_PROTOCOL_TEST_MODE")
+	var gen hegel.Generator[[]int64]
 	if strings.Contains(testMode, "collection") {
-		elemGen = elemGen.Filter(func(any) bool { return true })
+		filtered := hegel.Filter(elemGen, func(v int64) bool { return true })
+		gen = hegel.Lists(filtered, hegel.ListsOptions{
+			MinSize: minSize,
+			MaxSize: maxSize,
+		})
+	} else {
+		gen = hegel.Lists(elemGen, hegel.ListsOptions{
+			MinSize: minSize,
+			MaxSize: maxSize,
+		})
 	}
 
-	opts := hegel.ListsOptions{
-		MinSize: minSize,
-		MaxSize: maxSize,
-	}
-	gen := hegel.Lists(elemGen, opts)
 	n := conformance.GetTestCases()
 
-	hegel.RunHegelTest("conformance_lists", func() {
-		raw := hegel.Draw(gen)
-		items, _ := raw.([]any)
+	hegel.MustRun("conformance_lists", func(s *hegel.TestCase) {
+		items := hegel.Draw(s, gen)
 		size := len(items)
 
 		var minElem, maxElem any
 		if size > 0 {
 			minVal := int64(math.MaxInt64)
 			maxVal := int64(math.MinInt64)
-			for _, item := range items {
-				v, _ := hegel.ExtractInt(item)
+			for _, v := range items {
 				if v < minVal {
 					minVal = v
 				}

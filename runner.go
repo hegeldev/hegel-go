@@ -14,9 +14,9 @@ import (
 	"time"
 )
 
-// --- Context-local state (goroutine-local via sync.Map keyed by goroutine ID) ---
-// Go has no goroutine-local storage, so we use a sync.Map keyed by goroutine ID.
-// We obtain the goroutine ID by reading the stack trace prefix.
+// runningTest tracks whether we're already inside a Hegel test body.
+// Uses sync/atomic-free approach: only checked from the same goroutine that sets it.
+var runningTest sync.Map // map[int64]bool
 
 // goroutineID returns the current goroutine's numeric ID.
 func goroutineID() int64 {
@@ -37,38 +37,22 @@ type TestCase struct {
 	noteFn  func(string) // injected: t.Log for Case, stderr for Run
 }
 
-// runningTest tracks whether we're already inside a Hegel test body.
-var runningTest sync.Map // map[int64]bool
+// --- Sentinel errors ---
 
-// testCaseStore holds the goroutine-local state for the old API.
-var testCaseStore sync.Map // map[int64]*TestCase
+// assumeRejected is raised by Assume(false) to reject a test case.
+type assumeRejected struct{}
 
-func getState() *TestCase {
-	id := goroutineID()
-	if v, ok := testCaseStore.Load(id); ok {
-		return v.(*TestCase)
-	}
-	return nil
-}
+func (assumeRejected) Error() string { return "assume rejected" }
 
-func setState(s *TestCase) {
-	id := goroutineID()
-	if s == nil {
-		testCaseStore.Delete(id)
-	} else {
-		testCaseStore.Store(id, s)
-	}
-}
+// dataExhausted is raised when the server sends StopTest.
+type dataExhausted struct{ msg string }
 
-func getCurrentChannel() *channel {
-	s := getState()
-	if s == nil {
-		return nil
-	}
-	return s.channel
-}
+func (e *dataExhausted) Error() string { return e.msg }
 
-// --- State interface methods on internalState ---
+// connectionError wraps a connection-level error that should propagate out of the test.
+type connectionError struct{ msg string }
+
+func (e *connectionError) Error() string { return e.msg }
 
 // internal returns the underlying TestCase, satisfying the State interface.
 func (s *TestCase) internal() *TestCase { return s }
@@ -108,28 +92,6 @@ func (s *TestCase) Target(value float64, label string) {
 	}
 }
 
-// --- Sentinel errors ---
-
-// assumeRejected is raised by Assume(false) to reject a test case.
-type assumeRejected struct{}
-
-func (assumeRejected) Error() string { return "assume rejected" }
-
-// dataExhausted is raised when the server sends StopTest.
-type dataExhausted struct{ msg string }
-
-func (e *dataExhausted) Error() string { return e.msg }
-
-// connectionError wraps a connection-level error that should propagate out of the test.
-type connectionError struct{ msg string }
-
-func (e *connectionError) Error() string { return e.msg }
-
-// fatalSentinel is panic'd by T.Fatal/Fatalf/FailNow to mark a test case as INTERESTING.
-type fatalSentinel struct{ msg string }
-
-func (f fatalSentinel) Error() string { return f.msg }
-
 // --- Internal helpers ---
 
 // toInt64 converts a CBOR integer (int64 or uint64) to int64.
@@ -166,52 +128,13 @@ func generateFromSchema(gs *TestCase, schema map[string]any) (any, error) {
 	return v, nil
 }
 
-// --- Public test control functions (old API, kept for backward compatibility) ---
+// fatalSentinel is panic'd by T.Fatal/Fatalf/FailNow to mark a test case as INTERESTING.
+type fatalSentinel struct{ msg string }
 
-// Draw generates a value from the given generator.
-// Must be called from within a Hegel test.
-func Draw(gen Generator) any {
-	data := getState()
-	if data == nil {
-		panic("hegel: Draw() cannot be called outside of a Hegel test")
-	}
-	return gen.DoDraw(data)
-}
-
-// Assume rejects the current test case if condition is false.
-// Must be called from within a test body passed to RunHegelTest.
-func Assume(condition bool) {
-	s := getState()
-	if s == nil {
-		panic("hegel: Assume() cannot be called outside of a Hegel test")
-	}
-	s.Assume(condition)
-}
-
-// Note prints message to stderr, but only during the final (replay) test case.
-// Must be called from within a Hegel test.
-func Note(message string) {
-	s := getState()
-	if s == nil {
-		panic("hegel: Note() cannot be called outside of a Hegel test")
-	}
-	s.Note(message)
-}
-
-// Target sends a target value to the Hegel server to guide test generation.
-// Must be called from within a test body passed to RunHegelTest.
-func Target(value float64, label string) {
-	s := getState()
-	if s == nil {
-		panic("hegel: Target() cannot be called outside of a Hegel test")
-	}
-	s.Target(value, label)
-}
-
-// --- testBody type ---
+func (f fatalSentinel) Error() string { return f.msg }
 
 // testBody is the internal representation of a test function.
-// It receives the internalState for the current test case.
+// It receives the TestCase for the current test case.
 type testBody func(s *TestCase)
 
 // --- Test runner options ---
@@ -267,30 +190,7 @@ func stderrNoteFn(msg string) {
 	fmt.Fprintln(os.Stderr, msg)
 }
 
-// RunHegelTest runs a property test against the Hegel server.
-// It panics if the test fails (for use with Go's testing.T).
-// The default number of test cases is 100; override with [WithTestCases].
-//
-// Deprecated: use [Case] or [Run] instead.
-func RunHegelTest(name string, fn func(), opts ...Option) {
-	if err := RunHegelTestE(name, fn, opts...); err != nil {
-		panic(err)
-	}
-}
-
-// RunHegelTestE runs a property test and returns any error instead of panicking.
-//
-// Deprecated: use [Case] or [Run] instead.
-func RunHegelTestE(name string, fn func(), opts ...Option) error {
-	body := func(s *TestCase) {
-		setState(s)
-		defer setState(nil)
-		fn()
-	}
-	return runHegel(name, body, stderrNoteFn, opts)
-}
-
-// runHegel is the shared implementation for Run, MustRun, Case, RunHegelTest, and RunHegelTestE.
+// runHegel is the shared implementation for Run, MustRun, and Case.
 func runHegel(name string, fn testBody, noteFn func(string), opts []Option) error {
 	// Check for nested call.
 	gid := goroutineID()

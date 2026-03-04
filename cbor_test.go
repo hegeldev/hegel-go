@@ -147,173 +147,173 @@ func TestCBORRoundtripNested(t *testing.T) {
 
 // --- CBOR extractor helper tests ---
 
-func TestExtractInt(t *testing.T) {
+func TestExtractCBORInt(t *testing.T) {
 	decoded := cborDecodeAny(t, cborEncode(t, int64(42)))
-	v, err := ExtractInt(decoded)
+	v, err := extractCBORInt(decoded)
 	if err != nil {
-		t.Fatalf("ExtractInt: %v", err)
+		t.Fatalf("extractCBORInt: %v", err)
 	}
 	if v != 42 {
-		t.Errorf("ExtractInt = %d, want 42", v)
+		t.Errorf("extractCBORInt = %d, want 42", v)
 	}
 }
 
-func TestExtractIntWrongType(t *testing.T) {
+func TestExtractCBORIntWrongType(t *testing.T) {
 	decoded := cborDecodeAny(t, cborEncode(t, "not an int"))
-	_, err := ExtractInt(decoded)
+	_, err := extractCBORInt(decoded)
 	if err == nil {
-		t.Fatal("ExtractInt with string: expected error")
+		t.Fatal("extractCBORInt with string: expected error")
 	}
 }
 
-func TestExtractFloat(t *testing.T) {
+func TestExtractCBORFloat(t *testing.T) {
 	decoded := cborDecodeAny(t, cborEncode(t, 3.14))
-	v, err := ExtractFloat(decoded)
+	v, err := extractCBORFloat(decoded)
 	if err != nil {
-		t.Fatalf("ExtractFloat: %v", err)
+		t.Fatalf("extractCBORFloat: %v", err)
 	}
 	if v != 3.14 {
-		t.Errorf("ExtractFloat = %v, want 3.14", v)
+		t.Errorf("extractCBORFloat = %v, want 3.14", v)
 	}
 }
 
-func TestExtractFloatFromInt(t *testing.T) {
+func TestExtractCBORFloatFromInt(t *testing.T) {
 	// Integers should also be extractable as floats (common protocol pattern)
 	decoded := cborDecodeAny(t, cborEncode(t, int64(7)))
-	v, err := ExtractFloat(decoded)
+	v, err := extractCBORFloat(decoded)
 	if err != nil {
-		t.Fatalf("ExtractFloat from int: %v", err)
+		t.Fatalf("extractCBORFloat from int: %v", err)
 	}
 	if v != 7.0 {
-		t.Errorf("ExtractFloat from int = %v, want 7.0", v)
+		t.Errorf("extractCBORFloat from int = %v, want 7.0", v)
 	}
 }
 
-func TestExtractFloatWrongType(t *testing.T) {
+func TestExtractCBORFloatWrongType(t *testing.T) {
 	decoded := cborDecodeAny(t, cborEncode(t, "not a float"))
-	_, err := ExtractFloat(decoded)
+	_, err := extractCBORFloat(decoded)
 	if err == nil {
-		t.Fatal("ExtractFloat with string: expected error")
+		t.Fatal("extractCBORFloat with string: expected error")
 	}
 }
 
-func TestExtractString(t *testing.T) {
+func TestExtractCBORString(t *testing.T) {
 	decoded := cborDecodeAny(t, cborEncode(t, "hello"))
-	v, err := ExtractString(decoded)
+	v, err := extractCBORString(decoded)
 	if err != nil {
-		t.Fatalf("ExtractString: %v", err)
+		t.Fatalf("extractCBORString: %v", err)
 	}
 	if v != "hello" {
-		t.Errorf("ExtractString = %q, want \"hello\"", v)
+		t.Errorf("extractCBORString = %q, want \"hello\"", v)
 	}
 }
 
-func TestExtractStringWrongType(t *testing.T) {
+func TestExtractCBORStringWrongType(t *testing.T) {
 	decoded := cborDecodeAny(t, cborEncode(t, int64(42)))
-	_, err := ExtractString(decoded)
+	_, err := extractCBORString(decoded)
 	if err == nil {
-		t.Fatal("ExtractString with int: expected error")
+		t.Fatal("extractCBORString with int: expected error")
 	}
 }
 
-func TestExtractBool(t *testing.T) {
+func TestExtractCBORBool(t *testing.T) {
 	decoded := cborDecodeAny(t, cborEncode(t, true))
-	v, err := ExtractBool(decoded)
+	v, err := extractCBORBool(decoded)
 	if err != nil {
-		t.Fatalf("ExtractBool: %v", err)
+		t.Fatalf("extractCBORBool: %v", err)
 	}
 	if !v {
-		t.Errorf("ExtractBool = %v, want true", v)
+		t.Errorf("extractCBORBool = %v, want true", v)
 	}
 }
 
-func TestExtractBoolWrongType(t *testing.T) {
+func TestExtractCBORBoolWrongType(t *testing.T) {
 	decoded := cborDecodeAny(t, cborEncode(t, int64(1)))
-	_, err := ExtractBool(decoded)
+	_, err := extractCBORBool(decoded)
 	if err == nil {
-		t.Fatal("ExtractBool with int: expected error")
+		t.Fatal("extractCBORBool with int: expected error")
 	}
 }
 
-func TestExtractBytes(t *testing.T) {
+func TestExtractCBORBytes(t *testing.T) {
 	decoded := cborDecodeAny(t, cborEncode(t, []byte{0xDE, 0xAD}))
-	v, err := ExtractBytes(decoded)
+	v, err := extractCBORBytes(decoded)
 	if err != nil {
-		t.Fatalf("ExtractBytes: %v", err)
+		t.Fatalf("extractCBORBytes: %v", err)
 	}
 	if len(v) != 2 || v[0] != 0xDE || v[1] != 0xAD {
-		t.Errorf("ExtractBytes = %v, want [0xDE 0xAD]", v)
+		t.Errorf("extractCBORBytes = %v, want [0xDE 0xAD]", v)
 	}
 }
 
-func TestExtractBytesWrongType(t *testing.T) {
+func TestExtractCBORBytesWrongType(t *testing.T) {
 	decoded := cborDecodeAny(t, cborEncode(t, "not bytes"))
-	_, err := ExtractBytes(decoded)
+	_, err := extractCBORBytes(decoded)
 	if err == nil {
-		t.Fatal("ExtractBytes with string: expected error")
+		t.Fatal("extractCBORBytes with string: expected error")
 	}
 }
 
-func TestExtractList(t *testing.T) {
+func TestExtractCBORList(t *testing.T) {
 	decoded := cborDecodeAny(t, cborEncode(t, []any{int64(1), int64(2)}))
-	v, err := ExtractList(decoded)
+	v, err := extractCBORList(decoded)
 	if err != nil {
-		t.Fatalf("ExtractList: %v", err)
+		t.Fatalf("extractCBORList: %v", err)
 	}
 	if len(v) != 2 {
-		t.Errorf("ExtractList length = %d, want 2", len(v))
+		t.Errorf("extractCBORList length = %d, want 2", len(v))
 	}
 }
 
-func TestExtractListWrongType(t *testing.T) {
+func TestExtractCBORListWrongType(t *testing.T) {
 	decoded := cborDecodeAny(t, cborEncode(t, "not a list"))
-	_, err := ExtractList(decoded)
+	_, err := extractCBORList(decoded)
 	if err == nil {
-		t.Fatal("ExtractList with string: expected error")
+		t.Fatal("extractCBORList with string: expected error")
 	}
 }
 
-func TestExtractDict(t *testing.T) {
+func TestExtractCBORDict(t *testing.T) {
 	decoded := cborDecodeAny(t, cborEncode(t, map[string]any{"k": "v"}))
-	v, err := ExtractDict(decoded)
+	v, err := extractCBORDict(decoded)
 	if err != nil {
-		t.Fatalf("ExtractDict: %v", err)
+		t.Fatalf("extractCBORDict: %v", err)
 	}
 	if len(v) != 1 {
-		t.Errorf("ExtractDict length = %d, want 1", len(v))
+		t.Errorf("extractCBORDict length = %d, want 1", len(v))
 	}
 }
 
-func TestExtractDictWrongType(t *testing.T) {
+func TestExtractCBORDictWrongType(t *testing.T) {
 	decoded := cborDecodeAny(t, cborEncode(t, int64(42)))
-	_, err := ExtractDict(decoded)
+	_, err := extractCBORDict(decoded)
 	if err == nil {
-		t.Fatal("ExtractDict with int: expected error")
+		t.Fatal("extractCBORDict with int: expected error")
 	}
 }
 
-func TestExtractNullInput(t *testing.T) {
+func TestExtractCBORNullInput(t *testing.T) {
 	// Each extractor with nil input should return an error
-	if _, err := ExtractInt(nil); err == nil {
-		t.Error("ExtractInt(nil): expected error")
+	if _, err := extractCBORInt(nil); err == nil {
+		t.Error("extractCBORInt(nil): expected error")
 	}
-	if _, err := ExtractFloat(nil); err == nil {
-		t.Error("ExtractFloat(nil): expected error")
+	if _, err := extractCBORFloat(nil); err == nil {
+		t.Error("extractCBORFloat(nil): expected error")
 	}
-	if _, err := ExtractString(nil); err == nil {
-		t.Error("ExtractString(nil): expected error")
+	if _, err := extractCBORString(nil); err == nil {
+		t.Error("extractCBORString(nil): expected error")
 	}
-	if _, err := ExtractBool(nil); err == nil {
-		t.Error("ExtractBool(nil): expected error")
+	if _, err := extractCBORBool(nil); err == nil {
+		t.Error("extractCBORBool(nil): expected error")
 	}
-	if _, err := ExtractBytes(nil); err == nil {
-		t.Error("ExtractBytes(nil): expected error")
+	if _, err := extractCBORBytes(nil); err == nil {
+		t.Error("extractCBORBytes(nil): expected error")
 	}
-	if _, err := ExtractList(nil); err == nil {
-		t.Error("ExtractList(nil): expected error")
+	if _, err := extractCBORList(nil); err == nil {
+		t.Error("extractCBORList(nil): expected error")
 	}
-	if _, err := ExtractDict(nil); err == nil {
-		t.Error("ExtractDict(nil): expected error")
+	if _, err := extractCBORDict(nil); err == nil {
+		t.Error("extractCBORDict(nil): expected error")
 	}
 }
 
@@ -325,7 +325,7 @@ func TestDecodeCBOR(t *testing.T) {
 	if err != nil {
 		t.Fatalf("decodeCBOR: %v", err)
 	}
-	n, err := ExtractInt(v)
+	n, err := extractCBORInt(v)
 	if err != nil || n != 99 {
 		t.Errorf("decodeCBOR result: %v, %v", v, err)
 	}
@@ -351,70 +351,70 @@ func TestEncodeCBOR(t *testing.T) {
 
 // --- Additional extractor branches ---
 
-func TestExtractIntUint64(t *testing.T) {
+func TestExtractCBORIntUint64(t *testing.T) {
 	// Directly pass a uint64 (positive CBOR integers decode as uint64 in fxamacker).
-	v, err := ExtractInt(uint64(42))
+	v, err := extractCBORInt(uint64(42))
 	if err != nil {
-		t.Fatalf("ExtractInt(uint64): %v", err)
+		t.Fatalf("extractCBORInt(uint64): %v", err)
 	}
 	if v != 42 {
-		t.Errorf("ExtractInt(uint64) = %d, want 42", v)
+		t.Errorf("extractCBORInt(uint64) = %d, want 42", v)
 	}
 }
 
-func TestExtractFloatFloat32(t *testing.T) {
-	v, err := ExtractFloat(float32(1.5))
+func TestExtractCBORFloatFloat32(t *testing.T) {
+	v, err := extractCBORFloat(float32(1.5))
 	if err != nil {
-		t.Fatalf("ExtractFloat(float32): %v", err)
+		t.Fatalf("extractCBORFloat(float32): %v", err)
 	}
 	if v != float64(float32(1.5)) {
-		t.Errorf("ExtractFloat(float32) = %v, want %v", v, float64(float32(1.5)))
+		t.Errorf("extractCBORFloat(float32) = %v, want %v", v, float64(float32(1.5)))
 	}
 }
 
-func TestExtractFloatUint64(t *testing.T) {
-	v, err := ExtractFloat(uint64(10))
+func TestExtractCBORFloatUint64(t *testing.T) {
+	v, err := extractCBORFloat(uint64(10))
 	if err != nil {
-		t.Fatalf("ExtractFloat(uint64): %v", err)
+		t.Fatalf("extractCBORFloat(uint64): %v", err)
 	}
 	if v != 10.0 {
-		t.Errorf("ExtractFloat(uint64) = %v, want 10.0", v)
+		t.Errorf("extractCBORFloat(uint64) = %v, want 10.0", v)
 	}
 }
 
-func TestExtractDictStringKeyed(t *testing.T) {
+func TestExtractCBORDictStringKeyed(t *testing.T) {
 	// Directly pass a map[string]any to test that branch.
 	input := map[string]any{"key": "value"}
-	m, err := ExtractDict(input)
+	m, err := extractCBORDict(input)
 	if err != nil {
-		t.Fatalf("ExtractDict(map[string]any): %v", err)
+		t.Fatalf("extractCBORDict(map[string]any): %v", err)
 	}
 	if len(m) != 1 {
-		t.Errorf("ExtractDict length = %d, want 1", len(m))
+		t.Errorf("extractCBORDict length = %d, want 1", len(m))
 	}
 }
 
-func TestExtractIntNegative(t *testing.T) {
+func TestExtractCBORIntNegative(t *testing.T) {
 	// Negative CBOR integers decode as int64 in fxamacker/cbor.
 	// Pass int64 directly to ensure the case int64: branch is exercised.
-	v, err := ExtractInt(int64(-42))
+	v, err := extractCBORInt(int64(-42))
 	if err != nil {
-		t.Fatalf("ExtractInt(int64 negative): %v", err)
+		t.Fatalf("extractCBORInt(int64 negative): %v", err)
 	}
 	if v != -42 {
-		t.Errorf("ExtractInt(int64 negative) = %d, want -42", v)
+		t.Errorf("extractCBORInt(int64 negative) = %d, want -42", v)
 	}
 }
 
-func TestExtractFloatNegativeInt(t *testing.T) {
+func TestExtractCBORFloatNegativeInt(t *testing.T) {
 	// Negative integers come as int64 from CBOR decode.
-	// Pass int64 directly to exercise the case int64: branch in ExtractFloat.
-	v, err := ExtractFloat(int64(-3))
+	// Pass int64 directly to exercise the case int64: branch in extractCBORFloat.
+	v, err := extractCBORFloat(int64(-3))
 	if err != nil {
-		t.Fatalf("ExtractFloat(int64 negative): %v", err)
+		t.Fatalf("extractCBORFloat(int64 negative): %v", err)
 	}
 	if v != -3.0 {
-		t.Errorf("ExtractFloat(int64 negative) = %v, want -3.0", v)
+		t.Errorf("extractCBORFloat(int64 negative) = %v, want -3.0", v)
 	}
 }
 

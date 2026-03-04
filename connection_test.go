@@ -2,7 +2,7 @@ package hegel
 
 import (
 	"bytes"
-	"errors"
+	"fmt"
 	"net"
 	"sync"
 	"testing"
@@ -11,24 +11,6 @@ import (
 
 // --- Handshake helpers ---
 
-// rawHandshakeResponder performs the "server side" of the handshake without using
-// ReceiveHandshake. It reads the handshake request, replies with "Hegel/0.3",
-// and sets the connection to stateClient. The nextChannelID is set to a high base
-// to avoid collisions with the real client side's channel IDs.
-func rawHandshakeResponder(t *testing.T, conn *connection) {
-	t.Helper()
-	conn.state = stateClient
-	conn.nextChannelID = 1000 // avoid collision with client channels (3, 5, 7, ...)
-	msgID, _, err := conn.controlCh.RecvRequestRaw(10 * time.Second)
-	if err != nil {
-		t.Errorf("rawHandshakeResponder recv: %v", err)
-		return
-	}
-	if err := conn.controlCh.SendReplyRaw(msgID, []byte("Hegel/0.3")); err != nil {
-		t.Errorf("rawHandshakeResponder send: %v", err)
-	}
-}
-
 // handshakePair performs a concurrent handshake between server and client connections.
 func handshakePair(t *testing.T, serverConn, clientConn *connection) {
 	t.Helper()
@@ -36,22 +18,14 @@ func handshakePair(t *testing.T, serverConn, clientConn *connection) {
 	wg.Add(1)
 	go func() {
 		defer wg.Done()
-		rawHandshakeResponder(t, serverConn)
+		if err := serverConn.ReceiveHandshake(); err != nil {
+			t.Errorf("ReceiveHandshake: %v", err)
+		}
 	}()
 	if err := clientConn.SendHandshake(); err != nil {
 		t.Errorf("SendHandshake: %v", err)
 	}
 	wg.Wait()
-}
-
-// sendErrorReply sends a CBOR-encoded error reply on a channel (test helper replacing
-// the removed SendReplyError method).
-func sendErrorReply(ch *channel, msgID uint32, errMsg, errType string) {
-	payload, _ := encodeCBOR(map[string]any{
-		"error": errMsg,
-		"type":  errType,
-	})
-	ch.SendReplyRaw(msgID, payload) //nolint:errcheck
 }
 
 // connPair returns two connected Connections (server, client) backed by a net.Pipe.
@@ -95,20 +69,19 @@ func TestConnectionDoubleClose(t *testing.T) {
 func TestSendHandshakeReturnsVersion(t *testing.T) {
 	serverConn, clientConn := connPair(t)
 
-	done := make(chan struct{})
-	go func() {
-		defer close(done)
-		rawHandshakeResponder(t, serverConn)
-	}()
+	done := make(chan error, 1)
+	go func() { done <- serverConn.ReceiveHandshake() }()
 
 	version, err := clientConn.SendHandshakeVersion()
 	if err != nil {
 		t.Fatalf("SendHandshakeVersion: %v", err)
 	}
-	if version != "0.3" {
-		t.Errorf("version = %q, want %q", version, "0.3")
+	if version != "0.1" {
+		t.Errorf("version = %q, want %q", version, "0.1")
 	}
-	<-done
+	if err := <-done; err != nil {
+		t.Errorf("ReceiveHandshake: %v", err)
+	}
 }
 
 // --- Handshake: double send raises ---
@@ -122,6 +95,51 @@ func TestDoubleSendHandshakeRaises(t *testing.T) {
 		t.Fatal("expected error on double SendHandshake")
 	}
 	mustContain(t, err.Error(), "already established")
+}
+
+// --- Handshake: double receive raises ---
+
+func TestDoubleReceiveHandshakeRaises(t *testing.T) {
+	serverConn, clientConn := connPair(t)
+
+	done := make(chan error, 1)
+	go func() {
+		if err := serverConn.ReceiveHandshake(); err != nil {
+			done <- err
+			return
+		}
+		done <- serverConn.ReceiveHandshake()
+	}()
+
+	if err := clientConn.SendHandshake(); err != nil {
+		t.Fatalf("SendHandshake: %v", err)
+	}
+	err := <-done
+	if err == nil {
+		t.Fatal("expected error on double ReceiveHandshake")
+	}
+	mustContain(t, err.Error(), "already established")
+}
+
+// --- Handshake: bad version from client ---
+
+func TestBadHandshakeFromClient(t *testing.T) {
+	serverConn, clientConn := connPair(t)
+
+	done := make(chan error, 1)
+	go func() {
+		// Send a bad handshake string directly on the control channel.
+		ch := clientConn.ControlChannel()
+		_, err := ch.SendRequestRaw([]byte("BadVersion"))
+		done <- err
+	}()
+
+	err := serverConn.ReceiveHandshake()
+	if err == nil {
+		t.Fatal("expected error for bad handshake")
+	}
+	mustContain(t, err.Error(), "bad handshake")
+	<-done
 }
 
 // --- Handshake: bad response from server ---
@@ -337,7 +355,7 @@ func TestMessageToNonexistentChannel(t *testing.T) {
 	}
 }
 
-// --- RequestError ---
+// --- requestError ---
 
 func TestRequestError(t *testing.T) {
 	data := map[any]any{
@@ -374,7 +392,7 @@ func TestResultOrErrorReturnsResult(t *testing.T) {
 	if err != nil {
 		t.Fatalf("resultOrError: %v", err)
 	}
-	n, _ := ExtractInt(v)
+	n, _ := extractCBORInt(v)
 	if n != 42 {
 		t.Errorf("result = %v, want 42", v)
 	}
@@ -384,30 +402,44 @@ func TestResultOrErrorReturnsResult(t *testing.T) {
 
 func TestRequestHandling(t *testing.T) {
 	serverConn, clientConn := connPair(t)
-	handshakePair(t, serverConn, clientConn)
 
-	chIDChan := make(chan uint32, 1)
 	var wg sync.WaitGroup
 	wg.Add(1)
 	go func() {
 		defer wg.Done()
-		handlerCh := serverConn.NewChannel("Handler")
-		chIDChan <- handlerCh.ChannelID()
-		for {
-			msgID, payload, err := handlerCh.RecvRequestRaw(2 * time.Second)
-			if err != nil {
-				return
-			}
-			v, _ := decodeCBOR(payload)
-			m, _ := ExtractDict(v)
-			x, _ := ExtractInt(m["x"])
-			y, _ := ExtractInt(m["y"])
-			handlerCh.SendReplyValue(msgID, map[string]any{"sum": x + y}) //nolint:errcheck
+		if err := serverConn.ReceiveHandshake(); err != nil {
+			t.Errorf("ReceiveHandshake: %v", err)
+			return
 		}
+		handlerCh := serverConn.NewChannel("Handler")
+		handlerCh.HandleRequests(func(payload []byte) (any, error) {
+			v, err := decodeCBOR(payload)
+			if err != nil {
+				return nil, err
+			}
+			m, err := extractCBORDict(v)
+			if err != nil {
+				return nil, err
+			}
+			x, err := extractCBORInt(m["x"])
+			if err != nil {
+				return nil, err
+			}
+			y, err := extractCBORInt(m["y"])
+			if err != nil {
+				return nil, err
+			}
+			return map[string]any{"sum": x + y}, nil
+		}, nil)
 	}()
 
-	serverChID := <-chIDChan
-	sendCh, err := clientConn.ConnectChannel(serverChID, "send")
+	if err := clientConn.SendHandshake(); err != nil {
+		t.Fatalf("SendHandshake: %v", err)
+	}
+
+	// Server creates channel 2 (first odd after control=0, next_id starts at 1 → 2*1|0 for server)
+	// Actually server is in SERVER state so channel_id = (1<<1)|0 = 2
+	sendCh, err := clientConn.ConnectChannel(2, "send")
 	if err != nil {
 		t.Fatalf("ConnectChannel: %v", err)
 	}
@@ -422,13 +454,13 @@ func TestRequestHandling(t *testing.T) {
 		t.Fatalf("pending.Get: %v", err)
 	}
 
-	m, err := ExtractDict(result)
+	m, err := extractCBORDict(result)
 	if err != nil {
-		t.Fatalf("ExtractDict: %v", err)
+		t.Fatalf("extractCBORDict: %v", err)
 	}
-	sum, err := ExtractInt(m["sum"])
+	sum, err := extractCBORInt(m["sum"])
 	if err != nil {
-		t.Fatalf("ExtractInt sum: %v", err)
+		t.Fatalf("extractCBORInt sum: %v", err)
 	}
 	if sum != 5 {
 		t.Errorf("sum = %d, want 5", sum)
@@ -442,29 +474,23 @@ func TestRequestHandling(t *testing.T) {
 
 func TestPendingRequestCaching(t *testing.T) {
 	serverConn, clientConn := connPair(t)
-	handshakePair(t, serverConn, clientConn)
 
-	chIDChan := make(chan uint32, 1)
 	var wg sync.WaitGroup
 	wg.Add(1)
 	go func() {
 		defer wg.Done()
+		serverConn.ReceiveHandshake() //nolint:errcheck
 		ch := serverConn.NewChannel("PR")
-		chIDChan <- ch.ChannelID()
-		for {
-			msgID, payload, err := ch.RecvRequestRaw(2 * time.Second)
-			if err != nil {
-				return
-			}
+		ch.HandleRequests(func(payload []byte) (any, error) {
 			v, _ := decodeCBOR(payload)
-			m, _ := ExtractDict(v)
-			val, _ := ExtractInt(m["value"])
-			ch.SendReplyValue(msgID, val*2) //nolint:errcheck
-		}
+			m, _ := extractCBORDict(v)
+			val, _ := extractCBORInt(m["value"])
+			return val * 2, nil
+		}, nil)
 	}()
 
-	serverChID := <-chIDChan
-	ch, err := clientConn.ConnectChannel(serverChID, "PR")
+	clientConn.SendHandshake() //nolint:errcheck
+	ch, err := clientConn.ConnectChannel(2, "PR")
 	if err != nil {
 		t.Fatalf("ConnectChannel: %v", err)
 	}
@@ -484,8 +510,8 @@ func TestPendingRequestCaching(t *testing.T) {
 		t.Fatalf("Get 2: %v", err)
 	}
 
-	n1, _ := ExtractInt(v1)
-	n2, _ := ExtractInt(v2)
+	n1, _ := extractCBORInt(v1)
+	n2, _ := extractCBORInt(v2)
 	if n1 != 42 || n2 != 42 {
 		t.Errorf("pending caching: got %d, %d; want 42, 42", n1, n2)
 	}
@@ -497,24 +523,20 @@ func TestPendingRequestCaching(t *testing.T) {
 
 func TestReceiveResponse(t *testing.T) {
 	serverConn, clientConn := connPair(t)
-	handshakePair(t, serverConn, clientConn)
 
-	chIDChan := make(chan uint32, 1)
 	var wg sync.WaitGroup
 	wg.Add(1)
 	go func() {
 		defer wg.Done()
+		serverConn.ReceiveHandshake() //nolint:errcheck
 		ch := serverConn.NewChannel("RR")
-		chIDChan <- ch.ChannelID()
-		msgID, _, err := ch.RecvRequestRaw(2 * time.Second)
-		if err != nil {
-			return
-		}
-		ch.SendReplyValue(msgID, int64(42)) //nolint:errcheck
+		ch.HandleRequests(func(_ []byte) (any, error) {
+			return int64(42), nil
+		}, nil)
 	}()
 
-	serverChID := <-chIDChan
-	ch, err := clientConn.ConnectChannel(serverChID, "RR")
+	clientConn.SendHandshake() //nolint:errcheck
+	ch, err := clientConn.ConnectChannel(2, "RR")
 	if err != nil {
 		t.Fatalf("ConnectChannel: %v", err)
 	}
@@ -527,9 +549,89 @@ func TestReceiveResponse(t *testing.T) {
 	if err != nil {
 		t.Fatalf("ReceiveResponse: %v", err)
 	}
-	n, _ := ExtractInt(result)
+	n, _ := extractCBORInt(result)
 	if n != 42 {
 		t.Errorf("result = %d, want 42", n)
+	}
+	clientConn.Close()
+	wg.Wait()
+}
+
+// --- handle_requests sends error on exception ---
+
+func TestHandleRequestsSendsErrorOnException(t *testing.T) {
+	serverConn, clientConn := connPair(t)
+
+	var wg sync.WaitGroup
+	wg.Add(1)
+	go func() {
+		defer wg.Done()
+		serverConn.ReceiveHandshake() //nolint:errcheck
+		ch := serverConn.NewChannel("ErrTest")
+		ch.HandleRequests(func(_ []byte) (any, error) {
+			return nil, fmt.Errorf("test error")
+		}, nil)
+	}()
+
+	clientConn.SendHandshake() //nolint:errcheck
+	ch, err := clientConn.ConnectChannel(2, "ErrTest")
+	if err != nil {
+		t.Fatalf("ConnectChannel: %v", err)
+	}
+
+	pending, err := ch.Request(mustEncode(t, map[string]any{"x": true}))
+	if err != nil {
+		t.Fatalf("Request: %v", err)
+	}
+	_, err = pending.Get()
+	if err == nil {
+		t.Fatal("expected requestError from server")
+	}
+	mustContain(t, err.Error(), "test error")
+	clientConn.Close()
+	wg.Wait()
+}
+
+// --- SendReplyWithError (explicit error kwargs) ---
+
+func TestSendReplyErrorWithKwargs(t *testing.T) {
+	serverConn, clientConn := connPair(t)
+
+	var wg sync.WaitGroup
+	wg.Add(1)
+	go func() {
+		defer wg.Done()
+		serverConn.ReceiveHandshake() //nolint:errcheck
+		ch := serverConn.NewChannel("ErrKw")
+		msgID, _, err := ch.RecvRequest(2 * time.Second)
+		if err != nil {
+			t.Errorf("RecvRequest: %v", err)
+			return
+		}
+		ch.SendReplyError(msgID, "custom error", "CustomType") //nolint:errcheck
+	}()
+
+	clientConn.SendHandshake() //nolint:errcheck
+	ch, err := clientConn.ConnectChannel(2, "ErrKw")
+	if err != nil {
+		t.Fatalf("ConnectChannel: %v", err)
+	}
+
+	pending, err := ch.Request(mustEncode(t, map[string]any{"x": true}))
+	if err != nil {
+		t.Fatalf("Request: %v", err)
+	}
+	_, err = pending.Get()
+	if err == nil {
+		t.Fatal("expected requestError")
+	}
+	re, ok := err.(*requestError)
+	if !ok {
+		t.Fatalf("expected *requestError, got %T", err)
+	}
+	mustContain(t, re.Error(), "custom error")
+	if re.ErrorType != "CustomType" {
+		t.Errorf("ErrorType = %q, want %q", re.ErrorType, "CustomType")
 	}
 	clientConn.Close()
 	wg.Wait()
@@ -605,7 +707,7 @@ func TestDispatchCloseChannelNotification(t *testing.T) {
 	}
 	_ = serverCh
 
-	// Close client channel — sends CloseChannelPayload to server.
+	// Close client channel — sends closeChannelPayload to server.
 	clientCh.Close()
 
 	// Give server time to process the close notification via runReader.
@@ -713,7 +815,7 @@ func TestIsTimeoutNil(t *testing.T) {
 
 func TestIsTimeoutNonNetError(t *testing.T) {
 	// A plain error is not a timeout.
-	if isTimeout(errors.New("plain error")) {
+	if isTimeout(fmt.Errorf("plain error")) {
 		t.Error("plain error should not be a timeout")
 	}
 }
@@ -748,6 +850,20 @@ func TestSendHandshakeVersionRecvError(t *testing.T) {
 	_, err := conn.SendHandshakeVersion()
 	if err == nil {
 		t.Fatal("expected error when peer closes after handshake send")
+	}
+	s.Close()
+}
+
+// --- ReceiveHandshake: error from RecvRequestRaw (connection closed) ---
+
+func TestReceiveHandshakeRecvError(t *testing.T) {
+	s, c := net.Pipe()
+	conn := newConnection(s, "Test")
+	// Close peer immediately so RecvRequestRaw returns an error.
+	c.Close()
+	err := conn.ReceiveHandshake()
+	if err == nil {
+		t.Fatal("expected error from ReceiveHandshake on closed conn")
 	}
 	s.Close()
 }
@@ -807,9 +923,27 @@ func TestSendReplyValueEncodeError(t *testing.T) {
 	}
 }
 
+// --- SendReplyError: verify happy path ---
+
+func TestSendReplyErrorSucceeds(t *testing.T) {
+	s, c := socketPair(t)
+	defer s.Close()
+	defer c.Close()
+	conn := newConnection(s, "Test")
+	ch := &channel{conn: conn, channelID: 0, inbox: make(chan any, 1), nextMessageID: 1}
+	errc := make(chan error, 1)
+	go func() { errc <- ch.SendReplyError(1, "msg", "Type") }()
+	// Drain from peer so write unblocks.
+	buf := make([]byte, 256)
+	c.Read(buf) //nolint:errcheck
+	if err := <-errc; err != nil {
+		t.Errorf("SendReplyError: %v", err)
+	}
+}
+
 // --- RecvRequest: CBOR decode error path ---
 
-func TestRecvRequestdecodeCBORError(t *testing.T) {
+func TestRecvRequestDecodeCBORError(t *testing.T) {
 	s, _ := socketPair(t)
 	conn := newConnection(s, "Test")
 	defer conn.Close()
@@ -821,35 +955,6 @@ func TestRecvRequestdecodeCBORError(t *testing.T) {
 	_, _, err := ch.RecvRequest(100 * time.Millisecond)
 	if err == nil {
 		t.Fatal("expected CBOR decode error from RecvRequest")
-	}
-}
-
-// --- RecvRequest: success path (valid CBOR decoded) ---
-
-func TestRecvRequestSuccess(t *testing.T) {
-	s, _ := socketPair(t)
-	conn := newConnection(s, "Test")
-	defer conn.Close()
-
-	ch := conn.ControlChannel()
-	// Put a valid CBOR-encoded request into the inbox.
-	payload, _ := encodeCBOR(map[string]any{"cmd": "test"})
-	ch.inbox <- packet{ChannelID: 0, MessageID: 1, IsReply: false, Payload: payload}
-
-	msgID, v, err := ch.RecvRequest(100 * time.Millisecond)
-	if err != nil {
-		t.Fatalf("RecvRequest: %v", err)
-	}
-	if msgID != 1 {
-		t.Errorf("msgID = %d, want 1", msgID)
-	}
-	m, err := ExtractDict(v)
-	if err != nil {
-		t.Fatalf("ExtractDict: %v", err)
-	}
-	cmd, _ := ExtractString(m["cmd"])
-	if cmd != "test" {
-		t.Errorf("cmd = %q, want %q", cmd, "test")
 	}
 }
 
@@ -872,7 +977,7 @@ func TestRecvResponseRawProcessError(t *testing.T) {
 
 // --- ReceiveResponse: CBOR decode error ---
 
-func TestReceiveResponsedecodeCBORError(t *testing.T) {
+func TestReceiveResponseDecodeCBORError(t *testing.T) {
 	s, _ := socketPair(t)
 	conn := newConnection(s, "Test")
 	defer conn.Close()
@@ -887,9 +992,9 @@ func TestReceiveResponsedecodeCBORError(t *testing.T) {
 	}
 }
 
-// --- ReceiveResponse: ExtractDict error (payload is not a map) ---
+// --- ReceiveResponse: extractCBORDict error (payload is not a map) ---
 
-func TestReceiveResponseExtractDictError(t *testing.T) {
+func TestReceiveResponseExtractCBORDictError(t *testing.T) {
 	s, _ := socketPair(t)
 	conn := newConnection(s, "Test")
 	defer conn.Close()
@@ -901,7 +1006,7 @@ func TestReceiveResponseExtractDictError(t *testing.T) {
 
 	_, err := ch.ReceiveResponse(1, 100*time.Millisecond)
 	if err == nil {
-		t.Fatal("expected ExtractDict error from ReceiveResponse")
+		t.Fatal("expected extractCBORDict error from ReceiveResponse")
 	}
 }
 
@@ -973,6 +1078,19 @@ func TestRequestSendError(t *testing.T) {
 	if err == nil {
 		t.Fatal("expected error from Request on closed conn")
 	}
+}
+
+// --- HandleRequests: stopFn returns true immediately ---
+
+func TestHandleRequestsStopFnImmediate(t *testing.T) {
+	serverConn, clientConn := connPair(t)
+	handshakePair(t, serverConn, clientConn)
+
+	ch := serverConn.NewChannel("StopTest")
+	// stopFn returns true on first call — HandleRequests should return immediately.
+	ch.HandleRequests(func(_ []byte) (any, error) {
+		return nil, nil
+	}, func() bool { return true })
 }
 
 // --- helpers ---
