@@ -24,21 +24,6 @@ func hegelBinPath(t *testing.T) string {
 	return path
 }
 
-// setEnv sets an environment variable for the duration of the test and restores the
-// original value (or removes it) via t.Cleanup.
-func setEnv(t *testing.T, key, value string) {
-	t.Helper()
-	old, hadOld := os.LookupEnv(key)
-	os.Setenv(key, value) //nolint:errcheck
-	t.Cleanup(func() {
-		if hadOld {
-			os.Setenv(key, old) //nolint:errcheck
-		} else {
-			os.Unsetenv(key) //nolint:errcheck
-		}
-	})
-}
-
 // --- RunHegelTest: basic passing test ---
 
 func TestRunHegelTestPasses(t *testing.T) {
@@ -135,7 +120,7 @@ func TestTargetSendsCommand(t *testing.T) {
 
 func TestStopTestOnGenerate(t *testing.T) {
 	hegelBinPath(t)
-	setEnv(t, "HEGEL_PROTOCOL_TEST_MODE", "stop_test_on_generate")
+	t.Setenv("HEGEL_PROTOCOL_TEST_MODE", "stop_test_on_generate")
 	// Should complete without error: SDK handles StopTest cleanly.
 	if _err := runHegel(t.Name(), func(s *TestCase) {
 		Draw[bool](s, Booleans(0.5))
@@ -148,7 +133,7 @@ func TestStopTestOnGenerate(t *testing.T) {
 
 func TestStopTestOnMarkComplete(t *testing.T) {
 	hegelBinPath(t)
-	setEnv(t, "HEGEL_PROTOCOL_TEST_MODE", "stop_test_on_mark_complete")
+	t.Setenv("HEGEL_PROTOCOL_TEST_MODE", "stop_test_on_mark_complete")
 	if _err := runHegel(t.Name(), func(s *TestCase) {
 		Draw[bool](s, Booleans(0.5))
 	}, stderrNoteFn, []Option{WithTestCases(5)}); _err != nil {
@@ -160,7 +145,7 @@ func TestStopTestOnMarkComplete(t *testing.T) {
 
 func TestEmptyTest(t *testing.T) {
 	hegelBinPath(t)
-	setEnv(t, "HEGEL_PROTOCOL_TEST_MODE", "empty_test")
+	t.Setenv("HEGEL_PROTOCOL_TEST_MODE", "empty_test")
 	if _err := runHegel(t.Name(), func(_ *TestCase) {
 		panic("should not be called")
 	}, stderrNoteFn, []Option{WithTestCases(5)}); _err != nil {
@@ -172,7 +157,7 @@ func TestEmptyTest(t *testing.T) {
 
 func TestErrorResponse(t *testing.T) {
 	hegelBinPath(t)
-	setEnv(t, "HEGEL_PROTOCOL_TEST_MODE", "error_response")
+	t.Setenv("HEGEL_PROTOCOL_TEST_MODE", "error_response")
 	// The server sends a requestError on generate; the test body should
 	// see a panic (INTERESTING) and RunHegelTestE should return an error.
 	var gotErr error
@@ -422,7 +407,7 @@ func TestWithTestCasesOption(t *testing.T) {
 
 func TestStopTestOnCollectionMore(t *testing.T) {
 	hegelBinPath(t)
-	setEnv(t, "HEGEL_PROTOCOL_TEST_MODE", "stop_test_on_collection_more")
+	t.Setenv("HEGEL_PROTOCOL_TEST_MODE", "stop_test_on_collection_more")
 	err := runHegel(t.Name(), func(s *TestCase) {
 		coll := newCollection(s, 0, 10)
 		_ = coll.More(s)
@@ -434,7 +419,7 @@ func TestStopTestOnCollectionMore(t *testing.T) {
 
 func TestStopTestOnNewCollection(t *testing.T) {
 	hegelBinPath(t)
-	setEnv(t, "HEGEL_PROTOCOL_TEST_MODE", "stop_test_on_new_collection")
+	t.Setenv("HEGEL_PROTOCOL_TEST_MODE", "stop_test_on_new_collection")
 	err := runHegel(t.Name(), func(s *TestCase) {
 		coll := newCollection(s, 0, 10)
 		_ = coll.More(s)
@@ -1648,18 +1633,13 @@ func TestExtractPanicOriginAllHegelFrames(t *testing.T) {
 
 func TestRunHegelTestEProtocolModeStartError(t *testing.T) {
 	// Set HEGEL_PROTOCOL_TEST_MODE so RunHegelTestE uses a temp session.
-	setEnv(t, "HEGEL_PROTOCOL_TEST_MODE", "empty_test")
+	t.Setenv("HEGEL_PROTOCOL_TEST_MODE", "empty_test")
 
-	// Save and restore cwd.
-	origCwd, _ := os.Getwd()
-	tmp := t.TempDir()      // no .venv here
-	os.Chdir(tmp)           //nolint:errcheck
-	defer os.Chdir(origCwd) //nolint:errcheck
+	tmp := t.TempDir() // no .venv here
+	t.Chdir(tmp)
 
 	// Save and restore PATH (remove hegel from it).
-	oldPath := os.Getenv("PATH")
-	os.Setenv("PATH", "/nonexistent") //nolint:errcheck
-	defer os.Setenv("PATH", oldPath)  //nolint:errcheck
+	t.Setenv("PATH", "/nonexistent")
 
 	err := runHegel("protocol_mode_start_error", func(_ *TestCase) {}, stderrNoteFn, []Option{WithTestCases(1)})
 	if err == nil {
@@ -1823,12 +1803,8 @@ func TestHegelSessionStartHandshakeError(t *testing.T) {
 
 func TestFindHegelLookPathAndFallback(t *testing.T) {
 	// Change to a temp dir without .venv so findHegelInDir returns "".
-	origCwd, _ := os.Getwd()
 	tmp := t.TempDir()
-	if err := os.Chdir(tmp); err != nil {
-		t.Fatalf("chdir: %v", err)
-	}
-	defer os.Chdir(origCwd) //nolint:errcheck
+	t.Chdir(tmp)
 
 	// First: put hegel somewhere in PATH -> LookPath succeeds.
 	hegelBin := filepath.Join(tmp, "hegel")
@@ -1836,17 +1812,15 @@ func TestFindHegelLookPathAndFallback(t *testing.T) {
 		t.Fatalf("write fake hegel: %v", err)
 	}
 	oldPath := os.Getenv("PATH")
-	os.Setenv("PATH", tmp+":"+oldPath) //nolint:errcheck
+	t.Setenv("PATH", tmp+":"+oldPath)
 	result := findHegel()
-	os.Setenv("PATH", oldPath) //nolint:errcheck
 	if result != hegelBin {
 		t.Errorf("findHegel with PATH: got %q, want %q", result, hegelBin)
 	}
 
 	// Second: remove hegel from PATH -> fallback "hegel".
-	os.Setenv("PATH", "/nonexistent") //nolint:errcheck
+	t.Setenv("PATH", "/nonexistent")
 	result = findHegel()
-	os.Setenv("PATH", oldPath) //nolint:errcheck
 	if result != "hegel" {
 		t.Errorf("findHegel fallback: got %q, want \"hegel\"", result)
 	}

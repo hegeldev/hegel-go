@@ -578,7 +578,7 @@ func TestOneOfAllBranchesAppear(t *testing.T) {
 // in response to the index generate command.
 func TestCompositeOneOfGenerateErrorResponse(t *testing.T) {
 	hegelBinPath(t)
-	setEnv(t, "HEGEL_PROTOCOL_TEST_MODE", "error_response")
+	t.Setenv("HEGEL_PROTOCOL_TEST_MODE", "error_response")
 	// Use a compositeOneOfGenerator (non-basic branches -> Path 3).
 	nonBasic1 := &mappedGenerator[int64, int64]{inner: Integers(0, 5), fn: func(v int64) int64 { return v }}
 	nonBasic2 := &mappedGenerator[int64, int64]{inner: Integers(6, 10), fn: func(v int64) int64 { return v }}

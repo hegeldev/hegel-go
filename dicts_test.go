@@ -498,7 +498,7 @@ func TestDictsCompositeNoMaxHappyPath(t *testing.T) {
 // aborts the test without panicking or sending further commands.
 func TestDictsStopTestOnNewCollection(t *testing.T) {
 	hegelBinPath(t)
-	setEnv(t, "HEGEL_PROTOCOL_TEST_MODE", "stop_test_on_new_collection")
+	t.Setenv("HEGEL_PROTOCOL_TEST_MODE", "stop_test_on_new_collection")
 	err := runHegel("dicts_stop_new_collection", func(s *TestCase) {
 		nonBasicKeys := &mappedGenerator[int64, int64]{
 			inner: Integers(0, 10),
@@ -515,7 +515,7 @@ func TestDictsStopTestOnNewCollection(t *testing.T) {
 // aborts the test cleanly.
 func TestDictsStopTestOnCollectionMore(t *testing.T) {
 	hegelBinPath(t)
-	setEnv(t, "HEGEL_PROTOCOL_TEST_MODE", "stop_test_on_collection_more")
+	t.Setenv("HEGEL_PROTOCOL_TEST_MODE", "stop_test_on_collection_more")
 	err := runHegel("dicts_stop_collection_more", func(s *TestCase) {
 		nonBasicKeys := &mappedGenerator[int64, int64]{
 			inner: Integers(0, 10),

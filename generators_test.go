@@ -663,7 +663,7 @@ func TestCollectionRejectNoOpAfterFinished(t *testing.T) {
 
 func TestCollectionStopTestOnNewCollection(t *testing.T) {
 	hegelBinPath(t)
-	setEnv(t, "HEGEL_PROTOCOL_TEST_MODE", "stop_test_on_new_collection")
+	t.Setenv("HEGEL_PROTOCOL_TEST_MODE", "stop_test_on_new_collection")
 	err := runHegel("coll_stop_new", func(s *TestCase) {
 		coll := newCollection(s, 0, 5)
 		_ = coll.More(s)
@@ -676,7 +676,7 @@ func TestCollectionStopTestOnNewCollection(t *testing.T) {
 
 func TestCollectionStopTestOnCollectionMore(t *testing.T) {
 	hegelBinPath(t)
-	setEnv(t, "HEGEL_PROTOCOL_TEST_MODE", "stop_test_on_collection_more")
+	t.Setenv("HEGEL_PROTOCOL_TEST_MODE", "stop_test_on_collection_more")
 	err := runHegel("coll_stop_more", func(s *TestCase) {
 		coll := newCollection(s, 0, 5)
 		_ = coll.More(s)
@@ -998,7 +998,7 @@ func TestFromRegexE2E(t *testing.T) {
 // basicGenerator.draw when generateFromSchema returns a non-StopTest error.
 func TestBasicGeneratorGenerateErrorResponse(t *testing.T) {
 	hegelBinPath(t)
-	setEnv(t, "HEGEL_PROTOCOL_TEST_MODE", "error_response")
+	t.Setenv("HEGEL_PROTOCOL_TEST_MODE", "error_response")
 	err := runHegel(t.Name(), func(s *TestCase) {
 		g := &basicGenerator[int64]{schema: map[string]any{"type": "integer"}, transform: func(v any) int64 { return extractInt(v) }}
 		_ = g.draw(s) // should panic with requestError -> caught as INTERESTING
