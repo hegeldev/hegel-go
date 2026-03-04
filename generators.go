@@ -50,7 +50,7 @@ const (
 type Generator interface {
 	// DoDraw produces a value from the Hegel server using the given goroutine state.
 	// Callers should use the public Draw() function instead of calling this directly.
-	DoDraw(data *testCaseData) any
+	DoDraw(data *TestCase) any
 
 	// AsBasic returns the underlying basicGenerator if this generator is
 	// a basic (schema-only) generator, or nil otherwise.
@@ -78,8 +78,8 @@ type basicGenerator struct {
 
 // DoDraw sends a generate command to the server and returns the result,
 // applying any registered transform.
-func (g *basicGenerator) DoDraw(data *testCaseData) any {
-	v, err := generateFromSchema(g.schema, data)
+func (g *basicGenerator) DoDraw(data *TestCase) any {
+	v, err := generateFromSchema(data, g.schema)
 	if err != nil {
 		panic(err)
 	}
@@ -124,7 +124,7 @@ type mappedGenerator struct {
 }
 
 // DoDraw calls the inner generator inside a MAPPED span and applies fn.
-func (g *mappedGenerator) DoDraw(data *testCaseData) any {
+func (g *mappedGenerator) DoDraw(data *TestCase) any {
 	var result any
 	group(labelMapped, func() {
 		result = g.fn(g.inner.DoDraw(data))
@@ -165,7 +165,7 @@ const maxFilterAttempts = 3
 // that satisfies predicate. Each attempt is wrapped in a FILTER span; spans
 // for failed attempts are discarded. If all attempts fail, the test case is
 // rejected via panic(assumeRejected{}).
-func (g *filteredGenerator) DoDraw(data *testCaseData) any {
+func (g *filteredGenerator) DoDraw(data *TestCase) any {
 	for range maxFilterAttempts {
 		startSpan(labelFilter, data)
 		value := g.source.DoDraw(data)
@@ -196,7 +196,7 @@ func (g *filteredGenerator) Map(fn func(any) any) Generator {
 // startSpan notifies the server that a new generation span has started.
 // label identifies the kind of span (e.g. labelList, labelMapped).
 // No-op if the test has been aborted.
-func startSpan(label spanLabel, data *testCaseData) {
+func startSpan(label spanLabel, data *TestCase) {
 	ch := data.channel
 	payload, err := encodeCBOR(map[string]any{
 		"command": "start_span",
@@ -215,7 +215,7 @@ func startSpan(label spanLabel, data *testCaseData) {
 // stopSpan notifies the server that the current generation span has ended.
 // If discard is true, the span's data should be discarded from the shrinking budget.
 // No-op if the test has been aborted.
-func stopSpan(discard bool, data *testCaseData) {
+func stopSpan(discard bool, data *TestCase) {
 	if data.aborted {
 		return
 	}
@@ -236,7 +236,7 @@ func stopSpan(discard bool, data *testCaseData) {
 
 // group runs fn inside a start_span / stop_span pair with the given label.
 // The span is never discarded (discard=false).
-func group(label spanLabel, fn func(), data *testCaseData) {
+func group(label spanLabel, fn func(), data *TestCase) {
 	startSpan(label, data)
 	fn()
 	stopSpan(false, data)
@@ -244,7 +244,7 @@ func group(label spanLabel, fn func(), data *testCaseData) {
 
 // discardableGroup runs fn inside a start_span / stop_span pair.
 // If fn panics, the span is ended with discard=true before re-panicking.
-func discardableGroup(label spanLabel, fn func(), data *testCaseData) {
+func discardableGroup(label spanLabel, fn func(), data *TestCase) {
 	startSpan(label, data)
 	panicked := true
 	defer func() {
@@ -264,7 +264,7 @@ type collection struct {
 
 // newCollection starts a new collection on the server with the given size bounds.
 // It sends the new_collection command immediately.
-func newCollection(minSize, maxSize int, data *testCaseData) *collection {
+func newCollection(minSize, maxSize int, data *TestCase) *collection {
 	ch := data.channel
 	payload, err := encodeCBOR(map[string]any{
 		"command":  "new_collection",
@@ -294,7 +294,7 @@ func newCollection(minSize, maxSize int, data *testCaseData) *collection {
 // more asks the server whether another element should be generated.
 // Returns false when the collection is exhausted; subsequent calls return false
 // without sending any messages.
-func (c *collection) more(data *testCaseData) bool {
+func (c *collection) more(data *TestCase) bool {
 	if c.finished {
 		return false
 	}
@@ -636,7 +636,7 @@ type compositeListGenerator struct {
 }
 
 // DoDraw produces a list by using the collection protocol inside a labelList span.
-func (g *compositeListGenerator) DoDraw(data *testCaseData) any {
+func (g *compositeListGenerator) DoDraw(data *TestCase) any {
 	var result []any
 	startSpan(labelList, data)
 	panicked := true
@@ -762,7 +762,7 @@ type compositeDictGenerator struct {
 }
 
 // DoDraw implements Generator by using the MAP span and collection protocol.
-func (g *compositeDictGenerator) DoDraw(data *testCaseData) any {
+func (g *compositeDictGenerator) DoDraw(data *TestCase) any {
 	var result any
 	discardableGroup(labelMap, func() {
 		maxSz := g.maxSize
@@ -807,15 +807,15 @@ type compositeOneOfGenerator struct {
 
 // DoDraw picks one of the generators at random (via the Hegel server) and
 // returns a value from that generator, wrapped in a ONE_OF span.
-func (g *compositeOneOfGenerator) DoDraw(data *testCaseData) any {
+func (g *compositeOneOfGenerator) DoDraw(data *TestCase) any {
 	var result any
 	group(labelOneOf, func() {
 		n := len(g.generators)
-		idx, err := generateFromSchema(map[string]any{
+		idx, err := generateFromSchema(data, map[string]any{
 			"type":      "integer",
 			"min_value": int64(0),
 			"max_value": int64(n - 1),
-		}, data)
+		})
 		if err != nil {
 			panic(fmt.Sprintf("hegel: unreachable: OneOf generateFromSchema: %v", err))
 		}
@@ -983,7 +983,7 @@ type compositeTupleGenerator struct {
 
 // DoDraw produces a []any tuple by generating each element in sequence
 // inside a TUPLE span.
-func (g *compositeTupleGenerator) DoDraw(data *testCaseData) any {
+func (g *compositeTupleGenerator) DoDraw(data *TestCase) any {
 	result := make([]any, len(g.elements))
 	group(labelTuple, func() {
 		for i, elem := range g.elements {
@@ -1094,7 +1094,7 @@ func FlatMap(g Generator, f func(any) Generator) Generator {
 
 // DoDraw generates a value from the source generator, passes it to f,
 // and generates from the returned generator, all inside a FLAT_MAP span.
-func (g *flatMappedGenerator) DoDraw(data *testCaseData) any {
+func (g *flatMappedGenerator) DoDraw(data *TestCase) any {
 	var result any
 	discardableGroup(labelFlatMap, func() {
 		first := g.source.DoDraw(data)

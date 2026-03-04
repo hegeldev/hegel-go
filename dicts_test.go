@@ -278,11 +278,13 @@ func TestDictsBasicGenerateHappyPath(t *testing.T) {
 
 	cli := newClient(clientConn)
 	var gotMap map[any]any
-	err := cli.runTest("dicts_basic_happy", func() {
+	err := cli.runTest("dicts_basic_happy", func(s *TestCase) {
+		setState(s)
+		defer setState(nil)
 		gen := Dicts(Text(0, 5), Integers(0, 100), DictOptions{MinSize: 0, MaxSize: 3, HasMaxSize: true})
 		v := Draw(gen)
 		gotMap, _ = v.(map[any]any)
-	}, runOptions{testCases: 1})
+	}, runOptions{testCases: 1}, stderrNoteFn)
 	if err != nil {
 		t.Fatalf("runTest: %v", err)
 	}
@@ -354,11 +356,13 @@ func TestDictsBasicWithTransforms(t *testing.T) {
 		return n * 2
 	})
 
-	err := cli.runTest("dicts_with_transforms", func() {
+	err := cli.runTest("dicts_with_transforms", func(s *TestCase) {
+		setState(s)
+		defer setState(nil)
 		gen := Dicts(keyGen, valGen, DictOptions{MinSize: 0, MaxSize: 3, HasMaxSize: true})
 		v := Draw(gen)
 		gotMap, _ = v.(map[any]any)
-	}, runOptions{testCases: 1})
+	}, runOptions{testCases: 1}, stderrNoteFn)
 	if err != nil {
 		t.Fatalf("runTest: %v", err)
 	}
@@ -436,7 +440,9 @@ func TestDictsCompositeGenerateHappyPath(t *testing.T) {
 
 	cli := newClient(clientConn)
 	var gotMap map[any]any
-	err := cli.runTest("dicts_composite_happy", func() {
+	err := cli.runTest("dicts_composite_happy", func(s *TestCase) {
+		setState(s)
+		defer setState(nil)
 		// Non-basic key generator
 		nonBasicKeys := &mappedGenerator{
 			inner: Integers(0, 10),
@@ -445,7 +451,7 @@ func TestDictsCompositeGenerateHappyPath(t *testing.T) {
 		gen := Dicts(nonBasicKeys, Integers(0, 100), DictOptions{MinSize: 0, MaxSize: 2, HasMaxSize: true})
 		v := Draw(gen)
 		gotMap, _ = v.(map[any]any)
-	}, runOptions{testCases: 1})
+	}, runOptions{testCases: 1}, stderrNoteFn)
 	if err != nil {
 		t.Fatalf("runTest: %v", err)
 	}
@@ -525,7 +531,9 @@ func TestDictsCompositeNoMaxHappyPath(t *testing.T) {
 	})
 
 	cli := newClient(clientConn)
-	err := cli.runTest("dicts_composite_no_max", func() {
+	err := cli.runTest("dicts_composite_no_max", func(s *TestCase) {
+		setState(s)
+		defer setState(nil)
 		nonBasicKeys := &mappedGenerator{
 			inner: Integers(0, 10),
 			fn:    func(v any) any { return v },
@@ -533,7 +541,7 @@ func TestDictsCompositeNoMaxHappyPath(t *testing.T) {
 		// No max size: hasMax=false, minSize=2 → should use maxSz=2+10=12
 		gen := Dicts(nonBasicKeys, Integers(0, 100), DictOptions{MinSize: 2})
 		_ = Draw(gen)
-	}, runOptions{testCases: 1})
+	}, runOptions{testCases: 1}, stderrNoteFn)
 	if err != nil {
 		t.Fatalf("runTest: %v", err)
 	}

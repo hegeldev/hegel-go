@@ -146,9 +146,11 @@ func testGeneratorSchema(t *testing.T, g Generator) map[any]any {
 		caseCh.SendReplyValue(genID, "test-value") //nolint:errcheck
 	})
 	cli := newClient(clientConn)
-	cli.runTest("schema_check", func() { //nolint:errcheck
+	cli.runTest("schema_check", func(s *TestCase) { //nolint:errcheck
+		setState(s)
+		defer setState(nil)
 		Draw(g)
-	}, runOptions{testCases: 1})
+	}, runOptions{testCases: 1}, stderrNoteFn)
 	return gotSchema
 }
 

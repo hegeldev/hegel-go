@@ -10,6 +10,7 @@ import (
 	"runtime"
 	"strings"
 	"sync"
+	"testing"
 	"time"
 )
 
@@ -27,36 +28,36 @@ func goroutineID() int64 {
 	return id
 }
 
-// testCaseData holds the per-test-case context (goroutine-local via sync.Map).
-type testCaseData struct {
+// TestCase holds the per-test-case context.
+type TestCase struct {
 	channel *channel
 	isFinal bool
 	aborted bool
+	failed  bool         // for T.Error/Fail deferred INTERESTING
+	noteFn  func(string) // injected: t.Log for Case, stderr for Run
 }
 
-var testCaseStore sync.Map // map[int64]*testCaseData
+// runningTest tracks whether we're already inside a Hegel test body.
+var runningTest sync.Map // map[int64]bool
 
-func getState() *testCaseData {
+// testCaseStore holds the goroutine-local state for the old API.
+var testCaseStore sync.Map // map[int64]*TestCase
+
+func getState() *TestCase {
 	id := goroutineID()
 	if v, ok := testCaseStore.Load(id); ok {
-		return v.(*testCaseData)
+		return v.(*TestCase)
 	}
 	return nil
 }
 
-func setState(s *testCaseData) {
+func setState(s *TestCase) {
 	id := goroutineID()
 	if s == nil {
 		testCaseStore.Delete(id)
 	} else {
 		testCaseStore.Store(id, s)
 	}
-}
-
-// getCurrentIsFinal returns true if the current test case is a final (replay) run.
-// Must be called from within a test body.
-func getCurrentIsFinal() bool {
-	return getState().isFinal
 }
 
 func getCurrentChannel() *channel {
@@ -67,18 +68,43 @@ func getCurrentChannel() *channel {
 	return s.channel
 }
 
-func getChannel() *channel {
-	ch := getCurrentChannel()
-	if ch == nil {
-		panic("hegel: not in a test context — must be called from within a test function")
+// --- State interface methods on internalState ---
+
+// internal returns the underlying TestCase, satisfying the State interface.
+func (s *TestCase) internal() *TestCase { return s }
+
+// Assume rejects the current test case if condition is false.
+func (s *TestCase) Assume(condition bool) {
+	if !condition {
+		panic(assumeRejected{})
 	}
-	return ch
 }
 
-func setAborted() {
-	s := getState()
-	if s != nil {
-		s.aborted = true
+// Note prints message, but only during the final (replay) test case.
+// Output is routed via noteFn (t.Log for Case, stderr for Run).
+func (s *TestCase) Note(message string) {
+	if s.isFinal && s.noteFn != nil {
+		s.noteFn(message)
+	}
+}
+
+// Target sends a target value to the Hegel server to guide test generation.
+func (s *TestCase) Target(value float64, label string) {
+	ch := s.channel
+	payload, err := encodeCBOR(map[string]any{
+		"command": "target",
+		"value":   value,
+		"label":   label,
+	})
+	if err != nil {
+		panic(fmt.Sprintf("hegel: unreachable: Target encode: %v", err))
+	}
+	pending, err := ch.Request(payload)
+	if err != nil {
+		panic(fmt.Sprintf("hegel: Target send: %v", err))
+	}
+	if _, err := pending.Get(); err != nil {
+		panic(fmt.Sprintf("hegel: Target response: %v", err))
 	}
 }
 
@@ -99,10 +125,27 @@ type connectionError struct{ msg string }
 
 func (e *connectionError) Error() string { return e.msg }
 
-// --- Public test control functions ---
+// fatalSentinel is panic'd by T.Fatal/Fatalf/FailNow to mark a test case as INTERESTING.
+type fatalSentinel struct{ msg string }
 
-func generateFromSchema(schema map[string]any, data *testCaseData) (any, error) {
-	ch := data.channel
+func (f fatalSentinel) Error() string { return f.msg }
+
+// --- Internal helpers ---
+
+// toInt64 converts a CBOR integer (int64 or uint64) to int64.
+func toInt64(v any) (int64, bool) {
+	switch x := v.(type) {
+	case int64:
+		return x, true
+	case uint64:
+		return int64(x), true
+	default:
+		return 0, false
+	}
+}
+
+func generateFromSchema(gs *TestCase, schema map[string]any) (any, error) {
+	ch := gs.channel
 	payload, err := encodeCBOR(map[string]any{"command": "generate", "schema": schema})
 	if err != nil {
 		panic(fmt.Sprintf("hegel: unreachable: generateFromSchema encode: %v", err))
@@ -115,13 +158,15 @@ func generateFromSchema(schema map[string]any, data *testCaseData) (any, error) 
 	if err != nil {
 		re, ok := err.(*requestError)
 		if ok && re.ErrorType == "StopTest" {
-			data.aborted = true
+			gs.aborted = true
 			return nil, &dataExhausted{msg: "server ran out of data"}
 		}
 		return nil, err
 	}
 	return v, nil
 }
+
+// --- Public test control functions (old API, kept for backward compatibility) ---
 
 // Draw generates a value from the given generator.
 // Must be called from within a Hegel test.
@@ -136,55 +181,47 @@ func Draw(gen Generator) any {
 // Assume rejects the current test case if condition is false.
 // Must be called from within a test body passed to RunHegelTest.
 func Assume(condition bool) {
-	if getState() == nil {
+	s := getState()
+	if s == nil {
 		panic("hegel: Assume() cannot be called outside of a Hegel test")
 	}
-	if !condition {
-		panic(assumeRejected{})
-	}
+	s.Assume(condition)
 }
 
 // Note prints message to stderr, but only during the final (replay) test case.
 // Must be called from within a Hegel test.
 func Note(message string) {
-	data := getState()
-	if data == nil {
+	s := getState()
+	if s == nil {
 		panic("hegel: Note() cannot be called outside of a Hegel test")
 	}
-	if data.isFinal {
-		fmt.Fprintln(os.Stderr, message)
-	}
+	s.Note(message)
 }
 
 // Target sends a target value to the Hegel server to guide test generation.
 // Must be called from within a test body passed to RunHegelTest.
 func Target(value float64, label string) {
-	ch := getChannel()
-	payload, err := encodeCBOR(map[string]any{
-		"command": "target",
-		"value":   value,
-		"label":   label,
-	})
-	if err != nil {
-		panic(fmt.Sprintf("hegel: unreachable: Target encode: %v", err))
+	s := getState()
+	if s == nil {
+		panic("hegel: Target() cannot be called outside of a Hegel test")
 	}
-	pending, err := ch.Request(payload)
-	if err != nil {
-		panic(fmt.Sprintf("hegel: Target send: %v", err))
-	}
-	if _, err := pending.Get(); err != nil {
-		panic(fmt.Sprintf("hegel: Target response: %v", err))
-	}
+	s.Target(value, label)
 }
+
+// --- testBody type ---
+
+// testBody is the internal representation of a test function.
+// It receives the internalState for the current test case.
+type testBody func(s *TestCase)
 
 // --- Test runner options ---
 
-// runOptions holds options for RunHegelTest.
+// runOptions holds options for property tests.
 type runOptions struct {
 	testCases int
 }
 
-// Option is a functional option for RunHegelTest.
+// Option is a functional option for Case and Run.
 type Option func(*runOptions)
 
 // WithTestCases sets the number of test cases to run.
@@ -194,9 +231,47 @@ func WithTestCases(n int) Option {
 
 // --- Public API ---
 
+// Run runs a property test and returns any error.
+// Note output goes to stderr. For use in standalone binaries and conformance tests.
+func Run(name string, fn func(*TestCase), opts ...Option) error {
+	return runHegel(name, fn, stderrNoteFn, opts)
+}
+
+// MustRun runs a property test and panics if it fails.
+func MustRun(name string, fn func(*TestCase), opts ...Option) {
+	if err := Run(name, fn, opts...); err != nil {
+		panic(err)
+	}
+}
+
+// Case returns a test function for use with testing.T.Run.
+//
+// Note output is routed to t.Log.
+func Case(fn func(*T), opts ...Option) func(*testing.T) {
+	return func(t *testing.T) {
+		t.Helper()
+
+		body := func(s *TestCase) {
+			ht := &T{TestCase: s, T: t}
+			fn(ht)
+		}
+		err := runHegel(t.Name(), body, func(msg string) { t.Log(msg) }, opts)
+		if err != nil {
+			t.Fatal(err)
+		}
+	}
+}
+
+// stderrNoteFn is the noteFn for Run/MustRun: writes to stderr.
+func stderrNoteFn(msg string) {
+	fmt.Fprintln(os.Stderr, msg)
+}
+
 // RunHegelTest runs a property test against the Hegel server.
 // It panics if the test fails (for use with Go's testing.T).
 // The default number of test cases is 100; override with [WithTestCases].
+//
+// Deprecated: use [Case] or [Run] instead.
 func RunHegelTest(name string, fn func(), opts ...Option) {
 	if err := RunHegelTestE(name, fn, opts...); err != nil {
 		panic(err)
@@ -204,11 +279,26 @@ func RunHegelTest(name string, fn func(), opts ...Option) {
 }
 
 // RunHegelTestE runs a property test and returns any error instead of panicking.
+//
+// Deprecated: use [Case] or [Run] instead.
 func RunHegelTestE(name string, fn func(), opts ...Option) error {
-	// Check for nested call.
-	if getCurrentChannel() != nil {
-		return fmt.Errorf("hegel: nested RunHegelTest call — cannot run %q inside a test body", name)
+	body := func(s *TestCase) {
+		setState(s)
+		defer setState(nil)
+		fn()
 	}
+	return runHegel(name, body, stderrNoteFn, opts)
+}
+
+// runHegel is the shared implementation for Run, MustRun, Case, RunHegelTest, and RunHegelTestE.
+func runHegel(name string, fn testBody, noteFn func(string), opts []Option) error {
+	// Check for nested call.
+	gid := goroutineID()
+	if _, already := runningTest.Load(gid); already {
+		return fmt.Errorf("hegel: nested test call — cannot run %q inside a test body", name)
+	}
+	runningTest.Store(gid, true)
+	defer runningTest.Delete(gid)
 
 	o := runOptions{testCases: 100}
 	for _, opt := range opts {
@@ -225,13 +315,13 @@ func RunHegelTestE(name string, fn func(), opts ...Option) error {
 		if err := s.start(); err != nil {
 			return fmt.Errorf("hegel: session start: %w", err)
 		}
-		return s.runTest(name, fn, o)
+		return s.runTest(name, fn, o, noteFn)
 	}
 
 	if err := globalSession.start(); err != nil {
 		return fmt.Errorf("hegel: session start: %w", err)
 	}
-	return globalSession.runTest(name, fn, o)
+	return globalSession.runTest(name, fn, o, noteFn)
 }
 
 // extractPanicOrigin extracts file/line from a recovered panic using runtime.Callers,
@@ -274,7 +364,7 @@ func newClient(conn *connection) *client {
 }
 
 // runTest executes one property test against the server.
-func (c *client) runTest(name string, fn func(), opts runOptions) error {
+func (c *client) runTest(name string, fn testBody, opts runOptions, noteFn func(string)) error {
 	// Serialize the entire test run — the control channel and connection
 	// are not thread-safe for concurrent access across goroutines.
 	c.mu.Lock()
@@ -312,33 +402,32 @@ func (c *client) runTest(name string, fn func(), opts runOptions) error {
 		if err != nil {
 			return fmt.Errorf("hegel: test event decode: %w", err)
 		}
-		msg, err := ExtractDict(decoded)
-		if err != nil {
-			return fmt.Errorf("hegel: test event not a dict: %w", err)
+		msg, ok := decoded.(map[any]any)
+		if !ok {
+			return fmt.Errorf("hegel: test event not a dict")
 		}
-		eventVal := msg[any("event")]
-		event, _ := ExtractString(eventVal)
+		event, _ := msg[any("event")].(string)
 
 		switch event {
 		case "test_case":
 			chIDVal := msg[any("channel_id")]
-			chID, err := ExtractInt(chIDVal)
-			if err != nil {
-				return fmt.Errorf("hegel: test_case missing channel_id: %w", err)
+			chID, ok := toInt64(chIDVal)
+			if !ok {
+				return fmt.Errorf("hegel: test_case missing channel_id")
 			}
 			testCh.SendReplyValue(msgID, nil) //nolint:errcheck
 			caseCh, err := c.conn.ConnectChannel(uint32(chID), "TestCase")
 			if err != nil {
 				return fmt.Errorf("hegel: connect test case channel: %w", err)
 			}
-			if err := c.runTestCase(caseCh, fn, false); err != nil {
+			if err := c.runTestCase(caseCh, fn, false, noteFn); err != nil {
 				return err
 			}
 
 		case "test_done":
 			testCh.SendReplyValue(msgID, true) //nolint:errcheck
 			resultsVal := msg[any("results")]
-			resultData, _ = ExtractDict(resultsVal)
+			resultData, _ = resultsVal.(map[any]any)
 			goto doneLoop
 
 		default:
@@ -357,7 +446,7 @@ doneLoop:
 	}
 
 	nInterestingVal := resultData[any("interesting_test_cases")]
-	nInteresting, _ := ExtractInt(nInterestingVal)
+	nInteresting, _ := toInt64(nInterestingVal)
 	if nInteresting == 0 {
 		return nil
 	}
@@ -369,15 +458,15 @@ doneLoop:
 			return fmt.Errorf("hegel: final case recv: %w", err)
 		}
 		decoded, _ := decodeCBOR(raw)
-		msg, _ := ExtractDict(decoded)
+		msg, _ := decoded.(map[any]any)
 		chIDVal := msg[any("channel_id")]
-		chID, _ := ExtractInt(chIDVal)
+		chID, _ := toInt64(chIDVal)
 		testCh.SendReplyValue(msgID, nil) //nolint:errcheck
 		caseCh, err := c.conn.ConnectChannel(uint32(chID), "FinalCase")
 		if err != nil {
 			return fmt.Errorf("hegel: connect final case channel: %w", err)
 		}
-		return c.runTestCase(caseCh, fn, true)
+		return c.runTestCase(caseCh, fn, true, noteFn)
 	}
 
 	// Multiple interesting cases.
@@ -388,16 +477,16 @@ doneLoop:
 			return fmt.Errorf("hegel: final case %d recv: %w", i, err)
 		}
 		decoded, _ := decodeCBOR(raw)
-		msg, _ := ExtractDict(decoded)
+		msg, _ := decoded.(map[any]any)
 		chIDVal := msg[any("channel_id")]
-		chID, _ := ExtractInt(chIDVal)
+		chID, _ := toInt64(chIDVal)
 		testCh.SendReplyValue(msgID, nil) //nolint:errcheck
 		caseCh, err := c.conn.ConnectChannel(uint32(chID), fmt.Sprintf("FinalCase%d", i))
 		if err != nil {
 			errs = append(errs, err)
 			continue
 		}
-		caseErr := c.runTestCase(caseCh, fn, true)
+		caseErr := c.runTestCase(caseCh, fn, true, noteFn)
 		if caseErr != nil {
 			errs = append(errs, caseErr)
 		} else {
@@ -408,14 +497,13 @@ doneLoop:
 }
 
 // runTestCase executes one test case and sends mark_complete to the server.
-func (c *client) runTestCase(ch *channel, fn func(), isFinal bool) (finalErr error) {
-	state := &testCaseData{
+func (c *client) runTestCase(ch *channel, fn testBody, isFinal bool, noteFn func(string)) (finalErr error) {
+	state := &TestCase{
 		channel: ch,
 		isFinal: isFinal,
 		aborted: false,
+		noteFn:  noteFn,
 	}
-	setState(state)
-	defer setState(nil)
 
 	alreadyComplete := false
 	status := "VALID"
@@ -425,6 +513,13 @@ func (c *client) runTestCase(ch *channel, fn func(), isFinal bool) (finalErr err
 		defer func() {
 			r := recover()
 			if r == nil {
+				// Normal return: check the failed flag.
+				if state.failed {
+					status = "INTERESTING"
+					if isFinal {
+						finalErr = fmt.Errorf("test failed")
+					}
+				}
 				return
 			}
 			switch v := r.(type) {
@@ -434,6 +529,12 @@ func (c *client) runTestCase(ch *channel, fn func(), isFinal bool) (finalErr err
 				alreadyComplete = true
 			case *connectionError:
 				finalErr = fmt.Errorf("%s", v.msg)
+			case fatalSentinel:
+				status = "INTERESTING"
+				origin = extractPanicOrigin(v)
+				if isFinal {
+					finalErr = fmt.Errorf("%s", v.msg)
+				}
 			default:
 				status = "INTERESTING"
 				origin = extractPanicOrigin(v)
@@ -442,7 +543,7 @@ func (c *client) runTestCase(ch *channel, fn func(), isFinal bool) (finalErr err
 				}
 			}
 		}()
-		fn()
+		fn(state)
 	}()
 
 	if finalErr != nil {
@@ -612,8 +713,8 @@ func (s *hegelSession) cleanup() {
 }
 
 // runTest runs a test via the session's client.
-func (s *hegelSession) runTest(name string, fn func(), opts runOptions) error {
-	return s.cli.runTest(name, fn, opts)
+func (s *hegelSession) runTest(name string, fn testBody, opts runOptions, noteFn func(string)) error {
+	return s.cli.runTest(name, fn, opts, noteFn)
 }
 
 // findHegel locates the hegel binary.

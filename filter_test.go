@@ -132,7 +132,7 @@ func TestCompositeTupleGeneratorFilterReturnsfilteredGenerator(t *testing.T) {
 // TestFlatMappedGeneratorFilterReturnsfilteredGenerator verifies that calling
 // Filter on a flatMappedGenerator returns a *filteredGenerator.
 func TestFlatMappedGeneratorFilterReturnsfilteredGenerator(t *testing.T) {
-	flatGen := flatMap(Integers(1, 5), func(v any) Generator {
+	flatGen := FlatMap(Integers(1, 5), func(v any) Generator {
 		n, _ := ExtractInt(v)
 		return Integers(0, n)
 	})
@@ -242,7 +242,9 @@ func TestFilteredGeneratorGenerateAllFailsCallsAssume(t *testing.T) {
 	})
 
 	cli := newClient(clientConn)
-	err := cli.runTest("filter_all_fail", func() {
+	err := cli.runTest("filter_all_fail", func(s *TestCase) {
+		setState(s)
+		defer setState(nil)
 		inner := &basicGenerator{schema: schema}
 		fg := &filteredGenerator{
 			source: inner,
@@ -251,7 +253,7 @@ func TestFilteredGeneratorGenerateAllFailsCallsAssume(t *testing.T) {
 			},
 		}
 		Draw(fg) // should call Assume(false) after 3 attempts
-	}, runOptions{testCases: 1})
+	}, runOptions{testCases: 1}, stderrNoteFn)
 	if err != nil {
 		t.Fatalf("runTest: %v", err)
 	}
@@ -369,7 +371,9 @@ func TestFilteredGeneratorGenerateUnitPredicatePasses(t *testing.T) {
 
 	cli := newClient(clientConn)
 	var gotVal int64
-	err := cli.runTest("filter_predicate_passes", func() {
+	err := cli.runTest("filter_predicate_passes", func(s *TestCase) {
+		setState(s)
+		defer setState(nil)
 		inner := &basicGenerator{schema: schema}
 		fg := &filteredGenerator{
 			source:    inner,
@@ -377,7 +381,7 @@ func TestFilteredGeneratorGenerateUnitPredicatePasses(t *testing.T) {
 		}
 		v := Draw(fg)
 		gotVal, _ = ExtractInt(v)
-	}, runOptions{testCases: 1})
+	}, runOptions{testCases: 1}, stderrNoteFn)
 	if err != nil {
 		t.Fatalf("runTest: %v", err)
 	}
@@ -454,7 +458,9 @@ func TestFilteredGeneratorGenerateUnitPredicateFailsThenPasses(t *testing.T) {
 
 	cli := newClient(clientConn)
 	var gotVal int64
-	err := cli.runTest("filter_fail_then_pass", func() {
+	err := cli.runTest("filter_fail_then_pass", func(s *TestCase) {
+		setState(s)
+		defer setState(nil)
 		inner := &basicGenerator{schema: schema}
 		fg := &filteredGenerator{
 			source: inner,
@@ -465,7 +471,7 @@ func TestFilteredGeneratorGenerateUnitPredicateFailsThenPasses(t *testing.T) {
 		}
 		v := Draw(fg)
 		gotVal, _ = ExtractInt(v)
-	}, runOptions{testCases: 1})
+	}, runOptions{testCases: 1}, stderrNoteFn)
 	if err != nil {
 		t.Fatalf("runTest: %v", err)
 	}

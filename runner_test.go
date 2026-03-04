@@ -248,7 +248,7 @@ func TestTargetOutsideContext(t *testing.T) {
 			t.Error("expected panic from Target outside test context")
 		}
 		msg := fmt.Sprintf("%v", r)
-		mustContainStr(t, msg, "test context")
+		mustContainStr(t, msg, "outside of a Hegel test")
 	}()
 	Target(1.0, "x")
 }
@@ -443,7 +443,7 @@ func TestNoteOnFinalRun(t *testing.T) {
 	hegelBinPath(t)
 	noted := false
 	noteFunc := func() {
-		if getCurrentIsFinal() {
+		if s := getState(); s != nil && s.isFinal {
 			noted = true
 		}
 		Note("final note")
@@ -523,7 +523,7 @@ func TestRunTestUnrecognisedEvent(t *testing.T) {
 
 	// Run the client side.
 	cli := newClient(clientConn)
-	err := cli.runTest("unrecognised_event_test", func() {}, runOptions{testCases: 1})
+	err := cli.runTest("unrecognised_event_test", func(_ *TestCase) {}, runOptions{testCases: 1}, stderrNoteFn)
 	if err != nil {
 		t.Errorf("runTest with bogus event: unexpected error: %v", err)
 	}
@@ -573,9 +573,9 @@ func TestRunTestCaseFinalFlag(t *testing.T) {
 	}()
 
 	wasFinal := false
-	err := client.runTestCase(ch, func() {
-		wasFinal = getCurrentIsFinal()
-	}, true)
+	err := client.runTestCase(ch, func(s *TestCase) {
+		wasFinal = s.isFinal
+	}, true, stderrNoteFn)
 	if err != nil {
 		t.Errorf("runTestCase: %v", err)
 	}
@@ -628,7 +628,7 @@ func sendTestDone(t *testing.T, testCh *channel, passed bool, interesting int64)
 
 // runTestOnFakeServer sets up a fake server that sends a single test_case event,
 // runs the test body, then sends test_done.
-func runTestOnFakeServer(t *testing.T, testFn func(), serverReply func(caseCh *channel)) error {
+func runTestOnFakeServer(t *testing.T, testFn testBody, serverReply func(caseCh *channel)) error {
 	t.Helper()
 	clientConn := fakeServerConn(t, func(serverConn *connection) {
 		ctrl := serverConn.ControlChannel()
@@ -669,7 +669,7 @@ func runTestOnFakeServer(t *testing.T, testFn func(), serverReply func(caseCh *c
 	})
 
 	cli := newClient(clientConn)
-	return cli.runTest("unit_test", testFn, runOptions{testCases: 1})
+	return cli.runTest("unit_test", testFn, runOptions{testCases: 1}, stderrNoteFn)
 }
 
 // --- Unit tests for error/recovery paths ---
@@ -704,21 +704,11 @@ func TestConnectionErrorError(t *testing.T) {
 // --- setAborted: sets aborted flag ---
 
 func TestSetAborted(t *testing.T) {
-	state := &testCaseData{}
-	setState(state)
-	defer setState(nil)
-
-	setAborted()
+	state := &TestCase{}
+	state.aborted = true
 	if !state.aborted {
-		t.Error("expected aborted to be true after setAborted()")
+		t.Error("expected aborted to be true after setting aborted")
 	}
-}
-
-// --- setAborted: no-op outside context ---
-
-func TestSetAbortedOutsideContext(t *testing.T) {
-	// Should not panic when no state is set.
-	setAborted()
 }
 
 // --- getCurrentChannel: returns nil outside context ---
@@ -751,7 +741,7 @@ func TestGenerateFromSchemaStopTest(t *testing.T) {
 	}()
 
 	// Set state so getChannel() works.
-	state := &testCaseData{channel: ch}
+	state := &TestCase{channel: ch}
 	setState(state)
 	defer setState(nil)
 
@@ -790,11 +780,11 @@ func TestGenerateFromSchemaNonStopTestError(t *testing.T) {
 		sendErrorReply(serverCh, msgID, "bad schema", "SchemaError")
 	}()
 
-	state := &testCaseData{channel: ch}
+	state := &TestCase{channel: ch}
 	setState(state)
 	defer setState(nil)
 
-	_, err := generateFromSchema(map[string]any{"type": "boolean"}, state)
+	_, err := generateFromSchema(state, map[string]any{"type": "boolean"})
 	if err == nil {
 		t.Fatal("expected error from generateFromSchema")
 	}
@@ -819,7 +809,7 @@ func TestGenerateFromSchemaConnectionError(t *testing.T) {
 	// Close the underlying conn so SendPacket fails.
 	s.Close()
 
-	state := &testCaseData{channel: ch}
+	state := &TestCase{channel: ch}
 	setState(state)
 	defer setState(nil)
 
@@ -841,7 +831,9 @@ func TestGenerateFromSchemaConnectionError(t *testing.T) {
 
 func TestIntegersGenerateUnit(t *testing.T) {
 	// Use a fake server to exercise Draw(Integers()).
-	err := runTestOnFakeServer(t, func() {
+	err := runTestOnFakeServer(t, func(s *TestCase) {
+		setState(s)
+		defer setState(nil)
 		n, _ := ExtractInt(Draw(Integers(0, 10)))
 		if n < 0 || n > 10 {
 			panic(fmt.Sprintf("out of range: %d", n))
@@ -869,7 +861,7 @@ func TestTargetConnectionError(t *testing.T) {
 	conn.channels[1] = ch
 	s.Close()
 
-	state := &testCaseData{channel: ch}
+	state := &TestCase{channel: ch}
 	setState(state)
 	defer setState(nil)
 
@@ -901,7 +893,7 @@ func TestTargetResponseError(t *testing.T) {
 		sendErrorReply(serverCh, msgID, "target failed", "TargetError")
 	}()
 
-	state := &testCaseData{channel: ch}
+	state := &TestCase{channel: ch}
 	setState(state)
 	defer setState(nil)
 
@@ -938,7 +930,7 @@ func TestRunTestEventDecodeError(t *testing.T) {
 	})
 
 	cli := newClient(clientConn)
-	err := cli.runTest("decode_err", func() {}, runOptions{testCases: 1})
+	err := cli.runTest("decode_err", func(_ *TestCase) {}, runOptions{testCases: 1}, stderrNoteFn)
 	if err == nil {
 		t.Error("expected error from runTest on invalid CBOR event")
 	}
@@ -965,7 +957,7 @@ func TestRunTestEventNotDictError(t *testing.T) {
 	})
 
 	cli := newClient(clientConn)
-	err := cli.runTest("not_dict", func() {}, runOptions{testCases: 1})
+	err := cli.runTest("not_dict", func(_ *TestCase) {}, runOptions{testCases: 1}, stderrNoteFn)
 	if err == nil {
 		t.Error("expected error from runTest on non-dict event")
 	}
@@ -992,7 +984,7 @@ func TestRunTestCaseMissingChannel(t *testing.T) {
 	})
 
 	cli := newClient(clientConn)
-	err := cli.runTest("missing_ch", func() {}, runOptions{testCases: 1})
+	err := cli.runTest("missing_ch", func(_ *TestCase) {}, runOptions{testCases: 1}, stderrNoteFn)
 	if err == nil {
 		t.Error("expected error from runTest on test_case missing channel")
 	}
@@ -1014,7 +1006,7 @@ func TestRunTestSendError(t *testing.T) {
 	c.Close()
 
 	cli := newClient(clientConn)
-	err := cli.runTest("closed", func() {}, runOptions{testCases: 1})
+	err := cli.runTest("closed", func(_ *TestCase) {}, runOptions{testCases: 1}, stderrNoteFn)
 	if err == nil {
 		t.Error("expected error from runTest on closed conn")
 	}
@@ -1031,7 +1023,7 @@ func TestRunTestAckError(t *testing.T) {
 	})
 
 	cli := newClient(clientConn)
-	err := cli.runTest("ack_err", func() {}, runOptions{testCases: 1})
+	err := cli.runTest("ack_err", func(_ *TestCase) {}, runOptions{testCases: 1}, stderrNoteFn)
 	if err == nil {
 		t.Error("expected error from runTest on ack error")
 	}
@@ -1055,7 +1047,7 @@ func TestRunTestEventRecvError(t *testing.T) {
 	})
 
 	cli := newClient(clientConn)
-	err := cli.runTest("recv_err", func() {}, runOptions{testCases: 1})
+	err := cli.runTest("recv_err", func(_ *TestCase) {}, runOptions{testCases: 1}, stderrNoteFn)
 	if err == nil {
 		t.Error("expected error from runTest when connection closed before event")
 	}
@@ -1085,7 +1077,7 @@ func TestRunTestConnectCaseChannelError(t *testing.T) {
 	})
 
 	cli := newClient(clientConn)
-	err := cli.runTest("dup_ch", func() {}, runOptions{testCases: 1})
+	err := cli.runTest("dup_ch", func(_ *TestCase) {}, runOptions{testCases: 1}, stderrNoteFn)
 	if err == nil {
 		t.Error("expected error from runTest on duplicate channel")
 	}
@@ -1094,7 +1086,7 @@ func TestRunTestConnectCaseChannelError(t *testing.T) {
 // --- runTestCase: INTERESTING status on panic ---
 
 func TestRunTestCaseInteresting(t *testing.T) {
-	err := runTestOnFakeServer(t, func() {
+	err := runTestOnFakeServer(t, func(_ *TestCase) {
 		panic("assertion failure")
 	}, func(caseCh *channel) {
 		// Receive mark_complete with INTERESTING status.
@@ -1116,7 +1108,7 @@ func TestRunTestCaseInteresting(t *testing.T) {
 // --- runTestCase: dataExhausted → alreadyComplete ---
 
 func TestRunTestCaseDataExhausted(t *testing.T) {
-	err := runTestOnFakeServer(t, func() {
+	err := runTestOnFakeServer(t, func(_ *TestCase) {
 		panic(&dataExhausted{msg: "exhausted"})
 	}, func(caseCh *channel) {
 		// Server should NOT receive mark_complete when data is exhausted.
@@ -1131,8 +1123,8 @@ func TestRunTestCaseDataExhausted(t *testing.T) {
 // --- runTestCase: INVALID status from assume ---
 
 func TestRunTestCaseInvalid(t *testing.T) {
-	err := runTestOnFakeServer(t, func() {
-		Assume(false)
+	err := runTestOnFakeServer(t, func(s *TestCase) {
+		s.Assume(false)
 	}, func(caseCh *channel) {
 		msgID, payload, _ := caseCh.RecvRequestRaw(2 * time.Second)
 		decoded, _ := decodeCBOR(payload)
@@ -1152,7 +1144,7 @@ func TestRunTestCaseInvalid(t *testing.T) {
 
 func TestRunTestCaseConnectionError(t *testing.T) {
 	// connection error inside test body should propagate.
-	err := runTestOnFakeServer(t, func() {
+	err := runTestOnFakeServer(t, func(_ *TestCase) {
 		panic(&connectionError{msg: "conn broke"})
 	}, func(caseCh *channel) {
 		// mark_complete should NOT be sent; server just drains.
@@ -1193,7 +1185,7 @@ func TestRunTestCaseMarkCompleteError(t *testing.T) {
 
 	cli := newClient(clientConn)
 	// Should not panic even if mark_complete fails.
-	cli.runTest("mark_err", func() {}, runOptions{testCases: 1}) //nolint:errcheck
+	cli.runTest("mark_err", func(_ *TestCase) {}, runOptions{testCases: 1}, stderrNoteFn) //nolint:errcheck
 }
 
 // --- runTest: multiple interesting cases (nInteresting > 1) ---
@@ -1240,9 +1232,9 @@ func TestRunTestMultipleInteresting(t *testing.T) {
 	})
 
 	cli := newClient(clientConn)
-	err := cli.runTest("multi_interesting", func() {
+	err := cli.runTest("multi_interesting", func(_ *TestCase) {
 		panic("always fails")
-	}, runOptions{testCases: 10})
+	}, runOptions{testCases: 10}, stderrNoteFn)
 	if err == nil {
 		t.Error("expected error from multi-interesting run")
 	}
@@ -1287,7 +1279,7 @@ func TestRunTestSingleInterestingConnectError(t *testing.T) {
 	})
 
 	cli := newClient(clientConn)
-	err := cli.runTest("single_conn_err", func() {}, runOptions{testCases: 1})
+	err := cli.runTest("single_conn_err", func(_ *TestCase) {}, runOptions{testCases: 1}, stderrNoteFn)
 	if err == nil {
 		t.Error("expected error from runTest on final connect failure")
 	}
@@ -1326,7 +1318,7 @@ func TestRunTestFinalCaseRecvError(t *testing.T) {
 	})
 
 	cli := newClient(clientConn)
-	err := cli.runTest("final_recv_err", func() {}, runOptions{testCases: 1})
+	err := cli.runTest("final_recv_err", func(_ *TestCase) {}, runOptions{testCases: 1}, stderrNoteFn)
 	if err == nil {
 		t.Error("expected error when final case not received")
 	}
@@ -1377,9 +1369,9 @@ func TestRunTestMultiInterestingRecvError(t *testing.T) {
 	})
 
 	cli := newClient(clientConn)
-	err := cli.runTest("multi_recv_err", func() {
+	err := cli.runTest("multi_recv_err", func(_ *TestCase) {
 		panic("always fails")
-	}, runOptions{testCases: 2})
+	}, runOptions{testCases: 2}, stderrNoteFn)
 	if err == nil {
 		t.Error("expected error from multi-interesting recv failure")
 	}
@@ -1422,7 +1414,7 @@ func TestExtractPanicOriginError(t *testing.T) {
 // --- Note: isFinal=true prints to stderr ---
 
 func TestNoteIsFinalTrue(t *testing.T) {
-	state := &testCaseData{isFinal: true}
+	state := &TestCase{isFinal: true}
 	setState(state)
 	defer setState(nil)
 	// Should not panic.
@@ -1544,9 +1536,11 @@ func TestHegelSessionRunTest(t *testing.T) {
 	if err := s.start(); err != nil {
 		t.Fatalf("start: %v", err)
 	}
-	err := s.runTest("session_run", func() {
+	err := s.runTest("session_run", func(s *TestCase) {
+		setState(s)
+		defer setState(nil)
 		Draw(Booleans(0.5))
-	}, runOptions{testCases: 2})
+	}, runOptions{testCases: 2}, stderrNoteFn)
 	if err != nil {
 		t.Errorf("session.runTest: %v", err)
 	}
@@ -1668,7 +1662,7 @@ func TestRunTestSingleInterestingCasePasses(t *testing.T) {
 
 	cli := newClient(clientConn)
 	// Test body passes (VALID) — final case returns nil.
-	err := cli.runTest("single_interesting_pass", func() {}, runOptions{testCases: 1})
+	err := cli.runTest("single_interesting_pass", func(_ *TestCase) {}, runOptions{testCases: 1}, stderrNoteFn)
 	// nil return is fine — it means the final run also passed.
 	_ = err
 }
@@ -1789,9 +1783,9 @@ func TestRunTestMultiInterestingConnectError(t *testing.T) {
 	})
 
 	cli := newClient(clientConn)
-	err := cli.runTest("multi_connect_err", func() {
+	err := cli.runTest("multi_connect_err", func(_ *TestCase) {
 		panic("always fails")
-	}, runOptions{testCases: 2})
+	}, runOptions{testCases: 2}, stderrNoteFn)
 	if err == nil {
 		t.Error("expected error from multi-interesting with connect errors")
 	}
@@ -1846,13 +1840,13 @@ func TestRunTestMultiInterestingCasePasses(t *testing.T) {
 	})
 
 	cli := newClient(clientConn)
-	err := cli.runTest("multi_interesting_passes", func() {
+	err := cli.runTest("multi_interesting_passes", func(_ *TestCase) {
 		caseCount++
 		if caseCount == 1 {
 			panic("first case fails")
 		}
 		// Second case: fn returns normally → "expected to fail" error.
-	}, runOptions{testCases: 2})
+	}, runOptions{testCases: 2}, stderrNoteFn)
 	if err == nil {
 		t.Error("expected error from multi-interesting run")
 	}

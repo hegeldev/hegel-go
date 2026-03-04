@@ -335,10 +335,12 @@ func TestOneOfPath3UnitFakeServer(t *testing.T) {
 
 	cli := newClient(clientConn)
 	var got int64
-	err := cli.runTest("composite_oneof_unit", func() {
+	err := cli.runTest("composite_oneof_unit", func(s *TestCase) {
+		setState(s)
+		defer setState(nil)
 		v := Draw(gen)
 		got, _ = ExtractInt(v)
-	}, runOptions{testCases: 1})
+	}, runOptions{testCases: 1}, stderrNoteFn)
 	if err != nil {
 		t.Fatalf("runTest: %v", err)
 	}

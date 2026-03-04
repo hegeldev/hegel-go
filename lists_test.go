@@ -233,10 +233,12 @@ func TestCompositeListGeneratorProtocol(t *testing.T) {
 
 	cli := newClient(clientConn)
 	var gotResult []any
-	err := cli.runTest("composite_list_proto", func() {
+	err := cli.runTest("composite_list_proto", func(s *TestCase) {
+		setState(s)
+		defer setState(nil)
 		result := Draw(gen)
 		gotResult, _ = result.([]any)
-	}, runOptions{testCases: 1})
+	}, runOptions{testCases: 1}, stderrNoteFn)
 	if err != nil {
 		t.Fatalf("runTest: %v", err)
 	}
@@ -299,11 +301,13 @@ func TestCompositeListGeneratorEmptyList(t *testing.T) {
 
 	cli := newClient(clientConn)
 	var gotLen int = -1
-	err := cli.runTest("composite_list_empty", func() {
+	err := cli.runTest("composite_list_empty", func(s *TestCase) {
+		setState(s)
+		defer setState(nil)
 		result := Draw(gen)
 		slice, _ := result.([]any)
 		gotLen = len(slice)
-	}, runOptions{testCases: 1})
+	}, runOptions{testCases: 1}, stderrNoteFn)
 	if err != nil {
 		t.Fatalf("runTest: %v", err)
 	}

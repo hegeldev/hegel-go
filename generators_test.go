@@ -49,11 +49,13 @@ func TestBasicGeneratorGenerateNoTransform(t *testing.T) {
 
 	cli := newClient(clientConn)
 	var gotVal int64
-	err := cli.runTest("basic_gen_no_transform", func() {
+	err := cli.runTest("basic_gen_no_transform", func(s *TestCase) {
+		setState(s)
+		defer setState(nil)
 		g := &basicGenerator{schema: schema}
 		v := Draw(g)
 		gotVal, _ = ExtractInt(v)
-	}, runOptions{testCases: 1})
+	}, runOptions{testCases: 1}, stderrNoteFn)
 	if err != nil {
 		t.Fatalf("runTest: %v", err)
 	}
@@ -96,7 +98,9 @@ func TestBasicGeneratorGenerateWithTransform(t *testing.T) {
 
 	cli := newClient(clientConn)
 	var gotVal int64
-	err := cli.runTest("basic_gen_with_transform", func() {
+	err := cli.runTest("basic_gen_with_transform", func(s *TestCase) {
+		setState(s)
+		defer setState(nil)
 		// transform: multiply by 2
 		g := &basicGenerator{
 			schema:    schema,
@@ -104,7 +108,7 @@ func TestBasicGeneratorGenerateWithTransform(t *testing.T) {
 		}
 		v := Draw(g)
 		gotVal, _ = v.(int64)
-	}, runOptions{testCases: 1})
+	}, runOptions{testCases: 1}, stderrNoteFn)
 	if err != nil {
 		t.Fatalf("runTest: %v", err)
 	}
@@ -215,7 +219,9 @@ func TestMappedGeneratorGenerate(t *testing.T) {
 
 	cli := newClient(clientConn)
 	var gotVal int64
-	err := cli.runTest("mapped_gen", func() {
+	err := cli.runTest("mapped_gen", func(s *TestCase) {
+		setState(s)
+		defer setState(nil)
 		inner := &basicGenerator{schema: schema}
 		mg := &mappedGenerator{
 			inner: inner,
@@ -223,7 +229,7 @@ func TestMappedGeneratorGenerate(t *testing.T) {
 		}
 		v := Draw(mg)
 		gotVal, _ = v.(int64)
-	}, runOptions{testCases: 1})
+	}, runOptions{testCases: 1}, stderrNoteFn)
 	if err != nil {
 		t.Fatalf("runTest: %v", err)
 	}
@@ -303,7 +309,9 @@ func TestCollectionMoreCachesFalse(t *testing.T) {
 	})
 
 	cli := newClient(clientConn)
-	err := cli.runTest("coll_cache", func() {
+	err := cli.runTest("coll_cache", func(s *TestCase) {
+		setState(s)
+		defer setState(nil)
 		data := getState()
 		coll := newCollection(0, 1, data)
 		r1 := coll.more(data)
@@ -311,7 +319,7 @@ func TestCollectionMoreCachesFalse(t *testing.T) {
 		if r1 || r2 {
 			panic("expected both to be false")
 		}
-	}, runOptions{testCases: 1})
+	}, runOptions{testCases: 1}, stderrNoteFn)
 	if err != nil {
 		t.Fatalf("runTest: %v", err)
 	}
@@ -1287,14 +1295,16 @@ func TestFilteredGeneratorPredicatePasses(t *testing.T) {
 	})
 
 	cli := newClient(clientConn)
-	err := cli.runTest("filter_passes", func() {
+	err := cli.runTest("filter_passes", func(s *TestCase) {
+		setState(s)
+		defer setState(nil)
 		g := &filteredGenerator{
 			source:    &basicGenerator{schema: map[string]any{"type": "integer"}},
 			predicate: func(v any) bool { return true },
 		}
 		v := Draw(g)
 		gotVal, _ = ExtractInt(v)
-	}, runOptions{testCases: 1})
+	}, runOptions{testCases: 1}, stderrNoteFn)
 	if err != nil {
 		t.Fatalf("runTest: %v", err)
 	}
@@ -1358,13 +1368,15 @@ func TestFilteredGeneratorAllAttemptsFailRejectsCase(t *testing.T) {
 	})
 
 	cli := newClient(clientConn)
-	err := cli.runTest("filter_exhaust", func() {
+	err := cli.runTest("filter_exhaust", func(s *TestCase) {
+		setState(s)
+		defer setState(nil)
 		g := &filteredGenerator{
 			source:    &basicGenerator{schema: map[string]any{"type": "integer"}},
 			predicate: func(v any) bool { return false }, // always reject
 		}
 		Draw(g)
-	}, runOptions{testCases: 1})
+	}, runOptions{testCases: 1}, stderrNoteFn)
 	if err != nil {
 		t.Fatalf("runTest: %v", err)
 	}
@@ -1432,7 +1444,9 @@ func TestFilteredGeneratorPartialAttemptsSucceed(t *testing.T) {
 	})
 
 	cli := newClient(clientConn)
-	err := cli.runTest("filter_partial", func() {
+	err := cli.runTest("filter_partial", func(s *TestCase) {
+		setState(s)
+		defer setState(nil)
 		g := &filteredGenerator{
 			source: &basicGenerator{schema: map[string]any{"type": "integer"}},
 			predicate: func(v any) bool {
@@ -1443,7 +1457,7 @@ func TestFilteredGeneratorPartialAttemptsSucceed(t *testing.T) {
 		}
 		v := Draw(g)
 		gotVal, _ = ExtractInt(v)
-	}, runOptions{testCases: 1})
+	}, runOptions{testCases: 1}, stderrNoteFn)
 	if err != nil {
 		t.Fatalf("runTest: %v", err)
 	}
@@ -1865,14 +1879,16 @@ func TestFlatMappedGeneratorGenerate(t *testing.T) {
 
 	cli := newClient(clientConn)
 	var gotVal int64
-	err := cli.runTest("flatmap_protocol", func() {
+	err := cli.runTest("flatmap_protocol", func(s *TestCase) {
+		setState(s)
+		defer setState(nil)
 		gen := FlatMap(
 			Integers(0, 100),
 			func(v any) Generator { return Integers(0, 100) },
 		)
 		v := Draw(gen)
 		gotVal, _ = ExtractInt(v)
-	}, runOptions{testCases: 1})
+	}, runOptions{testCases: 1}, stderrNoteFn)
 	if err != nil {
 		t.Fatalf("runTest: %v", err)
 	}
@@ -1938,10 +1954,12 @@ func TestFlatMappedGeneratorStartSpanLabel(t *testing.T) {
 	})
 
 	cli := newClient(clientConn)
-	err := cli.runTest("flatmap_label", func() {
+	err := cli.runTest("flatmap_label", func(s *TestCase) {
+		setState(s)
+		defer setState(nil)
 		gen := FlatMap(Integers(0, 10), func(v any) Generator { return Integers(0, 10) })
 		_ = Draw(gen)
-	}, runOptions{testCases: 1})
+	}, runOptions{testCases: 1}, stderrNoteFn)
 	if err != nil {
 		t.Fatalf("runTest: %v", err)
 	}

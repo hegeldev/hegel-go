@@ -486,7 +486,7 @@ func TestTuples3StringIntFloatTriples(t *testing.T) {
 func TestFlatMapTextLengthMatchesInteger(t *testing.T) {
 	hegelBinPath(t)
 	// Generate n in [1,8], then generate text of exactly n codepoints.
-	gen := flatMap(Integers(1, 8), func(v any) Generator {
+	gen := FlatMap(Integers(1, 8), func(v any) Generator {
 		n, _ := ExtractInt(v)
 		return Text(int(n), int(n))
 	})
@@ -512,7 +512,7 @@ func TestFlatMapListLengthMatchesInteger(t *testing.T) {
 	// Generate n in [1,6], then generate a list of exactly n booleans.
 	// Property: every generated list has length in [1,6], and the length
 	// matches the integer that controlled the generation.
-	gen := flatMap(Integers(1, 6), func(v any) Generator {
+	gen := FlatMap(Integers(1, 6), func(v any) Generator {
 		n, _ := ExtractInt(v)
 		sz := int(n)
 		return Lists(Booleans(0.5), ListsOptions{MinSize: sz, MaxSize: sz})
