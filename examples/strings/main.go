@@ -30,83 +30,77 @@ func isPalindrome(s string) bool {
 
 func main() {
 	// Property 1: reversing twice gives the original string.
-	hegel.RunHegelTest("reverse_twice", func() {
-		s, _ := hegel.Draw(hegel.Text(0, 50)).(string)
-		if reverseString(reverseString(s)) != s {
-			panic(fmt.Sprintf("reverse(reverse(%q)) != %q", s, s))
+	hegel.MustRun("reverse_twice", func(s *hegel.TestCase) {
+		str := hegel.Draw(s, hegel.Text(0, 50))
+		if reverseString(reverseString(str)) != str {
+			panic(fmt.Sprintf("reverse(reverse(%q)) != %q", str, str))
 		}
 	}, hegel.WithTestCases(200))
-	fmt.Println("✅ reverse(reverse(s)) == s")
+	fmt.Println("reverse(reverse(s)) == s")
 
 	// Property 2: len([]rune(s)) matches utf8.RuneCountInString.
-	hegel.RunHegelTest("rune_count_consistent", func() {
-		s, _ := hegel.Draw(hegel.Text(0, 100)).(string)
-		if len([]rune(s)) != utf8.RuneCountInString(s) {
-			panic(fmt.Sprintf("rune count mismatch for %q", s))
+	hegel.MustRun("rune_count_consistent", func(s *hegel.TestCase) {
+		str := hegel.Draw(s, hegel.Text(0, 100))
+		if len([]rune(str)) != utf8.RuneCountInString(str) {
+			panic(fmt.Sprintf("rune count mismatch for %q", str))
 		}
 	}, hegel.WithTestCases(200))
-	fmt.Println("✅ len([]rune(s)) == utf8.RuneCountInString(s)")
+	fmt.Println("len([]rune(s)) == utf8.RuneCountInString(s)")
 
 	// Property 3: joining and splitting round-trips correctly.
-	hegel.RunHegelTest("join_split_roundtrip", func() {
+	hegel.MustRun("join_split_roundtrip", func(s *hegel.TestCase) {
 		// Generate a list of non-empty words (no commas so the separator is unambiguous).
-		words := hegel.Draw(hegel.Lists(
+		words := hegel.Draw(s, hegel.Lists(
 			hegel.FromRegex(`[a-z]+`, true),
 			hegel.ListsOptions{MinSize: 1, MaxSize: 8},
-		)).([]any)
+		))
 
-		strs := make([]string, len(words))
-		for i, w := range words {
-			s, _ := w.(string)
-			strs[i] = s
-		}
-
-		joined := strings.Join(strs, ",")
+		joined := strings.Join(words, ",")
 		parts := strings.Split(joined, ",")
 
-		if len(parts) != len(strs) {
-			panic(fmt.Sprintf("split gave %d parts, want %d", len(parts), len(strs)))
+		if len(parts) != len(words) {
+			panic(fmt.Sprintf("split gave %d parts, want %d", len(parts), len(words)))
 		}
-		for i := range strs {
-			if parts[i] != strs[i] {
-				panic(fmt.Sprintf("part[%d]: got %q, want %q", i, parts[i], strs[i]))
+		for i := range words {
+			if parts[i] != words[i] {
+				panic(fmt.Sprintf("part[%d]: got %q, want %q", i, parts[i], words[i]))
 			}
 		}
 	}, hegel.WithTestCases(200))
-	fmt.Println("✅ strings.Join / strings.Split round-trip is lossless")
+	fmt.Println("strings.Join / strings.Split round-trip is lossless")
 
 	// Property 4: ToUpper is idempotent (upper(upper(s)) == upper(s)).
-	hegel.RunHegelTest("to_upper_idempotent", func() {
-		s, _ := hegel.Draw(hegel.FromRegex(`[a-z ]+`, true)).(string)
-		u1 := strings.ToUpper(s)
+	hegel.MustRun("to_upper_idempotent", func(s *hegel.TestCase) {
+		str := hegel.Draw(s, hegel.FromRegex(`[a-z ]+`, true))
+		u1 := strings.ToUpper(str)
 		u2 := strings.ToUpper(u1)
 		if u1 != u2 {
-			panic(fmt.Sprintf("ToUpper not idempotent: ToUpper(%q)=%q, ToUpper(ToUpper)=%q", s, u1, u2))
+			panic(fmt.Sprintf("ToUpper not idempotent: ToUpper(%q)=%q, ToUpper(ToUpper)=%q", str, u1, u2))
 		}
 	}, hegel.WithTestCases(200))
-	fmt.Println("✅ strings.ToUpper is idempotent")
+	fmt.Println("strings.ToUpper is idempotent")
 
-	// Property 5: Note and Target — use Note to capture the palindrome under test
+	// Property 5: Note and Target -- use Note to capture the palindrome under test
 	// and Target to push Hegel toward longer strings (making failures more vivid).
-	hegel.RunHegelTest("palindrome_detection", func() {
-		s, _ := hegel.Draw(hegel.Text(0, 30)).(string)
-		hegel.Note(fmt.Sprintf("testing %q (is palindrome: %v)", s, isPalindrome(s)))
-		hegel.Target(float64(utf8.RuneCountInString(s)), "string_length")
+	hegel.MustRun("palindrome_detection", func(s *hegel.TestCase) {
+		str := hegel.Draw(s, hegel.Text(0, 30))
+		s.Note(fmt.Sprintf("testing %q (is palindrome: %v)", str, isPalindrome(str)))
+		s.Target(float64(utf8.RuneCountInString(str)), "string_length")
 
 		// A string is a palindrome iff its reverse equals itself.
-		if isPalindrome(s) != (reverseString(s) == s) {
-			panic(fmt.Sprintf("isPalindrome inconsistent for %q", s))
+		if isPalindrome(str) != (reverseString(str) == str) {
+			panic(fmt.Sprintf("isPalindrome inconsistent for %q", str))
 		}
 	}, hegel.WithTestCases(300))
-	fmt.Println("✅ isPalindrome is consistent with manual reverse comparison")
+	fmt.Println("isPalindrome is consistent with manual reverse comparison")
 
 	// Property 6: SampledFrom picks a value from the given set.
-	hegel.RunHegelTest("sampled_from_membership", func() {
-		options := []any{"alpha", "beta", "gamma", "delta"}
-		v, _ := hegel.Draw(hegel.MustSampledFrom(options)).(string)
+	hegel.MustRun("sampled_from_membership", func(s *hegel.TestCase) {
+		options := []string{"alpha", "beta", "gamma", "delta"}
+		v := hegel.Draw(s, hegel.SampledFrom(options))
 		found := false
 		for _, o := range options {
-			if v == o.(string) {
+			if v == o {
 				found = true
 				break
 			}
@@ -115,5 +109,5 @@ func main() {
 			panic(fmt.Sprintf("%q not in options", v))
 		}
 	}, hegel.WithTestCases(100))
-	fmt.Println("✅ SampledFrom always picks from the provided options")
+	fmt.Println("SampledFrom always picks from the provided options")
 }

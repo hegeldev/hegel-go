@@ -1,15 +1,16 @@
-package hegel
+package conformance
 
 import (
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 )
 
 // --- GetTestCases tests ---
 
 func TestGetTestCasesDefault(t *testing.T) {
-	setEnv(t, "CONFORMANCE_TEST_CASES", "")
+	t.Setenv("CONFORMANCE_TEST_CASES", "")
 	n := GetTestCases()
 	if n != 50 {
 		t.Errorf("GetTestCases() = %d, want 50 (default)", n)
@@ -17,7 +18,7 @@ func TestGetTestCasesDefault(t *testing.T) {
 }
 
 func TestGetTestCasesValid(t *testing.T) {
-	setEnv(t, "CONFORMANCE_TEST_CASES", "100")
+	t.Setenv("CONFORMANCE_TEST_CASES", "100")
 	n := GetTestCases()
 	if n != 100 {
 		t.Errorf("GetTestCases() = %d, want 100", n)
@@ -25,7 +26,7 @@ func TestGetTestCasesValid(t *testing.T) {
 }
 
 func TestGetTestCasesInvalidString(t *testing.T) {
-	setEnv(t, "CONFORMANCE_TEST_CASES", "not-a-number")
+	t.Setenv("CONFORMANCE_TEST_CASES", "not-a-number")
 	n := GetTestCases()
 	if n != 50 {
 		t.Errorf("GetTestCases() = %d, want 50 (default for invalid)", n)
@@ -33,7 +34,7 @@ func TestGetTestCasesInvalidString(t *testing.T) {
 }
 
 func TestGetTestCasesZero(t *testing.T) {
-	setEnv(t, "CONFORMANCE_TEST_CASES", "0")
+	t.Setenv("CONFORMANCE_TEST_CASES", "0")
 	n := GetTestCases()
 	if n != 50 {
 		t.Errorf("GetTestCases() = %d, want 50 (default for zero)", n)
@@ -41,7 +42,7 @@ func TestGetTestCasesZero(t *testing.T) {
 }
 
 func TestGetTestCasesNegative(t *testing.T) {
-	setEnv(t, "CONFORMANCE_TEST_CASES", "-5")
+	t.Setenv("CONFORMANCE_TEST_CASES", "-5")
 	n := GetTestCases()
 	if n != 50 {
 		t.Errorf("GetTestCases() = %d, want 50 (default for negative)", n)
@@ -53,7 +54,7 @@ func TestGetTestCasesNegative(t *testing.T) {
 func TestWriteMetricsNormal(t *testing.T) {
 	tmp := t.TempDir()
 	path := filepath.Join(tmp, "metrics.jsonl")
-	setEnv(t, "CONFORMANCE_METRICS_FILE", path)
+	t.Setenv("CONFORMANCE_METRICS_FILE", path)
 
 	WriteMetrics(map[string]any{"value": true})
 	WriteMetrics(map[string]any{"value": false})
@@ -67,31 +68,14 @@ func TestWriteMetricsNormal(t *testing.T) {
 		t.Fatal("expected non-empty metrics file")
 	}
 	// Should have two JSON lines.
-	lines := splitLines(content)
+	lines := strings.FieldsFunc(content, func(r rune) bool { return r == '\n' })
 	if len(lines) != 2 {
 		t.Errorf("expected 2 lines, got %d: %q", len(lines), content)
 	}
 }
 
-func splitLines(s string) []string {
-	var lines []string
-	start := 0
-	for i := 0; i < len(s); i++ {
-		if s[i] == '\n' {
-			if i > start {
-				lines = append(lines, s[start:i])
-			}
-			start = i + 1
-		}
-	}
-	if start < len(s) {
-		lines = append(lines, s[start:])
-	}
-	return lines
-}
-
 func TestWriteMetricsNoEnvVar(t *testing.T) {
-	setEnv(t, "CONFORMANCE_METRICS_FILE", "")
+	t.Setenv("CONFORMANCE_METRICS_FILE", "")
 	defer func() {
 		r := recover()
 		if r == nil {
@@ -104,7 +88,7 @@ func TestWriteMetricsNoEnvVar(t *testing.T) {
 func TestWriteMetricsOpenError(t *testing.T) {
 	// Point to a directory instead of a file so OpenFile fails.
 	tmp := t.TempDir()
-	setEnv(t, "CONFORMANCE_METRICS_FILE", tmp) // directory, not a file
+	t.Setenv("CONFORMANCE_METRICS_FILE", tmp) // directory, not a file
 
 	defer func() {
 		r := recover()

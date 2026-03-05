@@ -7,6 +7,7 @@ import (
 	"os"
 
 	hegel "github.com/antithesishq/hegel-go"
+	"github.com/antithesishq/hegel-go/internal/conformance"
 )
 
 func main() {
@@ -32,15 +33,11 @@ func main() {
 	}
 
 	gen := hegel.Binary(minSize, maxSize)
-	n := hegel.GetTestCases()
-	hegel.RunHegelTest("conformance_binary", func() {
-		raw := hegel.Draw(gen)
-		var length int
-		switch v := raw.(type) {
-		case []byte:
-			length = len(v)
-		}
-		hegel.WriteMetrics(map[string]any{
+	n := conformance.GetTestCases()
+	hegel.MustRun("conformance_binary", func(s *hegel.TestCase) {
+		v := hegel.Draw(s, gen)
+		length := len(v)
+		conformance.WriteMetrics(map[string]any{
 			"length": length,
 		})
 	}, hegel.WithTestCases(n))

@@ -1,7 +1,7 @@
 package hegel
 
 // showcase_test.go demonstrates idiomatic Hegel property-based tests.
-// These tests verify real properties — every generated value is used in a meaningful assertion.
+// These tests verify real properties -- every generated value is used in a meaningful assertion.
 
 import (
 	"fmt"
@@ -16,20 +16,22 @@ import (
 // TestAdditionIsCommutative verifies that integer addition is commutative.
 func TestAdditionIsCommutative(t *testing.T) {
 	hegelBinPath(t)
-	RunHegelTest(t.Name(), func() {
-		x, _ := ExtractInt(Draw(Integers(-1000, 1000)))
-		y, _ := ExtractInt(Draw(Integers(-1000, 1000)))
+	if _err := runHegel(t.Name(), func(s *TestCase) {
+		x := Draw[int64](s, Integers(-1000, 1000))
+		y := Draw[int64](s, Integers(-1000, 1000))
 		if x+y != y+x {
 			panic("addition is not commutative")
 		}
-	}, WithTestCases(50))
+	}, stderrNoteFn, []Option{WithTestCases(50)}); _err != nil {
+		panic(_err)
+	}
 }
 
 // TestAbsoluteValueIsNonNegative verifies that |x| >= 0 for all integers.
 func TestAbsoluteValueIsNonNegative(t *testing.T) {
 	hegelBinPath(t)
-	RunHegelTest(t.Name(), func() {
-		x, _ := ExtractInt(Draw(Integers(-1000, 1000)))
+	if _err := runHegel(t.Name(), func(s *TestCase) {
+		x := Draw[int64](s, Integers(-1000, 1000))
 		abs := x
 		if abs < 0 {
 			abs = -abs
@@ -37,28 +39,32 @@ func TestAbsoluteValueIsNonNegative(t *testing.T) {
 		if abs < 0 {
 			panic("abs(x) is negative")
 		}
-	}, WithTestCases(50))
+	}, stderrNoteFn, []Option{WithTestCases(50)}); _err != nil {
+		panic(_err)
+	}
 }
 
 // TestDoubleNegationIsIdentity verifies that negating a boolean twice gives the original.
 func TestDoubleNegationIsIdentity(t *testing.T) {
 	hegelBinPath(t)
-	RunHegelTest(t.Name(), func() {
-		b := Draw(Booleans(0.5)).(bool)
+	if _err := runHegel(t.Name(), func(s *TestCase) {
+		b := Draw[bool](s, Booleans(0.5))
 		notB := !b
 		notNotB := !notB
 		if notNotB != b {
 			panic("double negation is not identity")
 		}
-	}, WithTestCases(20))
+	}, stderrNoteFn, []Option{WithTestCases(20)}); _err != nil {
+		panic(_err)
+	}
 }
 
 // TestEmailContainsAtSymbol demonstrates generating email addresses.
 // Every email must contain exactly one "@" separating local and domain parts.
 func TestEmailContainsAtSymbol(t *testing.T) {
 	hegelBinPath(t)
-	RunHegelTest(t.Name(), func() {
-		email := Draw(Emails()).(string)
+	if _err := runHegel(t.Name(), func(s *TestCase) {
+		email := Draw[string](s, Emails())
 		parts := strings.Split(email, "@")
 		if len(parts) != 2 {
 			panic("email must have exactly one '@': " + email)
@@ -69,15 +75,17 @@ func TestEmailContainsAtSymbol(t *testing.T) {
 		if parts[1] == "" {
 			panic("email domain part must not be empty: " + email)
 		}
-	}, WithTestCases(50))
+	}, stderrNoteFn, []Option{WithTestCases(50)}); _err != nil {
+		panic(_err)
+	}
 }
 
 // TestDateParsingRoundtrip demonstrates that generated dates parse and round-trip correctly.
 // This mirrors the Python reference test: date.fromisoformat(date_str).isoformat() == date_str.
 func TestDateParsingRoundtrip(t *testing.T) {
 	hegelBinPath(t)
-	RunHegelTest(t.Name(), func() {
-		dateStr := Draw(Dates()).(string)
+	if _err := runHegel(t.Name(), func(s *TestCase) {
+		dateStr := Draw[string](s, Dates())
 		parsed, err := time.Parse("2006-01-02", dateStr)
 		if err != nil {
 			panic("date not parseable as YYYY-MM-DD: " + dateStr)
@@ -86,81 +94,87 @@ func TestDateParsingRoundtrip(t *testing.T) {
 		if roundTripped != dateStr {
 			panic("date round-trip failed: " + dateStr + " != " + roundTripped)
 		}
-	}, WithTestCases(50))
+	}, stderrNoteFn, []Option{WithTestCases(50)}); _err != nil {
+		panic(_err)
+	}
 }
 
 // TestJustAlwaysReturnsConstant demonstrates Just by verifying that every generated
-// value is the same constant — a fundamental property of constant generators.
+// value is the same constant -- a fundamental property of constant generators.
 func TestJustAlwaysReturnsConstant(t *testing.T) {
 	hegelBinPath(t)
 	const expected = "fixed"
-	RunHegelTest(t.Name(), func() {
-		v := Draw(Just(expected))
-		s, ok := v.(string)
-		if !ok || s != expected {
-			panic(fmt.Sprintf("Just: expected %q, got %v", expected, v))
+	if _err := runHegel(t.Name(), func(s *TestCase) {
+		v := Draw[string](s, Just(expected))
+		if v != expected {
+			panic(fmt.Sprintf("Just: expected %q, got %q", expected, v))
 		}
-	}, WithTestCases(30))
+	}, stderrNoteFn, []Option{WithTestCases(30)}); _err != nil {
+		panic(_err)
+	}
 }
 
 // TestSampledFromOnlyReturnsListElements demonstrates SampledFrom by verifying that
-// every generated value is one of the input elements — no values outside the list.
+// every generated value is one of the input elements -- no values outside the list.
 func TestSampledFromOnlyReturnsListElements(t *testing.T) {
 	hegelBinPath(t)
-	weekdays := []any{"Mon", "Tue", "Wed", "Thu", "Fri"}
-	g, _ := SampledFrom(weekdays)
+	weekdays := []string{"Mon", "Tue", "Wed", "Thu", "Fri"}
+	g := SampledFrom(weekdays)
 	validSet := map[string]bool{"Mon": true, "Tue": true, "Wed": true, "Thu": true, "Fri": true}
-	RunHegelTest(t.Name(), func() {
-		v := Draw(g)
-		day, ok := v.(string)
-		if !ok || !validSet[day] {
-			panic(fmt.Sprintf("SampledFrom: unexpected value %v", v))
+	if _err := runHegel(t.Name(), func(s *TestCase) {
+		day := Draw[string](s, g)
+		if !validSet[day] {
+			panic(fmt.Sprintf("SampledFrom: unexpected value %q", day))
 		}
-	}, WithTestCases(50))
+	}, stderrNoteFn, []Option{WithTestCases(50)}); _err != nil {
+		panic(_err)
+	}
 }
 
 // TestFromRegexAllValuesMatchPattern demonstrates FromRegex by verifying that every
-// generated string matches the regex pattern — the core property of regex generators.
+// generated string matches the regex pattern -- the core property of regex generators.
 func TestFromRegexAllValuesMatchPattern(t *testing.T) {
 	hegelBinPath(t)
 	pattern := `[A-Z]{2,4}`
 	re := regexp.MustCompile(`^` + pattern + `$`)
 	g := FromRegex(pattern, true)
-	RunHegelTest(t.Name(), func() {
-		v := Draw(g)
-		s, ok := v.(string)
-		if !ok {
-			panic(fmt.Sprintf("FromRegex: expected string, got %T", v))
+	if _err := runHegel(t.Name(), func(s *TestCase) {
+		v := Draw[string](s, g)
+		if !re.MatchString(v) {
+			panic(fmt.Sprintf("FromRegex: %q does not match pattern %s", v, pattern))
 		}
-		if !re.MatchString(s) {
-			panic(fmt.Sprintf("FromRegex: %q does not match pattern %s", s, pattern))
-		}
-	}, WithTestCases(50))
+	}, stderrNoteFn, []Option{WithTestCases(50)}); _err != nil {
+		panic(_err)
+	}
 }
 
 // TestTextLengthBoundsAreRespected demonstrates the Text generator by verifying that
 // every generated string has a codepoint count within the specified bounds.
 func TestTextLengthBoundsAreRespected(t *testing.T) {
 	hegelBinPath(t)
-	RunHegelTest(t.Name(), func() {
-		s := Draw(Text(3, 7)).(string)
-		count := utf8.RuneCountInString(s)
+	if _err := runHegel(t.Name(), func(s *TestCase) {
+		v := Draw[string](s, Text(3, 7))
+		count := utf8.RuneCountInString(v)
 		if count < 3 || count > 7 {
 			panic(fmt.Sprintf("text: codepoint count %d out of [3, 7]", count))
 		}
-	}, WithTestCases(50))
+	}, stderrNoteFn, []Option{WithTestCases(50)}); _err != nil {
+		panic(_err)
+	}
 }
 
 // TestBinaryLengthBoundsAreRespected demonstrates the Binary generator by verifying that
 // every generated byte slice has a length within the specified bounds.
 func TestBinaryLengthBoundsAreRespected(t *testing.T) {
 	hegelBinPath(t)
-	RunHegelTest(t.Name(), func() {
-		b := Draw(Binary(2, 6)).([]byte)
+	if _err := runHegel(t.Name(), func(s *TestCase) {
+		b := Draw[[]byte](s, Binary(2, 6))
 		if len(b) < 2 || len(b) > 6 {
 			panic(fmt.Sprintf("binary: length %d out of [2, 6]", len(b)))
 		}
-	}, WithTestCases(50))
+	}, stderrNoteFn, []Option{WithTestCases(50)}); _err != nil {
+		panic(_err)
+	}
 }
 
 // TestFloatsBoundedExcludesSpecials demonstrates that Floats with explicit bounds
@@ -168,8 +182,8 @@ func TestBinaryLengthBoundsAreRespected(t *testing.T) {
 func TestFloatsBoundedExcludesSpecials(t *testing.T) {
 	hegelBinPath(t)
 	falseBool := false
-	RunHegelTest(t.Name(), func() {
-		f := Draw(Floats(floatPtr(-100.0), floatPtr(100.0), &falseBool, &falseBool, false, false)).(float64)
+	if _err := runHegel(t.Name(), func(s *TestCase) {
+		f := Draw[float64](s, Floats(floatPtr(-100.0), floatPtr(100.0), &falseBool, &falseBool, false, false))
 		if math.IsNaN(f) {
 			panic("floats: unexpected NaN with allow_nan=false")
 		}
@@ -179,40 +193,44 @@ func TestFloatsBoundedExcludesSpecials(t *testing.T) {
 		if f < -100.0 || f > 100.0 {
 			panic(fmt.Sprintf("floats: %v out of [-100, 100]", f))
 		}
-	}, WithTestCases(50))
+	}, stderrNoteFn, []Option{WithTestCases(50)}); _err != nil {
+		panic(_err)
+	}
 }
 
 // TestBooleansWithHighP demonstrates that with p=1.0, booleans always generates true.
 // This is a fundamental property: p=1.0 means probability 1 of true.
 func TestBooleansWithHighP(t *testing.T) {
 	hegelBinPath(t)
-	RunHegelTest(t.Name(), func() {
-		b := Draw(Booleans(1.0)).(bool)
+	if _err := runHegel(t.Name(), func(s *TestCase) {
+		b := Draw[bool](s, Booleans(1.0))
 		if !b {
 			panic("booleans(p=1.0): expected always true")
 		}
-	}, WithTestCases(20))
+	}, stderrNoteFn, []Option{WithTestCases(20)}); _err != nil {
+		panic(_err)
+	}
 }
 
 // TestMapDoubledIntegersAreEven demonstrates that mapping integers by doubling
-// always produces even numbers — a fundamental arithmetic property.
-// Uses BasicGenerator.Map which preserves the schema (single server round-trip).
+// always produces even numbers -- a fundamental arithmetic property.
+// Uses Map which preserves the schema (single server round-trip) for basicGenerators.
 func TestMapDoubledIntegersAreEven(t *testing.T) {
 	hegelBinPath(t)
-	doubled := Integers(-50, 50).Map(func(v any) any {
-		n, _ := ExtractInt(v)
+	doubled := Map[int64, int64](Integers(-50, 50), func(n int64) int64 {
 		return n * 2
 	})
-	RunHegelTest(t.Name(), func() {
-		v := Draw(doubled)
-		n, _ := ExtractInt(v)
+	if _err := runHegel(t.Name(), func(s *TestCase) {
+		n := Draw[int64](s, doubled)
 		if n%2 != 0 {
 			panic(fmt.Sprintf("doubled integer must be even, got %d", n))
 		}
 		if n < -100 || n > 100 {
 			panic(fmt.Sprintf("doubled integer must be in [-100,100], got %d", n))
 		}
-	}, WithTestCases(50))
+	}, stderrNoteFn, []Option{WithTestCases(50)}); _err != nil {
+		panic(_err)
+	}
 }
 
 // TestListsSortedIsSorted demonstrates the Lists generator by verifying that
@@ -220,17 +238,8 @@ func TestMapDoubledIntegersAreEven(t *testing.T) {
 // This is a meaningful property: sort is correct if and only if the result is ordered.
 func TestListsSortedIsSorted(t *testing.T) {
 	hegelBinPath(t)
-	RunHegelTest(t.Name(), func() {
-		xs := Draw(Lists(Integers(-100, 100), ListsOptions{MinSize: 0, MaxSize: 20}))
-		slice, ok := xs.([]any)
-		if !ok {
-			panic(fmt.Sprintf("Lists: expected []any, got %T", xs))
-		}
-		// Extract integers, sort, verify non-decreasing.
-		nums := make([]int64, len(slice))
-		for i, x := range slice {
-			nums[i], _ = ExtractInt(x)
-		}
+	if _err := runHegel(t.Name(), func(s *TestCase) {
+		nums := Draw[[]int64](s, Lists(Integers(-100, 100), ListsOptions{MinSize: 0, MaxSize: 20}))
 		// Insertion sort (simple, verifiable).
 		sorted := make([]int64, len(nums))
 		copy(sorted, nums)
@@ -244,29 +253,28 @@ func TestListsSortedIsSorted(t *testing.T) {
 				panic(fmt.Sprintf("sorted list not non-decreasing at index %d: %v", i, sorted))
 			}
 		}
-	}, WithTestCases(50))
+	}, stderrNoteFn, []Option{WithTestCases(50)}); _err != nil {
+		panic(_err)
+	}
 }
 
 // TestListsLengthBoundsAreRespected demonstrates that Lists with min/max size bounds
-// always generates a list within those bounds — the fundamental size constraint property.
+// always generates a list within those bounds -- the fundamental size constraint property.
 func TestListsLengthBoundsAreRespected(t *testing.T) {
 	hegelBinPath(t)
-	RunHegelTest(t.Name(), func() {
-		xs := Draw(Lists(Integers(0, 1000), ListsOptions{MinSize: 2, MaxSize: 8}))
-		slice, ok := xs.([]any)
-		if !ok {
-			panic(fmt.Sprintf("Lists: expected []any, got %T", xs))
+	if _err := runHegel(t.Name(), func(s *TestCase) {
+		xs := Draw[[]int64](s, Lists(Integers(0, 1000), ListsOptions{MinSize: 2, MaxSize: 8}))
+		if len(xs) < 2 || len(xs) > 8 {
+			panic(fmt.Sprintf("Lists: length %d out of [2, 8]", len(xs)))
 		}
-		if len(slice) < 2 || len(slice) > 8 {
-			panic(fmt.Sprintf("Lists: length %d out of [2, 8]", len(slice)))
-		}
-		for _, x := range slice {
-			v, _ := ExtractInt(x)
+		for _, v := range xs {
 			if v < 0 || v > 1000 {
 				panic(fmt.Sprintf("Lists: element %d out of range [0, 1000]", v))
 			}
 		}
-	}, WithTestCases(50))
+	}, stderrNoteFn, []Option{WithTestCases(50)}); _err != nil {
+		panic(_err)
+	}
 }
 
 // TestDictsKeyValueTypes demonstrates the Dicts generator with typed keys and values.
@@ -274,28 +282,24 @@ func TestListsLengthBoundsAreRespected(t *testing.T) {
 // This verifies the core type contract: keys come from the key generator, values from the value generator.
 func TestDictsKeyValueTypes(t *testing.T) {
 	hegelBinPath(t)
-	RunHegelTest(t.Name(), func() {
+	if _err := runHegel(t.Name(), func(s *TestCase) {
 		gen := Dicts(Text(1, 8), Integers(0, 255), DictOptions{MinSize: 0, MaxSize: 4, HasMaxSize: true})
-		v := Draw(gen)
-		m, ok := v.(map[any]any)
-		if !ok {
-			panic(fmt.Sprintf("Dicts: expected map[any]any, got %T", v))
-		}
+		m := Draw[map[string]int64](s, gen)
 		if len(m) > 4 {
 			panic(fmt.Sprintf("Dicts: at most 4 entries expected, got %d", len(m)))
 		}
-		for k, val := range m {
-			s, sOk := k.(string)
-			runeCount := utf8.RuneCountInString(s)
-			if !sOk || runeCount < 1 || runeCount > 8 {
-				panic(fmt.Sprintf("Dicts: key must be string of length 1-8 codepoints, got %T %q (len=%d)", k, k, runeCount))
+		for k, v := range m {
+			runeCount := utf8.RuneCountInString(k)
+			if runeCount < 1 || runeCount > 8 {
+				panic(fmt.Sprintf("Dicts: key must be string of length 1-8 codepoints, got %q (len=%d)", k, runeCount))
 			}
-			n, nErr := ExtractInt(val)
-			if nErr != nil || n < 0 || n > 255 {
-				panic(fmt.Sprintf("Dicts: value must be int in [0,255], got %v", val))
+			if v < 0 || v > 255 {
+				panic(fmt.Sprintf("Dicts: value must be int in [0,255], got %d", v))
 			}
 		}
-	}, WithTestCases(50))
+	}, stderrNoteFn, []Option{WithTestCases(50)}); _err != nil {
+		panic(_err)
+	}
 }
 
 // TestDictsSizeBoundsHold demonstrates that Dicts respects min_size and max_size.
@@ -303,45 +307,43 @@ func TestDictsKeyValueTypes(t *testing.T) {
 // This is a fundamental size-bound property of the Dicts generator.
 func TestDictsSizeBoundsHold(t *testing.T) {
 	hegelBinPath(t)
-	RunHegelTest(t.Name(), func() {
+	if _err := runHegel(t.Name(), func(s *TestCase) {
 		gen := Dicts(Integers(0, 100), Booleans(0.5), DictOptions{MinSize: 2, MaxSize: 5, HasMaxSize: true})
-		v := Draw(gen)
-		m, ok := v.(map[any]any)
-		if !ok {
-			panic(fmt.Sprintf("Dicts: expected map[any]any, got %T", v))
-		}
+		m := Draw[map[int64]bool](s, gen)
 		if len(m) < 2 || len(m) > 5 {
 			panic(fmt.Sprintf("Dicts: expected size in [2,5], got %d", len(m)))
 		}
-	}, WithTestCases(50))
+	}, stderrNoteFn, []Option{WithTestCases(50)}); _err != nil {
+		panic(_err)
+	}
 }
 
 // TestMapChainedTransformsCompose demonstrates that chaining multiple Map calls
-// composes the transforms correctly — a fundamental property of function composition.
-// integers(1, 10).map(x*x).map(x-1): result is x²-1 for x in [1,10].
-// Property: result is always non-negative (since x² >= 1).
+// composes the transforms correctly -- a fundamental property of function composition.
+// integers(1, 10).map(x*x).map(x-1): result is x^2-1 for x in [1,10].
+// Property: result is always non-negative (since x^2 >= 1).
 func TestMapChainedTransformsCompose(t *testing.T) {
 	hegelBinPath(t)
-	gen := Integers(1, 10).
-		Map(func(v any) any {
-			n, _ := ExtractInt(v)
+	gen := Map[int64, int64](
+		Map[int64, int64](Integers(1, 10), func(n int64) int64 {
 			return n * n // square
-		}).
-		Map(func(v any) any {
-			n, _ := ExtractInt(v)
+		}),
+		func(n int64) int64 {
 			return n - 1 // subtract 1
-		})
-	RunHegelTest(t.Name(), func() {
-		v := Draw(gen)
-		n, _ := ExtractInt(v)
-		// x in [1,10] → x² in [1,100] → x²-1 in [0,99]; always non-negative.
+		},
+	)
+	if _err := runHegel(t.Name(), func(s *TestCase) {
+		n := Draw[int64](s, gen)
+		// x in [1,10] -> x^2 in [1,100] -> x^2-1 in [0,99]; always non-negative.
 		if n < 0 {
-			panic(fmt.Sprintf("map(x²-1) on [1,10]: expected non-negative, got %d", n))
+			panic(fmt.Sprintf("map(x^2-1) on [1,10]: expected non-negative, got %d", n))
 		}
 		if n > 99 {
-			panic(fmt.Sprintf("map(x²-1) on [1,10]: expected <= 99, got %d", n))
+			panic(fmt.Sprintf("map(x^2-1) on [1,10]: expected <= 99, got %d", n))
 		}
-	}, WithTestCases(50))
+	}, stderrNoteFn, []Option{WithTestCases(50)}); _err != nil {
+		panic(_err)
+	}
 }
 
 // TestOneOfChoosesFromEitherBranch demonstrates that OneOf generates values
@@ -350,14 +352,16 @@ func TestMapChainedTransformsCompose(t *testing.T) {
 func TestOneOfChoosesFromEitherBranch(t *testing.T) {
 	hegelBinPath(t)
 	// Branch A: even integers [0,20]; Branch B: always the string "ok"
-	evenInts := Integers(0, 10).Map(func(v any) any {
-		n, _ := ExtractInt(v)
+	// Both branches produce any values to be used with OneOf[any].
+	evenInts := Map[int64, any](Integers(0, 10), func(n int64) any {
 		return n * 2
 	})
-	constStr := Just("ok")
-	gen := OneOf(evenInts, constStr)
-	RunHegelTest(t.Name(), func() {
-		v := Draw(gen)
+	constStr := Map[string, any](Just("ok"), func(s string) any {
+		return s
+	})
+	gen := OneOf[any](evenInts, constStr)
+	if _err := runHegel(t.Name(), func(s *TestCase) {
+		v := Draw[any](s, gen)
 		switch val := v.(type) {
 		case int64:
 			if val%2 != 0 || val < 0 || val > 20 {
@@ -374,7 +378,9 @@ func TestOneOfChoosesFromEitherBranch(t *testing.T) {
 		default:
 			panic(fmt.Sprintf("OneOf: unexpected type %T: %v", v, v))
 		}
-	}, WithTestCases(100))
+	}, stderrNoteFn, []Option{WithTestCases(100)}); _err != nil {
+		panic(_err)
+	}
 }
 
 // TestOptionalSometimesNil demonstrates that Optional generates nil values
@@ -383,19 +389,17 @@ func TestOptionalSometimesNil(t *testing.T) {
 	hegelBinPath(t)
 	// Optional of non-negative integers: value is nil or a non-negative integer.
 	gen := Optional(Integers(0, 100))
-	RunHegelTest(t.Name(), func() {
-		v := Draw(gen)
+	if _err := runHegel(t.Name(), func(s *TestCase) {
+		v := Draw[*int64](s, gen)
 		if v == nil {
 			return // nil is always valid
 		}
-		n, err := ExtractInt(v)
-		if err != nil {
-			panic(fmt.Sprintf("Optional: expected int or nil, got %T: %v", v, v))
+		if *v < 0 || *v > 100 {
+			panic(fmt.Sprintf("Optional int: expected [0,100], got %d", *v))
 		}
-		if n < 0 || n > 100 {
-			panic(fmt.Sprintf("Optional int: expected [0,100], got %d", n))
-		}
-	}, WithTestCases(100))
+	}, stderrNoteFn, []Option{WithTestCases(100)}); _err != nil {
+		panic(_err)
+	}
 }
 
 // TestIPAddressesAreValidFormat demonstrates that generated IP addresses have
@@ -403,8 +407,8 @@ func TestOptionalSometimesNil(t *testing.T) {
 func TestIPAddressesAreValidFormat(t *testing.T) {
 	hegelBinPath(t)
 	v4gen := IPAddresses(IPAddressOptions{Version: IPVersion4})
-	RunHegelTest(t.Name(), func() {
-		addr := Draw(v4gen).(string)
+	if _err := runHegel(t.Name(), func(s *TestCase) {
+		addr := Draw[string](s, v4gen)
 		parts := strings.Split(addr, ".")
 		if len(parts) != 4 {
 			panic(fmt.Sprintf("IPv4 address must have 4 octets: %q", addr))
@@ -414,97 +418,74 @@ func TestIPAddressesAreValidFormat(t *testing.T) {
 				panic(fmt.Sprintf("IPv4 octet must not be empty: %q", addr))
 			}
 		}
-	}, WithTestCases(50))
+	}, stderrNoteFn, []Option{WithTestCases(50)}); _err != nil {
+		panic(_err)
+	}
 }
 
-// TestTuples2IntBoolPairs demonstrates Tuples2 by verifying that each generated
-// pair has an integer in [0, 10] and a boolean — an independent co-generation property.
-func TestTuples2IntBoolPairs(t *testing.T) {
+// TestIntBoolPairsViaIndividualDraws demonstrates drawing multiple independent values
+// by verifying that each pair has an integer in [0, 10] and a boolean.
+func TestIntBoolPairsViaIndividualDraws(t *testing.T) {
 	hegelBinPath(t)
-	gen := Tuples2(Integers(0, 10), Booleans(0.5))
-	RunHegelTest(t.Name(), func() {
-		v := Draw(gen)
-		pair, ok := v.([]any)
-		if !ok || len(pair) != 2 {
-			panic(fmt.Sprintf("Tuples2: expected []any of len 2, got %T len=%d", v, func() int {
-				if s, ok := v.([]any); ok {
-					return len(s)
-				}
-				return -1
-			}()))
-		}
-		n, _ := ExtractInt(pair[0])
+	if _err := runHegel(t.Name(), func(s *TestCase) {
+		n := Draw[int64](s, Integers(0, 10))
+		b := Draw[bool](s, Booleans(0.5))
 		if n < 0 || n > 10 {
-			panic(fmt.Sprintf("Tuples2[0]: expected integer in [0,10], got %d", n))
+			panic(fmt.Sprintf("expected integer in [0,10], got %d", n))
 		}
-		_, ok = pair[1].(bool)
-		if !ok {
-			panic(fmt.Sprintf("Tuples2[1]: expected bool, got %T", pair[1]))
-		}
-	}, WithTestCases(50))
+		_ = b // bool is always valid
+	}, stderrNoteFn, []Option{WithTestCases(50)}); _err != nil {
+		panic(_err)
+	}
 }
 
-// TestTuples3StringIntFloatTriples demonstrates Tuples3 by generating (text, int, float)
-// triples and verifying each element satisfies its type and range constraints.
+// TestStringIntFloatTriples demonstrates drawing (text, int, float) triples
+// and verifying each element satisfies its type and range constraints.
 // Property: the sum of min-text-length + integer + float is always well-defined.
-func TestTuples3StringIntFloatTriples(t *testing.T) {
+func TestStringIntFloatTriples(t *testing.T) {
 	hegelBinPath(t)
 	falseBool := false
-	gen := Tuples3(
-		Text(1, 10),
-		Integers(0, 100),
-		Floats(floatPtr(0.0), floatPtr(1.0), &falseBool, &falseBool, false, false),
-	)
-	RunHegelTest(t.Name(), func() {
-		v := Draw(gen)
-		triple, ok := v.([]any)
-		if !ok || len(triple) != 3 {
-			panic("Tuples3: expected []any of len 3")
+	if _err := runHegel(t.Name(), func(s *TestCase) {
+		str := Draw[string](s, Text(1, 10))
+		n := Draw[int64](s, Integers(0, 100))
+		f := Draw[float64](s, Floats(floatPtr(0.0), floatPtr(1.0), &falseBool, &falseBool, false, false))
+		if len(str) == 0 {
+			panic(fmt.Sprintf("expected non-empty string, got %q", str))
 		}
-		s, ok := triple[0].(string)
-		if !ok || len(s) == 0 {
-			panic(fmt.Sprintf("Tuples3[0]: expected non-empty string, got %T %q", triple[0], triple[0]))
-		}
-		n, _ := ExtractInt(triple[1])
 		if n < 0 || n > 100 {
-			panic(fmt.Sprintf("Tuples3[1]: expected [0,100], got %d", n))
-		}
-		f, ok := triple[2].(float64)
-		if !ok {
-			panic(fmt.Sprintf("Tuples3[2]: expected float64, got %T", triple[2]))
+			panic(fmt.Sprintf("expected [0,100], got %d", n))
 		}
 		if math.IsNaN(f) || math.IsInf(f, 0) || f < 0.0 || f > 1.0 {
-			panic(fmt.Sprintf("Tuples3[2]: expected finite float in [0,1], got %v", f))
+			panic(fmt.Sprintf("expected finite float in [0,1], got %v", f))
 		}
-	}, WithTestCases(50))
+	}, stderrNoteFn, []Option{WithTestCases(50)}); _err != nil {
+		panic(_err)
+	}
 }
 
-// TestFlatMapTextLengthMatchesInteger demonstrates flat_map by generating an integer n
+// TestFlatMapTextLengthMatchesInteger demonstrates FlatMap by generating an integer n
 // and then a string of exactly n codepoints. This verifies the core property: the
 // second generator depends on the first value, and the relationship holds for every
 // generated example.
 func TestFlatMapTextLengthMatchesInteger(t *testing.T) {
 	hegelBinPath(t)
 	// Generate n in [1,8], then generate text of exactly n codepoints.
-	gen := FlatMap(Integers(1, 8), func(v any) Generator {
-		n, _ := ExtractInt(v)
+	gen := FlatMap[int64, string](Integers(1, 8), func(n int64) Generator[string] {
 		return Text(int(n), int(n))
 	})
-	RunHegelTest(t.Name(), func() {
-		v := Draw(gen)
-		s, ok := v.(string)
-		if !ok {
-			panic(fmt.Sprintf("FlatMap text: expected string, got %T", v))
-		}
-		count := utf8.RuneCountInString(s)
+	if _err := runHegel(t.Name(), func(s *TestCase) {
+		v := Draw[string](s, gen)
+		count := utf8.RuneCountInString(v)
 		// The text length must be in [1,8] because n is in [1,8].
 		if count < 1 || count > 8 {
 			panic(fmt.Sprintf("FlatMap text: codepoint count %d out of [1,8]", count))
 		}
-	}, WithTestCases(50))
+	}, stderrNoteFn, []Option{WithTestCases(50)}); _err != nil {
+		panic(_err)
+	}
 }
 
-// TestFlatMapListLengthMatchesInteger demonstrates that flat_map enables dependent
+// TestFlatMapListLengthMatchesInteger demonstrates that FlatMap enables dependent
 // generation: generating a list whose length is determined by a previously generated
 // integer. This is a property that cannot be expressed with Map alone.
 func TestFlatMapListLengthMatchesInteger(t *testing.T) {
@@ -512,28 +493,19 @@ func TestFlatMapListLengthMatchesInteger(t *testing.T) {
 	// Generate n in [1,6], then generate a list of exactly n booleans.
 	// Property: every generated list has length in [1,6], and the length
 	// matches the integer that controlled the generation.
-	gen := FlatMap(Integers(1, 6), func(v any) Generator {
-		n, _ := ExtractInt(v)
+	gen := FlatMap[int64, []bool](Integers(1, 6), func(n int64) Generator[[]bool] {
 		sz := int(n)
 		return Lists(Booleans(0.5), ListsOptions{MinSize: sz, MaxSize: sz})
 	})
-	RunHegelTest(t.Name(), func() {
-		v := Draw(gen)
-		bools, ok := v.([]any)
-		if !ok {
-			panic(fmt.Sprintf("FlatMap list: expected []any, got %T", v))
-		}
+	if _err := runHegel(t.Name(), func(s *TestCase) {
+		bools := Draw[[]bool](s, gen)
 		// Length must be in [1,6].
 		if len(bools) < 1 || len(bools) > 6 {
 			panic(fmt.Sprintf("FlatMap list: length %d out of [1,6]", len(bools)))
 		}
-		// Every element must be a boolean.
-		for i, elem := range bools {
-			if _, ok := elem.(bool); !ok {
-				panic(fmt.Sprintf("FlatMap list[%d]: expected bool, got %T", i, elem))
-			}
-		}
-	}, WithTestCases(50))
+	}, stderrNoteFn, []Option{WithTestCases(50)}); _err != nil {
+		panic(_err)
+	}
 }
 
 // TestFilterPreservesConstraint demonstrates Filter by generating integers and filtering
@@ -543,24 +515,24 @@ func TestFlatMapListLengthMatchesInteger(t *testing.T) {
 func TestFilterPreservesConstraint(t *testing.T) {
 	hegelBinPath(t)
 	// integers in [0, 30] filtered to multiples of 3
-	gen := Integers(0, 30).Filter(func(v any) bool {
-		n, _ := ExtractInt(v)
+	gen := Filter[int64](Integers(0, 30), func(n int64) bool {
 		return n%3 == 0
 	})
-	RunHegelTest(t.Name(), func() {
-		v := Draw(gen)
-		n, _ := ExtractInt(v)
+	if _err := runHegel(t.Name(), func(s *TestCase) {
+		n := Draw[int64](s, gen)
 		if n%3 != 0 {
 			panic(fmt.Sprintf("filter(%%3==0): expected multiple of 3, got %d", n))
 		}
 		if n < 0 || n > 30 {
 			panic(fmt.Sprintf("filter(%%3==0): value %d outside [0,30]", n))
 		}
-	}, WithTestCases(50))
+	}, stderrNoteFn, []Option{WithTestCases(50)}); _err != nil {
+		panic(_err)
+	}
 }
 
 // TestFilterSquaresAreSquares demonstrates filtering integers to keep only perfect squares.
-// Every kept value must equal the square of some non-negative integer — a mathematical
+// Every kept value must equal the square of some non-negative integer -- a mathematical
 // property that filter either preserves or violates on every test case.
 func TestFilterSquaresAreSquares(t *testing.T) {
 	hegelBinPath(t)
@@ -576,15 +548,13 @@ func TestFilterSquaresAreSquares(t *testing.T) {
 		}
 		return root*root == n
 	}
-	gen := Integers(0, 100).Filter(func(v any) bool {
-		n, _ := ExtractInt(v)
-		return isPerfectSquare(n)
-	})
-	RunHegelTest(t.Name(), func() {
-		v := Draw(gen)
-		n, _ := ExtractInt(v)
+	gen := Filter[int64](Integers(0, 100), isPerfectSquare)
+	if _err := runHegel(t.Name(), func(s *TestCase) {
+		n := Draw[int64](s, gen)
 		if !isPerfectSquare(n) {
 			panic(fmt.Sprintf("filter(perfect square): expected perfect square, got %d", n))
 		}
-	}, WithTestCases(50))
+	}, stderrNoteFn, []Option{WithTestCases(50)}); _err != nil {
+		panic(_err)
+	}
 }

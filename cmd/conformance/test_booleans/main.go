@@ -7,13 +7,14 @@ import (
 	"os"
 
 	hegel "github.com/antithesishq/hegel-go"
+	"github.com/antithesishq/hegel-go/internal/conformance"
 )
 
 func main() {
-	n := hegel.GetTestCases()
-	hegel.RunHegelTest("conformance_booleans", func() {
-		v := hegel.Draw(hegel.Booleans(0.5)).(bool)
-		hegel.WriteMetrics(map[string]any{
+	n := conformance.GetTestCases()
+	hegel.MustRun("conformance_booleans", func(s *hegel.TestCase) {
+		v := hegel.Draw(s, hegel.Booleans(0.5))
+		conformance.WriteMetrics(map[string]any{
 			"value": v,
 		})
 	}, hegel.WithTestCases(n))
