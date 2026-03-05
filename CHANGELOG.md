@@ -1,8 +1,8 @@
 # Changelog
 
-## 0.0.1 - 2026-03-03
+## 0.1.0 - 2026-03-05
 
-Replace `gen.generate()` with `draw(gen)`.
+Rework the API to integrate better with testing.T
 
 
 ## 0.1.0 - 2026-02-27

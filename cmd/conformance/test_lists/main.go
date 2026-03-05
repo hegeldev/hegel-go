@@ -13,6 +13,7 @@ import (
 	"strings"
 
 	hegel "github.com/antithesishq/hegel-go"
+	"github.com/antithesishq/hegel-go/internal/conformance"
 )
 
 func main() {
@@ -58,53 +59,47 @@ func main() {
 	// non-basic, so Lists uses new_collection/collection_more instead of a
 	// single generate command with a list schema.
 	testMode := os.Getenv("HEGEL_PROTOCOL_TEST_MODE")
-
-	opts := hegel.ListsOptions{
-		MinSize: minSize,
-		MaxSize: maxSize,
-	}
-
-	n := hegel.GetTestCases()
-
+	var gen hegel.Generator[[]int64]
 	if strings.Contains(testMode, "collection") {
-		filteredGen := hegel.Filter(elemGen, func(int64) bool { return true })
-		gen := hegel.Lists(filteredGen, opts)
-		hegel.RunHegelTest("conformance_lists", func() {
-			items := hegel.Draw(gen)
-			writeListMetrics(items)
-		}, hegel.WithTestCases(n))
+		filtered := hegel.Filter(elemGen, func(v int64) bool { return true })
+		gen = hegel.Lists(filtered, hegel.ListsOptions{
+			MinSize: minSize,
+			MaxSize: maxSize,
+		})
 	} else {
-		gen := hegel.Lists(elemGen, opts)
-		hegel.RunHegelTest("conformance_lists", func() {
-			items := hegel.Draw(gen)
-			writeListMetrics(items)
-		}, hegel.WithTestCases(n))
+		gen = hegel.Lists(elemGen, hegel.ListsOptions{
+			MinSize: minSize,
+			MaxSize: maxSize,
+		})
 	}
-	os.Exit(0)
-}
 
-func writeListMetrics(items []int64) {
-	size := len(items)
+	n := conformance.GetTestCases()
 
-	var minElem, maxElem any
-	if size > 0 {
-		minVal := int64(math.MaxInt64)
-		maxVal := int64(math.MinInt64)
-		for _, v := range items {
-			if v < minVal {
-				minVal = v
+	hegel.MustRun("conformance_lists", func(s *hegel.TestCase) {
+		items := hegel.Draw(s, gen)
+		size := len(items)
+
+		var minElem, maxElem any
+		if size > 0 {
+			minVal := int64(math.MaxInt64)
+			maxVal := int64(math.MinInt64)
+			for _, v := range items {
+				if v < minVal {
+					minVal = v
+				}
+				if v > maxVal {
+					maxVal = v
+				}
 			}
-			if v > maxVal {
-				maxVal = v
-			}
+			minElem = minVal
+			maxElem = maxVal
 		}
-		minElem = minVal
-		maxElem = maxVal
-	}
 
-	hegel.WriteMetrics(map[string]any{
-		"size":        size,
-		"min_element": minElem,
-		"max_element": maxElem,
-	})
+		conformance.WriteMetrics(map[string]any{
+			"size":        size,
+			"min_element": minElem,
+			"max_element": maxElem,
+		})
+	}, hegel.WithTestCases(n))
+	os.Exit(0)
 }

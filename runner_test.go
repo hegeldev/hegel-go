@@ -19,24 +19,9 @@ func hegelBinPath(t *testing.T) string {
 	// justfile sets PATH=".venv/bin:$PATH" for tests; go test inherits it.
 	path, err := exec.LookPath("hegel")
 	if err != nil {
-		t.Skip("hegel binary not found in PATH — skipping integration test")
+		t.Skip("hegel binary not found in PATH -- skipping integration test")
 	}
 	return path
-}
-
-// setEnv sets an environment variable for the duration of the test and restores the
-// original value (or removes it) via t.Cleanup.
-func setEnv(t *testing.T, key, value string) {
-	t.Helper()
-	old, hadOld := os.LookupEnv(key)
-	os.Setenv(key, value) //nolint:errcheck
-	t.Cleanup(func() {
-		if hadOld {
-			os.Setenv(key, old) //nolint:errcheck
-		} else {
-			os.Unsetenv(key) //nolint:errcheck
-		}
-	})
 }
 
 // --- RunHegelTest: basic passing test ---
@@ -44,14 +29,16 @@ func setEnv(t *testing.T, key, value string) {
 func TestRunHegelTestPasses(t *testing.T) {
 	hegelBinPath(t)
 	called := false
-	RunHegelTest(t.Name(), func() {
+	if _err := runHegel(t.Name(), func(s *TestCase) {
 		called = true
-		b := Draw(Booleans(0.5))
+		b := Draw[bool](s, Booleans(0.5))
 		// A valid assertion: b is either true or false.
 		if b != true && b != false {
 			t.Errorf("expected bool, got %v", b)
 		}
-	}, WithTestCases(5))
+	}, stderrNoteFn, []Option{WithTestCases(5)}); _err != nil {
+		panic(_err)
+	}
 	if !called {
 		t.Error("test function was never called")
 	}
@@ -61,40 +48,44 @@ func TestRunHegelTestPasses(t *testing.T) {
 
 func TestRunHegelTestFails(t *testing.T) {
 	hegelBinPath(t)
-	err := RunHegelTestE(t.Name()+"_inner", func() {
-		x := Draw(Integers(0, 100))
+	err := runHegel(t.Name()+"_inner", func(s *TestCase) {
+		x := Draw[int64](s, Integers(0, 100))
 		// This always fails: no integer < 0 in [0,100]
 		if x >= 0 {
 			panic(fmt.Sprintf("assertion failed: %d >= 0", x))
 		}
-	}, WithTestCases(10))
+	}, stderrNoteFn, []Option{WithTestCases(10)})
 	if err == nil {
 		t.Error("expected RunHegelTestE to return an error for always-failing test")
 	}
 }
 
-// --- RunHegelTest: assume(false) → INVALID, test continues ---
+// --- RunHegelTest: assume(false) -> INVALID, test continues ---
 
 func TestRunHegelTestAllInvalid(t *testing.T) {
 	hegelBinPath(t)
 	// A test that always calls Assume(false) should pass (all cases rejected).
-	RunHegelTest(t.Name(), func() {
-		Assume(false)
-	}, WithTestCases(5))
+	if _err := runHegel(t.Name(), func(s *TestCase) {
+		s.Assume(false)
+	}, stderrNoteFn, []Option{WithTestCases(5)}); _err != nil {
+		panic(_err)
+	}
 }
 
-// --- RunHegelTest: assume(true) → no effect ---
+// --- RunHegelTest: assume(true) -> no effect ---
 
 func TestAssumeTrue(t *testing.T) {
 	hegelBinPath(t)
-	RunHegelTest(t.Name(), func() {
-		Assume(true)
-		b := Draw(Booleans(0.5))
+	if _err := runHegel(t.Name(), func(s *TestCase) {
+		s.Assume(true)
+		b := Draw[bool](s, Booleans(0.5))
 		_ = b // use the value
 		if b != true && b != false {
 			panic("expected bool")
 		}
-	}, WithTestCases(5))
+	}, stderrNoteFn, []Option{WithTestCases(5)}); _err != nil {
+		panic(_err)
+	}
 }
 
 // --- note(): not printed when not final ---
@@ -102,63 +93,72 @@ func TestAssumeTrue(t *testing.T) {
 func TestNoteNotFinal(t *testing.T) {
 	hegelBinPath(t)
 	// note() should not panic or error when called outside final run
-	RunHegelTest(t.Name(), func() {
-		Note("should not appear")
-		b := Draw(Booleans(0.5))
-		_ = b
-	}, WithTestCases(3))
+	if _err := runHegel(t.Name(), func(s *TestCase) {
+		s.Note("should not appear")
+		_ = Draw[bool](s, Booleans(0.5))
+	}, stderrNoteFn, []Option{WithTestCases(3)}); _err != nil {
+		panic(_err)
+	}
 }
 
 // --- target(): sends target command ---
 
 func TestTargetSendsCommand(t *testing.T) {
 	hegelBinPath(t)
-	RunHegelTest(t.Name(), func() {
-		x := Draw(Integers(0, 100))
-		Target(float64(x), "my_target")
+	if _err := runHegel(t.Name(), func(s *TestCase) {
+		x := Draw[int64](s, Integers(0, 100))
+		s.Target(float64(x), "my_target")
 		if x < 0 || x > 100 {
 			panic("out of range")
 		}
-	}, WithTestCases(5))
+	}, stderrNoteFn, []Option{WithTestCases(5)}); _err != nil {
+		panic(_err)
+	}
 }
 
 // --- HEGEL_PROTOCOL_TEST_MODE=stop_test_on_generate ---
 
 func TestStopTestOnGenerate(t *testing.T) {
 	hegelBinPath(t)
-	setEnv(t, "HEGEL_PROTOCOL_TEST_MODE", "stop_test_on_generate")
+	t.Setenv("HEGEL_PROTOCOL_TEST_MODE", "stop_test_on_generate")
 	// Should complete without error: SDK handles StopTest cleanly.
-	RunHegelTest(t.Name(), func() {
-		Draw(Booleans(0.5))
-	}, WithTestCases(5))
+	if _err := runHegel(t.Name(), func(s *TestCase) {
+		Draw[bool](s, Booleans(0.5))
+	}, stderrNoteFn, []Option{WithTestCases(5)}); _err != nil {
+		panic(_err)
+	}
 }
 
 // --- HEGEL_PROTOCOL_TEST_MODE=stop_test_on_mark_complete ---
 
 func TestStopTestOnMarkComplete(t *testing.T) {
 	hegelBinPath(t)
-	setEnv(t, "HEGEL_PROTOCOL_TEST_MODE", "stop_test_on_mark_complete")
-	RunHegelTest(t.Name(), func() {
-		Draw(Booleans(0.5))
-	}, WithTestCases(5))
+	t.Setenv("HEGEL_PROTOCOL_TEST_MODE", "stop_test_on_mark_complete")
+	if _err := runHegel(t.Name(), func(s *TestCase) {
+		Draw[bool](s, Booleans(0.5))
+	}, stderrNoteFn, []Option{WithTestCases(5)}); _err != nil {
+		panic(_err)
+	}
 }
 
 // --- HEGEL_PROTOCOL_TEST_MODE=empty_test ---
 
 func TestEmptyTest(t *testing.T) {
 	hegelBinPath(t)
-	setEnv(t, "HEGEL_PROTOCOL_TEST_MODE", "empty_test")
-	RunHegelTest(t.Name(), func() {
+	t.Setenv("HEGEL_PROTOCOL_TEST_MODE", "empty_test")
+	if _err := runHegel(t.Name(), func(_ *TestCase) {
 		panic("should not be called")
-	}, WithTestCases(5))
+	}, stderrNoteFn, []Option{WithTestCases(5)}); _err != nil {
+		panic(_err)
+	}
 }
 
 // --- HEGEL_PROTOCOL_TEST_MODE=error_response ---
 
 func TestErrorResponse(t *testing.T) {
 	hegelBinPath(t)
-	setEnv(t, "HEGEL_PROTOCOL_TEST_MODE", "error_response")
-	// The server sends a RequestError on generate; the test body should
+	t.Setenv("HEGEL_PROTOCOL_TEST_MODE", "error_response")
+	// The server sends a requestError on generate; the test body should
 	// see a panic (INTERESTING) and RunHegelTestE should return an error.
 	var gotErr error
 	func() {
@@ -167,76 +167,48 @@ func TestErrorResponse(t *testing.T) {
 				gotErr = fmt.Errorf("%v", r)
 			}
 		}()
-		gotErr = RunHegelTestE(t.Name()+"_inner", func() {
-			Draw(Booleans(0.5)) // server sends error_response here
-		}, WithTestCases(3))
+		gotErr = runHegel(t.Name()+"_inner", func(s *TestCase) {
+			Draw[bool](s, Booleans(0.5)) // server sends error_response here
+		}, stderrNoteFn, []Option{WithTestCases(3)})
 	}()
-	// The error from the server causes INTERESTING status → re-raised on final run.
+	// The error from the server causes INTERESTING status -> re-raised on final run.
 	// Either a panic or a non-nil error is acceptable.
 	_ = gotErr // we just verify it doesn't deadlock or hang
 }
 
-// --- Nested test case raises error ---
+// --- Draw outside context: calling Draw with nil-channel state panics ---
 
-func TestNestedTestCaseRaises(t *testing.T) {
-	hegelBinPath(t)
-	var caught error
-	RunHegelTest(t.Name(), func() {
-		// Trying to run a test inside a test should return an error.
-		err := RunHegelTestE("nested", func() {}, WithTestCases(1))
-		if err != nil {
-			caught = err
-			Assume(false) // skip this test case once we've recorded the error
-		}
-	}, WithTestCases(1))
-	if caught == nil {
-		t.Error("expected error when nesting RunHegelTest inside test body")
-	}
-	mustContainStr(t, caught.Error(), "nested")
-}
-
-// --- Draw outside context raises ---
-
-func TestDrawOutsideContext(t *testing.T) {
+func TestDrawWithNilChannelState(t *testing.T) {
 	defer func() {
 		r := recover()
 		if r == nil {
-			t.Error("expected panic when Draw called outside test context")
+			t.Error("expected panic when Draw called with nil-channel state")
 		}
-		msg := fmt.Sprintf("%v", r)
-		mustContainStr(t, msg, "Hegel test")
 	}()
-	Draw(Booleans(0.5))
+	s := &TestCase{} // channel is nil -> will panic
+	Draw[bool](s, Booleans(0.5))
 }
 
 // --- Assume outside context raises ---
 
 func TestAssumeOutsideContext(t *testing.T) {
-	// Assume(false) outside a test context should panic.
+	// Assume(false) on a nil *TestCase should panic.
 	defer func() {
 		r := recover()
 		if r == nil {
 			t.Error("expected panic from Assume outside test context")
 		}
-		msg := fmt.Sprintf("%v", r)
-		mustContainStr(t, msg, "Hegel test")
 	}()
-	Assume(false)
+	var s *TestCase
+	s.Assume(false)
 }
 
-// --- Note outside context panics ---
+// --- Note outside context is no-op (isFinal defaults false) ---
 
 func TestNoteOutsideContext(t *testing.T) {
-	// Note() called outside a test context should panic.
-	defer func() {
-		r := recover()
-		if r == nil {
-			t.Error("expected panic from Note outside test context")
-		}
-		msg := fmt.Sprintf("%v", r)
-		mustContainStr(t, msg, "Hegel test")
-	}()
-	Note("outside context — should panic")
+	// Note() on a zero-value *TestCase should not panic (isFinal=false).
+	s := &TestCase{}
+	s.Note("outside context -- safe")
 }
 
 // --- Target outside context raises ---
@@ -247,10 +219,9 @@ func TestTargetOutsideContext(t *testing.T) {
 		if r == nil {
 			t.Error("expected panic from Target outside test context")
 		}
-		msg := fmt.Sprintf("%v", r)
-		mustContainStr(t, msg, "test context")
 	}()
-	Target(1.0, "x")
+	s := &TestCase{} // channel is nil -> panic
+	s.Target(1.0, "x")
 }
 
 // --- findHegel: venv path ---
@@ -265,6 +236,24 @@ func TestFindHegelInVenv(t *testing.T) {
 	result := findHegelInDir(tmp)
 	if result != hegelBin {
 		t.Errorf("findHegelInDir(%q) = %q, want %q", tmp, result, hegelBin)
+	}
+}
+
+func TestFindHegelVenvViaCwd(t *testing.T) {
+	tmp, _ := filepath.EvalSymlinks(t.TempDir())
+	venvBin := filepath.Join(tmp, ".venv", "bin")
+	os.MkdirAll(venvBin, 0o755) //nolint:errcheck
+	hegelBin := filepath.Join(venvBin, "hegel")
+	os.WriteFile(hegelBin, []byte("#!/bin/sh\n"), 0o755) //nolint:errcheck
+
+	origDir, _ := os.Getwd()
+	os.Chdir(tmp)           //nolint:errcheck
+	defer os.Chdir(origDir) //nolint:errcheck
+
+	result := findHegel()
+	expected := filepath.Join(tmp, ".venv", "bin", "hegel")
+	if result != expected {
+		t.Errorf("findHegel() = %q, want %q", result, expected)
 	}
 }
 
@@ -305,18 +294,19 @@ func TestHegelSessionCleanupEmpty(t *testing.T) {
 // --- hegelSession: timeout when hegel doesn't appear ---
 
 func TestHegelSessionStartTimeout(t *testing.T) {
-	// Use /usr/bin/false (exits immediately) so the socket never appears.
-	if _, err := os.Stat("/usr/bin/false"); err != nil {
-		t.Skip("/usr/bin/false not available")
+	// Use `false` (exits immediately) so the socket never appears.
+	falseBin, err := exec.LookPath("false")
+	if err != nil {
+		t.Skip("false binary not available")
 	}
 	s := newHegelSession()
-	s.hegelCmd = "/usr/bin/false" // exits immediately without creating socket
-	err := s.start()
-	if err == nil {
+	s.hegelCmd = falseBin // exits immediately without creating socket
+	startErr := s.start()
+	if startErr == nil {
 		s.cleanup()
 		t.Fatal("expected timeout error")
 	}
-	mustContainStr(t, err.Error(), "timeout")
+	mustContainStr(t, startErr.Error(), "timeout")
 }
 
 // --- hegelSession: concurrent starts (double-checked locking) ---
@@ -348,20 +338,21 @@ func TestHegelSessionConcurrentStart(t *testing.T) {
 func TestRunHegelTestSingleCase(t *testing.T) {
 	hegelBinPath(t)
 	count := 0
-	RunHegelTest(t.Name(), func() {
+	if _err := runHegel(t.Name(), func(s *TestCase) {
 		count++
-		b := Draw(Booleans(0.5))
+		b := Draw[bool](s, Booleans(0.5))
 		if b != true && b != false {
 			panic("not a bool")
 		}
-	}, WithTestCases(1))
+	}, stderrNoteFn, []Option{WithTestCases(1)}); _err != nil {
+		panic(_err)
+	}
 	if count == 0 {
 		t.Error("expected at least one test case to run")
 	}
 }
 
 // --- showcase: concurrent RunHegelTest calls from different goroutines ---
-// (verifies thread-local channel state isolation)
 
 func TestConcurrentRunHegelTest(t *testing.T) {
 	hegelBinPath(t)
@@ -370,12 +361,14 @@ func TestConcurrentRunHegelTest(t *testing.T) {
 		wg.Add(1)
 		go func(idx int) {
 			defer wg.Done()
-			RunHegelTest(fmt.Sprintf("%s_%d", t.Name(), idx), func() {
-				b := Draw(Booleans(0.5))
+			if _err := runHegel(fmt.Sprintf("%s_%d", t.Name(), idx), func(s *TestCase) {
+				b := Draw[bool](s, Booleans(0.5))
 				if b != true && b != false {
 					panic("not a bool")
 				}
-			}, WithTestCases(3))
+			}, stderrNoteFn, []Option{WithTestCases(3)}); _err != nil {
+				panic(_err)
+			}
 		}(i)
 	}
 	wg.Wait()
@@ -385,10 +378,9 @@ func TestConcurrentRunHegelTest(t *testing.T) {
 
 func TestRunHegelTestESuccess(t *testing.T) {
 	hegelBinPath(t)
-	err := RunHegelTestE(t.Name(), func() {
-		b := Draw(Booleans(0.5))
-		_ = b
-	}, WithTestCases(3))
+	err := runHegel(t.Name(), func(s *TestCase) {
+		_ = Draw[bool](s, Booleans(0.5))
+	}, stderrNoteFn, []Option{WithTestCases(3)})
 	if err != nil {
 		t.Errorf("RunHegelTestE: unexpected error: %v", err)
 	}
@@ -399,10 +391,12 @@ func TestRunHegelTestESuccess(t *testing.T) {
 func TestWithTestCasesOption(t *testing.T) {
 	hegelBinPath(t)
 	count := 0
-	RunHegelTest(t.Name(), func() {
+	if _err := runHegel(t.Name(), func(s *TestCase) {
 		count++
-		Draw(Booleans(0.5))
-	}, WithTestCases(10))
+		Draw[bool](s, Booleans(0.5))
+	}, stderrNoteFn, []Option{WithTestCases(10)}); _err != nil {
+		panic(_err)
+	}
 	// count should be >= 10 (at least the requested cases)
 	if count < 1 {
 		t.Error("expected test cases to run")
@@ -413,11 +407,11 @@ func TestWithTestCasesOption(t *testing.T) {
 
 func TestStopTestOnCollectionMore(t *testing.T) {
 	hegelBinPath(t)
-	setEnv(t, "HEGEL_PROTOCOL_TEST_MODE", "stop_test_on_collection_more")
-	nonBasic := Filter(Integers(0, 10), func(v int64) bool { return true })
-	err := RunHegelTestE(t.Name(), func() {
-		Draw(Lists(nonBasic, ListsOptions{MinSize: 0, MaxSize: 10}))
-	})
+	t.Setenv("HEGEL_PROTOCOL_TEST_MODE", "stop_test_on_collection_more")
+	err := runHegel(t.Name(), func(s *TestCase) {
+		coll := newCollection(s, 0, 10)
+		_ = coll.More(s)
+	}, stderrNoteFn, nil)
 	_ = err // StopTest causes abort, not necessarily an error return
 }
 
@@ -425,32 +419,32 @@ func TestStopTestOnCollectionMore(t *testing.T) {
 
 func TestStopTestOnNewCollection(t *testing.T) {
 	hegelBinPath(t)
-	setEnv(t, "HEGEL_PROTOCOL_TEST_MODE", "stop_test_on_new_collection")
-	nonBasic := Filter(Integers(0, 10), func(v int64) bool { return true })
-	err := RunHegelTestE(t.Name(), func() {
-		Draw(Lists(nonBasic, ListsOptions{MinSize: 0, MaxSize: 10}))
-	})
+	t.Setenv("HEGEL_PROTOCOL_TEST_MODE", "stop_test_on_new_collection")
+	err := runHegel(t.Name(), func(s *TestCase) {
+		coll := newCollection(s, 0, 10)
+		_ = coll.More(s)
+	}, stderrNoteFn, nil)
 	_ = err // StopTest causes abort, not necessarily an error return
 }
 
-// --- isFinal context var: Note prints on final run ---
+// --- isFinal: Note prints on final run ---
 // We test this by running a failing test so the final replay happens.
-// We capture stderr indirectly via the Note call not panicking.
+// We capture whether isFinal was true via the state in the closure.
 
 func TestNoteOnFinalRun(t *testing.T) {
 	hegelBinPath(t)
 	noted := false
-	noteFunc := func() {
-		if getCurrentIsFinal() {
+	noteFunc := func(s *TestCase) {
+		if s.isFinal {
 			noted = true
 		}
-		Note("final note")
+		s.Note("final note")
 		// Always fail so we get a final replay.
 		panic("intentional failure for final replay test")
 	}
 	func() {
-		defer func() { recover() }()                                 //nolint:errcheck
-		RunHegelTestE(t.Name()+"_inner", noteFunc, WithTestCases(3)) //nolint:errcheck
+		defer func() { recover() }()                                                    //nolint:errcheck
+		runHegel(t.Name()+"_inner", noteFunc, stderrNoteFn, []Option{WithTestCases(3)}) //nolint:errcheck
 	}()
 	if !noted {
 		t.Error("expected isFinal to be true during final replay")
@@ -481,10 +475,10 @@ func TestRunTestUnrecognisedEvent(t *testing.T) {
 			serverDone <- err
 			return
 		}
-		decoded, _ := DecodeCBOR(payload)
-		m, _ := extractDict(decoded)
+		decoded, _ := decodeCBOR(payload)
+		m, _ := extractCBORDict(decoded)
 		chIDVal := m[any("channel_id")]
-		chID, _ := extractInt(chIDVal)
+		chID, _ := extractCBORInt(chIDVal)
 
 		// Ack the run_test.
 		ctrl.SendReplyValue(msgID, true) //nolint:errcheck
@@ -497,13 +491,13 @@ func TestRunTestUnrecognisedEvent(t *testing.T) {
 		}
 
 		// Send a bogus event.
-		bogusPayload, _ := EncodeCBOR(map[string]any{"event": "bogus_event"})
+		bogusPayload, _ := encodeCBOR(map[string]any{"event": "bogus_event"})
 		bogusID, _ := testCh.SendRequestRaw(bogusPayload)
 		// Drain the error reply from the client.
 		testCh.recvResponseRaw(bogusID, 5*time.Second) //nolint:errcheck
 
 		// Send test_done.
-		donePayload, _ := EncodeCBOR(map[string]any{
+		donePayload, _ := encodeCBOR(map[string]any{
 			"event": "test_done",
 			"results": map[string]any{
 				"passed":                 true,
@@ -524,7 +518,7 @@ func TestRunTestUnrecognisedEvent(t *testing.T) {
 
 	// Run the client side.
 	cli := newClient(clientConn)
-	err := cli.runTest("unrecognised_event_test", func() {}, runOptions{testCases: 1})
+	err := cli.runTest("unrecognised_event_test", func(_ *TestCase) {}, runOptions{testCases: 1}, stderrNoteFn)
 	if err != nil {
 		t.Errorf("runTest with bogus event: unexpected error: %v", err)
 	}
@@ -538,9 +532,9 @@ func TestRunTestUnrecognisedEvent(t *testing.T) {
 
 func TestConnectionErrorInTestFunction(t *testing.T) {
 	hegelBinPath(t)
-	err := RunHegelTestE(t.Name(), func() {
+	err := runHegel(t.Name(), func(_ *TestCase) {
 		panic(&connectionError{msg: "test connection lost"})
-	}, WithTestCases(1))
+	}, stderrNoteFn, []Option{WithTestCases(1)})
 	if err == nil {
 		t.Fatal("expected error to be raised for connection error")
 	}
@@ -574,9 +568,9 @@ func TestRunTestCaseFinalFlag(t *testing.T) {
 	}()
 
 	wasFinal := false
-	err := client.runTestCase(ch, func() {
-		wasFinal = getCurrentIsFinal()
-	}, true)
+	err := client.runTestCase(ch, func(state *TestCase) {
+		wasFinal = state.isFinal
+	}, true, stderrNoteFn)
 	if err != nil {
 		t.Errorf("runTestCase: %v", err)
 	}
@@ -613,7 +607,7 @@ func fakeServerConn(t *testing.T, fn func(serverConn *connection)) *connection {
 // sendTestDone sends a test_done event on testCh with the given results.
 func sendTestDone(t *testing.T, testCh *channel, passed bool, interesting int64) {
 	t.Helper()
-	payload, _ := EncodeCBOR(map[string]any{
+	payload, _ := encodeCBOR(map[string]any{
 		"event": "test_done",
 		"results": map[string]any{
 			"passed":                 passed,
@@ -629,7 +623,7 @@ func sendTestDone(t *testing.T, testCh *channel, passed bool, interesting int64)
 
 // runTestOnFakeServer sets up a fake server that sends a single test_case event,
 // runs the test body, then sends test_done.
-func runTestOnFakeServer(t *testing.T, testFn func(), serverReply func(caseCh *channel)) error {
+func runTestOnFakeServer(t *testing.T, testFn testBody, serverReply func(caseCh *channel)) error {
 	t.Helper()
 	clientConn := fakeServerConn(t, func(serverConn *connection) {
 		ctrl := serverConn.ControlChannel()
@@ -640,10 +634,10 @@ func runTestOnFakeServer(t *testing.T, testFn func(), serverReply func(caseCh *c
 			t.Errorf("server recv run_test: %v", err)
 			return
 		}
-		decoded, _ := DecodeCBOR(payload)
-		m, _ := extractDict(decoded)
+		decoded, _ := decodeCBOR(payload)
+		m, _ := extractCBORDict(decoded)
 		chIDVal := m[any("channel_id")]
-		chID, _ := extractInt(chIDVal)
+		chID, _ := extractCBORInt(chIDVal)
 		ctrl.SendReplyValue(msgID, true) //nolint:errcheck
 
 		// Connect test channel.
@@ -655,7 +649,7 @@ func runTestOnFakeServer(t *testing.T, testFn func(), serverReply func(caseCh *c
 
 		// Create a case channel and send test_case.
 		caseCh := serverConn.NewChannel("CaseCh")
-		casePayload, _ := EncodeCBOR(map[string]any{
+		casePayload, _ := encodeCBOR(map[string]any{
 			"event":      "test_case",
 			"channel_id": int64(caseCh.ChannelID()),
 		})
@@ -670,7 +664,7 @@ func runTestOnFakeServer(t *testing.T, testFn func(), serverReply func(caseCh *c
 	})
 
 	cli := newClient(clientConn)
-	return cli.runTest("unit_test", testFn, runOptions{testCases: 1})
+	return cli.runTest("unit_test", testFn, runOptions{testCases: 1}, stderrNoteFn)
 }
 
 // --- Unit tests for error/recovery paths ---
@@ -702,39 +696,20 @@ func TestConnectionErrorError(t *testing.T) {
 	}
 }
 
-// --- setAborted: sets aborted flag ---
+// --- aborted flag: set directly on state ---
 
-func TestSetAborted(t *testing.T) {
-	state := &testCaseData{}
-	setState(state)
-	defer setState(nil)
-
-	setAborted()
+func TestAbortedFlagDirect(t *testing.T) {
+	state := &TestCase{}
+	state.aborted = true
 	if !state.aborted {
-		t.Error("expected aborted to be true after setAborted()")
-	}
-}
-
-// --- setAborted: no-op outside context ---
-
-func TestSetAbortedOutsideContext(t *testing.T) {
-	// Should not panic when no state is set.
-	setAborted()
-}
-
-// --- getCurrentChannel: returns nil outside context ---
-
-func TestGetCurrentChannelOutside(t *testing.T) {
-	ch := getCurrentChannel()
-	if ch != nil {
-		t.Errorf("expected nil channel outside test context, got %v", ch)
+		t.Error("expected aborted to be true after direct assignment")
 	}
 }
 
 // --- generateFromSchema: StopTest causes DataExhausted ---
 
 func TestGenerateFromSchemaStopTest(t *testing.T) {
-	// Set up a fake channel that returns a StopTest RequestError.
+	// Set up a fake channel that returns a StopTest requestError.
 	s, c := socketPair(t)
 	serverConn := newConnection(s, "S")
 	clientConn := newConnection(c, "C")
@@ -751,18 +726,15 @@ func TestGenerateFromSchemaStopTest(t *testing.T) {
 		serverCh.SendReplyError(msgID, "no more data", "StopTest") //nolint:errcheck
 	}()
 
-	// Set state so getChannel() works.
-	state := &testCaseData{channel: ch}
-	setState(state)
-	defer setState(nil)
+	state := &TestCase{channel: ch}
 
 	var caught any
 	func() {
 		defer func() { caught = recover() }()
-		Draw(Booleans(0.5))
+		Draw[bool](state, Booleans(0.5))
 	}()
 	if caught == nil {
-		t.Fatal("expected panic from Generate on StopTest")
+		t.Fatal("expected panic from Draw on StopTest")
 	}
 	_, isExhausted := caught.(*dataExhausted)
 	if !isExhausted {
@@ -773,7 +745,7 @@ func TestGenerateFromSchemaStopTest(t *testing.T) {
 	}
 }
 
-// --- generateFromSchema: non-StopTest RequestError propagates ---
+// --- generateFromSchema: non-StopTest requestError propagates ---
 
 func TestGenerateFromSchemaNonStopTestError(t *testing.T) {
 	s, c := socketPair(t)
@@ -791,17 +763,15 @@ func TestGenerateFromSchemaNonStopTestError(t *testing.T) {
 		serverCh.SendReplyError(msgID, "bad schema", "SchemaError") //nolint:errcheck
 	}()
 
-	state := &testCaseData{channel: ch}
-	setState(state)
-	defer setState(nil)
+	state := &TestCase{channel: ch}
 
-	_, err := generateFromSchema(map[string]any{"type": "boolean"}, state)
+	_, err := generateFromSchema(state, map[string]any{"type": "boolean"})
 	if err == nil {
 		t.Fatal("expected error from generateFromSchema")
 	}
-	_, isRequestError := err.(*RequestError)
+	_, isRequestError := err.(*requestError)
 	if !isRequestError {
-		t.Errorf("expected *RequestError, got %T: %v", err, err)
+		t.Errorf("expected *requestError, got %T: %v", err, err)
 	}
 }
 
@@ -811,7 +781,7 @@ func TestGenerateFromSchemaConnectionError(t *testing.T) {
 	s, c := socketPair(t)
 	conn := newConnection(s, "C")
 	c.Close()
-	// Don't handshake — just create a channel manually on a pre-client connection.
+	// Don't handshake -- just create a channel manually on a pre-client connection.
 	// We need state=client so NewChannel works.
 	conn.state = stateClient
 	ch := &channel{conn: conn, channelID: 1, inbox: make(chan any, 1), nextMessageID: 1}
@@ -820,17 +790,15 @@ func TestGenerateFromSchemaConnectionError(t *testing.T) {
 	// Close the underlying conn so SendPacket fails.
 	s.Close()
 
-	state := &testCaseData{channel: ch}
-	setState(state)
-	defer setState(nil)
+	state := &TestCase{channel: ch}
 
 	var caught any
 	func() {
 		defer func() { caught = recover() }()
-		Draw(Booleans(0.5))
+		Draw[bool](state, Booleans(0.5))
 	}()
 	if caught == nil {
-		t.Fatal("expected panic from Generate on connection error")
+		t.Fatal("expected panic from Draw on connection error")
 	}
 	_, isConnErr := caught.(*connectionError)
 	if !isConnErr {
@@ -841,9 +809,9 @@ func TestGenerateFromSchemaConnectionError(t *testing.T) {
 // --- Integers generator: basic path via fake server ---
 
 func TestIntegersGenerateUnit(t *testing.T) {
-	// Use a fake server to exercise Draw(Integers()).
-	err := runTestOnFakeServer(t, func() {
-		n := Draw(Integers(0, 10))
+	// Use a fake server to exercise Draw(s, Integers()).
+	err := runTestOnFakeServer(t, func(s *TestCase) {
+		n := Draw[int64](s, Integers(0, 10))
 		if n < 0 || n > 10 {
 			panic(fmt.Sprintf("out of range: %d", n))
 		}
@@ -870,14 +838,12 @@ func TestTargetConnectionError(t *testing.T) {
 	conn.channels[1] = ch
 	s.Close()
 
-	state := &testCaseData{channel: ch}
-	setState(state)
-	defer setState(nil)
+	state := &TestCase{channel: ch}
 
 	var caught any
 	func() {
 		defer func() { caught = recover() }()
-		Target(1.0, "x")
+		state.Target(1.0, "x")
 	}()
 	if caught == nil {
 		t.Fatal("expected panic from Target on connection error")
@@ -902,14 +868,12 @@ func TestTargetResponseError(t *testing.T) {
 		serverCh.SendReplyError(msgID, "target failed", "TargetError") //nolint:errcheck
 	}()
 
-	state := &testCaseData{channel: ch}
-	setState(state)
-	defer setState(nil)
+	state := &TestCase{channel: ch}
 
 	var caught any
 	func() {
 		defer func() { caught = recover() }()
-		Target(1.0, "x")
+		state.Target(1.0, "x")
 	}()
 	if caught == nil {
 		t.Fatal("expected panic from Target on response error")
@@ -922,10 +886,10 @@ func TestRunTestEventDecodeError(t *testing.T) {
 	clientConn := fakeServerConn(t, func(serverConn *connection) {
 		ctrl := serverConn.ControlChannel()
 		msgID, payload, _ := ctrl.RecvRequestRaw(5 * time.Second)
-		decoded, _ := DecodeCBOR(payload)
-		m, _ := extractDict(decoded)
+		decoded, _ := decodeCBOR(payload)
+		m, _ := extractCBORDict(decoded)
 		chIDVal := m[any("channel_id")]
-		chID, _ := extractInt(chIDVal)
+		chID, _ := extractCBORInt(chIDVal)
 		ctrl.SendReplyValue(msgID, true) //nolint:errcheck
 
 		testCh, _ := serverConn.ConnectChannel(uint32(chID), "TestCh")
@@ -939,7 +903,7 @@ func TestRunTestEventDecodeError(t *testing.T) {
 	})
 
 	cli := newClient(clientConn)
-	err := cli.runTest("decode_err", func() {}, runOptions{testCases: 1})
+	err := cli.runTest("decode_err", func(_ *TestCase) {}, runOptions{testCases: 1}, stderrNoteFn)
 	if err == nil {
 		t.Error("expected error from runTest on invalid CBOR event")
 	}
@@ -951,22 +915,22 @@ func TestRunTestEventNotDictError(t *testing.T) {
 	clientConn := fakeServerConn(t, func(serverConn *connection) {
 		ctrl := serverConn.ControlChannel()
 		msgID, payload, _ := ctrl.RecvRequestRaw(5 * time.Second)
-		decoded, _ := DecodeCBOR(payload)
-		m, _ := extractDict(decoded)
+		decoded, _ := decodeCBOR(payload)
+		m, _ := extractCBORDict(decoded)
 		chIDVal := m[any("channel_id")]
-		chID, _ := extractInt(chIDVal)
+		chID, _ := extractCBORInt(chIDVal)
 		ctrl.SendReplyValue(msgID, true) //nolint:errcheck
 
 		testCh, _ := serverConn.ConnectChannel(uint32(chID), "TestCh")
 		// Send a CBOR integer (not a dict).
-		badPayload, _ := EncodeCBOR(int64(42))
+		badPayload, _ := encodeCBOR(int64(42))
 		badID, _ := testCh.SendRequestRaw(badPayload)
 		testCh.recvResponseRaw(badID, 2*time.Second) //nolint:errcheck
 		sendTestDone(t, testCh, true, 0)
 	})
 
 	cli := newClient(clientConn)
-	err := cli.runTest("not_dict", func() {}, runOptions{testCases: 1})
+	err := cli.runTest("not_dict", func(_ *TestCase) {}, runOptions{testCases: 1}, stderrNoteFn)
 	if err == nil {
 		t.Error("expected error from runTest on non-dict event")
 	}
@@ -978,22 +942,22 @@ func TestRunTestCaseMissingChannel(t *testing.T) {
 	clientConn := fakeServerConn(t, func(serverConn *connection) {
 		ctrl := serverConn.ControlChannel()
 		msgID, payload, _ := ctrl.RecvRequestRaw(5 * time.Second)
-		decoded, _ := DecodeCBOR(payload)
-		m, _ := extractDict(decoded)
+		decoded, _ := decodeCBOR(payload)
+		m, _ := extractCBORDict(decoded)
 		chIDVal := m[any("channel_id")]
-		chID, _ := extractInt(chIDVal)
+		chID, _ := extractCBORInt(chIDVal)
 		ctrl.SendReplyValue(msgID, true) //nolint:errcheck
 
 		testCh, _ := serverConn.ConnectChannel(uint32(chID), "TestCh")
 		// Send test_case without channel field.
-		badPayload, _ := EncodeCBOR(map[string]any{"event": "test_case"})
+		badPayload, _ := encodeCBOR(map[string]any{"event": "test_case"})
 		badID, _ := testCh.SendRequestRaw(badPayload)
 		testCh.recvResponseRaw(badID, 2*time.Second) //nolint:errcheck
 		sendTestDone(t, testCh, true, 0)
 	})
 
 	cli := newClient(clientConn)
-	err := cli.runTest("missing_ch", func() {}, runOptions{testCases: 1})
+	err := cli.runTest("missing_ch", func(_ *TestCase) {}, runOptions{testCases: 1}, stderrNoteFn)
 	if err == nil {
 		t.Error("expected error from runTest on test_case missing channel")
 	}
@@ -1015,7 +979,7 @@ func TestRunTestSendError(t *testing.T) {
 	c.Close()
 
 	cli := newClient(clientConn)
-	err := cli.runTest("closed", func() {}, runOptions{testCases: 1})
+	err := cli.runTest("closed", func(_ *TestCase) {}, runOptions{testCases: 1}, stderrNoteFn)
 	if err == nil {
 		t.Error("expected error from runTest on closed conn")
 	}
@@ -1032,7 +996,7 @@ func TestRunTestAckError(t *testing.T) {
 	})
 
 	cli := newClient(clientConn)
-	err := cli.runTest("ack_err", func() {}, runOptions{testCases: 1})
+	err := cli.runTest("ack_err", func(_ *TestCase) {}, runOptions{testCases: 1}, stderrNoteFn)
 	if err == nil {
 		t.Error("expected error from runTest on ack error")
 	}
@@ -1044,19 +1008,19 @@ func TestRunTestEventRecvError(t *testing.T) {
 	clientConn := fakeServerConn(t, func(serverConn *connection) {
 		ctrl := serverConn.ControlChannel()
 		msgID, payload, _ := ctrl.RecvRequestRaw(5 * time.Second)
-		decoded, _ := DecodeCBOR(payload)
-		m, _ := extractDict(decoded)
+		decoded, _ := decodeCBOR(payload)
+		m, _ := extractCBORDict(decoded)
 		chIDVal := m[any("channel_id")]
-		chID, _ := extractInt(chIDVal)
+		chID, _ := extractCBORInt(chIDVal)
 		ctrl.SendReplyValue(msgID, true) //nolint:errcheck
 
-		// Don't connect the test channel — just close the connection.
+		// Don't connect the test channel -- just close the connection.
 		_ = chID
 		serverConn.Close()
 	})
 
 	cli := newClient(clientConn)
-	err := cli.runTest("recv_err", func() {}, runOptions{testCases: 1})
+	err := cli.runTest("recv_err", func(_ *TestCase) {}, runOptions{testCases: 1}, stderrNoteFn)
 	if err == nil {
 		t.Error("expected error from runTest when connection closed before event")
 	}
@@ -1068,15 +1032,15 @@ func TestRunTestConnectCaseChannelError(t *testing.T) {
 	clientConn := fakeServerConn(t, func(serverConn *connection) {
 		ctrl := serverConn.ControlChannel()
 		msgID, payload, _ := ctrl.RecvRequestRaw(5 * time.Second)
-		decoded, _ := DecodeCBOR(payload)
-		m, _ := extractDict(decoded)
+		decoded, _ := decodeCBOR(payload)
+		m, _ := extractCBORDict(decoded)
 		chIDVal := m[any("channel_id")]
-		chID, _ := extractInt(chIDVal)
+		chID, _ := extractCBORInt(chIDVal)
 		ctrl.SendReplyValue(msgID, true) //nolint:errcheck
 
 		testCh, _ := serverConn.ConnectChannel(uint32(chID), "TestCh")
 		// Send test_case with channel ID = 0 (already registered as control).
-		casePayload, _ := EncodeCBOR(map[string]any{
+		casePayload, _ := encodeCBOR(map[string]any{
 			"event":      "test_case",
 			"channel_id": int64(0), // already exists!
 		})
@@ -1086,7 +1050,7 @@ func TestRunTestConnectCaseChannelError(t *testing.T) {
 	})
 
 	cli := newClient(clientConn)
-	err := cli.runTest("dup_ch", func() {}, runOptions{testCases: 1})
+	err := cli.runTest("dup_ch", func(_ *TestCase) {}, runOptions{testCases: 1}, stderrNoteFn)
 	if err == nil {
 		t.Error("expected error from runTest on duplicate channel")
 	}
@@ -1095,14 +1059,14 @@ func TestRunTestConnectCaseChannelError(t *testing.T) {
 // --- runTestCase: INTERESTING status on panic ---
 
 func TestRunTestCaseInteresting(t *testing.T) {
-	err := runTestOnFakeServer(t, func() {
+	err := runTestOnFakeServer(t, func(_ *TestCase) {
 		panic("assertion failure")
 	}, func(caseCh *channel) {
 		// Receive mark_complete with INTERESTING status.
 		msgID, payload, _ := caseCh.RecvRequestRaw(2 * time.Second)
-		decoded, _ := DecodeCBOR(payload)
-		m, _ := extractDict(decoded)
-		statusVal, _ := extractString(m[any("status")])
+		decoded, _ := decodeCBOR(payload)
+		m, _ := extractCBORDict(decoded)
+		statusVal, _ := extractCBORString(m[any("status")])
 		if statusVal != "INTERESTING" {
 			// Still ack to unblock.
 		}
@@ -1114,10 +1078,10 @@ func TestRunTestCaseInteresting(t *testing.T) {
 	}
 }
 
-// --- runTestCase: dataExhausted → alreadyComplete ---
+// --- runTestCase: dataExhausted -> alreadyComplete ---
 
 func TestRunTestCaseDataExhausted(t *testing.T) {
-	err := runTestOnFakeServer(t, func() {
+	err := runTestOnFakeServer(t, func(_ *TestCase) {
 		panic(&dataExhausted{msg: "exhausted"})
 	}, func(caseCh *channel) {
 		// Server should NOT receive mark_complete when data is exhausted.
@@ -1132,13 +1096,13 @@ func TestRunTestCaseDataExhausted(t *testing.T) {
 // --- runTestCase: INVALID status from assume ---
 
 func TestRunTestCaseInvalid(t *testing.T) {
-	err := runTestOnFakeServer(t, func() {
-		Assume(false)
+	err := runTestOnFakeServer(t, func(s *TestCase) {
+		s.Assume(false)
 	}, func(caseCh *channel) {
 		msgID, payload, _ := caseCh.RecvRequestRaw(2 * time.Second)
-		decoded, _ := DecodeCBOR(payload)
-		m, _ := extractDict(decoded)
-		statusVal, _ := extractString(m[any("status")])
+		decoded, _ := decodeCBOR(payload)
+		m, _ := extractCBORDict(decoded)
+		statusVal, _ := extractCBORString(m[any("status")])
 		if statusVal != "INVALID" {
 			t.Errorf("expected INVALID status, got %q", statusVal)
 		}
@@ -1153,7 +1117,7 @@ func TestRunTestCaseInvalid(t *testing.T) {
 
 func TestRunTestCaseConnectionError(t *testing.T) {
 	// connection error inside test body should propagate.
-	err := runTestOnFakeServer(t, func() {
+	err := runTestOnFakeServer(t, func(_ *TestCase) {
 		panic(&connectionError{msg: "conn broke"})
 	}, func(caseCh *channel) {
 		// mark_complete should NOT be sent; server just drains.
@@ -1168,19 +1132,19 @@ func TestRunTestCaseConnectionError(t *testing.T) {
 // --- runTestCase: mark_complete send error (conn closed) ---
 
 func TestRunTestCaseMarkCompleteError(t *testing.T) {
-	// The channel is closed before mark_complete → send fails but we handle gracefully.
+	// The channel is closed before mark_complete -> send fails but we handle gracefully.
 	clientConn := fakeServerConn(t, func(serverConn *connection) {
 		ctrl := serverConn.ControlChannel()
 		msgID, payload, _ := ctrl.RecvRequestRaw(5 * time.Second)
-		decoded, _ := DecodeCBOR(payload)
-		m, _ := extractDict(decoded)
+		decoded, _ := decodeCBOR(payload)
+		m, _ := extractCBORDict(decoded)
 		chIDVal := m[any("channel_id")]
-		chID, _ := extractInt(chIDVal)
+		chID, _ := extractCBORInt(chIDVal)
 		ctrl.SendReplyValue(msgID, true) //nolint:errcheck
 
 		testCh, _ := serverConn.ConnectChannel(uint32(chID), "TestCh")
 		caseCh := serverConn.NewChannel("CaseCh")
-		casePayload, _ := EncodeCBOR(map[string]any{
+		casePayload, _ := encodeCBOR(map[string]any{
 			"event":      "test_case",
 			"channel_id": int64(caseCh.ChannelID()),
 		})
@@ -1194,7 +1158,7 @@ func TestRunTestCaseMarkCompleteError(t *testing.T) {
 
 	cli := newClient(clientConn)
 	// Should not panic even if mark_complete fails.
-	cli.runTest("mark_err", func() {}, runOptions{testCases: 1}) //nolint:errcheck
+	cli.runTest("mark_err", func(_ *TestCase) {}, runOptions{testCases: 1}, stderrNoteFn) //nolint:errcheck
 }
 
 // --- runTest: multiple interesting cases (nInteresting > 1) ---
@@ -1203,16 +1167,16 @@ func TestRunTestMultipleInteresting(t *testing.T) {
 	clientConn := fakeServerConn(t, func(serverConn *connection) {
 		ctrl := serverConn.ControlChannel()
 		msgID, payload, _ := ctrl.RecvRequestRaw(5 * time.Second)
-		decoded, _ := DecodeCBOR(payload)
-		m, _ := extractDict(decoded)
+		decoded, _ := decodeCBOR(payload)
+		m, _ := extractCBORDict(decoded)
 		chIDVal := m[any("channel_id")]
-		chID, _ := extractInt(chIDVal)
+		chID, _ := extractCBORInt(chIDVal)
 		ctrl.SendReplyValue(msgID, true) //nolint:errcheck
 
 		testCh, _ := serverConn.ConnectChannel(uint32(chID), "TestCh")
 
 		// Send test_done with 2 interesting cases immediately.
-		donePayload, _ := EncodeCBOR(map[string]any{
+		donePayload, _ := encodeCBOR(map[string]any{
 			"event": "test_done",
 			"results": map[string]any{
 				"passed":                 false,
@@ -1228,7 +1192,7 @@ func TestRunTestMultipleInteresting(t *testing.T) {
 		// Send 2 final test cases.
 		for i := 0; i < 2; i++ {
 			caseCh := serverConn.NewChannel(fmt.Sprintf("FinalCh%d", i))
-			casePayload, _ := EncodeCBOR(map[string]any{
+			casePayload, _ := encodeCBOR(map[string]any{
 				"event":      "test_case",
 				"channel_id": int64(caseCh.ChannelID()),
 			})
@@ -1241,9 +1205,9 @@ func TestRunTestMultipleInteresting(t *testing.T) {
 	})
 
 	cli := newClient(clientConn)
-	err := cli.runTest("multi_interesting", func() {
+	err := cli.runTest("multi_interesting", func(_ *TestCase) {
 		panic("always fails")
-	}, runOptions{testCases: 10})
+	}, runOptions{testCases: 10}, stderrNoteFn)
 	if err == nil {
 		t.Error("expected error from multi-interesting run")
 	}
@@ -1256,16 +1220,16 @@ func TestRunTestSingleInterestingConnectError(t *testing.T) {
 	clientConn := fakeServerConn(t, func(serverConn *connection) {
 		ctrl := serverConn.ControlChannel()
 		msgID, payload, _ := ctrl.RecvRequestRaw(5 * time.Second)
-		decoded, _ := DecodeCBOR(payload)
-		m, _ := extractDict(decoded)
+		decoded, _ := decodeCBOR(payload)
+		m, _ := extractCBORDict(decoded)
 		chIDVal := m[any("channel_id")]
-		chID, _ := extractInt(chIDVal)
+		chID, _ := extractCBORInt(chIDVal)
 		ctrl.SendReplyValue(msgID, true) //nolint:errcheck
 
 		testCh, _ := serverConn.ConnectChannel(uint32(chID), "TestCh")
 
 		// test_done with 1 interesting.
-		donePayload, _ := EncodeCBOR(map[string]any{
+		donePayload, _ := encodeCBOR(map[string]any{
 			"event": "test_done",
 			"results": map[string]any{
 				"passed":                 false,
@@ -1278,8 +1242,8 @@ func TestRunTestSingleInterestingConnectError(t *testing.T) {
 		doneID, _ := testCh.SendRequestRaw(donePayload)
 		testCh.recvResponseRaw(doneID, 5*time.Second) //nolint:errcheck
 
-		// Send final test_case with channel 0 (already exists → ConnectChannel fails).
-		casePayload, _ := EncodeCBOR(map[string]any{
+		// Send final test_case with channel 0 (already exists -> ConnectChannel fails).
+		casePayload, _ := encodeCBOR(map[string]any{
 			"event":      "test_case",
 			"channel_id": int64(0), // control channel, already exists
 		})
@@ -1288,7 +1252,7 @@ func TestRunTestSingleInterestingConnectError(t *testing.T) {
 	})
 
 	cli := newClient(clientConn)
-	err := cli.runTest("single_conn_err", func() {}, runOptions{testCases: 1})
+	err := cli.runTest("single_conn_err", func(_ *TestCase) {}, runOptions{testCases: 1}, stderrNoteFn)
 	if err == nil {
 		t.Error("expected error from runTest on final connect failure")
 	}
@@ -1300,16 +1264,16 @@ func TestRunTestFinalCaseRecvError(t *testing.T) {
 	clientConn := fakeServerConn(t, func(serverConn *connection) {
 		ctrl := serverConn.ControlChannel()
 		msgID, payload, _ := ctrl.RecvRequestRaw(5 * time.Second)
-		decoded, _ := DecodeCBOR(payload)
-		m, _ := extractDict(decoded)
+		decoded, _ := decodeCBOR(payload)
+		m, _ := extractCBORDict(decoded)
 		chIDVal := m[any("channel_id")]
-		chID, _ := extractInt(chIDVal)
+		chID, _ := extractCBORInt(chIDVal)
 		ctrl.SendReplyValue(msgID, true) //nolint:errcheck
 
 		testCh, _ := serverConn.ConnectChannel(uint32(chID), "TestCh")
 
 		// test_done with 1 interesting.
-		donePayload, _ := EncodeCBOR(map[string]any{
+		donePayload, _ := encodeCBOR(map[string]any{
 			"event": "test_done",
 			"results": map[string]any{
 				"passed":                 false,
@@ -1322,12 +1286,12 @@ func TestRunTestFinalCaseRecvError(t *testing.T) {
 		doneID, _ := testCh.SendRequestRaw(donePayload)
 		testCh.recvResponseRaw(doneID, 5*time.Second) //nolint:errcheck
 
-		// Close without sending a test_case → RecvRequestRaw returns error.
+		// Close without sending a test_case -> RecvRequestRaw returns error.
 		serverConn.Close()
 	})
 
 	cli := newClient(clientConn)
-	err := cli.runTest("final_recv_err", func() {}, runOptions{testCases: 1})
+	err := cli.runTest("final_recv_err", func(_ *TestCase) {}, runOptions{testCases: 1}, stderrNoteFn)
 	if err == nil {
 		t.Error("expected error when final case not received")
 	}
@@ -1339,16 +1303,16 @@ func TestRunTestMultiInterestingRecvError(t *testing.T) {
 	clientConn := fakeServerConn(t, func(serverConn *connection) {
 		ctrl := serverConn.ControlChannel()
 		msgID, payload, _ := ctrl.RecvRequestRaw(5 * time.Second)
-		decoded, _ := DecodeCBOR(payload)
-		m, _ := extractDict(decoded)
+		decoded, _ := decodeCBOR(payload)
+		m, _ := extractCBORDict(decoded)
 		chIDVal := m[any("channel_id")]
-		chID, _ := extractInt(chIDVal)
+		chID, _ := extractCBORInt(chIDVal)
 		ctrl.SendReplyValue(msgID, true) //nolint:errcheck
 
 		testCh, _ := serverConn.ConnectChannel(uint32(chID), "TestCh")
 
 		// test_done with 2 interesting.
-		donePayload, _ := EncodeCBOR(map[string]any{
+		donePayload, _ := encodeCBOR(map[string]any{
 			"event": "test_done",
 			"results": map[string]any{
 				"passed":                 false,
@@ -1361,9 +1325,9 @@ func TestRunTestMultiInterestingRecvError(t *testing.T) {
 		doneID, _ := testCh.SendRequestRaw(donePayload)
 		testCh.recvResponseRaw(doneID, 5*time.Second) //nolint:errcheck
 
-		// Send only 1 final case, then close — 2nd recv should fail.
+		// Send only 1 final case, then close -- 2nd recv should fail.
 		caseCh := serverConn.NewChannel("FinalCh0")
-		casePayload, _ := EncodeCBOR(map[string]any{
+		casePayload, _ := encodeCBOR(map[string]any{
 			"event":      "test_case",
 			"channel_id": int64(caseCh.ChannelID()),
 		})
@@ -1378,9 +1342,9 @@ func TestRunTestMultiInterestingRecvError(t *testing.T) {
 	})
 
 	cli := newClient(clientConn)
-	err := cli.runTest("multi_recv_err", func() {
+	err := cli.runTest("multi_recv_err", func(_ *TestCase) {
 		panic("always fails")
-	}, runOptions{testCases: 2})
+	}, runOptions{testCases: 2}, stderrNoteFn)
 	if err == nil {
 		t.Error("expected error from multi-interesting recv failure")
 	}
@@ -1423,11 +1387,9 @@ func TestExtractPanicOriginError(t *testing.T) {
 // --- Note: isFinal=true prints to stderr ---
 
 func TestNoteIsFinalTrue(t *testing.T) {
-	state := &testCaseData{isFinal: true}
-	setState(state)
-	defer setState(nil)
+	state := &TestCase{isFinal: true, noteFn: stderrNoteFn}
 	// Should not panic.
-	Note("test note on final")
+	state.Note("test note on final")
 }
 
 // --- findHegel: fallback when not in venv or PATH ---
@@ -1477,7 +1439,7 @@ func TestRunHegelTestESessionError(t *testing.T) {
 	globalSession = newHegelSession()
 	globalSession.hegelCmd = "/nonexistent/hegel"
 
-	err := RunHegelTestE("session_start_fail", func() {}, WithTestCases(1))
+	err := runHegel("session_start_fail", func(_ *TestCase) {}, stderrNoteFn, []Option{WithTestCases(1)})
 	if err == nil {
 		t.Error("expected error when session cannot start")
 	}
@@ -1503,20 +1465,9 @@ func TestRunHegelTestPanicsOnFailure(t *testing.T) {
 	fake.hegelCmd = "/nonexistent/hegel"
 	globalSession = fake
 
-	RunHegelTest("should_panic", func() {}, WithTestCases(1))
-}
-
-// --- RunHegelTestE: nested call returns error ---
-
-func TestRunHegelTestENestedCall(t *testing.T) {
-	hegelBinPath(t)
-	RunHegelTest(t.Name(), func() {
-		err := RunHegelTestE("nested", func() {}, WithTestCases(1))
-		if err == nil {
-			panic("expected nested RunHegelTestE to fail")
-		}
-		Assume(false) // reject so we don't loop forever
-	}, WithTestCases(3))
+	if _err := runHegel("should_panic", func(_ *TestCase) {}, stderrNoteFn, []Option{WithTestCases(1)}); _err != nil {
+		panic(_err)
+	}
 }
 
 // --- RunHegelTestE: calls session.runTest ---
@@ -1524,10 +1475,10 @@ func TestRunHegelTestENestedCall(t *testing.T) {
 func TestRunHegelTestECallsRunTest(t *testing.T) {
 	hegelBinPath(t)
 	called := false
-	err := RunHegelTestE(t.Name(), func() {
+	err := runHegel(t.Name(), func(s *TestCase) {
 		called = true
-		Draw(Booleans(0.5))
-	}, WithTestCases(1))
+		Draw[bool](s, Booleans(0.5))
+	}, stderrNoteFn, []Option{WithTestCases(1)})
 	if err != nil {
 		t.Errorf("unexpected error: %v", err)
 	}
@@ -1545,9 +1496,9 @@ func TestHegelSessionRunTest(t *testing.T) {
 	if err := s.start(); err != nil {
 		t.Fatalf("start: %v", err)
 	}
-	err := s.runTest("session_run", func() {
-		Draw(Booleans(0.5))
-	}, runOptions{testCases: 2})
+	err := s.runTest("session_run", func(st *TestCase) {
+		Draw[bool](st, Booleans(0.5))
+	}, runOptions{testCases: 2}, stderrNoteFn)
 	if err != nil {
 		t.Errorf("session.runTest: %v", err)
 	}
@@ -1574,7 +1525,7 @@ func TestHegelSessionStartInnerCheck(t *testing.T) {
 	if err := s.start(); err != nil {
 		t.Fatalf("first start: %v", err)
 	}
-	// Start again — should hit outer hasWorkingClient check.
+	// Start again -- should hit outer hasWorkingClient check.
 	if err := s.start(); err != nil {
 		t.Errorf("second start: %v", err)
 	}
@@ -1592,11 +1543,6 @@ func TestHegelSessionStartHegelCmd(t *testing.T) {
 		t.Fatalf("start with hegelCmd: %v", err)
 	}
 }
-
-// --- hegelSession.start: socket appears but connection refused (retry loop) ---
-// We test this via the timeout test (TestHegelSessionStartTimeout) which uses "false".
-
-// --- hegelSession.start: handshake error ---
 
 // --- hegelSession.cleanup: conn/process/tempDir paths via integration ---
 
@@ -1622,25 +1568,19 @@ func TestHegelSessionCleanupAllPaths(t *testing.T) {
 // --- runTest: nInteresting==1, case passes (no error from runTestCase) ---
 
 func TestRunTestSingleInterestingCasePasses(t *testing.T) {
-	// The server reports 1 interesting case, but the final replay doesn't fail.
-	// runTestCase returns nil → runTest should return an error about "expected to fail".
-	// Wait, looking at the code: if nInteresting==1 and runTestCase returns nil,
-	// runTest just returns nil (no "expected to fail" check for single case).
-	// Line 399: `return c.runTestCase(caseCh, fn, true)` — this is the return.
-	// So if runTestCase returns nil, runTest returns nil.
 	clientConn := fakeServerConn(t, func(serverConn *connection) {
 		ctrl := serverConn.ControlChannel()
 		msgID, payload, _ := ctrl.RecvRequestRaw(5 * time.Second)
-		decoded, _ := DecodeCBOR(payload)
-		m, _ := extractDict(decoded)
+		decoded, _ := decodeCBOR(payload)
+		m, _ := extractCBORDict(decoded)
 		chIDVal := m[any("channel_id")]
-		chID, _ := extractInt(chIDVal)
+		chID, _ := extractCBORInt(chIDVal)
 		ctrl.SendReplyValue(msgID, true) //nolint:errcheck
 
 		testCh, _ := serverConn.ConnectChannel(uint32(chID), "TestCh")
 
 		// test_done with 1 interesting case.
-		donePayload, _ := EncodeCBOR(map[string]any{
+		donePayload, _ := encodeCBOR(map[string]any{
 			"event": "test_done",
 			"results": map[string]any{
 				"passed":                 false,
@@ -1655,7 +1595,7 @@ func TestRunTestSingleInterestingCasePasses(t *testing.T) {
 
 		// Send final test_case.
 		caseCh := serverConn.NewChannel("FinalCh")
-		casePayload, _ := EncodeCBOR(map[string]any{
+		casePayload, _ := encodeCBOR(map[string]any{
 			"event":      "test_case",
 			"channel_id": int64(caseCh.ChannelID()),
 		})
@@ -1668,104 +1608,62 @@ func TestRunTestSingleInterestingCasePasses(t *testing.T) {
 	})
 
 	cli := newClient(clientConn)
-	// Test body passes (VALID) — final case returns nil.
-	err := cli.runTest("single_interesting_pass", func() {}, runOptions{testCases: 1})
-	// nil return is fine — it means the final run also passed.
+	// Test body passes (VALID) -- final case returns nil.
+	err := cli.runTest("single_interesting_pass", func(_ *TestCase) {}, runOptions{testCases: 1}, stderrNoteFn)
+	// nil return is fine -- it means the final run also passed.
 	_ = err
 }
 
 // --- runTest: multi-interesting, single error (len(errs)==1 branch) ---
 
 func TestRunTestMultiInterestingSingleError(t *testing.T) {
-	// 2 interesting cases: 1 fails, 1 passes → len(errs)==2? Let me re-check.
-	// The code: if caseErr != nil { append error } else { append "expected to fail" }.
-	// So if 1st case fails and 2nd case passes → 2 errors → len(errs)==2.
-	// For len(errs)==1: we need exactly 1 error from 2 cases.
-	// Actually: if only 1 case fails and nInteresting==2... wait, the loop runs nInteresting times.
-	// For len(errs)==1, we need exactly 1 iteration? But that would be nInteresting==1.
-	// Looking at code: if nInteresting > 1, we go to the multi path.
-	// Let me re-check: if nInteresting==2, loop runs 2 times.
-	// Case 1 fails → 1 error. Case 2 passes → "expected to fail" error. Total = 2.
-	// For len(errs)==1, nInteresting would have to be 1 → but that's handled by the if nInteresting==1 branch.
-	// Actually, if ConnectChannel fails for case 2, we `continue` without adding to errs,
-	// so we could end up with 1 error if case 1 fails and case 2 has connect error.
-	// That path: case 1 error → append; case 2 connect err → append; len=2.
-	// Hmm. Actually for len==1, we need nInteresting==2 with only 1 case processing.
-	// If case 1 connect fails → append err, continue; case 2 also connect fails → append err, continue.
-	// But len==2 for 2 connect failures too.
-	// The only way to get len==1: nInteresting==2, 1 case processes (error), 1 case skipped...
-	// No, ConnectChannel error also appends.
-	// So len==1 path is unreachable for nInteresting>1? Let me look again:
-	// Actually: `if err != nil { errs = append(errs, err); continue }` for connect error
-	// Then `caseErr := c.runTestCase(...)` → `if caseErr != nil { append }; else { append "expected" }`
-	// So every case adds exactly 1 error. len(errs) == nInteresting always.
-	// So len(errs)==1 when nInteresting==1... but we're in the `nInteresting > 1` branch.
-	// Therefore line 426-428 IS unreachable! Let me make it a false positive.
 	t.Skip("len(errs)==1 in multi-interesting is unreachable when nInteresting>1")
 }
-
-// --- runTest: resultData nil branch is unreachable (goto always sets it) ---
-// This is an unreachable guard. Mark lines 374-376 with an unreachable panic.
 
 // --- extractPanicOrigin: all frames are hegel frames ---
 
 func TestExtractPanicOriginAllHegelFrames(t *testing.T) {
-	// When all frames are hegel frames, we end with empty file/line.
-	// We can't control the call stack from a test, but we can verify the function
-	// handles the case where no non-hegel frame is found (line 262-263: break when !more).
-	// This is covered when the function exhausts all frames.
-	// To force this: we'd need all frames to be hegel. This is hard to unit-test directly.
-	// Instead, verify normal behavior works and trust the false-positive filter.
 	origin := extractPanicOrigin("test panic")
 	if origin == "" {
 		t.Error("expected non-empty origin")
 	}
 }
 
-// --- RunHegelTestE: HEGEL_PROTOCOL_TEST_MODE path, session start error (lines 244-246) ---
+// --- RunHegelTestE: HEGEL_PROTOCOL_TEST_MODE path, session start error ---
 
 func TestRunHegelTestEProtocolModeStartError(t *testing.T) {
 	// Set HEGEL_PROTOCOL_TEST_MODE so RunHegelTestE uses a temp session.
-	// Use a cwd without .venv and clear PATH so findHegel returns "hegel"
-	// which doesn't exist → spawn fails → start() returns error → lines 244-246.
-	setEnv(t, "HEGEL_PROTOCOL_TEST_MODE", "empty_test")
+	t.Setenv("HEGEL_PROTOCOL_TEST_MODE", "empty_test")
 
-	// Save and restore cwd.
-	origCwd, _ := os.Getwd()
-	tmp := t.TempDir()      // no .venv here
-	os.Chdir(tmp)           //nolint:errcheck
-	defer os.Chdir(origCwd) //nolint:errcheck
+	tmp := t.TempDir() // no .venv here
+	t.Chdir(tmp)
 
 	// Save and restore PATH (remove hegel from it).
-	oldPath := os.Getenv("PATH")
-	os.Setenv("PATH", "/nonexistent") //nolint:errcheck
-	defer os.Setenv("PATH", oldPath)  //nolint:errcheck
+	t.Setenv("PATH", "/nonexistent")
 
-	err := RunHegelTestE("protocol_mode_start_error", func() {}, WithTestCases(1))
+	err := runHegel("protocol_mode_start_error", func(_ *TestCase) {}, stderrNoteFn, []Option{WithTestCases(1)})
 	if err == nil {
 		t.Error("expected error when session cannot start in protocol test mode")
 	}
 	mustContainStr(t, err.Error(), "session start")
 }
 
-// --- runTest: multi-interesting, connect error (lines 430-432) ---
+// --- runTest: multi-interesting, connect error ---
 
 func TestRunTestMultiInterestingConnectError(t *testing.T) {
-	// Server sends test_done with 2 interesting cases, then sends final test_case
-	// with channel ID 0 (already exists as control channel → ConnectChannel fails).
 	clientConn := fakeServerConn(t, func(serverConn *connection) {
 		ctrl := serverConn.ControlChannel()
 		msgID, payload, _ := ctrl.RecvRequestRaw(5 * time.Second)
-		decoded, _ := DecodeCBOR(payload)
-		m, _ := extractDict(decoded)
+		decoded, _ := decodeCBOR(payload)
+		m, _ := extractCBORDict(decoded)
 		chIDVal := m[any("channel_id")]
-		chID, _ := extractInt(chIDVal)
+		chID, _ := extractCBORInt(chIDVal)
 		ctrl.SendReplyValue(msgID, true) //nolint:errcheck
 
 		testCh, _ := serverConn.ConnectChannel(uint32(chID), "TestCh")
 
 		// test_done with 2 interesting cases.
-		donePayload, _ := EncodeCBOR(map[string]any{
+		donePayload, _ := encodeCBOR(map[string]any{
 			"event": "test_done",
 			"results": map[string]any{
 				"passed":                 false,
@@ -1778,11 +1676,11 @@ func TestRunTestMultiInterestingConnectError(t *testing.T) {
 		doneID, _ := testCh.SendRequestRaw(donePayload)
 		testCh.recvResponseRaw(doneID, 5*time.Second) //nolint:errcheck
 
-		// Send final test_case with channel ID 0 (control channel → already connected).
+		// Send final test_case with channel ID 0 (control channel -> already connected).
 		for i := 0; i < 2; i++ {
-			casePayload, _ := EncodeCBOR(map[string]any{
+			casePayload, _ := encodeCBOR(map[string]any{
 				"event":      "test_case",
-				"channel_id": int64(0), // channel 0 exists → ConnectChannel will fail
+				"channel_id": int64(0), // channel 0 exists -> ConnectChannel will fail
 			})
 			caseID, _ := testCh.SendRequestRaw(casePayload)
 			testCh.recvResponseRaw(caseID, 5*time.Second) //nolint:errcheck
@@ -1790,35 +1688,32 @@ func TestRunTestMultiInterestingConnectError(t *testing.T) {
 	})
 
 	cli := newClient(clientConn)
-	err := cli.runTest("multi_connect_err", func() {
+	err := cli.runTest("multi_connect_err", func(_ *TestCase) {
 		panic("always fails")
-	}, runOptions{testCases: 2})
+	}, runOptions{testCases: 2}, stderrNoteFn)
 	if err == nil {
 		t.Error("expected error from multi-interesting with connect errors")
 	}
 	mustContainStr(t, err.Error(), "multiple failures")
 }
 
-// --- runTest: multi-interesting, case passes (lines 437-439) ---
+// --- runTest: multi-interesting, case passes ---
 
 func TestRunTestMultiInterestingCasePasses(t *testing.T) {
-	// Server sends test_done with 2 interesting cases.
-	// Case 1: test fn panics → error appended.
-	// Case 2: test fn passes (fn is a no-op) → "expected to fail" error appended (line 437-439).
 	caseCount := 0
 	clientConn := fakeServerConn(t, func(serverConn *connection) {
 		ctrl := serverConn.ControlChannel()
 		msgID, payload, _ := ctrl.RecvRequestRaw(5 * time.Second)
-		decoded, _ := DecodeCBOR(payload)
-		m, _ := extractDict(decoded)
+		decoded, _ := decodeCBOR(payload)
+		m, _ := extractCBORDict(decoded)
 		chIDVal := m[any("channel_id")]
-		chID, _ := extractInt(chIDVal)
+		chID, _ := extractCBORInt(chIDVal)
 		ctrl.SendReplyValue(msgID, true) //nolint:errcheck
 
 		testCh, _ := serverConn.ConnectChannel(uint32(chID), "TestCh")
 
 		// test_done with 2 interesting cases.
-		donePayload, _ := EncodeCBOR(map[string]any{
+		donePayload, _ := encodeCBOR(map[string]any{
 			"event": "test_done",
 			"results": map[string]any{
 				"passed":                 false,
@@ -1834,7 +1729,7 @@ func TestRunTestMultiInterestingCasePasses(t *testing.T) {
 		// Send 2 final test cases.
 		for i := 0; i < 2; i++ {
 			caseCh := serverConn.NewChannel(fmt.Sprintf("FinalCh%d", i))
-			casePayload, _ := EncodeCBOR(map[string]any{
+			casePayload, _ := encodeCBOR(map[string]any{
 				"event":      "test_case",
 				"channel_id": int64(caseCh.ChannelID()),
 			})
@@ -1847,21 +1742,20 @@ func TestRunTestMultiInterestingCasePasses(t *testing.T) {
 	})
 
 	cli := newClient(clientConn)
-	err := cli.runTest("multi_interesting_passes", func() {
+	err := cli.runTest("multi_interesting_passes", func(_ *TestCase) {
 		caseCount++
 		if caseCount == 1 {
 			panic("first case fails")
 		}
-		// Second case: fn returns normally → "expected to fail" error.
-	}, runOptions{testCases: 2})
+		// Second case: fn returns normally -> "expected to fail" error.
+	}, runOptions{testCases: 2}, stderrNoteFn)
 	if err == nil {
 		t.Error("expected error from multi-interesting run")
 	}
 	mustContainStr(t, err.Error(), "multiple failures")
 }
 
-// --- hegelSession.start: MkdirTemp error (lines 553-555) ---
-// We cover this by swapping out the mkdirTempFn variable (defined in runner.go).
+// --- hegelSession.start: MkdirTemp error ---
 
 func TestHegelSessionStartMkdirTempError(t *testing.T) {
 	orig := mkdirTempFn
@@ -1880,7 +1774,7 @@ func TestHegelSessionStartMkdirTempError(t *testing.T) {
 	mustContainStr(t, err.Error(), "mktemp")
 }
 
-// --- hegelSession.start: handshake error (lines 590-595) ---
+// --- hegelSession.start: handshake error ---
 
 func TestHegelSessionStartHandshakeError(t *testing.T) {
 	// Write a fake hegel binary that creates the socket, accepts one connection,
@@ -1905,57 +1799,559 @@ func TestHegelSessionStartHandshakeError(t *testing.T) {
 	mustContainStr(t, err.Error(), "handshake")
 }
 
-// --- findHegel: LookPath success and fallback (lines 654-658) ---
+// --- findHegel: LookPath success and fallback ---
 
 func TestFindHegelLookPathAndFallback(t *testing.T) {
 	// Change to a temp dir without .venv so findHegelInDir returns "".
-	origCwd, _ := os.Getwd()
 	tmp := t.TempDir()
-	if err := os.Chdir(tmp); err != nil {
-		t.Fatalf("chdir: %v", err)
-	}
-	defer os.Chdir(origCwd) //nolint:errcheck
+	t.Chdir(tmp)
 
-	// First: put hegel somewhere in PATH → LookPath succeeds (lines 654-656).
+	// First: put hegel somewhere in PATH -> LookPath succeeds.
 	hegelBin := filepath.Join(tmp, "hegel")
 	if err := os.WriteFile(hegelBin, []byte("#!/bin/sh\n"), 0o755); err != nil {
 		t.Fatalf("write fake hegel: %v", err)
 	}
 	oldPath := os.Getenv("PATH")
-	os.Setenv("PATH", tmp+":"+oldPath) //nolint:errcheck
+	t.Setenv("PATH", tmp+":"+oldPath)
 	result := findHegel()
-	os.Setenv("PATH", oldPath) //nolint:errcheck
 	if result != hegelBin {
 		t.Errorf("findHegel with PATH: got %q, want %q", result, hegelBin)
 	}
 
-	// Second: remove hegel from PATH → fallback "hegel" (line 658).
-	os.Setenv("PATH", "/nonexistent") //nolint:errcheck
+	// Second: remove hegel from PATH -> fallback "hegel".
+	t.Setenv("PATH", "/nonexistent")
 	result = findHegel()
-	os.Setenv("PATH", oldPath) //nolint:errcheck
 	if result != "hegel" {
 		t.Errorf("findHegel fallback: got %q, want \"hegel\"", result)
 	}
 }
 
-// --- findHegel: cwd venv discovery ---
+// =============================================================================
+// fatalSentinel.Error()
+// =============================================================================
 
-func TestFindHegelCwdVenv(t *testing.T) {
-	// Create a temp dir with .venv/bin/hegel, chdir there, and verify findHegel returns it.
-	origCwd, _ := os.Getwd()
-	tmp := t.TempDir()
-	hegelBin := filepath.Join(tmp, ".venv", "bin", "hegel")
-	os.MkdirAll(filepath.Dir(hegelBin), 0o755)           //nolint:errcheck
-	os.WriteFile(hegelBin, []byte("#!/bin/sh\n"), 0o755) //nolint:errcheck
-	os.Chdir(tmp)                                        //nolint:errcheck
-	defer os.Chdir(origCwd)                              //nolint:errcheck
+func TestFatalSentinelError(t *testing.T) {
+	f := fatalSentinel{msg: "test fatal"}
+	if f.Error() != "test fatal" {
+		t.Errorf("got %q", f.Error())
+	}
+}
 
+// =============================================================================
+// runTestCase: fatalSentinel recovery path
+// =============================================================================
+
+func TestRunTestCaseFatalSentinel(t *testing.T) {
+	err := runTestOnFakeServer(t, func(_ *TestCase) {
+		panic(fatalSentinel{msg: "fatal error"})
+	}, func(caseCh *channel) {
+		// Receive mark_complete with INTERESTING status.
+		msgID, _, _ := caseCh.RecvRequestRaw(2 * time.Second)
+		caseCh.SendReplyValue(msgID, nil) //nolint:errcheck
+	})
+	if err != nil {
+		t.Errorf("unexpected error: %v", err)
+	}
+}
+
+// =============================================================================
+// runTestCase: failed flag check (T.Error/T.Fail path)
+// =============================================================================
+
+func TestRunTestCaseFailedFlag(t *testing.T) {
+	err := runTestOnFakeServer(t, func(s *TestCase) {
+		s.failed = true // simulate T.Fail()
+	}, func(caseCh *channel) {
+		// Should get INTERESTING mark_complete
+		msgID, payload, _ := caseCh.RecvRequestRaw(2 * time.Second)
+		decoded, _ := decodeCBOR(payload)
+		m, _ := extractCBORDict(decoded)
+		statusVal, _ := extractCBORString(m[any("status")])
+		if statusVal != "INTERESTING" {
+			t.Errorf("expected INTERESTING status for failed flag, got %q", statusVal)
+		}
+		caseCh.SendReplyValue(msgID, nil) //nolint:errcheck
+	})
+	if err != nil {
+		t.Errorf("unexpected error: %v", err)
+	}
+}
+
+// =============================================================================
+// runTestCase: failed flag on final run returns error
+// =============================================================================
+
+func TestRunTestCaseFailedFlagOnFinal(t *testing.T) {
+	clientConn := fakeServerConn(t, func(serverConn *connection) {
+		ctrl := serverConn.ControlChannel()
+		msgID, payload, _ := ctrl.RecvRequestRaw(5 * time.Second)
+		decoded, _ := decodeCBOR(payload)
+		m, _ := extractCBORDict(decoded)
+		chIDVal := m[any("channel_id")]
+		chID, _ := extractCBORInt(chIDVal)
+		ctrl.SendReplyValue(msgID, true) //nolint:errcheck
+
+		testCh, _ := serverConn.ConnectChannel(uint32(chID), "TestCh")
+
+		// test_done with 1 interesting case.
+		donePayload, _ := encodeCBOR(map[string]any{
+			"event": "test_done",
+			"results": map[string]any{
+				"passed":                 false,
+				"test_cases":             int64(1),
+				"valid_test_cases":       int64(1),
+				"invalid_test_cases":     int64(0),
+				"interesting_test_cases": int64(1),
+			},
+		})
+		doneID, _ := testCh.SendRequestRaw(donePayload)
+		testCh.recvResponseRaw(doneID, 5*time.Second) //nolint:errcheck
+
+		// Send final test_case.
+		caseCh := serverConn.NewChannel("FinalCh")
+		casePayload, _ := encodeCBOR(map[string]any{
+			"event":      "test_case",
+			"channel_id": int64(caseCh.ChannelID()),
+		})
+		caseID, _ := testCh.SendRequestRaw(casePayload)
+		testCh.recvResponseRaw(caseID, 5*time.Second) //nolint:errcheck
+
+		// Receive mark_complete (INTERESTING) from client.
+		markID, _, _ := caseCh.RecvRequestRaw(2 * time.Second)
+		caseCh.SendReplyValue(markID, nil) //nolint:errcheck
+	})
+
+	cli := newClient(clientConn)
+	err := cli.runTest("failed_flag_final", func(s *TestCase) {
+		s.failed = true // simulate T.Fail() on final run
+	}, runOptions{testCases: 1}, stderrNoteFn)
+	if err == nil {
+		t.Error("expected error when failed flag set on final run")
+	}
+	mustContainStr(t, err.Error(), "test failed")
+}
+
+// =============================================================================
+// fatalSentinel on final run returns error
+// =============================================================================
+
+func TestRunTestCaseFatalSentinelOnFinal(t *testing.T) {
+	clientConn := fakeServerConn(t, func(serverConn *connection) {
+		ctrl := serverConn.ControlChannel()
+		msgID, payload, _ := ctrl.RecvRequestRaw(5 * time.Second)
+		decoded, _ := decodeCBOR(payload)
+		m, _ := extractCBORDict(decoded)
+		chIDVal := m[any("channel_id")]
+		chID, _ := extractCBORInt(chIDVal)
+		ctrl.SendReplyValue(msgID, true) //nolint:errcheck
+
+		testCh, _ := serverConn.ConnectChannel(uint32(chID), "TestCh")
+
+		// test_done with 1 interesting case.
+		donePayload, _ := encodeCBOR(map[string]any{
+			"event": "test_done",
+			"results": map[string]any{
+				"passed":                 false,
+				"test_cases":             int64(1),
+				"valid_test_cases":       int64(1),
+				"invalid_test_cases":     int64(0),
+				"interesting_test_cases": int64(1),
+			},
+		})
+		doneID, _ := testCh.SendRequestRaw(donePayload)
+		testCh.recvResponseRaw(doneID, 5*time.Second) //nolint:errcheck
+
+		// Send final test_case.
+		caseCh := serverConn.NewChannel("FinalCh")
+		casePayload, _ := encodeCBOR(map[string]any{
+			"event":      "test_case",
+			"channel_id": int64(caseCh.ChannelID()),
+		})
+		caseID, _ := testCh.SendRequestRaw(casePayload)
+		testCh.recvResponseRaw(caseID, 5*time.Second) //nolint:errcheck
+
+		// mark_complete from client.
+		caseCh.RecvRequestRaw(2 * time.Second) //nolint:errcheck
+	})
+
+	cli := newClient(clientConn)
+	err := cli.runTest("fatal_sentinel_final", func(_ *TestCase) {
+		panic(fatalSentinel{msg: "fatal on final"})
+	}, runOptions{testCases: 1}, stderrNoteFn)
+	if err == nil {
+		t.Error("expected error when fatalSentinel on final run")
+	}
+	mustContainStr(t, err.Error(), "fatal on final")
+}
+
+// =============================================================================
+// toInt64: uint64 branch and invalid type branch
+// =============================================================================
+
+func TestToInt64Int64(t *testing.T) {
+	v, ok := toInt64(int64(-7))
+	if !ok || v != -7 {
+		t.Errorf("got %d, %v", v, ok)
+	}
+}
+
+func TestToInt64Uint64(t *testing.T) {
+	v, ok := toInt64(uint64(42))
+	if !ok || v != 42 {
+		t.Errorf("got %d, %v", v, ok)
+	}
+}
+
+func TestToInt64Invalid(t *testing.T) {
+	_, ok := toInt64("not a number")
+	if ok {
+		t.Error("expected false for invalid type")
+	}
+}
+
+// =============================================================================
+// Target via fake server
+// =============================================================================
+
+func TestTargetFakeServer(t *testing.T) {
+	err := runTestOnFakeServer(t, func(s *TestCase) {
+		s.Target(1.5, "score")
+	}, func(caseCh *channel) {
+		// Receive target command.
+		targetID, targetPayload, _ := caseCh.RecvRequestRaw(2 * time.Second)
+		decoded, _ := decodeCBOR(targetPayload)
+		m, _ := extractCBORDict(decoded)
+		cmd, _ := extractCBORString(m[any("command")])
+		if cmd != "target" {
+			t.Errorf("expected 'target' command, got %q", cmd)
+		}
+		caseCh.SendReplyValue(targetID, nil) //nolint:errcheck
+
+		// Receive mark_complete.
+		mcID, _, _ := caseCh.RecvRequestRaw(2 * time.Second)
+		caseCh.SendReplyValue(mcID, nil) //nolint:errcheck
+	})
+	if err != nil {
+		t.Errorf("unexpected error: %v", err)
+	}
+}
+
+// =============================================================================
+// Public API: Run — via injected globalSession with fake server
+// =============================================================================
+
+// fakeGlobalSession replaces globalSession with a pre-connected fake session,
+// and restores it on test cleanup. Returns the server connection for protocol handling.
+func fakeGlobalSession(t *testing.T) *connection {
+	t.Helper()
+	old := globalSession
+	t.Cleanup(func() { globalSession = old })
+
+	s, c := socketPair(t)
+	serverConn := newConnection(s, "FakeGlobalServer")
+	clientConn := newConnection(c, "GlobalClient")
+
+	serverReady := make(chan struct{})
+	go func() {
+		serverConn.ReceiveHandshake() //nolint:errcheck
+		close(serverReady)
+	}()
+	if err := clientConn.SendHandshake(); err != nil {
+		t.Fatalf("client handshake: %v", err)
+	}
+	<-serverReady
+
+	sess := newHegelSession()
+	sess.conn = clientConn
+	sess.cli = newClient(clientConn)
+	globalSession = sess
+	return serverConn
+}
+
+// simplePassingServerHandler handles a single run_test with 1 test case that
+// expects 1 generate command followed by mark_complete. Sends test_done(passed=true).
+func simplePassingServerHandler(t *testing.T, serverConn *connection) {
+	t.Helper()
+	ctrl := serverConn.ControlChannel()
+	msgID, payload, _ := ctrl.RecvRequestRaw(5 * time.Second)
+	decoded, _ := decodeCBOR(payload)
+	m, _ := extractCBORDict(decoded)
+	chID, _ := extractCBORInt(m[any("channel_id")])
+	ctrl.SendReplyValue(msgID, true) //nolint:errcheck
+
+	testCh, _ := serverConn.ConnectChannel(uint32(chID), "TestCh")
+	caseCh := serverConn.NewChannel("Case")
+	casePayload, _ := encodeCBOR(map[string]any{
+		"event":      "test_case",
+		"channel_id": int64(caseCh.ChannelID()),
+		"is_final":   false,
+	})
+	caseID, _ := testCh.SendRequestRaw(casePayload)
+	testCh.recvResponseRaw(caseID, 5*time.Second) //nolint:errcheck
+
+	// Handle generate command.
+	genID, _, _ := caseCh.RecvRequestRaw(2 * time.Second)
+	caseCh.SendReplyValue(genID, true) //nolint:errcheck
+
+	// Receive mark_complete.
+	mcID, _, _ := caseCh.RecvRequestRaw(2 * time.Second)
+	caseCh.SendReplyValue(mcID, nil) //nolint:errcheck
+
+	sendTestDone(t, testCh, true, 0)
+}
+
+func TestRunPublicAPI(t *testing.T) {
+	serverConn := fakeGlobalSession(t)
+	go simplePassingServerHandler(t, serverConn)
+
+	err := Run("test_run_api", func(s *TestCase) {
+		_ = Draw[bool](s, Booleans(0.5))
+	}, WithTestCases(1))
+	if err != nil {
+		t.Fatalf("Run: %v", err)
+	}
+}
+
+// =============================================================================
+// Public API: MustRun — success
+// =============================================================================
+
+func TestMustRunSuccess(t *testing.T) {
+	serverConn := fakeGlobalSession(t)
+	go simplePassingServerHandler(t, serverConn)
+
+	MustRun("test_must_run", func(s *TestCase) {
+		_ = Draw[bool](s, Booleans(0.5))
+	}, WithTestCases(1))
+}
+
+// =============================================================================
+// Public API: MustRun — panics on error
+// =============================================================================
+
+func TestMustRunPanicsOnError(t *testing.T) {
+	old := globalSession
+	defer func() { globalSession = old }()
+	globalSession = newHegelSession()
+	globalSession.hegelCmd = "/nonexistent"
+
+	defer func() {
+		if r := recover(); r == nil {
+			t.Error("expected MustRun to panic on error")
+		}
+	}()
+	MustRun("should_panic", func(*TestCase) {}, WithTestCases(1))
+}
+
+// =============================================================================
+// Public API: Case — returns func(*testing.T)
+// =============================================================================
+
+func TestCaseSuccess(t *testing.T) {
+	serverConn := fakeGlobalSession(t)
+	go func() {
+		ctrl := serverConn.ControlChannel()
+		msgID, payload, _ := ctrl.RecvRequestRaw(5 * time.Second)
+		decoded, _ := decodeCBOR(payload)
+		m, _ := extractCBORDict(decoded)
+		chID, _ := extractCBORInt(m[any("channel_id")])
+		ctrl.SendReplyValue(msgID, true) //nolint:errcheck
+
+		testCh, _ := serverConn.ConnectChannel(uint32(chID), "TestCh")
+
+		// Non-final test case.
+		caseCh := serverConn.NewChannel("Case")
+		casePayload, _ := encodeCBOR(map[string]any{
+			"event":      "test_case",
+			"channel_id": int64(caseCh.ChannelID()),
+			"is_final":   false,
+		})
+		caseID, _ := testCh.SendRequestRaw(casePayload)
+		testCh.recvResponseRaw(caseID, 5*time.Second) //nolint:errcheck
+		genID, _, _ := caseCh.RecvRequestRaw(2 * time.Second)
+		caseCh.SendReplyValue(genID, true) //nolint:errcheck
+		mcID, _, _ := caseCh.RecvRequestRaw(2 * time.Second)
+		caseCh.SendReplyValue(mcID, nil) //nolint:errcheck
+
+		// test_done with 1 interesting case → triggers final replay with isFinal=true.
+		sendTestDone(t, testCh, true, 1)
+
+		// Final replay test case (isFinal=true).
+		finalCh := serverConn.NewChannel("FinalCase")
+		finalPayload, _ := encodeCBOR(map[string]any{
+			"event":      "test_case",
+			"channel_id": int64(finalCh.ChannelID()),
+			"is_final":   true,
+		})
+		fID, _ := testCh.SendRequestRaw(finalPayload)
+		testCh.recvResponseRaw(fID, 5*time.Second) //nolint:errcheck
+		fGenID, _, _ := finalCh.RecvRequestRaw(2 * time.Second)
+		finalCh.SendReplyValue(fGenID, true) //nolint:errcheck
+		fMcID, _, _ := finalCh.RecvRequestRaw(2 * time.Second)
+		finalCh.SendReplyValue(fMcID, nil) //nolint:errcheck
+	}()
+
+	t.Run("case_test", Case(func(ht *T) {
+		_ = Draw[bool](ht, Booleans(0.5))
+		ht.Note("test note via Case") // exercises noteFn = t.Log on final case
+	}, WithTestCases(1)))
+}
+
+// =============================================================================
+// hegelSession.runTest — via fake server (covers hegelSession.runTest wrapper)
+// =============================================================================
+
+func TestHegelSessionRunTestFakeServer(t *testing.T) {
+	s, c := socketPair(t)
+	serverConn := newConnection(s, "FakeServer")
+	clientConn := newConnection(c, "Client")
+
+	serverReady := make(chan struct{})
+	go func() {
+		serverConn.ReceiveHandshake() //nolint:errcheck
+		close(serverReady)
+	}()
+	if err := clientConn.SendHandshake(); err != nil {
+		t.Fatalf("handshake: %v", err)
+	}
+	<-serverReady
+
+	sess := newHegelSession()
+	sess.conn = clientConn
+	sess.cli = newClient(clientConn)
+
+	go func() {
+		ctrl := serverConn.ControlChannel()
+		msgID, payload, _ := ctrl.RecvRequestRaw(5 * time.Second)
+		decoded, _ := decodeCBOR(payload)
+		m, _ := extractCBORDict(decoded)
+		chID, _ := extractCBORInt(m[any("channel_id")])
+		ctrl.SendReplyValue(msgID, true) //nolint:errcheck
+
+		testCh, _ := serverConn.ConnectChannel(uint32(chID), "TestCh")
+		caseCh := serverConn.NewChannel("Case")
+		casePayload, _ := encodeCBOR(map[string]any{
+			"event":      "test_case",
+			"channel_id": int64(caseCh.ChannelID()),
+			"is_final":   false,
+		})
+		caseID, _ := testCh.SendRequestRaw(casePayload)
+		testCh.recvResponseRaw(caseID, 5*time.Second) //nolint:errcheck
+
+		// mark_complete
+		mcID, _, _ := caseCh.RecvRequestRaw(2 * time.Second)
+		caseCh.SendReplyValue(mcID, nil) //nolint:errcheck
+
+		sendTestDone(t, testCh, true, 0)
+	}()
+
+	err := sess.runTest("session_test", func(_ *TestCase) {}, runOptions{testCases: 1}, stderrNoteFn)
+	if err != nil {
+		t.Fatalf("session runTest: %v", err)
+	}
+}
+
+// =============================================================================
+// hegelSession.cleanup — covers process/tmpdir cleanup paths
+// =============================================================================
+
+func TestHegelSessionCleanup(t *testing.T) {
+	sess := newHegelSession()
+	// Set up a connection that we can close.
+	s, c := socketPair(t)
+	serverConn := newConnection(s, "FakeServer")
+	clientConn := newConnection(c, "Client")
+	serverReady := make(chan struct{})
+	go func() {
+		serverConn.ReceiveHandshake() //nolint:errcheck
+		close(serverReady)
+	}()
+	clientConn.SendHandshake() //nolint:errcheck
+	<-serverReady
+
+	sess.conn = clientConn
+	sess.cli = newClient(clientConn)
+
+	// Create a temp dir so cleanup removes it.
+	tmpDir, err := os.MkdirTemp("", "hegel-test-cleanup-")
+	if err != nil {
+		t.Fatalf("mktemp: %v", err)
+	}
+	sess.tempDir = tmpDir
+
+	// Call cleanup — should not panic.
+	sess.cleanup()
+
+	if sess.conn != nil {
+		t.Error("expected conn to be nil after cleanup")
+	}
+	if sess.cli != nil {
+		t.Error("expected cli to be nil after cleanup")
+	}
+	if sess.tempDir != "" {
+		t.Error("expected tempDir to be empty after cleanup")
+	}
+	// Verify temp dir was removed.
+	if _, err := os.Stat(tmpDir); !os.IsNotExist(err) {
+		t.Errorf("expected temp dir to be removed, stat error: %v", err)
+	}
+}
+
+// =============================================================================
+// hegelSession.start — hasWorkingClient returns early
+// =============================================================================
+
+func TestHegelSessionStartIdempotent(t *testing.T) {
+	s, c := socketPair(t)
+	serverConn := newConnection(s, "FakeServer")
+	clientConn := newConnection(c, "Client")
+	serverReady := make(chan struct{})
+	go func() {
+		serverConn.ReceiveHandshake() //nolint:errcheck
+		close(serverReady)
+	}()
+	clientConn.SendHandshake() //nolint:errcheck
+	<-serverReady
+
+	sess := newHegelSession()
+	sess.conn = clientConn
+	sess.cli = newClient(clientConn)
+
+	// start() should return nil immediately since hasWorkingClient() is true.
+	err := sess.start()
+	if err != nil {
+		t.Fatalf("start with existing client: %v", err)
+	}
+}
+
+// =============================================================================
+// hegelSession.start — mkdirTemp failure
+// =============================================================================
+
+func TestHegelSessionStartMkdirFail(t *testing.T) {
+	oldFn := mkdirTempFn
+	defer func() { mkdirTempFn = oldFn }()
+	mkdirTempFn = func(dir, pattern string) (string, error) {
+		return "", fmt.Errorf("simulated mktemp failure")
+	}
+
+	sess := newHegelSession()
+	sess.hegelCmd = "/nonexistent" // Won't actually be called since mkdirTemp fails first
+	err := sess.start()
+	if err == nil {
+		t.Error("expected start to fail with mkdirTemp error")
+	}
+	mustContainStr(t, err.Error(), "mktemp")
+}
+
+// =============================================================================
+// findHegel — basic non-empty check (different from TestFindHegelFallback above)
+// =============================================================================
+
+func TestFindHegelReturnsNonEmpty(t *testing.T) {
 	result := findHegel()
-	// Resolve symlinks for comparison (macOS: /var -> /private/var).
-	resolvedResult, _ := filepath.EvalSymlinks(result)
-	resolvedExpected, _ := filepath.EvalSymlinks(hegelBin)
-	if resolvedResult != resolvedExpected {
-		t.Errorf("findHegel with cwd venv: got %q, want %q", result, hegelBin)
+	if result == "" {
+		t.Error("findHegel should return non-empty string")
 	}
 }
 

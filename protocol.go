@@ -11,22 +11,18 @@ import (
 
 // Wire protocol constants.
 const (
-	// Magic is the 4-byte magic cookie at the start of every packet header ("HEGL").
-	Magic uint32 = 0x4845474C
+	magic uint32 = 0x4845474C // 4-byte magic cookie ("HEGL")
 
-	// ReplyBit is the high bit of the message ID field; when set the packet is a reply.
-	ReplyBit uint32 = 1 << 31
+	replyBit uint32 = 1 << 31 // high bit of message ID marks a reply
 
-	// Terminator is the single byte appended after every packet payload.
-	Terminator byte = 0x0A
+	terminator byte = 0x0A // appended after every packet payload
 
-	// CloseChannelMessageID is the special message ID used to close a channel.
-	CloseChannelMessageID uint32 = (1 << 31) - 1
+	closeChannelMessageID uint32 = (1 << 31) - 1 // special message ID for channel close
 )
 
-// CloseChannelPayload is the special payload sent when closing a channel.
+// closeChannelPayload is the special payload sent when closing a channel.
 // It is chosen to be invalid CBOR (reserved tag byte 0xFE per RFC 8949).
-var CloseChannelPayload = []byte{0xFE}
+var closeChannelPayload = []byte{0xFE}
 
 // headerSize is the size of the fixed packet header in bytes (5 × uint32).
 const headerSize = 20
@@ -102,19 +98,19 @@ func readPacket(conn net.Conn) (packet, error) {
 		return packet{}, err
 	}
 
-	magic := binary.BigEndian.Uint32(header[0:])
+	mgc := binary.BigEndian.Uint32(header[0:])
 	checksum := binary.BigEndian.Uint32(header[4:])
 	channelID := binary.BigEndian.Uint32(header[8:])
 	messageID := binary.BigEndian.Uint32(header[12:])
 	payloadLen := binary.BigEndian.Uint32(header[16:])
 
-	if magic != Magic {
-		return packet{}, fmt.Errorf("invalid magic number: expected 0x%08X, got 0x%08X", Magic, magic)
+	if mgc != magic {
+		return packet{}, fmt.Errorf("invalid magic number: expected 0x%08X, got 0x%08X", magic, mgc)
 	}
 
-	isReply := messageID&ReplyBit != 0
+	isReply := messageID&replyBit != 0
 	if isReply {
-		messageID ^= ReplyBit
+		messageID ^= replyBit
 	}
 
 	// Read payload.
@@ -128,8 +124,8 @@ func readPacket(conn net.Conn) (packet, error) {
 	if err != nil {
 		return packet{}, err
 	}
-	if term[0] != Terminator {
-		return packet{}, fmt.Errorf("invalid terminator: expected 0x%02X, got 0x%02X", Terminator, term[0])
+	if term[0] != terminator {
+		return packet{}, fmt.Errorf("invalid terminator: expected 0x%02X, got 0x%02X", terminator, term[0])
 	}
 
 	// Verify CRC32 over header-with-checksum-zeroed + payload.
@@ -154,12 +150,12 @@ func readPacket(conn net.Conn) (packet, error) {
 func writePacket(conn net.Conn, pkt packet) error {
 	messageID := pkt.MessageID
 	if pkt.IsReply {
-		messageID |= ReplyBit
+		messageID |= replyBit
 	}
 
 	// Build header with zeroed checksum to compute CRC.
 	header := make([]byte, headerSize)
-	binary.BigEndian.PutUint32(header[0:], Magic)
+	binary.BigEndian.PutUint32(header[0:], magic)
 	binary.BigEndian.PutUint32(header[4:], 0) // zeroed for CRC computation
 	binary.BigEndian.PutUint32(header[8:], pkt.ChannelID)
 	binary.BigEndian.PutUint32(header[12:], messageID)
@@ -172,7 +168,7 @@ func writePacket(conn net.Conn, pkt packet) error {
 	frame := make([]byte, 0, headerSize+len(pkt.Payload)+1)
 	frame = append(frame, header...)
 	frame = append(frame, pkt.Payload...)
-	frame = append(frame, Terminator)
+	frame = append(frame, terminator)
 
 	_, err := conn.Write(frame)
 	return err

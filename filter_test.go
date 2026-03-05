@@ -1,6 +1,6 @@
 package hegel
 
-// filter_test.go tests the Filter free function and filtered generator behavior.
+// filter_test.go tests the Filter function and filteredGenerator type.
 
 import (
 	"fmt"
@@ -13,123 +13,105 @@ import (
 // =============================================================================
 
 // TestBasicGeneratorFilterReturnsfilteredGenerator verifies that calling Filter
-// on a basic generator returns a non-basic generator.
+// on a basicGenerator returns a *filteredGenerator.
 func TestBasicGeneratorFilterReturnsfilteredGenerator(t *testing.T) {
-	gen := Integers(0, 100)
-	filtered := Filter(gen, func(v int64) bool { return true })
-	if filtered.isBasic() {
-		t.Error("Filter should return a non-basic generator")
+	g := Integers(0, 100)
+	filtered := Filter(g, func(v int64) bool { return true })
+	if _, ok := filtered.(*filteredGenerator[int64]); !ok {
+		t.Fatalf("Filter(basicGenerator) should return *filteredGenerator[int64], got %T", filtered)
 	}
 }
 
 // TestMappedGeneratorFilterReturnsfilteredGenerator verifies that calling Filter
-// on a mapped generator returns a non-basic generator.
+// on a mappedGenerator returns a *filteredGenerator.
 func TestMappedGeneratorFilterReturnsfilteredGenerator(t *testing.T) {
 	inner := Integers(0, 100)
 	mapped := Map(inner, func(v int64) int64 { return v })
 	filtered := Filter(mapped, func(v int64) bool { return true })
-	if filtered.isBasic() {
-		t.Error("Filter should return non-basic")
-	}
-}
-
-// TestFilteredGeneratorAsBasicReturnsNil verifies that a filtered generator is not basic.
-func TestFilteredGeneratorAsBasicReturnsNil(t *testing.T) {
-	gen := Integers(0, 100)
-	fg := Filter(gen, func(v int64) bool { return true })
-	if fg.isBasic() {
-		t.Error("filtered generator should not be basic")
+	if _, ok := filtered.(*filteredGenerator[int64]); !ok {
+		t.Fatalf("Filter(mappedGenerator) should return *filteredGenerator[int64], got %T", filtered)
 	}
 }
 
 // TestFilteredGeneratorFilterChainsfilteredGenerators verifies that calling Filter
-// on a filtered generator returns another non-basic generator (chained filtering).
+// on a filteredGenerator returns another *filteredGenerator (chained filtering).
 func TestFilteredGeneratorFilterChainsfilteredGenerators(t *testing.T) {
-	gen := Integers(0, 100)
-	fg := Filter(gen, func(v int64) bool { return true })
+	g := Integers(0, 100)
+	fg := Filter(g, func(v int64) bool { return true })
 	fg2 := Filter(fg, func(v int64) bool { return true })
-	if fg2.isBasic() {
-		t.Error("chained Filter should be non-basic")
+	if _, ok := fg2.(*filteredGenerator[int64]); !ok {
+		t.Fatalf("Filter(filteredGenerator) should return *filteredGenerator[int64], got %T", fg2)
 	}
 }
 
 // TestFilteredGeneratorMapReturnsmappedGenerator verifies that calling Map
-// on a filtered generator returns a non-basic generator.
+// on a filteredGenerator returns a *mappedGenerator.
 func TestFilteredGeneratorMapReturnsmappedGenerator(t *testing.T) {
-	gen := Integers(0, 100)
-	fg := Filter(gen, func(v int64) bool { return true })
+	g := Integers(0, 100)
+	fg := Filter(g, func(v int64) bool { return true })
 	mapped := Map(fg, func(v int64) int64 { return v })
-	if mapped.isBasic() {
-		t.Error("Map on filtered (non-basic) should be non-basic")
+	if _, ok := mapped.(*mappedGenerator[int64, int64]); !ok {
+		t.Fatalf("Map(filteredGenerator) should return *mappedGenerator, got %T", mapped)
 	}
 }
 
 // =============================================================================
-// Filter function on composite generators — verify return types
+// Filter on composite generators — verify return types
 // =============================================================================
 
 // TestCompositeListGeneratorFilterReturnsfilteredGenerator verifies that calling
-// Filter on a non-basic list generator returns a non-basic generator.
+// Filter on a compositeListGenerator returns a *filteredGenerator.
 func TestCompositeListGeneratorFilterReturnsfilteredGenerator(t *testing.T) {
-	// A non-basic list is produced when elements are non-basic.
+	// compositeListGenerator is produced when elements are non-basic.
+	// Filter produces a filteredGenerator (non-basic), forcing Lists into composite path.
 	nonBasic := Filter(Integers(0, 10), func(v int64) bool { return true })
 	listGen := Lists(nonBasic, ListsOptions{MinSize: 0, MaxSize: 5})
 	filtered := Filter(listGen, func(v []int64) bool { return true })
-	if filtered.isBasic() {
-		t.Error("Filter on non-basic list generator should return non-basic")
+	if _, ok := filtered.(*filteredGenerator[[]int64]); !ok {
+		t.Fatalf("Filter(compositeListGenerator) should return *filteredGenerator, got %T", filtered)
 	}
 }
 
 // TestCompositeDictGeneratorFilterReturnsfilteredGenerator verifies that calling
-// Filter on a non-basic dict generator returns a non-basic generator.
+// Filter on a compositeDictGenerator returns a *filteredGenerator.
 func TestCompositeDictGeneratorFilterReturnsfilteredGenerator(t *testing.T) {
-	// A non-basic dict is produced when key or value is non-basic.
-	nonBasicKeys := Filter(Integers(0, 10), func(v int64) bool { return true })
-	dictGen := Dicts(nonBasicKeys, Integers(0, 100), DictOptions{MinSize: 0})
+	// compositeDictGenerator is produced when key or value is non-basic.
+	// Filter produces a filteredGenerator (non-basic), forcing Dicts into composite path.
+	nonBasic := Filter(Integers(0, 10), func(v int64) bool { return true })
+	dictGen := Dicts(nonBasic, Integers(0, 100), DictOptions{MinSize: 0})
 	filtered := Filter(dictGen, func(v map[int64]int64) bool { return true })
-	if filtered.isBasic() {
-		t.Error("Filter on non-basic dict generator should return non-basic")
+	if _, ok := filtered.(*filteredGenerator[map[int64]int64]); !ok {
+		t.Fatalf("Filter(compositeDictGenerator) should return *filteredGenerator, got %T", filtered)
 	}
 }
 
 // TestCompositeOneOfGeneratorFilterReturnsfilteredGenerator verifies that calling
-// Filter on a non-basic oneOf generator returns a non-basic generator.
+// Filter on a compositeOneOfGenerator returns a *filteredGenerator.
 func TestCompositeOneOfGeneratorFilterReturnsfilteredGenerator(t *testing.T) {
-	// A non-basic oneOf is produced when any branch is non-basic.
+	// compositeOneOfGenerator is produced when any branch is non-basic.
+	// Filter produces a filteredGenerator (non-basic), forcing OneOf into composite path.
 	nonBasic := Filter(Integers(0, 10), func(v int64) bool { return true })
-	oneOf := OneOf(nonBasic, Filter(Integers(0, 5), func(v int64) bool { return true }))
+	oneOf := OneOf[int64](nonBasic, Integers(0, 5))
 	filtered := Filter(oneOf, func(v int64) bool { return true })
-	if filtered.isBasic() {
-		t.Error("Filter on non-basic oneOf generator should return non-basic")
-	}
-}
-
-// TestCompositeTupleGeneratorFilterReturnsfilteredGenerator verifies that calling
-// Filter on a non-basic tuple generator returns a non-basic generator.
-func TestCompositeTupleGeneratorFilterReturnsfilteredGenerator(t *testing.T) {
-	// A non-basic tuple is produced when any element is non-basic.
-	nonBasic := Filter(Integers(0, 10), func(v int64) bool { return true })
-	tupleGen := Tuples2(nonBasic, Booleans(0.5))
-	filtered := Filter(tupleGen, func(v Tuple2[int64, bool]) bool { return true })
-	if filtered.isBasic() {
-		t.Error("Filter on non-basic tuple generator should return non-basic")
+	if _, ok := filtered.(*filteredGenerator[int64]); !ok {
+		t.Fatalf("Filter(compositeOneOfGenerator) should return *filteredGenerator, got %T", filtered)
 	}
 }
 
 // TestFlatMappedGeneratorFilterReturnsfilteredGenerator verifies that calling
-// Filter on a flat-mapped generator returns a non-basic generator.
+// Filter on a flatMappedGenerator returns a *filteredGenerator.
 func TestFlatMappedGeneratorFilterReturnsfilteredGenerator(t *testing.T) {
-	flatGen := FlatMap(Integers(1, 5), func(v int64) *Generator[int64] {
+	flatGen := FlatMap(Integers(1, 5), func(v int64) Generator[int64] {
 		return Integers(0, v)
 	})
 	filtered := Filter(flatGen, func(v int64) bool { return true })
-	if filtered.isBasic() {
-		t.Error("Filter on flat-mapped generator should return non-basic")
+	if _, ok := filtered.(*filteredGenerator[int64]); !ok {
+		t.Fatalf("Filter(flatMappedGenerator) should return *filteredGenerator, got %T", filtered)
 	}
 }
 
 // =============================================================================
-// filtered generator Generate tests using real hegel binary
+// filteredGenerator.draw tests using real hegel binary
 // =============================================================================
 
 // TestFilteredGeneratorGeneratePredicatePassesFirstTry verifies that when the
@@ -138,12 +120,14 @@ func TestFilteredGeneratorGeneratePredicatePassesFirstTry(t *testing.T) {
 	hegelBinPath(t)
 	// Filter that always passes: every value is accepted on first try.
 	gen := Filter(Integers(0, 100), func(v int64) bool { return true })
-	RunHegelTest(t.Name(), func() {
-		n := Draw(gen)
+	if _err := runHegel(t.Name(), func(s *TestCase) {
+		n := gen.draw(s)
 		if n < 0 || n > 100 {
 			panic(fmt.Sprintf("Filter: expected [0,100], got %d", n))
 		}
-	}, WithTestCases(30))
+	}, stderrNoteFn, []Option{WithTestCases(30)}); _err != nil {
+		panic(_err)
+	}
 }
 
 // TestFilteredGeneratorGenerateWithRealPredicate verifies that Filter correctly
@@ -151,16 +135,20 @@ func TestFilteredGeneratorGeneratePredicatePassesFirstTry(t *testing.T) {
 func TestFilteredGeneratorGenerateWithRealPredicate(t *testing.T) {
 	hegelBinPath(t)
 	// Filter integers [0,50] keeping only even ones.
-	gen := Filter(Integers(0, 50), func(n int64) bool { return n%2 == 0 })
-	RunHegelTest(t.Name(), func() {
-		n := Draw(gen)
+	gen := Filter(Integers(0, 50), func(v int64) bool {
+		return v%2 == 0
+	})
+	if _err := runHegel(t.Name(), func(s *TestCase) {
+		n := gen.draw(s)
 		if n%2 != 0 {
 			panic(fmt.Sprintf("Filter even: expected even number, got %d", n))
 		}
 		if n < 0 || n > 50 {
 			panic(fmt.Sprintf("Filter even: expected [0,50], got %d", n))
 		}
-	}, WithTestCases(50))
+	}, stderrNoteFn, []Option{WithTestCases(50)}); _err != nil {
+		panic(_err)
+	}
 }
 
 // TestFilteredGeneratorGenerateAllFailsCallsAssume verifies that when the
@@ -175,14 +163,14 @@ func TestFilteredGeneratorGenerateAllFailsCallsAssume(t *testing.T) {
 	clientConn := fakeServerConn(t, func(serverConn *connection) {
 		ctrl := serverConn.ControlChannel()
 		msgID, payload, _ := ctrl.RecvRequestRaw(5 * time.Second)
-		decoded, _ := DecodeCBOR(payload)
-		m, _ := extractDict(decoded)
-		chID, _ := extractInt(m[any("channel_id")])
+		decoded, _ := decodeCBOR(payload)
+		m, _ := extractCBORDict(decoded)
+		chID, _ := extractCBORInt(m[any("channel_id")])
 		ctrl.SendReplyValue(msgID, true) //nolint:errcheck
 
 		testCh, _ := serverConn.ConnectChannel(uint32(chID), "TestCh")
 		caseCh := serverConn.NewChannel("Case")
-		casePayload, _ := EncodeCBOR(map[string]any{
+		casePayload, _ := encodeCBOR(map[string]any{
 			"event":      "test_case",
 			"channel_id": int64(caseCh.ChannelID()),
 			"is_final":   false,
@@ -192,7 +180,7 @@ func TestFilteredGeneratorGenerateAllFailsCallsAssume(t *testing.T) {
 
 		// maxFilterAttempts = 3: handle three start_span + generate + stop_span(discard=true) cycles.
 		for i := 0; i < maxFilterAttempts; i++ {
-			// start_span(LabelFilter)
+			// start_span(labelFilter)
 			ssID, _, _ := caseCh.RecvRequestRaw(5 * time.Second)
 			caseCh.SendReplyValue(ssID, nil) //nolint:errcheck
 
@@ -207,9 +195,9 @@ func TestFilteredGeneratorGenerateAllFailsCallsAssume(t *testing.T) {
 
 		// After all attempts fail, Assume(false) is called → mark_complete with status=INVALID
 		mcID, mcPayload, _ := caseCh.RecvRequestRaw(5 * time.Second)
-		decMC, _ := DecodeCBOR(mcPayload)
-		mMC, _ := extractDict(decMC)
-		status, _ := extractString(mMC[any("status")])
+		decMC, _ := decodeCBOR(mcPayload)
+		mMC, _ := extractCBORDict(decMC)
+		status, _ := extractCBORString(mMC[any("status")])
 		gotInvalidStatus = (status == "INVALID")
 		caseCh.SendReplyValue(mcID, nil) //nolint:errcheck
 
@@ -217,13 +205,19 @@ func TestFilteredGeneratorGenerateAllFailsCallsAssume(t *testing.T) {
 	})
 
 	cli := newClient(clientConn)
-	err := cli.runTest("filter_all_fail", func() {
-		inner := newBasicGenerator(schema, toInt64, true)
-		fg := Filter(inner, func(v int64) bool {
-			return false // always reject
-		})
-		Draw(fg) // should call Assume(false) after 3 attempts
-	}, runOptions{testCases: 1})
+	err := cli.runTest("filter_all_fail", func(s *TestCase) {
+		inner := &basicGenerator[int64]{
+			schema:    schema,
+			transform: func(v any) int64 { return extractInt(v) },
+		}
+		fg := &filteredGenerator[int64]{
+			source: inner,
+			predicate: func(v int64) bool {
+				return false // always reject
+			},
+		}
+		fg.draw(s) // should call Assume(false) after 3 attempts
+	}, runOptions{testCases: 1}, stderrNoteFn)
 	if err != nil {
 		t.Fatalf("runTest: %v", err)
 	}
@@ -238,13 +232,18 @@ func TestFilteredGeneratorGenerateChainedFilters(t *testing.T) {
 	hegelBinPath(t)
 	// First filter: even numbers; second filter: divisible by 4.
 	// Combined: only multiples of 4.
-	gen := Filter(Filter(Integers(0, 100), func(n int64) bool { return n%2 == 0 }), func(n int64) bool { return n%4 == 0 })
-	RunHegelTest(t.Name(), func() {
-		n := Draw(gen)
+	gen := Filter(
+		Filter(Integers(0, 100), func(v int64) bool { return v%2 == 0 }),
+		func(v int64) bool { return v%4 == 0 },
+	)
+	if _err := runHegel(t.Name(), func(s *TestCase) {
+		n := gen.draw(s)
 		if n%4 != 0 {
 			panic(fmt.Sprintf("chained filter: expected multiple of 4, got %d", n))
 		}
-	}, WithTestCases(30))
+	}, stderrNoteFn, []Option{WithTestCases(30)}); _err != nil {
+		panic(_err)
+	}
 }
 
 // TestFilteredGeneratorGenerateThenMap verifies that Filter followed by Map
@@ -252,13 +251,16 @@ func TestFilteredGeneratorGenerateChainedFilters(t *testing.T) {
 func TestFilteredGeneratorGenerateThenMap(t *testing.T) {
 	hegelBinPath(t)
 	// Filter odd numbers from [1,20], then multiply by 10.
-	gen := Map(Filter(Integers(1, 20), func(n int64) bool { return n%2 != 0 }), func(n int64) int64 { return n * 10 })
-	if gen.isBasic() {
-		t.Fatal("Map on filtered (non-basic) should be non-basic")
+	gen := Map(
+		Filter(Integers(1, 20), func(v int64) bool { return v%2 != 0 }),
+		func(v int64) int64 { return v * 10 },
+	)
+	if _, ok := gen.(*mappedGenerator[int64, int64]); !ok {
+		t.Fatalf("Map(Filter(...)) should return *mappedGenerator, got %T", gen)
 	}
-	RunHegelTest(t.Name(), func() {
-		n := Draw(gen)
-		// After filtering odd [1,20] and multiplying by 10: values like 10,30,50,...190
+	if _err := runHegel(t.Name(), func(s *TestCase) {
+		n := gen.draw(s)
+		// result must be odd*10, so divisible by 10 but result/10 must be odd
 		quotient := n / 10
 		if quotient*10 != n {
 			panic(fmt.Sprintf("filter+map: expected multiple of 10, got %d", n))
@@ -266,29 +268,31 @@ func TestFilteredGeneratorGenerateThenMap(t *testing.T) {
 		if quotient%2 == 0 {
 			panic(fmt.Sprintf("filter+map: expected odd*10, got %d (quotient=%d is even)", n, quotient))
 		}
-	}, WithTestCases(30))
+	}, stderrNoteFn, []Option{WithTestCases(30)}); _err != nil {
+		panic(_err)
+	}
 }
 
 // =============================================================================
-// Unit test for filtered generator Generate using fake server
+// Unit test for filteredGenerator.draw using fake server
 // =============================================================================
 
-// TestFilteredGeneratorGenerateUnitPredicatePasses exercises filtered generator Generate
+// TestFilteredGeneratorGenerateUnitPredicatePasses exercises filteredGenerator.draw
 // in the case where the predicate passes on the first try, using a fake server.
-// This covers the predicate-passes branch: StartSpan → generate → predicate=true → StopSpan(false) → return.
+// This covers the predicate-passes branch: startSpan → generate → predicate=true → stopSpan(false) → return.
 func TestFilteredGeneratorGenerateUnitPredicatePasses(t *testing.T) {
 	schema := map[string]any{"type": "integer"}
 	clientConn := fakeServerConn(t, func(serverConn *connection) {
 		ctrl := serverConn.ControlChannel()
 		msgID, payload, _ := ctrl.RecvRequestRaw(5 * time.Second)
-		decoded, _ := DecodeCBOR(payload)
-		m, _ := extractDict(decoded)
-		chID, _ := extractInt(m[any("channel_id")])
+		decoded, _ := decodeCBOR(payload)
+		m, _ := extractCBORDict(decoded)
+		chID, _ := extractCBORInt(m[any("channel_id")])
 		ctrl.SendReplyValue(msgID, true) //nolint:errcheck
 
 		testCh, _ := serverConn.ConnectChannel(uint32(chID), "TestCh")
 		caseCh := serverConn.NewChannel("Case")
-		casePayload, _ := EncodeCBOR(map[string]any{
+		casePayload, _ := encodeCBOR(map[string]any{
 			"event":      "test_case",
 			"channel_id": int64(caseCh.ChannelID()),
 			"is_final":   false,
@@ -296,7 +300,7 @@ func TestFilteredGeneratorGenerateUnitPredicatePasses(t *testing.T) {
 		caseID, _ := testCh.SendRequestRaw(casePayload)
 		testCh.recvResponseRaw(caseID, 5*time.Second) //nolint:errcheck
 
-		// filtered generator Generate: start_span(LabelFilter)
+		// filteredGenerator.draw: start_span(labelFilter)
 		ssID, _, _ := caseCh.RecvRequestRaw(5 * time.Second)
 		caseCh.SendReplyValue(ssID, nil) //nolint:errcheck
 
@@ -304,7 +308,7 @@ func TestFilteredGeneratorGenerateUnitPredicatePasses(t *testing.T) {
 		genID, _, _ := caseCh.RecvRequestRaw(5 * time.Second)
 		caseCh.SendReplyValue(genID, int64(42)) //nolint:errcheck
 
-		// predicate passes → StopSpan(false)
+		// predicate passes → stopSpan(false)
 		spID, _, _ := caseCh.RecvRequestRaw(5 * time.Second)
 		caseCh.SendReplyValue(spID, nil) //nolint:errcheck
 
@@ -317,12 +321,17 @@ func TestFilteredGeneratorGenerateUnitPredicatePasses(t *testing.T) {
 
 	cli := newClient(clientConn)
 	var gotVal int64
-	err := cli.runTest("filter_predicate_passes", func() {
-		inner := newBasicGenerator(schema, toInt64, true)
-		fg := Filter(inner, func(v int64) bool { return true })
-		v := Draw(fg)
-		gotVal = v
-	}, runOptions{testCases: 1})
+	err := cli.runTest("filter_predicate_passes", func(s *TestCase) {
+		inner := &basicGenerator[int64]{
+			schema:    schema,
+			transform: func(v any) int64 { return extractInt(v) },
+		}
+		fg := &filteredGenerator[int64]{
+			source:    inner,
+			predicate: func(v int64) bool { return true },
+		}
+		gotVal = fg.draw(s)
+	}, runOptions{testCases: 1}, stderrNoteFn)
 	if err != nil {
 		t.Fatalf("runTest: %v", err)
 	}
@@ -341,14 +350,14 @@ func TestFilteredGeneratorGenerateUnitPredicateFailsThenPasses(t *testing.T) {
 	clientConn := fakeServerConn(t, func(serverConn *connection) {
 		ctrl := serverConn.ControlChannel()
 		msgID, payload, _ := ctrl.RecvRequestRaw(5 * time.Second)
-		decoded, _ := DecodeCBOR(payload)
-		m, _ := extractDict(decoded)
-		chID, _ := extractInt(m[any("channel_id")])
+		decoded, _ := decodeCBOR(payload)
+		m, _ := extractCBORDict(decoded)
+		chID, _ := extractCBORInt(m[any("channel_id")])
 		ctrl.SendReplyValue(msgID, true) //nolint:errcheck
 
 		testCh, _ := serverConn.ConnectChannel(uint32(chID), "TestCh")
 		caseCh := serverConn.NewChannel("Case")
-		casePayload, _ := EncodeCBOR(map[string]any{
+		casePayload, _ := encodeCBOR(map[string]any{
 			"event":      "test_case",
 			"channel_id": int64(caseCh.ChannelID()),
 			"is_final":   false,
@@ -357,7 +366,7 @@ func TestFilteredGeneratorGenerateUnitPredicateFailsThenPasses(t *testing.T) {
 		testCh.recvResponseRaw(caseID, 5*time.Second) //nolint:errcheck
 
 		// --- First attempt: predicate fails ---
-		// start_span(LabelFilter)
+		// start_span(labelFilter)
 		ss1ID, _, _ := caseCh.RecvRequestRaw(5 * time.Second)
 		caseCh.SendReplyValue(ss1ID, nil) //nolint:errcheck
 		// generate → value 1 (odd — fails even predicate)
@@ -365,8 +374,8 @@ func TestFilteredGeneratorGenerateUnitPredicateFailsThenPasses(t *testing.T) {
 		caseCh.SendReplyValue(gen1ID, int64(1)) //nolint:errcheck
 		// stop_span(discard=true)
 		sp1ID, sp1Payload, _ := caseCh.RecvRequestRaw(5 * time.Second)
-		dec1, _ := DecodeCBOR(sp1Payload)
-		m1, _ := extractDict(dec1)
+		dec1, _ := decodeCBOR(sp1Payload)
+		m1, _ := extractCBORDict(dec1)
 		d1, _ := m1[any("discard")].(bool)
 		if !d1 {
 			t.Errorf("first stop_span: expected discard=true, got false")
@@ -374,7 +383,7 @@ func TestFilteredGeneratorGenerateUnitPredicateFailsThenPasses(t *testing.T) {
 		caseCh.SendReplyValue(sp1ID, nil) //nolint:errcheck
 
 		// --- Second attempt: predicate passes ---
-		// start_span(LabelFilter)
+		// start_span(labelFilter)
 		ss2ID, _, _ := caseCh.RecvRequestRaw(5 * time.Second)
 		caseCh.SendReplyValue(ss2ID, nil) //nolint:errcheck
 		// generate → value 4 (even — passes)
@@ -382,8 +391,8 @@ func TestFilteredGeneratorGenerateUnitPredicateFailsThenPasses(t *testing.T) {
 		caseCh.SendReplyValue(gen2ID, int64(4)) //nolint:errcheck
 		// stop_span(discard=false)
 		sp2ID, sp2Payload, _ := caseCh.RecvRequestRaw(5 * time.Second)
-		dec2, _ := DecodeCBOR(sp2Payload)
-		m2, _ := extractDict(dec2)
+		dec2, _ := decodeCBOR(sp2Payload)
+		m2, _ := extractCBORDict(dec2)
 		d2, _ := m2[any("discard")].(bool)
 		if d2 {
 			t.Errorf("second stop_span: expected discard=false, got true")
@@ -399,14 +408,19 @@ func TestFilteredGeneratorGenerateUnitPredicateFailsThenPasses(t *testing.T) {
 
 	cli := newClient(clientConn)
 	var gotVal int64
-	err := cli.runTest("filter_fail_then_pass", func() {
-		inner := newBasicGenerator(schema, toInt64, true)
-		fg := Filter(inner, func(v int64) bool {
-			return v%2 == 0 // only even
-		})
-		v := Draw(fg)
-		gotVal = v
-	}, runOptions{testCases: 1})
+	err := cli.runTest("filter_fail_then_pass", func(s *TestCase) {
+		inner := &basicGenerator[int64]{
+			schema:    schema,
+			transform: func(v any) int64 { return extractInt(v) },
+		}
+		fg := &filteredGenerator[int64]{
+			source: inner,
+			predicate: func(v int64) bool {
+				return v%2 == 0 // only even
+			},
+		}
+		gotVal = fg.draw(s)
+	}, runOptions{testCases: 1}, stderrNoteFn)
 	if err != nil {
 		t.Fatalf("runTest: %v", err)
 	}

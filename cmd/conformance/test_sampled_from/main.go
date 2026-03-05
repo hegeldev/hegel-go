@@ -8,6 +8,7 @@ import (
 	"os"
 
 	hegel "github.com/antithesishq/hegel-go"
+	"github.com/antithesishq/hegel-go/internal/conformance"
 )
 
 func main() {
@@ -19,33 +20,35 @@ func main() {
 	}
 
 	// options is a list of integers
-	var rawOptions []any
+	var options []any
 	if v, ok := params["options"]; ok {
 		if arr, ok := v.([]any); ok {
-			rawOptions = arr
+			options = arr
 		}
 	}
-
-	// Convert float64 JSON values to []int64
-	var intOptions []int64
-	if len(rawOptions) == 0 {
+	if len(options) == 0 {
 		// Default fallback: use [0,1,2]
-		intOptions = []int64{0, 1, 2}
-	} else {
-		intOptions = make([]int64, len(rawOptions))
-		for i, o := range rawOptions {
-			switch x := o.(type) {
-			case float64:
-				intOptions[i] = int64(x)
-			}
+		options = []any{any(int64(0)), any(int64(1)), any(int64(2))}
+	}
+
+	// Convert to int64 values
+	int64Options := make([]int64, len(options))
+	for i, o := range options {
+		switch x := o.(type) {
+		case float64:
+			int64Options[i] = int64(x)
+		case int64:
+			int64Options[i] = x
+		default:
+			int64Options[i] = 0
 		}
 	}
 
-	gen := hegel.MustSampledFrom(intOptions)
-	n := hegel.GetTestCases()
-	hegel.RunHegelTest("conformance_sampled_from", func() {
-		val := hegel.Draw(gen)
-		hegel.WriteMetrics(map[string]any{
+	gen := hegel.SampledFrom(int64Options)
+	n := conformance.GetTestCases()
+	hegel.MustRun("conformance_sampled_from", func(s *hegel.TestCase) {
+		val := hegel.Draw(s, gen)
+		conformance.WriteMetrics(map[string]any{
 			"value": val,
 		})
 	}, hegel.WithTestCases(n))

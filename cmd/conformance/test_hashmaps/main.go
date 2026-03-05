@@ -9,6 +9,7 @@ import (
 	"os"
 
 	hegel "github.com/antithesishq/hegel-go"
+	"github.com/antithesishq/hegel-go/internal/conformance"
 )
 
 func main() {
@@ -67,19 +68,20 @@ func main() {
 		}
 	}
 
+	valsGen := hegel.Integers(minVal, maxVal)
 	opts := hegel.DictOptions{
 		MinSize:    minSize,
 		MaxSize:    maxSize,
 		HasMaxSize: true,
 	}
-	n := hegel.GetTestCases()
+	n := conformance.GetTestCases()
 
 	if keyType == "string" {
 		keysGen := hegel.Text(0, -1)
-		valsGen := hegel.Integers(minVal, maxVal)
 		gen := hegel.Dicts(keysGen, valsGen, opts)
-		hegel.RunHegelTest("conformance_hashmaps", func() {
-			m := hegel.Draw(gen)
+
+		hegel.MustRun("conformance_hashmaps", func(s *hegel.TestCase) {
+			m := hegel.Draw(s, gen)
 			size := len(m)
 
 			var minKeyOut, maxKeyOut, minValueOut, maxValueOut any
@@ -112,7 +114,7 @@ func main() {
 				maxValueOut = maxIntVal
 			}
 
-			hegel.WriteMetrics(map[string]any{
+			conformance.WriteMetrics(map[string]any{
 				"size":      size,
 				"min_key":   minKeyOut,
 				"max_key":   maxKeyOut,
@@ -122,10 +124,10 @@ func main() {
 		}, hegel.WithTestCases(n))
 	} else {
 		keysGen := hegel.Integers(minKey, maxKey)
-		valsGen := hegel.Integers(minVal, maxVal)
 		gen := hegel.Dicts(keysGen, valsGen, opts)
-		hegel.RunHegelTest("conformance_hashmaps", func() {
-			m := hegel.Draw(gen)
+
+		hegel.MustRun("conformance_hashmaps", func(s *hegel.TestCase) {
+			m := hegel.Draw(s, gen)
 			size := len(m)
 
 			var minKeyOut, maxKeyOut, minValueOut, maxValueOut any
@@ -156,7 +158,7 @@ func main() {
 				maxValueOut = maxIntVal
 			}
 
-			hegel.WriteMetrics(map[string]any{
+			conformance.WriteMetrics(map[string]any{
 				"size":      size,
 				"min_key":   minKeyOut,
 				"max_key":   maxKeyOut,

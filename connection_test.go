@@ -72,9 +72,12 @@ func TestSendHandshakeReturnsVersion(t *testing.T) {
 	done := make(chan error, 1)
 	go func() { done <- serverConn.ReceiveHandshake() }()
 
-	_, err := clientConn.SendHandshakeVersion()
+	version, err := clientConn.SendHandshakeVersion()
 	if err != nil {
 		t.Fatalf("SendHandshakeVersion: %v", err)
+	}
+	if version != "0.1" {
+		t.Errorf("version = %q, want %q", version, "0.1")
 	}
 	if err := <-done; err != nil {
 		t.Errorf("ReceiveHandshake: %v", err)
@@ -352,7 +355,7 @@ func TestMessageToNonexistentChannel(t *testing.T) {
 	}
 }
 
-// --- RequestError ---
+// --- requestError ---
 
 func TestRequestError(t *testing.T) {
 	data := map[any]any{
@@ -389,7 +392,7 @@ func TestResultOrErrorReturnsResult(t *testing.T) {
 	if err != nil {
 		t.Fatalf("resultOrError: %v", err)
 	}
-	n, _ := extractInt(v)
+	n, _ := extractCBORInt(v)
 	if n != 42 {
 		t.Errorf("result = %v, want 42", v)
 	}
@@ -410,19 +413,19 @@ func TestRequestHandling(t *testing.T) {
 		}
 		handlerCh := serverConn.NewChannel("Handler")
 		handlerCh.HandleRequests(func(payload []byte) (any, error) {
-			v, err := DecodeCBOR(payload)
+			v, err := decodeCBOR(payload)
 			if err != nil {
 				return nil, err
 			}
-			m, err := extractDict(v)
+			m, err := extractCBORDict(v)
 			if err != nil {
 				return nil, err
 			}
-			x, err := extractInt(m["x"])
+			x, err := extractCBORInt(m["x"])
 			if err != nil {
 				return nil, err
 			}
-			y, err := extractInt(m["y"])
+			y, err := extractCBORInt(m["y"])
 			if err != nil {
 				return nil, err
 			}
@@ -451,13 +454,13 @@ func TestRequestHandling(t *testing.T) {
 		t.Fatalf("pending.Get: %v", err)
 	}
 
-	m, err := extractDict(result)
+	m, err := extractCBORDict(result)
 	if err != nil {
-		t.Fatalf("extractDict: %v", err)
+		t.Fatalf("extractCBORDict: %v", err)
 	}
-	sum, err := extractInt(m["sum"])
+	sum, err := extractCBORInt(m["sum"])
 	if err != nil {
-		t.Fatalf("extractInt sum: %v", err)
+		t.Fatalf("extractCBORInt sum: %v", err)
 	}
 	if sum != 5 {
 		t.Errorf("sum = %d, want 5", sum)
@@ -479,9 +482,9 @@ func TestPendingRequestCaching(t *testing.T) {
 		serverConn.ReceiveHandshake() //nolint:errcheck
 		ch := serverConn.NewChannel("PR")
 		ch.HandleRequests(func(payload []byte) (any, error) {
-			v, _ := DecodeCBOR(payload)
-			m, _ := extractDict(v)
-			val, _ := extractInt(m["value"])
+			v, _ := decodeCBOR(payload)
+			m, _ := extractCBORDict(v)
+			val, _ := extractCBORInt(m["value"])
 			return val * 2, nil
 		}, nil)
 	}()
@@ -507,8 +510,8 @@ func TestPendingRequestCaching(t *testing.T) {
 		t.Fatalf("Get 2: %v", err)
 	}
 
-	n1, _ := extractInt(v1)
-	n2, _ := extractInt(v2)
+	n1, _ := extractCBORInt(v1)
+	n2, _ := extractCBORInt(v2)
 	if n1 != 42 || n2 != 42 {
 		t.Errorf("pending caching: got %d, %d; want 42, 42", n1, n2)
 	}
@@ -546,7 +549,7 @@ func TestReceiveResponse(t *testing.T) {
 	if err != nil {
 		t.Fatalf("ReceiveResponse: %v", err)
 	}
-	n, _ := extractInt(result)
+	n, _ := extractCBORInt(result)
 	if n != 42 {
 		t.Errorf("result = %d, want 42", n)
 	}
@@ -582,7 +585,7 @@ func TestHandleRequestsSendsErrorOnException(t *testing.T) {
 	}
 	_, err = pending.Get()
 	if err == nil {
-		t.Fatal("expected RequestError from server")
+		t.Fatal("expected requestError from server")
 	}
 	mustContain(t, err.Error(), "test error")
 	clientConn.Close()
@@ -620,11 +623,11 @@ func TestSendReplyErrorWithKwargs(t *testing.T) {
 	}
 	_, err = pending.Get()
 	if err == nil {
-		t.Fatal("expected RequestError")
+		t.Fatal("expected requestError")
 	}
-	re, ok := err.(*RequestError)
+	re, ok := err.(*requestError)
 	if !ok {
-		t.Fatalf("expected *RequestError, got %T", err)
+		t.Fatalf("expected *requestError, got %T", err)
 	}
 	mustContain(t, re.Error(), "custom error")
 	if re.ErrorType != "CustomType" {
@@ -704,7 +707,7 @@ func TestDispatchCloseChannelNotification(t *testing.T) {
 	}
 	_ = serverCh
 
-	// Close client channel — sends CloseChannelPayload to server.
+	// Close client channel — sends closeChannelPayload to server.
 	clientCh.Close()
 
 	// Give server time to process the close notification via runReader.
@@ -989,21 +992,21 @@ func TestReceiveResponseDecodeCBORError(t *testing.T) {
 	}
 }
 
-// --- ReceiveResponse: extractDict error (payload is not a map) ---
+// --- ReceiveResponse: extractCBORDict error (payload is not a map) ---
 
-func TestReceiveResponseExtractDictError(t *testing.T) {
+func TestReceiveResponseExtractCBORDictError(t *testing.T) {
 	s, _ := socketPair(t)
 	conn := newConnection(s, "Test")
 	defer conn.Close()
 
 	ch := conn.ControlChannel()
 	// Inject a reply whose payload is a CBOR integer (not a dict).
-	payload, _ := EncodeCBOR(int64(42))
+	payload, _ := encodeCBOR(int64(42))
 	ch.inbox <- packet{ChannelID: 0, MessageID: 1, IsReply: true, Payload: payload}
 
 	_, err := ch.ReceiveResponse(1, 100*time.Millisecond)
 	if err == nil {
-		t.Fatal("expected extractDict error from ReceiveResponse")
+		t.Fatal("expected extractCBORDict error from ReceiveResponse")
 	}
 }
 
@@ -1033,7 +1036,7 @@ func TestProcessOneMessageRouteReplyNilResponses(t *testing.T) {
 	ch := conn.ControlChannel()
 	// ch.responses is nil (never initialized).
 	// Put a reply packet directly in the inbox and call processOneMessage.
-	payload, _ := EncodeCBOR(map[string]any{"result": int64(7)})
+	payload, _ := encodeCBOR(map[string]any{"result": int64(7)})
 	ch.inbox <- packet{ChannelID: 0, MessageID: 5, IsReply: true, Payload: payload}
 
 	// processOneMessage is called with ch.responses == nil, exercising the init path.
@@ -1101,9 +1104,9 @@ func mustContain(t *testing.T, s, sub string) {
 
 func mustEncode(t *testing.T, v any) []byte {
 	t.Helper()
-	b, err := EncodeCBOR(v)
+	b, err := encodeCBOR(v)
 	if err != nil {
-		t.Fatalf("EncodeCBOR(%v): %v", v, err)
+		t.Fatalf("encodeCBOR(%v): %v", v, err)
 	}
 	return b
 }
