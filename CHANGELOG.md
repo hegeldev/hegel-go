@@ -1,5 +1,10 @@
 # Changelog
 
+## 0.0.1 - 2026-03-05
+
+Refactor internal generator code.
+
+
 ## 0.1.0 - 2026-03-05
 
 Rework the API to integrate better with testing.T
