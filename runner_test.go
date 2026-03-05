@@ -240,7 +240,7 @@ func TestFindHegelInVenv(t *testing.T) {
 }
 
 func TestFindHegelVenvViaCwd(t *testing.T) {
-	tmp := t.TempDir()
+	tmp, _ := filepath.EvalSymlinks(t.TempDir())
 	venvBin := filepath.Join(tmp, ".venv", "bin")
 	os.MkdirAll(venvBin, 0o755) //nolint:errcheck
 	hegelBin := filepath.Join(venvBin, "hegel")

@@ -80,10 +80,20 @@ def parse_uncovered(profile_path: str) -> list[tuple[str, str, int, int]]:
     Coverage profile format per line:
         module/path/file.go:startLine.startCol,endLine.endCol numStatements executionCount
 
+    When ``go test -coverpkg=PKG ./...`` runs multiple test packages, each
+    test binary independently instruments PKG and writes its own coverage
+    entries.  For example, the ``internal/conformance`` tests don't call any
+    main-package code, so their entries have execution count 0 even though
+    the main-package tests cover those same regions.  We merge duplicates by
+    summing execution counts so that a region covered by *any* test binary is
+    not reported as uncovered.
+
     Returns tuples of (module_path, local_file_path, start_line, end_line)
-    for regions with executionCount == 0.
+    for regions whose merged execution count is still 0.
     """
-    uncovered = []
+    # key = full coverage key (everything before the exec count fields),
+    # value = (module_path, start_line, end_line, total_exec_count)
+    merged: dict[str, tuple[str, int, int, int]] = {}
     with open(profile_path) as f:
         for line in f:
             line = line.strip()
@@ -91,18 +101,28 @@ def parse_uncovered(profile_path: str) -> list[tuple[str, str, int, int]]:
                 continue
             # Format: modulePath:startLine.startCol,endLine.endCol numStatements execCount
             match = re.match(
-                r"(.+):(\d+)\.\d+,(\d+)\.\d+\s+\d+\s+(\d+)", line
+                r"(.+):(\d+\.\d+,\d+\.\d+)\s+(\d+)\s+(\d+)", line
             )
             if match:
                 module_path = match.group(1)
-                start_line = int(match.group(2))
-                end_line = int(match.group(3))
+                region = match.group(2)  # e.g. "15.33,17.16"
                 exec_count = int(match.group(4))
-                if exec_count == 0:
-                    # Convert module path to local file path by stripping module prefix.
-                    # e.g. "github.com/antithesishq/hegel-go/cbor.go" -> "cbor.go"
-                    local_path = _module_path_to_local(module_path)
-                    uncovered.append((module_path, local_path, start_line, end_line))
+                key = f"{module_path}:{region}"
+                if key in merged:
+                    prev = merged[key]
+                    merged[key] = (prev[0], prev[1], prev[2], prev[3] + exec_count)
+                else:
+                    # Parse start/end lines from the region string
+                    parts = region.split(",")
+                    start_line = int(parts[0].split(".")[0])
+                    end_line = int(parts[1].split(".")[0])
+                    merged[key] = (module_path, start_line, end_line, exec_count)
+
+    uncovered = []
+    for module_path, start_line, end_line, total_count in merged.values():
+        if total_count == 0:
+            local_path = _module_path_to_local(module_path)
+            uncovered.append((module_path, local_path, start_line, end_line))
     return uncovered
 
 
