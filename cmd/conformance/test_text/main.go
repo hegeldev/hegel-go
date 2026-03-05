@@ -8,6 +8,7 @@ import (
 	"unicode/utf8"
 
 	hegel "github.com/antithesishq/hegel-go"
+	"github.com/antithesishq/hegel-go/internal/conformance"
 )
 
 func main() {
@@ -33,13 +34,12 @@ func main() {
 	}
 
 	gen := hegel.Text(minSize, maxSize)
-	n := hegel.GetTestCases()
-	hegel.RunHegelTest("conformance_text", func() {
-		raw := hegel.Draw(gen)
-		s, _ := hegel.ExtractString(raw)
+	n := conformance.GetTestCases()
+	hegel.MustRun("conformance_text", func(s *hegel.TestCase) {
+		val := hegel.Draw(s, gen)
 		// Count Unicode codepoints (not bytes)
-		length := utf8.RuneCountInString(s)
-		hegel.WriteMetrics(map[string]any{
+		length := utf8.RuneCountInString(val)
+		conformance.WriteMetrics(map[string]any{
 			"length": length,
 		})
 	}, hegel.WithTestCases(n))

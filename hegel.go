@@ -6,23 +6,28 @@
 //
 // # Quick Start
 //
-// Run a property test with [RunHegelTest]:
+// Run a property test with [Case] inside Go tests:
 //
 //	func TestMyProperty(t *testing.T) {
-//	    hegel.RunHegelTest("my_property", func() {
-//	        n, _ := hegel.ExtractInt(hegel.Draw(hegel.Integers(0, 100)))
+//	    t.Run("bounds", hegel.Case(func(ht *hegel.T) {
+//	        n := hegel.Draw(ht, hegel.Integers(0, 100))
 //	        if n < 0 || n > 100 {
-//	            panic("out of range")
+//	            ht.Fatal("out of range")
 //	        }
-//	    }, hegel.WithTestCases(50))
+//	    }, hegel.WithTestCases(50)))
 //	}
 //
-// Inside the test body, use [Draw] to produce values from the composable [Generator]
-// types returned by functions such as [Integers], [Booleans], [Text], [Lists], and [OneOf].
+// Or use [Run] in standalone binaries:
 //
-// Use [Assume] to filter invalid inputs, [Note] to attach debug messages that
-// appear only on the minimal failing example, and [Target] to guide Hegel
-// toward interesting boundary values.
+//	err := hegel.Run("my_property", func(s *hegel.TestCase) {
+//	    n := hegel.Draw(s, hegel.Integers(0, 100))
+//	    if n < 0 || n > 100 {
+//	        panic("out of range")
+//	    }
+//	}, hegel.WithTestCases(50))
+//
+// Use the composable [Generator] types returned by functions such as [Integers],
+// [Booleans], [Text], [Lists], and [OneOf].
 //
 // # Architecture
 //
@@ -30,13 +35,8 @@
 //
 //  1. Wire protocol (readPacket, writePacket) — 20-byte header, CBOR payload, CRC32
 //  2. Connection and channels (connection, channel) — Unix socket multiplexing
-//  3. Test runner ([RunHegelTest], [RunHegelTestE]) — subprocess lifecycle, test loop
-//  4. Generators ([Generator], [BasicGenerator], [Lists], [Dicts], …) — value generation
+//  3. Test runner ([Case], [Run]) — subprocess lifecycle, test loop
+//  4. Generators ([Generator], [Lists], [Dicts], …) — value generation
 //
 // See the README and docs/getting-started.md for a full tutorial.
 package hegel
-
-// Version returns the current version of the Hegel Go SDK.
-func Version() string {
-	return "0.1.0"
-}

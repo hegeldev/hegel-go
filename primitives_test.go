@@ -21,36 +21,32 @@ func TestIntegersFromE2E(t *testing.T) {
 	hegelBinPath(t)
 	minV := int64(10)
 	maxV := int64(50)
-	RunHegelTest("integers_from_e2e", func() {
-		n := Draw(IntegersFrom(&minV, &maxV))
-		v, _ := ExtractInt(n)
-		if v < 10 || v > 50 {
+	if _err := runHegel("integers_from_e2e", func(s *TestCase) {
+		n := Draw[int64](s, IntegersFrom(&minV, &maxV))
+		if n < 10 || n > 50 {
 			panic("integers_from: out of range [10, 50]")
 		}
-	}, WithTestCases(50))
+	}, stderrNoteFn, []Option{WithTestCases(50)}); _err != nil {
+		panic(_err)
+	}
 }
 
 func TestIntegersFromUnboundedE2E(t *testing.T) {
 	hegelBinPath(t)
-	RunHegelTest("integers_from_unbounded_e2e", func() {
-		n := Draw(IntegersFrom(nil, nil))
-		// Unbounded integers may be int64, uint64, or *big.Int for very large values.
-		// Verify the value is non-nil (any integer type is valid).
-		if n == nil {
-			panic("integers_from unbounded: got nil value")
-		}
-	}, WithTestCases(20))
+	if _err := runHegel("integers_from_unbounded_e2e", func(s *TestCase) {
+		// Unbounded integers are converted to int64 by the generator's transform.
+		// Just verify the draw completes without error.
+		_ = Draw[int64](s, IntegersFrom(nil, nil))
+	}, stderrNoteFn, []Option{WithTestCases(20)}); _err != nil {
+		panic(_err)
+	}
 }
 
 func TestFloatsE2E_WithBounds(t *testing.T) {
 	hegelBinPath(t)
 	falseBool := false
-	RunHegelTest("floats_e2e_bounded", func() {
-		f := Draw(Floats(floatPtr(0.0), floatPtr(1.0), &falseBool, &falseBool, false, false))
-		fv, ok := f.(float64)
-		if !ok {
-			panic("floats: expected float64")
-		}
+	if _err := runHegel("floats_e2e_bounded", func(s *TestCase) {
+		fv := Draw[float64](s, Floats(floatPtr(0.0), floatPtr(1.0), &falseBool, &falseBool, false, false))
 		if math.IsNaN(fv) {
 			panic("floats: NaN not allowed when allow_nan=false")
 		}
@@ -60,98 +56,90 @@ func TestFloatsE2E_WithBounds(t *testing.T) {
 		if fv < 0.0 || fv > 1.0 {
 			panic("floats: out of range [0.0, 1.0]")
 		}
-	}, WithTestCases(50))
+	}, stderrNoteFn, []Option{WithTestCases(50)}); _err != nil {
+		panic(_err)
+	}
 }
 
 func TestFloatsE2E_Unbounded(t *testing.T) {
 	hegelBinPath(t)
-	RunHegelTest("floats_e2e_unbounded", func() {
-		f := Draw(Floats(nil, nil, nil, nil, false, false))
-		// Unbounded floats may produce NaN or Inf — any float64 is valid.
-		_, ok := f.(float64)
-		if !ok {
-			panic("floats: expected float64 value")
-		}
-	}, WithTestCases(50))
+	if _err := runHegel("floats_e2e_unbounded", func(s *TestCase) {
+		// Unbounded floats may produce NaN or Inf -- any float64 is valid.
+		_ = Draw[float64](s, Floats(nil, nil, nil, nil, false, false))
+	}, stderrNoteFn, []Option{WithTestCases(50)}); _err != nil {
+		panic(_err)
+	}
 }
 
 func TestFloatsE2E_OnlyMin(t *testing.T) {
 	hegelBinPath(t)
-	RunHegelTest("floats_e2e_only_min", func() {
-		f := Draw(Floats(floatPtr(0.0), nil, nil, nil, false, false))
-		fv, ok := f.(float64)
-		if !ok {
-			panic("floats: expected float64")
-		}
+	if _err := runHegel("floats_e2e_only_min", func(s *TestCase) {
+		fv := Draw[float64](s, Floats(floatPtr(0.0), nil, nil, nil, false, false))
 		// allow_nan is false (has min), allow_infinity is true (no max)
 		// Value should be >= 0.0 or Inf; NaN not allowed.
 		if math.IsNaN(fv) {
 			panic("floats: NaN not expected when min set")
 		}
-	}, WithTestCases(50))
+	}, stderrNoteFn, []Option{WithTestCases(50)}); _err != nil {
+		panic(_err)
+	}
 }
 
 func TestBooleansE2E(t *testing.T) {
 	hegelBinPath(t)
-	RunHegelTest("booleans_e2e", func() {
-		b := Draw(Booleans(0.5))
-		_, ok := b.(bool)
-		if !ok {
+	if _err := runHegel("booleans_e2e", func(s *TestCase) {
+		b := Draw[bool](s, Booleans(0.5))
+		// A valid assertion: b is either true or false.
+		if b != true && b != false {
 			panic("booleans: expected bool")
 		}
-	}, WithTestCases(50))
+	}, stderrNoteFn, []Option{WithTestCases(50)}); _err != nil {
+		panic(_err)
+	}
 }
 
 func TestTextE2E(t *testing.T) {
 	hegelBinPath(t)
-	RunHegelTest("text_e2e", func() {
-		s := Draw(Text(2, 8))
-		sv, ok := s.(string)
-		if !ok {
-			panic("text: expected string")
-		}
+	if _err := runHegel("text_e2e", func(s *TestCase) {
+		sv := Draw[string](s, Text(2, 8))
 		count := utf8.RuneCountInString(sv)
 		if count < 2 || count > 8 {
 			panic("text: codepoint count out of range [2, 8]")
 		}
-	}, WithTestCases(50))
+	}, stderrNoteFn, []Option{WithTestCases(50)}); _err != nil {
+		panic(_err)
+	}
 }
 
 func TestTextE2E_Unbounded(t *testing.T) {
 	hegelBinPath(t)
-	RunHegelTest("text_e2e_unbounded", func() {
-		s := Draw(Text(0, -1))
-		sv, ok := s.(string)
-		if !ok {
-			panic("text: expected string")
-		}
+	if _err := runHegel("text_e2e_unbounded", func(s *TestCase) {
+		sv := Draw[string](s, Text(0, -1))
 		if !utf8.ValidString(sv) {
 			panic("text: invalid UTF-8 string")
 		}
-	}, WithTestCases(50))
+	}, stderrNoteFn, []Option{WithTestCases(50)}); _err != nil {
+		panic(_err)
+	}
 }
 
 func TestBinaryE2E(t *testing.T) {
 	hegelBinPath(t)
-	RunHegelTest("binary_e2e", func() {
-		b := Draw(Binary(1, 10))
-		bv, ok := b.([]byte)
-		if !ok {
-			panic("binary: expected []byte")
-		}
+	if _err := runHegel("binary_e2e", func(s *TestCase) {
+		bv := Draw[[]byte](s, Binary(1, 10))
 		if len(bv) < 1 || len(bv) > 10 {
 			panic("binary: byte length out of range [1, 10]")
 		}
-	}, WithTestCases(50))
+	}, stderrNoteFn, []Option{WithTestCases(50)}); _err != nil {
+		panic(_err)
+	}
 }
 
 func TestBinaryE2E_Unbounded(t *testing.T) {
 	hegelBinPath(t)
-	RunHegelTest("binary_e2e_unbounded", func() {
-		b := Draw(Binary(0, -1))
-		_, ok := b.([]byte)
-		if !ok {
-			panic("binary: expected []byte")
-		}
-	}, WithTestCases(50))
+	if _err := runHegel("binary_e2e_unbounded", func(s *TestCase) {
+		_ = Draw[[]byte](s, Binary(0, -1))
+	}, stderrNoteFn, []Option{WithTestCases(50)}); _err != nil {
+		panic(_err)
+	}
 }

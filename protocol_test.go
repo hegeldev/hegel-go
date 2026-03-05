@@ -86,20 +86,20 @@ func roundtrip(t *testing.T, pkt packet) packet {
 // --- Constants ---
 
 func TestConstants(t *testing.T) {
-	if Magic != 0x4845474C {
-		t.Errorf("Magic = 0x%08X, want 0x4845474C", Magic)
+	if magic != 0x4845474C {
+		t.Errorf("magic = 0x%08X, want 0x4845474C", magic)
 	}
-	if ReplyBit != 1<<31 {
-		t.Errorf("ReplyBit = %d, want %d", ReplyBit, 1<<31)
+	if replyBit != 1<<31 {
+		t.Errorf("replyBit = %d, want %d", replyBit, 1<<31)
 	}
-	if Terminator != 0x0A {
-		t.Errorf("Terminator = 0x%02X, want 0x0A", Terminator)
+	if terminator != 0x0A {
+		t.Errorf("terminator = 0x%02X, want 0x0A", terminator)
 	}
-	if CloseChannelMessageID != (1<<31)-1 {
-		t.Errorf("CloseChannelMessageID = %d, want %d", CloseChannelMessageID, (1<<31)-1)
+	if closeChannelMessageID != (1<<31)-1 {
+		t.Errorf("closeChannelMessageID = %d, want %d", closeChannelMessageID, (1<<31)-1)
 	}
-	if len(CloseChannelPayload) != 1 || CloseChannelPayload[0] != 0xFE {
-		t.Errorf("CloseChannelPayload = %v, want [0xFE]", CloseChannelPayload)
+	if len(closeChannelPayload) != 1 || closeChannelPayload[0] != 0xFE {
+		t.Errorf("closeChannelPayload = %v, want [0xFE]", closeChannelPayload)
 	}
 }
 
@@ -201,7 +201,7 @@ func TestRecvExactZeroBytes(t *testing.T) {
 
 func TestReadPacketInvalidMagic(t *testing.T) {
 	reader, writer := socketPair(t)
-	raw := makeRawPacket(0xDEADBEEF, 0, 0, 1, []byte("payload"), Terminator)
+	raw := makeRawPacket(0xDEADBEEF, 0, 0, 1, []byte("payload"), terminator)
 	sendRaw(writer, raw)
 	_, err := readPacket(reader)
 	if err == nil {
@@ -214,7 +214,7 @@ func TestReadPacketInvalidMagic(t *testing.T) {
 
 func TestReadPacketInvalidTerminator(t *testing.T) {
 	reader, writer := socketPair(t)
-	raw := makeRawPacket(Magic, 0, 0, 1, []byte("payload"), 0xFF)
+	raw := makeRawPacket(magic, 0, 0, 1, []byte("payload"), 0xFF)
 	sendRaw(writer, raw)
 	_, err := readPacket(reader)
 	if err == nil {
@@ -231,13 +231,13 @@ func TestReadPacketBadChecksum(t *testing.T) {
 	var badChecksum uint32 = 0x12345678
 	payload := []byte("payload")
 	var h [20]byte
-	binary.BigEndian.PutUint32(h[0:], Magic)
+	binary.BigEndian.PutUint32(h[0:], magic)
 	binary.BigEndian.PutUint32(h[4:], badChecksum)
 	binary.BigEndian.PutUint32(h[8:], 0)
 	binary.BigEndian.PutUint32(h[12:], 1)
 	binary.BigEndian.PutUint32(h[16:], uint32(len(payload)))
 	raw := append(h[:], payload...)
-	raw = append(raw, Terminator)
+	raw = append(raw, terminator)
 	sendRaw(writer, raw)
 	_, err := readPacket(reader)
 	if err == nil {
@@ -316,7 +316,7 @@ func TestReadPacketConnectionClosedDuringPayload(t *testing.T) {
 	// Send a valid header claiming 10 bytes of payload, then close.
 	go func() {
 		var h [20]byte
-		binary.BigEndian.PutUint32(h[0:], Magic)
+		binary.BigEndian.PutUint32(h[0:], magic)
 		binary.BigEndian.PutUint32(h[4:], 0) // bad CRC but we'll close before it's checked
 		binary.BigEndian.PutUint32(h[8:], 0)
 		binary.BigEndian.PutUint32(h[12:], 1)
@@ -335,7 +335,7 @@ func TestReadPacketConnectionClosedDuringTerminator(t *testing.T) {
 	// Send a valid header + payload (0 bytes), then close without terminator.
 	go func() {
 		var h [20]byte
-		binary.BigEndian.PutUint32(h[0:], Magic)
+		binary.BigEndian.PutUint32(h[0:], magic)
 		// Compute real CRC for 0-byte payload
 		headerForCRC := make([]byte, 20)
 		copy(headerForCRC, h[:])
@@ -343,7 +343,7 @@ func TestReadPacketConnectionClosedDuringTerminator(t *testing.T) {
 		binary.BigEndian.PutUint32(headerForCRC[12:], 1)
 		binary.BigEndian.PutUint32(headerForCRC[16:], 0)
 		checksum := crc32ChecksumIEEE(headerForCRC)
-		binary.BigEndian.PutUint32(h[0:], Magic)
+		binary.BigEndian.PutUint32(h[0:], magic)
 		binary.BigEndian.PutUint32(h[4:], checksum)
 		binary.BigEndian.PutUint32(h[8:], 0)
 		binary.BigEndian.PutUint32(h[12:], 1)
