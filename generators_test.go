@@ -1975,6 +1975,13 @@ func TestExtractIntUint64(t *testing.T) {
 	}
 }
 
+func TestExtractIntBigIntValue(t *testing.T) {
+	v := *new(big.Int).SetInt64(456)
+	if extractInt(v) != 456 {
+		t.Error("big.Int value branch failed")
+	}
+}
+
 func TestExtractIntBigIntPointer(t *testing.T) {
 	v := new(big.Int).SetInt64(123)
 	if extractInt(v) != 123 {
