@@ -47,6 +47,10 @@ jobs:
         run: |
           gofmt -l .
           test -z "$(gofmt -l .)"
+      - name: Install zizmor
+        run: pip install zizmor
+      - name: Run zizmor
+        run: zizmor --format plain .github/
 
   test:
     name: test
@@ -124,24 +128,10 @@ jobs:
       - run: pip install pytest
       - run: just conformance
 
-  zizmor:
-    name: zizmor
-    runs-on: ubuntu-latest
-    permissions:
-      contents: read
-    steps:
-      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
-        with:
-          persist-credentials: false
-      - name: Install zizmor
-        run: pipx install zizmor
-      - name: Run zizmor
-        run: zizmor --format plain .github/
-
   release:
     name: release
     if: github.event_name == 'push' && github.repository == 'antithesishq/hegel-go'
-    needs: [lint, test, docs, conformance, zizmor]
+    needs: [lint, test, docs, conformance]
     runs-on: ubuntu-latest
     permissions:
       contents: write
