@@ -358,8 +358,6 @@ func extractInt(v any) int64 {
 		return x
 	case uint64:
 		return int64(x)
-	case big.Int:
-		return x.Int64()
 	case *big.Int:
 		return x.Int64()
 	default:
