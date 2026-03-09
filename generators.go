@@ -46,7 +46,8 @@ const (
 // --- Generator interface ---
 
 // Generator is the core abstraction for value generation in Hegel.
-// It is a generic, sealed interface — only types within this package can implement it.
+//
+// It is a sealed interface — only types within this package can implement it.
 type Generator[T any] interface {
 	// draw produces a value from the Hegel server using the given state.
 	// Unexported to seal the interface to this package.
@@ -167,7 +168,6 @@ func (g *flatMappedGenerator[T, U]) draw(s *TestCase) U {
 // --- Free function combinators ---
 
 // Map returns a new Generator that applies fn to each value from g.
-// If g is a basicGenerator, the transform is composed (preserving single-generate optimization).
 func Map[T, U any](g Generator[T], fn func(T) U) Generator[U] {
 	if bg, ok := g.(*basicGenerator[T]); ok {
 		if bg.transform != nil {
@@ -186,12 +186,13 @@ func Map[T, U any](g Generator[T], fn func(T) U) Generator[U] {
 }
 
 // FlatMap returns a Generator that generates a value from g, passes it to f,
-// and generates from the returned Generator. Always non-basic.
+// and generates from the returned Generator.
 func FlatMap[T, U any](g Generator[T], f func(T) Generator[U]) Generator[U] {
 	return &flatMappedGenerator[T, U]{source: g, f: f}
 }
 
 // Filter returns a Generator that only produces values from g that satisfy pred.
+//
 // It tries up to 3 times per test case; if all fail, the test case is rejected.
 func Filter[T any](g Generator[T], pred func(T) bool) Generator[T] {
 	return &filteredGenerator[T]{source: g, predicate: pred}
