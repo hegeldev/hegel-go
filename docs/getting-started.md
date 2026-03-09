@@ -6,10 +6,14 @@
 go get github.com/hegeldev/hegel-go@latest
 ```
 
-The SDK requires the `hegel` CLI on your PATH:
+The SDK automatically manages the `hegel` server binary. On first use it
+installs the pinned version into a project-local `.hegel/venv` virtualenv.
+This requires [`uv`](https://docs.astral.sh/uv/) to be installed.
+
+To use a custom binary, set `HEGEL_CMD`:
 
 ```bash
-pip install "hegel @ git+https://github.com/hegeldev/hegel-core"
+export HEGEL_CMD=/path/to/hegel
 ```
 
 ## Write your first test

@@ -577,30 +577,95 @@ func (s *hegelSession) runTest(fn testBody, opts runOptions, noteFn func(string)
 	return s.cli.runTest(fn, opts, noteFn)
 }
 
-// findHegel locates the hegel binary.
-func findHegel() string {
-	// Check venv in current working directory.
-	cwd, err := os.Getwd()
-	if err == nil {
-		if p := findHegelInDir(filepath.Join(cwd, ".venv")); p != "" {
-			return p
-		}
-	}
-	// Check PATH.
-	if p, err := exec.LookPath("hegel"); err == nil {
-		return p
-	}
-	// Fallback.
-	return "hegel"
+// hegelVersion is the hegel-core commit this SDK is designed to work with.
+const hegelVersion = "6e327df2dd42553de12ace94cfbddfbbd9e4bf50"
+
+const hegelCmdEnv = "HEGEL_CMD"
+
+// hegelDir is the directory where the hegel venv is created.
+const hegelDir = ".hegel"
+
+// hegelVenvDir is the path to the venv directory inside hegelDir.
+var hegelVenvDir = filepath.Join(hegelDir, "venv")
+
+// hegelVersionFile is the path to the version file inside the venv.
+var hegelVersionFile = filepath.Join(hegelVenvDir, "hegel-version")
+
+// hegelPipSpec returns the pip install spec for the pinned hegel-core version.
+func hegelPipSpec() string {
+	return fmt.Sprintf("hegel @ git+ssh://git@github.com/antithesishq/hegel-core.git@%s", hegelVersion)
 }
 
-// findHegelInDir looks for bin/hegel inside dir.
-func findHegelInDir(dir string) string {
-	p := filepath.Join(dir, "bin", "hegel")
-	if _, err := os.Stat(p); err == nil {
-		return p
+// ensureHegelInstalled ensures hegel is installed in .hegel/venv and returns
+// the path to the binary. Creates the venv and installs hegel if it doesn't
+// exist, or reinstalls if the version file doesn't match hegelVersion.
+func ensureHegelInstalled() (string, error) {
+	hegelBin := filepath.Join(hegelVenvDir, "bin", "hegel")
+
+	// Check if already installed at the right version.
+	data, err := os.ReadFile(hegelVersionFile)
+	if err == nil {
+		if strings.TrimSpace(string(data)) == hegelVersion {
+			if _, statErr := os.Stat(hegelBin); statErr == nil {
+				return hegelBin, nil
+			}
+		}
 	}
-	return ""
+
+	if err := os.MkdirAll(hegelDir, 0o755); err != nil {
+		return "", fmt.Errorf("hegel: mkdir %s: %w", hegelDir, err)
+	}
+
+	fmt.Fprintf(os.Stderr, "Installing hegel (%s) into %s...\n", hegelVersion[:12], hegelVenvDir)
+
+	// Create venv.
+	uvVenv := exec.Command("uv", "venv", "--clear", hegelVenvDir)
+	uvVenv.Stdout = os.Stderr
+	uvVenv.Stderr = os.Stderr
+	if err := uvVenv.Run(); err != nil {
+		return "", fmt.Errorf("hegel: uv venv: %w", err)
+	}
+
+	// Install hegel.
+	uvPip := exec.Command("uv", "pip", "install",
+		"--python", filepath.Join(hegelVenvDir, "bin", "python"),
+		hegelPipSpec(),
+	)
+	uvPip.Stdout = os.Stderr
+	uvPip.Stderr = os.Stderr
+	if err := uvPip.Run(); err != nil {
+		return "", fmt.Errorf(
+			"hegel: failed to install hegel (version: %s). "+
+				"Set %s to a hegel binary path to skip installation: %w",
+			hegelVersion, hegelCmdEnv, err)
+	}
+
+	// Verify binary exists.
+	if _, err := os.Stat(hegelBin); err != nil {
+		return "", fmt.Errorf("hegel: binary not found at %s after installation", hegelBin)
+	}
+
+	// Write version file.
+	if err := os.WriteFile(hegelVersionFile, []byte(hegelVersion), 0o644); err != nil {
+		return "", fmt.Errorf("hegel: write version file: %w", err)
+	}
+
+	return hegelBin, nil
+}
+
+// findHegel locates the hegel binary.
+// If HEGEL_CMD is set, uses that path directly.
+// Otherwise, ensures hegel is installed in .hegel/venv.
+func findHegel() string {
+	if override := os.Getenv(hegelCmdEnv); override != "" {
+		return override
+	}
+	bin, err := ensureHegelInstalled()
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "hegel: %v\n", err)
+		return "hegel"
+	}
+	return bin
 }
 
 // globalSession is the package-level session, lazily started.

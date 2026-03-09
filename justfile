@@ -4,16 +4,21 @@
 export PATH := "/usr/local/go/bin:" + env("HOME") + "/go/bin:" + env("PATH")
 
 # Install dependencies and the hegel binary.
-# If HEGEL_BINARY is set, symlinks it into .venv/bin instead of installing from git.
+# If HEGEL_BINARY is set, uses that path via HEGEL_CMD instead of auto-installing.
+# Otherwise, installs hegel into .hegel/venv at the version pinned in runner.go.
 setup:
     #!/usr/bin/env bash
     set -euo pipefail
-    uv venv .venv
     if [ -n "${HEGEL_BINARY:-}" ]; then
-        mkdir -p .venv/bin
-        ln -sf "$HEGEL_BINARY" .venv/bin/hegel
+        export HEGEL_CMD="$HEGEL_BINARY"
+        echo "Using HEGEL_CMD=$HEGEL_CMD"
     else
-        uv pip install --python .venv/bin/python --reinstall-package hegel hegel@git+https://github.com/hegeldev/hegel-core
+        mkdir -p .hegel
+        uv venv --clear .hegel/venv
+        uv pip install --python .hegel/venv/bin/python \
+            "hegel @ git+ssh://git@github.com/antithesishq/hegel-core.git@$(grep 'hegelVersion = ' runner.go | head -1 | sed 's/.*"\(.*\)"/\1/')"
+        # Write version file so the SDK recognises the cached install.
+        grep 'hegelVersion = ' runner.go | head -1 | sed 's/.*"\(.*\)"/\1/' > .hegel/venv/hegel-version
     fi
     # Install Go tools
     go install honnef.co/go/tools/cmd/staticcheck@latest
@@ -23,7 +28,7 @@ setup:
 test:
     #!/usr/bin/env bash
     set -euo pipefail
-    export PATH="$(pwd)/.venv/bin:$PATH"
+    export PATH="$(pwd)/.hegel/venv/bin:$PATH"
     go test -race -coverprofile=coverage.out -covermode=atomic \
         -coverpkg=github.com/hegeldev/hegel-go \
         ./...
@@ -75,9 +80,9 @@ build-conformance:
 conformance: build-conformance
     #!/usr/bin/env bash
     set -euo pipefail
-    export PATH="$(pwd)/.venv/bin:$PATH"
-    uv pip install --python .venv/bin/python pytest hypothesis > /dev/null 2>&1 || true
-    .venv/bin/python -m pytest tests/conformance/ -v
+    export PATH="$(pwd)/.hegel/venv/bin:$PATH"
+    uv pip install --python .hegel/venv/bin/python pytest pytest-subtests hypothesis > /dev/null 2>&1 || true
+    .hegel/venv/bin/python -m pytest tests/conformance/ -v
 
 # Run lint + docs + test (the full CI check).
 check: lint docs test

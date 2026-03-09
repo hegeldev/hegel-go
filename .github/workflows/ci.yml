@@ -55,6 +55,7 @@ jobs:
   test:
     name: test
     runs-on: ubuntu-latest
+    environment: ci
     permissions:
       contents: read
     steps:
@@ -101,6 +102,7 @@ jobs:
   conformance:
     name: conformance
     runs-on: ubuntu-latest
+    environment: ci
     permissions:
       contents: read
     steps:
@@ -133,6 +135,7 @@ jobs:
     if: github.event_name == 'push' && github.repository == 'hegeldev/hegel-go'
     needs: [lint, test, docs, conformance]
     runs-on: ubuntu-latest
+    environment: release
     permissions:
       contents: write
       checks: read
