@@ -3,6 +3,7 @@ package hegel
 import (
 	"fmt"
 	"math/big"
+	"time"
 )
 
 // --- Built-in generators ---
@@ -186,10 +187,17 @@ func Domains(opts DomainOptions) Generator[string] {
 	}
 }
 
-// Dates returns a Generator that produces ISO 8601 date strings (YYYY-MM-DD).
-func Dates() Generator[string] {
-	return &basicGenerator[string]{
+// Dates returns a Generator that produces time.Time values from ISO 8601 date strings (YYYY-MM-DD).
+func Dates() Generator[time.Time] {
+	return &basicGenerator[time.Time]{
 		schema: map[string]any{"type": "date"},
+		transform: func(a any) time.Time {
+			t, err := time.Parse("2006-01-02", a.(string))
+			if err != nil {
+				panic(fmt.Sprintf("hegel: failed to parse date %q: %v", a, err))
+			}
+			return t
+		},
 	}
 }
 
@@ -200,10 +208,17 @@ func Times() Generator[string] {
 	}
 }
 
-// Datetimes returns a Generator that produces ISO 8601 datetime strings.
-func Datetimes() Generator[string] {
-	return &basicGenerator[string]{
+// Datetimes returns a Generator that produces time.Time values from ISO 8601 datetime strings.
+func Datetimes() Generator[time.Time] {
+	return &basicGenerator[time.Time]{
 		schema: map[string]any{"type": "datetime"},
+		transform: func(a any) time.Time {
+			t, err := time.Parse("2006-01-02T15:04:05", a.(string))
+			if err != nil {
+				panic(fmt.Sprintf("hegel: failed to parse datetime %q: %v", a, err))
+			}
+			return t
+		},
 	}
 }
 

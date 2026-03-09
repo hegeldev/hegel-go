@@ -86,14 +86,14 @@ func TestEmailContainsAtSymbol(t *testing.T) {
 func TestDateParsingRoundtrip(t *testing.T) {
 	hegelBinPath(t)
 	if _err := runHegel(t.Name(), func(s *TestCase) {
-		dateStr := Draw[string](s, Dates())
-		parsed, err := time.Parse("2006-01-02", dateStr)
+		parsed := Draw(s, Dates())
+		dateStr := parsed.Format("2006-01-02")
+		roundTripped, err := time.Parse("2006-01-02", dateStr)
 		if err != nil {
 			panic("date not parseable as YYYY-MM-DD: " + dateStr)
 		}
-		roundTripped := parsed.Format("2006-01-02")
-		if roundTripped != dateStr {
-			panic("date round-trip failed: " + dateStr + " != " + roundTripped)
+		if roundTripped != parsed {
+			panic("date round-trip failed: " + parsed.String() + " != " + roundTripped.String())
 		}
 	}, stderrNoteFn, []Option{WithTestCases(50)}); _err != nil {
 		panic(_err)
