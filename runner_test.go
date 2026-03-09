@@ -812,11 +812,10 @@ func TestRunHegelTestEProtocolModeStartError(t *testing.T) {
 	// Set HEGEL_PROTOCOL_TEST_MODE so RunHegelTestE uses a temp session.
 	t.Setenv("HEGEL_PROTOCOL_TEST_MODE", "empty_test")
 
-	tmp := t.TempDir() // no .venv here
-	t.Chdir(tmp)
-
-	// Save and restore PATH (remove hegel from it).
-	t.Setenv("PATH", "/nonexistent")
+	// Point HEGEL_CMD at a non-existent binary so findHegel() skips
+	// auto-install (which would panic if uv is not available) and
+	// session.start() fails gracefully when exec fails.
+	t.Setenv("HEGEL_CMD", "/nonexistent/hegel")
 
 	err := runHegel(func(_ *TestCase) {}, stderrNoteFn, []Option{WithTestCases(1)})
 	if err == nil {
