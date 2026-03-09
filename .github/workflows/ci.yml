@@ -64,7 +64,7 @@ jobs:
 
       - uses: ./.github/actions/base
         with:
-          ssh-key: ${{ secrets.HEGEL_DEPLOY_KEY }} # zizmor: ignore[secrets-outside-env]
+          ssh-key: ${{ secrets.HEGEL_DEPLOY_KEY }}
 
       - name: Install just
         run: sudo apt-get update && sudo apt-get install -y just
@@ -110,7 +110,7 @@ jobs:
 
       - uses: ./.github/actions/base
         with:
-          ssh-key: ${{ secrets.HEGEL_DEPLOY_KEY }} # zizmor: ignore[secrets-outside-env]
+          ssh-key: ${{ secrets.HEGEL_DEPLOY_KEY }}
 
       - name: Install just
         run: sudo apt-get update && sudo apt-get install -y just
