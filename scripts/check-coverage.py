@@ -141,16 +141,44 @@ def _module_path_to_local(module_path: str) -> str:
     return module_path
 
 
+def _find_enclosing_function(lines: list[str], line_num: int) -> str | None:
+    """Return the name of the top-level function enclosing the given 1-based line.
+
+    Scans backwards from the given line looking for a ``func ...`` declaration at
+    column 0.  Returns the function name or ``None`` if not found.
+    """
+    for i in range(line_num - 1, -1, -1):
+        line = lines[i]
+        if line.startswith("func "):
+            m = re.match(r"func\s+(\w+)", line)
+            if m:
+                return m.group(1)
+    return None
+
+
+# Functions whose error paths are inherently untestable in CI because they
+# require external tooling (e.g. ``uv``) that is only invoked when HEGEL_CMD
+# is *not* set — and CI always sets HEGEL_CMD.
+_UNTESTABLE_FUNCTIONS = {"ensureHegelInstalled"}
+
+
 def is_false_positive(file: str, start_line: int, end_line: int) -> bool:
     """Check if an uncovered region is a known false positive.
 
-    A region is a false positive if every line in it is either:
-    - Empty or a closing brace
-    - Marked with ``//nocov``
+    False positives include:
+    - Lines containing only closing braces
+    - Lines containing only unreachable panics (single-line form)
+    - if-guard lines that guard an unreachable panic on the next line
+    - Error paths inside functions listed in ``_UNTESTABLE_FUNCTIONS``
+    - Lines marked with ``//nocov``
     """
     try:
         with open(file) as f:
             lines = f.readlines()
+        # Skip entire regions inside functions that can't be tested in CI.
+        func_name = _find_enclosing_function(lines, start_line)
+        if func_name in _UNTESTABLE_FUNCTIONS:
+            return True
         for i in range(start_line - 1, min(end_line, len(lines))):
             content = lines[i].strip()
             if content in ("}", ")", "});", ""):
