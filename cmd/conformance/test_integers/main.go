@@ -5,6 +5,7 @@ package main
 
 import (
 	"encoding/json"
+	"math"
 	"os"
 
 	hegel "github.com/antithesishq/hegel-go"
@@ -20,23 +21,20 @@ func main() {
 		}
 	}
 
-	var minPtr, maxPtr *int64
+	minVal := math.MinInt
+	maxVal := math.MaxInt
 	if v, ok := params["min_value"]; ok && v != nil {
-		switch x := v.(type) {
-		case float64:
-			n := int64(x)
-			minPtr = &n
+		if x, ok := v.(float64); ok {
+			minVal = int(x)
 		}
 	}
 	if v, ok := params["max_value"]; ok && v != nil {
-		switch x := v.(type) {
-		case float64:
-			n := int64(x)
-			maxPtr = &n
+		if x, ok := v.(float64); ok {
+			maxVal = int(x)
 		}
 	}
 
-	gen := hegel.IntegersFrom(minPtr, maxPtr)
+	gen := hegel.Integers[int](minVal, maxVal)
 	n := conformance.GetTestCases()
 	hegel.MustRun("conformance_integers", func(s *hegel.TestCase) {
 		val := hegel.Draw(s, gen)

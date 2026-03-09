@@ -15,42 +15,42 @@ import (
 // TestBasicGeneratorFilterReturnsfilteredGenerator verifies that calling Filter
 // on a basicGenerator returns a *filteredGenerator.
 func TestBasicGeneratorFilterReturnsfilteredGenerator(t *testing.T) {
-	g := Integers(0, 100)
-	filtered := Filter(g, func(v int64) bool { return true })
-	if _, ok := filtered.(*filteredGenerator[int64]); !ok {
-		t.Fatalf("Filter(basicGenerator) should return *filteredGenerator[int64], got %T", filtered)
+	g := Integers[int](0, 100)
+	filtered := Filter(g, func(v int) bool { return true })
+	if _, ok := filtered.(*filteredGenerator[int]); !ok {
+		t.Fatalf("Filter(basicGenerator) should return *filteredGenerator[int], got %T", filtered)
 	}
 }
 
 // TestMappedGeneratorFilterReturnsfilteredGenerator verifies that calling Filter
 // on a mappedGenerator returns a *filteredGenerator.
 func TestMappedGeneratorFilterReturnsfilteredGenerator(t *testing.T) {
-	inner := Integers(0, 100)
-	mapped := Map(inner, func(v int64) int64 { return v })
-	filtered := Filter(mapped, func(v int64) bool { return true })
-	if _, ok := filtered.(*filteredGenerator[int64]); !ok {
-		t.Fatalf("Filter(mappedGenerator) should return *filteredGenerator[int64], got %T", filtered)
+	inner := Integers[int](0, 100)
+	mapped := Map(inner, func(v int) int { return v })
+	filtered := Filter(mapped, func(v int) bool { return true })
+	if _, ok := filtered.(*filteredGenerator[int]); !ok {
+		t.Fatalf("Filter(mappedGenerator) should return *filteredGenerator[int], got %T", filtered)
 	}
 }
 
 // TestFilteredGeneratorFilterChainsfilteredGenerators verifies that calling Filter
 // on a filteredGenerator returns another *filteredGenerator (chained filtering).
 func TestFilteredGeneratorFilterChainsfilteredGenerators(t *testing.T) {
-	g := Integers(0, 100)
-	fg := Filter(g, func(v int64) bool { return true })
-	fg2 := Filter(fg, func(v int64) bool { return true })
-	if _, ok := fg2.(*filteredGenerator[int64]); !ok {
-		t.Fatalf("Filter(filteredGenerator) should return *filteredGenerator[int64], got %T", fg2)
+	g := Integers[int](0, 100)
+	fg := Filter(g, func(v int) bool { return true })
+	fg2 := Filter(fg, func(v int) bool { return true })
+	if _, ok := fg2.(*filteredGenerator[int]); !ok {
+		t.Fatalf("Filter(filteredGenerator) should return *filteredGenerator[int], got %T", fg2)
 	}
 }
 
 // TestFilteredGeneratorMapReturnsmappedGenerator verifies that calling Map
 // on a filteredGenerator returns a *mappedGenerator.
 func TestFilteredGeneratorMapReturnsmappedGenerator(t *testing.T) {
-	g := Integers(0, 100)
-	fg := Filter(g, func(v int64) bool { return true })
-	mapped := Map(fg, func(v int64) int64 { return v })
-	if _, ok := mapped.(*mappedGenerator[int64, int64]); !ok {
+	g := Integers[int](0, 100)
+	fg := Filter(g, func(v int) bool { return true })
+	mapped := Map(fg, func(v int) int { return v })
+	if _, ok := mapped.(*mappedGenerator[int, int]); !ok {
 		t.Fatalf("Map(filteredGenerator) should return *mappedGenerator, got %T", mapped)
 	}
 }
@@ -64,10 +64,10 @@ func TestFilteredGeneratorMapReturnsmappedGenerator(t *testing.T) {
 func TestCompositeListGeneratorFilterReturnsfilteredGenerator(t *testing.T) {
 	// compositeListGenerator is produced when elements are non-basic.
 	// Filter produces a filteredGenerator (non-basic), forcing Lists into composite path.
-	nonBasic := Filter(Integers(0, 10), func(v int64) bool { return true })
+	nonBasic := Filter(Integers[int](0, 10), func(v int) bool { return true })
 	listGen := Lists(nonBasic, ListsOptions{MinSize: 0, MaxSize: 5})
-	filtered := Filter(listGen, func(v []int64) bool { return true })
-	if _, ok := filtered.(*filteredGenerator[[]int64]); !ok {
+	filtered := Filter(listGen, func(v []int) bool { return true })
+	if _, ok := filtered.(*filteredGenerator[[]int]); !ok {
 		t.Fatalf("Filter(compositeListGenerator) should return *filteredGenerator, got %T", filtered)
 	}
 }
@@ -77,10 +77,10 @@ func TestCompositeListGeneratorFilterReturnsfilteredGenerator(t *testing.T) {
 func TestCompositeDictGeneratorFilterReturnsfilteredGenerator(t *testing.T) {
 	// compositeDictGenerator is produced when key or value is non-basic.
 	// Filter produces a filteredGenerator (non-basic), forcing Dicts into composite path.
-	nonBasic := Filter(Integers(0, 10), func(v int64) bool { return true })
-	dictGen := Dicts(nonBasic, Integers(0, 100), DictOptions{MinSize: 0})
-	filtered := Filter(dictGen, func(v map[int64]int64) bool { return true })
-	if _, ok := filtered.(*filteredGenerator[map[int64]int64]); !ok {
+	nonBasic := Filter(Integers[int](0, 10), func(v int) bool { return true })
+	dictGen := Dicts(nonBasic, Integers[int](0, 100), DictOptions{MinSize: 0})
+	filtered := Filter(dictGen, func(v map[int]int) bool { return true })
+	if _, ok := filtered.(*filteredGenerator[map[int]int]); !ok {
 		t.Fatalf("Filter(compositeDictGenerator) should return *filteredGenerator, got %T", filtered)
 	}
 }
@@ -90,10 +90,10 @@ func TestCompositeDictGeneratorFilterReturnsfilteredGenerator(t *testing.T) {
 func TestCompositeOneOfGeneratorFilterReturnsfilteredGenerator(t *testing.T) {
 	// compositeOneOfGenerator is produced when any branch is non-basic.
 	// Filter produces a filteredGenerator (non-basic), forcing OneOf into composite path.
-	nonBasic := Filter(Integers(0, 10), func(v int64) bool { return true })
-	oneOf := OneOf[int64](nonBasic, Integers(0, 5))
-	filtered := Filter(oneOf, func(v int64) bool { return true })
-	if _, ok := filtered.(*filteredGenerator[int64]); !ok {
+	nonBasic := Filter(Integers[int](0, 10), func(v int) bool { return true })
+	oneOf := OneOf[int](nonBasic, Integers[int](0, 5))
+	filtered := Filter(oneOf, func(v int) bool { return true })
+	if _, ok := filtered.(*filteredGenerator[int]); !ok {
 		t.Fatalf("Filter(compositeOneOfGenerator) should return *filteredGenerator, got %T", filtered)
 	}
 }
@@ -101,11 +101,11 @@ func TestCompositeOneOfGeneratorFilterReturnsfilteredGenerator(t *testing.T) {
 // TestFlatMappedGeneratorFilterReturnsfilteredGenerator verifies that calling
 // Filter on a flatMappedGenerator returns a *filteredGenerator.
 func TestFlatMappedGeneratorFilterReturnsfilteredGenerator(t *testing.T) {
-	flatGen := FlatMap(Integers(1, 5), func(v int64) Generator[int64] {
-		return Integers(0, v)
+	flatGen := FlatMap(Integers[int](1, 5), func(v int) Generator[int] {
+		return Integers[int](0, v)
 	})
-	filtered := Filter(flatGen, func(v int64) bool { return true })
-	if _, ok := filtered.(*filteredGenerator[int64]); !ok {
+	filtered := Filter(flatGen, func(v int) bool { return true })
+	if _, ok := filtered.(*filteredGenerator[int]); !ok {
 		t.Fatalf("Filter(flatMappedGenerator) should return *filteredGenerator, got %T", filtered)
 	}
 }
@@ -119,7 +119,7 @@ func TestFlatMappedGeneratorFilterReturnsfilteredGenerator(t *testing.T) {
 func TestFilteredGeneratorGeneratePredicatePassesFirstTry(t *testing.T) {
 	hegelBinPath(t)
 	// Filter that always passes: every value is accepted on first try.
-	gen := Filter(Integers(0, 100), func(v int64) bool { return true })
+	gen := Filter(Integers[int](0, 100), func(v int) bool { return true })
 	if _err := runHegel(t.Name(), func(s *TestCase) {
 		n := gen.draw(s)
 		if n < 0 || n > 100 {
@@ -135,7 +135,7 @@ func TestFilteredGeneratorGeneratePredicatePassesFirstTry(t *testing.T) {
 func TestFilteredGeneratorGenerateWithRealPredicate(t *testing.T) {
 	hegelBinPath(t)
 	// Filter integers [0,50] keeping only even ones.
-	gen := Filter(Integers(0, 50), func(v int64) bool {
+	gen := Filter(Integers[int](0, 50), func(v int) bool {
 		return v%2 == 0
 	})
 	if _err := runHegel(t.Name(), func(s *TestCase) {
@@ -233,8 +233,8 @@ func TestFilteredGeneratorGenerateChainedFilters(t *testing.T) {
 	// First filter: even numbers; second filter: divisible by 4.
 	// Combined: only multiples of 4.
 	gen := Filter(
-		Filter(Integers(0, 100), func(v int64) bool { return v%2 == 0 }),
-		func(v int64) bool { return v%4 == 0 },
+		Filter(Integers[int](0, 100), func(v int) bool { return v%2 == 0 }),
+		func(v int) bool { return v%4 == 0 },
 	)
 	if _err := runHegel(t.Name(), func(s *TestCase) {
 		n := gen.draw(s)
@@ -252,10 +252,10 @@ func TestFilteredGeneratorGenerateThenMap(t *testing.T) {
 	hegelBinPath(t)
 	// Filter odd numbers from [1,20], then multiply by 10.
 	gen := Map(
-		Filter(Integers(1, 20), func(v int64) bool { return v%2 != 0 }),
-		func(v int64) int64 { return v * 10 },
+		Filter(Integers[int](1, 20), func(v int) bool { return v%2 != 0 }),
+		func(v int) int { return v * 10 },
 	)
-	if _, ok := gen.(*mappedGenerator[int64, int64]); !ok {
+	if _, ok := gen.(*mappedGenerator[int, int]); !ok {
 		t.Fatalf("Map(Filter(...)) should return *mappedGenerator, got %T", gen)
 	}
 	if _err := runHegel(t.Name(), func(s *TestCase) {

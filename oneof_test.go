@@ -197,8 +197,8 @@ func TestOneOfPath2TransformShortTuple(t *testing.T) {
 // TestOneOfPath2E2E verifies that Path 2 generates correctly through the real server.
 func TestOneOfPath2E2E(t *testing.T) {
 	hegelBinPath(t)
-	gen1 := Map(Just(int64(1)), func(v int64) int64 { return v * 2 })
-	gen2 := Map(Just(int64(2)), func(v int64) int64 { return v * 3 })
+	gen1 := Map(Just(int(1)), func(v int) int { return v * 2 })
+	gen2 := Map(Just(int(2)), func(v int) int { return v * 3 })
 	combined := OneOf(gen1, gen2)
 
 	if _err := runHegel(t.Name(), func(s *TestCase) {
@@ -220,10 +220,10 @@ func TestOneOfPath2E2E(t *testing.T) {
 func TestOneOfPath3IsComposite(t *testing.T) {
 	// A mappedGenerator is not a basicGenerator.
 	nonBasic := &mappedGenerator[int64, int64]{
-		inner: Integers(0, 10),
+		inner: Integers[int64](0, 10),
 		fn:    func(v int64) int64 { return v },
 	}
-	basic := Integers(0, 10)
+	basic := Integers[int64](0, 10)
 	combined := OneOf[int64](nonBasic, basic)
 	if _, ok := combined.(*compositeOneOfGenerator[int64]); !ok {
 		t.Fatalf("OneOf with non-basic should return *compositeOneOfGenerator[int64], got %T", combined)
@@ -233,8 +233,8 @@ func TestOneOfPath3IsComposite(t *testing.T) {
 // TestOneOfPath3MapReturnsMapGen verifies that mapping a compositeOneOfGenerator
 // returns a mappedGenerator.
 func TestOneOfPath3MapReturnsMapGen(t *testing.T) {
-	nonBasic := &mappedGenerator[int64, int64]{inner: Integers(0, 10), fn: func(v int64) int64 { return v }}
-	combined := OneOf[int64](nonBasic, Integers(0, 5))
+	nonBasic := &mappedGenerator[int64, int64]{inner: Integers[int64](0, 10), fn: func(v int64) int64 { return v }}
+	combined := OneOf[int64](nonBasic, Integers[int64](0, 5))
 	mapped := Map(combined, func(v int64) int64 { return v })
 	if _, ok := mapped.(*mappedGenerator[int64, int64]); !ok {
 		t.Fatalf("Map(compositeOneOfGenerator) should return *mappedGenerator, got %T", mapped)
@@ -246,13 +246,13 @@ func TestOneOfPath3MapReturnsMapGen(t *testing.T) {
 func TestOneOfPath3E2E(t *testing.T) {
 	hegelBinPath(t)
 	// nonBasic: a mappedGenerator (not a *basicGenerator)
-	nonBasic := &mappedGenerator[int64, int64]{
-		inner: Integers(0, 1000),
-		fn:    func(v int64) int64 { return v }, // identity, but still a mappedGenerator
+	nonBasic := &mappedGenerator[int, int]{
+		inner: Integers[int](0, 1000),
+		fn:    func(v int) int { return v }, // identity, but still a mappedGenerator
 	}
 	text := Text(1, 5)
 	// These have different types so we need to unify. Use any.
-	nonBasicAny := Map[int64, any](nonBasic, func(v int64) any { return v })
+	nonBasicAny := Map[int, any](nonBasic, func(v int) any { return v })
 	textAny := Map[string, any](text, func(v string) any { return v })
 	combined := OneOf[any](nonBasicAny, textAny)
 
@@ -261,7 +261,7 @@ func TestOneOfPath3E2E(t *testing.T) {
 	if _err := runHegel(t.Name(), func(s *TestCase) {
 		v := combined.draw(s)
 		switch v.(type) {
-		case int64:
+		case int:
 			sawInt = true
 		case string:
 			sawStr = true
@@ -281,8 +281,8 @@ func TestOneOfPath3E2E(t *testing.T) {
 
 // TestOneOfPath3UnitFakeServer verifies the compositeOneOfGenerator through a fake server.
 func TestOneOfPath3UnitFakeServer(t *testing.T) {
-	nonBasic := &mappedGenerator[int64, int64]{inner: Integers(0, 100), fn: func(v int64) int64 { return v }}
-	gen := &compositeOneOfGenerator[int64]{generators: []Generator[int64]{nonBasic, Integers(0, 5)}}
+	nonBasic := &mappedGenerator[int64, int64]{inner: Integers[int64](0, 100), fn: func(v int64) int64 { return v }}
+	gen := &compositeOneOfGenerator[int64]{generators: []Generator[int64]{nonBasic, Integers[int64](0, 5)}}
 
 	// server side: handle ONE_OF span start + int generate for index + inner generate + stop_span
 	clientConn := fakeServerConn(t, func(serverConn *connection) {
@@ -354,7 +354,7 @@ func TestOneOfPanicsWithFewerThanTwo(t *testing.T) {
 			t.Error("OneOf with 1 generator should panic")
 		}
 	}()
-	OneOf(Integers(0, 10))
+	OneOf(Integers[int64](0, 10))
 }
 
 // =============================================================================
@@ -363,7 +363,7 @@ func TestOneOfPanicsWithFewerThanTwo(t *testing.T) {
 
 // TestOptionalSchema verifies that Optional returns an optionalGenerator.
 func TestOptionalSchema(t *testing.T) {
-	g := Optional(Integers(0, 10))
+	g := Optional(Integers[int64](0, 10))
 	if _, ok := g.(*optionalGenerator[int64]); !ok {
 		t.Fatalf("Optional(Integers) should return *optionalGenerator[int64], got %T", g)
 	}
@@ -374,7 +374,7 @@ func TestOptionalE2E(t *testing.T) {
 	hegelBinPath(t)
 	sawNil := false
 	sawInt := false
-	g := Optional(Integers(0, 100))
+	g := Optional(Integers[int](0, 100))
 	if _err := runHegel(t.Name(), func(s *TestCase) {
 		v := g.draw(s)
 		if v == nil {
@@ -400,10 +400,10 @@ func TestOptionalE2E(t *testing.T) {
 // works correctly (optionalGenerator handles any inner generator).
 func TestOptionalNonBasicE2E(t *testing.T) {
 	hegelBinPath(t)
-	nonBasic := &mappedGenerator[int64, int64]{inner: Integers(0, 10), fn: func(v int64) int64 { return v }}
-	g := Optional[int64](nonBasic)
-	if _, ok := g.(*optionalGenerator[int64]); !ok {
-		t.Fatalf("Optional(nonBasic) should return *optionalGenerator[int64], got %T", g)
+	nonBasic := &mappedGenerator[int, int]{inner: Integers[int](0, 10), fn: func(v int) int { return v }}
+	g := Optional[int](nonBasic)
+	if _, ok := g.(*optionalGenerator[int]); !ok {
+		t.Fatalf("Optional(nonBasic) should return *optionalGenerator[int], got %T", g)
 	}
 	sawNil := false
 	sawVal := false
@@ -527,10 +527,10 @@ func TestIPAddressesDefaultE2E(t *testing.T) {
 // generators produces correct values.
 func TestOneOfWithMapMixedTypesE2E(t *testing.T) {
 	hegelBinPath(t)
-	// Integers(0,10).Map(*2): always even numbers; Just(int64(0)): always 0
+	// Integers[int](0,10).Map(*2): always even numbers; Just(int(0)): always 0
 	gen := OneOf(
-		Map(Integers(0, 10), func(v int64) int64 { return v * 2 }),
-		Just(int64(0)),
+		Map(Integers[int](0, 10), func(v int) int { return v * 2 }),
+		Just(int(0)),
 	)
 	if _err := runHegel(t.Name(), func(s *TestCase) {
 		v := gen.draw(s)
@@ -578,8 +578,8 @@ func TestCompositeOneOfGenerateErrorResponse(t *testing.T) {
 	hegelBinPath(t)
 	t.Setenv("HEGEL_PROTOCOL_TEST_MODE", "error_response")
 	// Use a compositeOneOfGenerator (non-basic branches -> Path 3).
-	nonBasic1 := &mappedGenerator[int64, int64]{inner: Integers(0, 5), fn: func(v int64) int64 { return v }}
-	nonBasic2 := &mappedGenerator[int64, int64]{inner: Integers(6, 10), fn: func(v int64) int64 { return v }}
+	nonBasic1 := &mappedGenerator[int64, int64]{inner: Integers[int64](0, 5), fn: func(v int64) int64 { return v }}
+	nonBasic2 := &mappedGenerator[int64, int64]{inner: Integers[int64](6, 10), fn: func(v int64) int64 { return v }}
 	gen := &compositeOneOfGenerator[int64]{generators: []Generator[int64]{nonBasic1, nonBasic2}}
 	err := runHegel(t.Name(), func(s *TestCase) {
 		_ = gen.draw(s) // should panic with requestError

@@ -2,6 +2,7 @@ package hegel
 
 import (
 	"fmt"
+	"math"
 	"math/big"
 	"testing"
 	"time"
@@ -727,7 +728,7 @@ func TestIntegersGeneratorHappyPath(t *testing.T) {
 	hegelBinPath(t)
 	var vals []int64
 	if _err := runHegel("integers_happy", func(s *TestCase) {
-		v := Draw[int64](s, Integers(0, 100))
+		v := Draw[int64](s, Integers[int64](0, 100))
 		vals = append(vals, v)
 		if v < 0 || v > 100 {
 			panic(fmt.Sprintf("out of range: %d", v))
@@ -743,7 +744,7 @@ func TestIntegersGeneratorHappyPath(t *testing.T) {
 // --- Integers: schema is correct ---
 
 func TestIntegersSchema(t *testing.T) {
-	g := Integers(-5, 5)
+	g := Integers[int64](-5, 5)
 	bg, ok := g.(*basicGenerator[int64])
 	if !ok {
 		t.Fatalf("Integers should return *basicGenerator[int64]")
@@ -758,22 +759,6 @@ func TestIntegersSchema(t *testing.T) {
 	}
 	if bg.schema["type"] != "integer" {
 		t.Errorf("type: expected integer, got %v", bg.schema["type"])
-	}
-}
-
-// --- Integers: nil min/max omitted from schema ---
-
-func TestIntegersNoBounds(t *testing.T) {
-	g := IntegersUnbounded()
-	bg, ok := g.(*basicGenerator[int64])
-	if !ok {
-		t.Fatalf("IntegersUnbounded should return *basicGenerator[int64]")
-	}
-	if _, hasMin := bg.schema["min_value"]; hasMin {
-		t.Error("min_value should not be present when no min bound given")
-	}
-	if _, hasMax := bg.schema["max_value"]; hasMax {
-		t.Error("max_value should not be present when no max bound given")
 	}
 }
 
@@ -1028,19 +1013,19 @@ func TestGeneratorMapOnNonBasic(t *testing.T) {
 // Map generator E2E tests
 // =============================================================================
 
-// TestMapBasicGeneratorE2E verifies that mapping Integers(0,100) by doubling
+// TestMapBasicGeneratorE2E verifies that mapping Integers[int](0,100) by doubling
 // always produces even values in [0, 200], and the result is still a basicGenerator.
 func TestMapBasicGeneratorE2E(t *testing.T) {
 	hegelBinPath(t)
-	gen := Map[int64, int64](Integers(0, 100), func(v int64) int64 {
+	gen := Map[int, int](Integers[int](0, 100), func(v int) int {
 		return v * 2
 	})
 	// Map on basic generator must preserve basicGenerator type.
-	if _, ok := gen.(*basicGenerator[int64]); !ok {
-		t.Fatalf("Map on basicGenerator should return *basicGenerator[int64], got %T", gen)
+	if _, ok := gen.(*basicGenerator[int]); !ok {
+		t.Fatalf("Map on basicGenerator should return *basicGenerator[int], got %T", gen)
 	}
 	if _err := runHegel(t.Name(), func(s *TestCase) {
-		n := Draw[int64](s, gen)
+		n := Draw[int](s, gen)
 		if n%2 != 0 {
 			panic(fmt.Sprintf("map(x*2): expected even number, got %d", n))
 		}
@@ -1054,19 +1039,19 @@ func TestMapBasicGeneratorE2E(t *testing.T) {
 
 // TestMapChainedBasicGeneratorE2E verifies that chaining two maps on a basicGenerator
 // preserves the basicGenerator type and composes the transforms correctly.
-// Integers(0,100).Map(x+1).Map(x*2): result must be even, in [2, 202].
+// Integers[int](0,100).Map(x+1).Map(x*2): result must be even, in [2, 202].
 func TestMapChainedBasicGeneratorE2E(t *testing.T) {
 	hegelBinPath(t)
-	gen := Map[int64, int64](
-		Map[int64, int64](Integers(0, 100), func(v int64) int64 { return v + 1 }),
-		func(v int64) int64 { return v * 2 },
+	gen := Map[int, int](
+		Map[int, int](Integers[int](0, 100), func(v int) int { return v + 1 }),
+		func(v int) int { return v * 2 },
 	)
 	// Both chained maps should still return a basicGenerator (schema preserved).
-	if _, ok := gen.(*basicGenerator[int64]); !ok {
-		t.Fatalf("chained Map on basicGenerator should return *basicGenerator[int64], got %T", gen)
+	if _, ok := gen.(*basicGenerator[int]); !ok {
+		t.Fatalf("chained Map on basicGenerator should return *basicGenerator[int], got %T", gen)
 	}
 	if _err := runHegel(t.Name(), func(s *TestCase) {
-		n := Draw[int64](s, gen)
+		n := Draw[int](s, gen)
 		// (x+1)*2 is always even. x in [0,100] -> result in [2, 202].
 		if n%2 != 0 {
 			panic(fmt.Sprintf("map(x+1).map(x*2): expected even, got %d", n))
@@ -1085,20 +1070,20 @@ func TestMapChainedBasicGeneratorE2E(t *testing.T) {
 func TestMapNonBasicGeneratorE2E(t *testing.T) {
 	hegelBinPath(t)
 	// Create a non-basic generator by wrapping a basicGenerator in mappedGenerator.
-	inner := Integers(1, 5)
-	nonBasic := &mappedGenerator[int64, int64]{
+	inner := Integers[int](1, 5)
+	nonBasic := &mappedGenerator[int, int]{
 		inner: inner,
-		fn:    func(v int64) int64 { return v }, // identity
+		fn:    func(v int) int { return v }, // identity
 	}
-	gen := Map[int64, int64](nonBasic, func(v int64) int64 {
+	gen := Map[int, int](nonBasic, func(v int) int {
 		return v * 3
 	})
-	if _, ok := gen.(*mappedGenerator[int64, int64]); !ok {
+	if _, ok := gen.(*mappedGenerator[int, int]); !ok {
 		t.Fatalf("Map on non-basic Generator should return *mappedGenerator, got %T", gen)
 	}
 	if _err := runHegel(t.Name(), func(s *TestCase) {
-		n := Draw[int64](s, gen)
-		// inner is Integers(1,5)*1, map(*3): result is in {3, 6, 9, 12, 15}
+		n := Draw[int](s, gen)
+		// inner is Integers[int](1,5)*1, map(*3): result is in {3, 6, 9, 12, 15}
 		if n < 3 || n > 15 || n%3 != 0 {
 			panic(fmt.Sprintf("map(*3) on [1,5]: expected multiple of 3 in [3,15], got %d", n))
 		}
@@ -1109,7 +1094,7 @@ func TestMapNonBasicGeneratorE2E(t *testing.T) {
 
 // TestMapSchemaPreservedUnit verifies unit-level schema properties of Map on basicGenerator.
 func TestMapSchemaPreservedUnit(t *testing.T) {
-	base := Integers(0, 100)
+	base := Integers[int64](0, 100)
 	mapped := Map[int64, int64](base, func(v int64) int64 { return v })
 	bg, ok := mapped.(*basicGenerator[int64])
 	if !ok {
@@ -1168,7 +1153,7 @@ func TestMapSchemaPreservedUnit(t *testing.T) {
 // TestFilteredGeneratorFromBasicIsNotBasic verifies that Filter on a basicGenerator
 // returns a filteredGenerator (not a basicGenerator).
 func TestFilteredGeneratorFromBasicIsNotBasic(t *testing.T) {
-	g := Filter[int64](Integers(0, 100), func(v int64) bool { return true })
+	g := Filter[int64](Integers[int64](0, 100), func(v int64) bool { return true })
 	if _, ok := g.(*filteredGenerator[int64]); !ok {
 		t.Fatalf("Filter on basicGenerator should return *filteredGenerator[int64], got %T", g)
 	}
@@ -1178,7 +1163,7 @@ func TestFilteredGeneratorFromBasicIsNotBasic(t *testing.T) {
 // returns another filteredGenerator.
 func TestFilteredGeneratorFilterMethod(t *testing.T) {
 	g := Filter[int64](
-		Filter[int64](Integers(0, 100), func(v int64) bool { return true }),
+		Filter[int64](Integers[int64](0, 100), func(v int64) bool { return true }),
 		func(v int64) bool { return true },
 	)
 	if _, ok := g.(*filteredGenerator[int64]); !ok {
@@ -1189,7 +1174,7 @@ func TestFilteredGeneratorFilterMethod(t *testing.T) {
 // TestFilteredGeneratorMapMethod verifies that calling Map on a filteredGenerator
 // returns a mappedGenerator.
 func TestFilteredGeneratorMapMethod(t *testing.T) {
-	g := Filter[int64](Integers(0, 100), func(v int64) bool { return true })
+	g := Filter[int64](Integers[int64](0, 100), func(v int64) bool { return true })
 	mapped := Map[int64, int64](g, func(v int64) int64 { return v })
 	if _, ok := mapped.(*mappedGenerator[int64, int64]); !ok {
 		t.Fatalf("Map on filteredGenerator should return *mappedGenerator, got %T", mapped)
@@ -1411,10 +1396,10 @@ func TestFilteredGeneratorPartialAttemptsSucceed(t *testing.T) {
 func TestFilteredGeneratorE2EAlwaysPasses(t *testing.T) {
 	hegelBinPath(t)
 	if _err := runHegel(t.Name(), func(s *TestCase) {
-		gen := Filter[int64](Integers(0, 100), func(v int64) bool {
+		gen := Filter[int](Integers[int](0, 100), func(v int) bool {
 			return v > 50
 		})
-		n := Draw[int64](s, gen)
+		n := Draw[int](s, gen)
 		if n <= 50 {
 			panic(fmt.Sprintf("filter(>50): expected n>50, got %d", n))
 		}
@@ -1427,10 +1412,10 @@ func TestFilteredGeneratorE2EAlwaysPasses(t *testing.T) {
 func TestFilteredGeneratorE2EEvenNumbers(t *testing.T) {
 	hegelBinPath(t)
 	if _err := runHegel(t.Name(), func(s *TestCase) {
-		gen := Filter[int64](Integers(0, 10), func(v int64) bool {
+		gen := Filter[int](Integers[int](0, 10), func(v int) bool {
 			return v%2 == 0
 		})
-		n := Draw[int64](s, gen)
+		n := Draw[int](s, gen)
 		if n%2 != 0 {
 			panic(fmt.Sprintf("filter(even): expected even, got %d", n))
 		}
@@ -1442,31 +1427,31 @@ func TestFilteredGeneratorE2EEvenNumbers(t *testing.T) {
 // TestFilterOnNonBasicGenerators verifies that Filter works on non-basic generators.
 func TestFilterOnNonBasicGenerators(t *testing.T) {
 	// mappedGenerator.Filter
-	mg := &mappedGenerator[int64, int64]{inner: Integers(0, 5), fn: func(v int64) int64 { return v }}
+	mg := &mappedGenerator[int64, int64]{inner: Integers[int64](0, 5), fn: func(v int64) int64 { return v }}
 	fg := Filter[int64](mg, func(v int64) bool { return true })
 	if _, ok := fg.(*filteredGenerator[int64]); !ok {
 		t.Errorf("Filter on mappedGenerator should return *filteredGenerator, got %T", fg)
 	}
 	// compositeListGenerator.Filter
-	cl := &compositeListGenerator[int64]{elements: Integers(0, 5), minSize: 0, maxSize: 3}
+	cl := &compositeListGenerator[int64]{elements: Integers[int64](0, 5), minSize: 0, maxSize: 3}
 	fg2 := Filter[[]int64](cl, func(v []int64) bool { return true })
 	if _, ok := fg2.(*filteredGenerator[[]int64]); !ok {
 		t.Errorf("Filter on compositeListGenerator should return *filteredGenerator, got %T", fg2)
 	}
 	// compositeDictGenerator.Filter
-	cd := &compositeDictGenerator[int64, int64]{keys: Integers(0, 5), values: Integers(0, 5), minSize: 0}
+	cd := &compositeDictGenerator[int64, int64]{keys: Integers[int64](0, 5), values: Integers[int64](0, 5), minSize: 0}
 	fg3 := Filter[map[int64]int64](cd, func(v map[int64]int64) bool { return true })
 	if _, ok := fg3.(*filteredGenerator[map[int64]int64]); !ok {
 		t.Errorf("Filter on compositeDictGenerator should return *filteredGenerator, got %T", fg3)
 	}
 	// compositeOneOfGenerator.Filter
-	co := &compositeOneOfGenerator[int64]{generators: []Generator[int64]{Integers(0, 5), Integers(6, 10)}}
+	co := &compositeOneOfGenerator[int64]{generators: []Generator[int64]{Integers[int64](0, 5), Integers[int64](6, 10)}}
 	fg4 := Filter[int64](co, func(v int64) bool { return true })
 	if _, ok := fg4.(*filteredGenerator[int64]); !ok {
 		t.Errorf("Filter on compositeOneOfGenerator should return *filteredGenerator, got %T", fg4)
 	}
 	// flatMappedGenerator.Filter
-	fm := &flatMappedGenerator[int64, int64]{source: Integers(0, 5), f: func(v int64) Generator[int64] { return Integers(0, 5) }}
+	fm := &flatMappedGenerator[int64, int64]{source: Integers[int64](0, 5), f: func(v int64) Generator[int64] { return Integers[int64](0, 5) }}
 	fg5 := Filter[int64](fm, func(v int64) bool { return true })
 	if _, ok := fg5.(*filteredGenerator[int64]); !ok {
 		t.Errorf("Filter on flatMappedGenerator should return *filteredGenerator, got %T", fg5)
@@ -1568,48 +1553,6 @@ func TestBinarySchemaNoMax(t *testing.T) {
 	bg := g.(*basicGenerator[[]byte])
 	if _, hasMax := bg.schema["max_size"]; hasMax {
 		t.Error("max_size should not be present when maxSize < 0")
-	}
-}
-
-// TestIntegersFromSchema verifies that IntegersFrom produces the correct schema.
-func TestIntegersFromSchema(t *testing.T) {
-	minV := int64(-10)
-	maxV := int64(10)
-	g := IntegersFrom(&minV, &maxV)
-	bg, ok := g.(*basicGenerator[int64])
-	if !ok {
-		t.Fatalf("IntegersFrom should return *basicGenerator[int64], got %T", g)
-	}
-	if bg.schema["type"] != "integer" {
-		t.Errorf("type: expected 'integer', got %v", bg.schema["type"])
-	}
-	minVal := bg.schema["min_value"].(int64)
-	maxVal := bg.schema["max_value"].(int64)
-	if minVal != -10 {
-		t.Errorf("min_value: expected -10, got %d", minVal)
-	}
-	if maxVal != 10 {
-		t.Errorf("max_value: expected 10, got %d", maxVal)
-	}
-}
-
-// TestIntegersFromSchemaOnlyMin verifies that IntegersFrom with only a min bound omits max_value.
-func TestIntegersFromSchemaOnlyMin(t *testing.T) {
-	minV := int64(5)
-	g := IntegersFrom(&minV, nil)
-	bg := g.(*basicGenerator[int64])
-	if _, hasMax := bg.schema["max_value"]; hasMax {
-		t.Error("max_value should not be present when maxVal is nil")
-	}
-}
-
-// TestIntegersFromSchemaOnlyMax verifies that IntegersFrom with only a max bound omits min_value.
-func TestIntegersFromSchemaOnlyMax(t *testing.T) {
-	maxV := int64(99)
-	g := IntegersFrom(nil, &maxV)
-	bg := g.(*basicGenerator[int64])
-	if _, hasMin := bg.schema["min_value"]; hasMin {
-		t.Error("min_value should not be present when minVal is nil")
 	}
 }
 
@@ -1715,8 +1658,8 @@ func TestFloatsSchemaExcludeBounds(t *testing.T) {
 
 // TestFlatMappedGeneratorIsNotBasic verifies that FlatMap returns a *flatMappedGenerator (not basicGenerator).
 func TestFlatMappedGeneratorIsNotBasic(t *testing.T) {
-	gen := FlatMap[int64, int64](IntegersUnbounded(), func(v int64) Generator[int64] {
-		return IntegersUnbounded()
+	gen := FlatMap[int64, int64](Integers[int64](math.MinInt64, math.MaxInt64), func(v int64) Generator[int64] {
+		return Integers[int64](math.MinInt64, math.MaxInt64)
 	})
 	if _, ok := gen.(*flatMappedGenerator[int64, int64]); !ok {
 		t.Fatalf("FlatMap should return *flatMappedGenerator, got %T", gen)
@@ -1729,8 +1672,8 @@ func TestFlatMappedGeneratorIsNotBasic(t *testing.T) {
 
 // TestFlatMappedGeneratorMapReturnsMapped verifies that Map on flatMappedGenerator returns a mappedGenerator.
 func TestFlatMappedGeneratorMapReturnsMapped(t *testing.T) {
-	gen := FlatMap[int64, int64](Integers(1, 5), func(v int64) Generator[int64] {
-		return Integers(0, 10)
+	gen := FlatMap[int64, int64](Integers[int64](1, 5), func(v int64) Generator[int64] {
+		return Integers[int64](0, 10)
 	})
 	mapped := Map[int64, int64](gen, func(v int64) int64 { return v })
 	if _, ok := mapped.(*mappedGenerator[int64, int64]); !ok {
@@ -1782,8 +1725,8 @@ func TestFlatMappedGeneratorGenerate(t *testing.T) {
 	var gotVal int64
 	err := cli.runTest("flatmap_protocol", func(s *TestCase) {
 		gen := FlatMap[int64, int64](
-			Integers(0, 100),
-			func(v int64) Generator[int64] { return Integers(0, 100) },
+			Integers[int64](0, 100),
+			func(v int64) Generator[int64] { return Integers[int64](0, 100) },
 		)
 		gotVal = gen.draw(s)
 	}, runOptions{testCases: 1}, stderrNoteFn)
@@ -1853,7 +1796,7 @@ func TestFlatMappedGeneratorStartSpanLabel(t *testing.T) {
 
 	cli := newClient(clientConn)
 	err := cli.runTest("flatmap_label", func(s *TestCase) {
-		gen := FlatMap[int64, int64](Integers(0, 10), func(v int64) Generator[int64] { return Integers(0, 10) })
+		gen := FlatMap[int64, int64](Integers[int64](0, 10), func(v int64) Generator[int64] { return Integers[int64](0, 10) })
 		_ = gen.draw(s)
 	}, runOptions{testCases: 1}, stderrNoteFn)
 	if err != nil {
@@ -1868,8 +1811,8 @@ func TestFlatMappedGeneratorStartSpanLabel(t *testing.T) {
 // integers(1,5).flat_map(n => text(min=n, max=n)) always produces text of length in [1,5].
 func TestFlatMappedGeneratorE2E(t *testing.T) {
 	hegelBinPath(t)
-	gen := FlatMap[int64, string](Integers(1, 5), func(v int64) Generator[string] {
-		return Text(int(v), int(v)) // exact length = n
+	gen := FlatMap[int, string](Integers[int](1, 5), func(v int) Generator[string] {
+		return Text(v, v) // exact length = n
 	})
 	if _err := runHegel(t.Name(), func(s *TestCase) {
 		v := Draw[string](s, gen)
@@ -1888,9 +1831,9 @@ func TestFlatMappedGeneratorE2E(t *testing.T) {
 // Every list must have length in [2,4] and all elements must be in [0,100].
 func TestFlatMappedGeneratorDependency(t *testing.T) {
 	hegelBinPath(t)
-	gen := FlatMap[int64, []int64](Integers(2, 4), func(v int64) Generator[[]int64] {
+	gen := FlatMap[int64, []int64](Integers[int64](2, 4), func(v int64) Generator[[]int64] {
 		sz := int(v)
-		return Lists[int64](Integers(0, 100), ListsOptions{MinSize: sz, MaxSize: sz})
+		return Lists[int64](Integers[int64](0, 100), ListsOptions{MinSize: sz, MaxSize: sz})
 	})
 	if _err := runHegel(t.Name(), func(s *TestCase) {
 		slice := Draw[[]int64](s, gen)
@@ -1999,11 +1942,11 @@ func TestExtractIntPanicsOnInvalidType(t *testing.T) {
 }
 
 // =============================================================================
-// IntegersUnbounded — transform via fake server
+// Integers with uint64 reply — transform via fake server
 // =============================================================================
 
-func TestIntegersUnboundedTransformFakeServer(t *testing.T) {
-	gen := IntegersUnbounded()
+func TestIntegersUint64ReplyTransformFakeServer(t *testing.T) {
+	gen := Integers[int64](math.MinInt64, math.MaxInt64)
 
 	clientConn := fakeServerConn(t, func(serverConn *connection) {
 		ctrl := serverConn.ControlChannel()
@@ -2036,7 +1979,7 @@ func TestIntegersUnboundedTransformFakeServer(t *testing.T) {
 
 	cli := newClient(clientConn)
 	var got int64
-	err := cli.runTest("integers_unbounded_transform", func(s *TestCase) {
+	err := cli.runTest("integers_uint64_reply", func(s *TestCase) {
 		got = gen.draw(s)
 	}, runOptions{testCases: 1}, stderrNoteFn)
 	if err != nil {
@@ -2044,55 +1987,6 @@ func TestIntegersUnboundedTransformFakeServer(t *testing.T) {
 	}
 	if got != 42 {
 		t.Errorf("expected 42, got %d", got)
-	}
-}
-
-// =============================================================================
-// IntegersFrom nil bounds — transform
-// =============================================================================
-
-func TestIntegersFromNilBoundsTransformFakeServer(t *testing.T) {
-	gen := IntegersFrom(nil, nil)
-
-	clientConn := fakeServerConn(t, func(serverConn *connection) {
-		ctrl := serverConn.ControlChannel()
-		msgID, payload, _ := ctrl.RecvRequestRaw(5 * time.Second)
-		decoded, _ := decodeCBOR(payload)
-		m, _ := extractCBORDict(decoded)
-		chID, _ := extractCBORInt(m[any("channel_id")])
-		ctrl.SendReplyValue(msgID, true) //nolint:errcheck
-
-		testCh, _ := serverConn.ConnectChannel(uint32(chID), "TestCh")
-		caseCh := serverConn.NewChannel("Case")
-		casePayload, _ := encodeCBOR(map[string]any{
-			"event":      "test_case",
-			"channel_id": int64(caseCh.ChannelID()),
-			"is_final":   false,
-		})
-		caseID, _ := testCh.SendRequestRaw(casePayload)
-		testCh.recvResponseRaw(caseID, 5*time.Second) //nolint:errcheck
-
-		// generate: reply with int64
-		genID, _, _ := caseCh.RecvRequestRaw(2 * time.Second)
-		caseCh.SendReplyValue(genID, int64(-99)) //nolint:errcheck
-
-		// mark_complete
-		mcID, _, _ := caseCh.RecvRequestRaw(2 * time.Second)
-		caseCh.SendReplyValue(mcID, nil) //nolint:errcheck
-
-		sendTestDone(t, testCh, true, 0)
-	})
-
-	cli := newClient(clientConn)
-	var got int64
-	err := cli.runTest("integers_from_nil", func(s *TestCase) {
-		got = gen.draw(s)
-	}, runOptions{testCases: 1}, stderrNoteFn)
-	if err != nil {
-		t.Fatalf("runTest: %v", err)
-	}
-	if got != -99 {
-		t.Errorf("expected -99, got %d", got)
 	}
 }
 
@@ -2186,7 +2080,7 @@ func TestFloatsSchemaExplicitInfNilNaN(t *testing.T) {
 // =============================================================================
 
 func TestOptionalGeneratorDrawNilFakeServer(t *testing.T) {
-	gen := Optional(Integers(0, 100))
+	gen := Optional(Integers[int64](0, 100))
 
 	clientConn := fakeServerConn(t, func(serverConn *connection) {
 		ctrl := serverConn.ControlChannel()
@@ -2239,7 +2133,7 @@ func TestOptionalGeneratorDrawNilFakeServer(t *testing.T) {
 }
 
 func TestOptionalGeneratorDrawValueFakeServer(t *testing.T) {
-	gen := Optional(Integers(0, 100))
+	gen := Optional(Integers[int64](0, 100))
 
 	clientConn := fakeServerConn(t, func(serverConn *connection) {
 		ctrl := serverConn.ControlChannel()
@@ -2303,7 +2197,7 @@ func TestOptionalGeneratorDrawValueFakeServer(t *testing.T) {
 // =============================================================================
 
 func TestNewCollectionStopTestFakeServer(t *testing.T) {
-	inner := Integers(0, 10)
+	inner := Integers[int64](0, 10)
 	nonBasic := &mappedGenerator[int64, int64]{inner: inner, fn: func(v int64) int64 { return v }}
 	gen := Lists(nonBasic, ListsOptions{MinSize: 0, MaxSize: 5})
 
@@ -2350,7 +2244,7 @@ func TestNewCollectionStopTestFakeServer(t *testing.T) {
 // =============================================================================
 
 func TestCollectionMoreStopTestFakeServer(t *testing.T) {
-	inner := Integers(0, 10)
+	inner := Integers[int64](0, 10)
 	nonBasic := &mappedGenerator[int64, int64]{inner: inner, fn: func(v int64) int64 { return v }}
 	gen := Lists(nonBasic, ListsOptions{MinSize: 0, MaxSize: 5})
 
@@ -2482,7 +2376,7 @@ func TestListsIdentityTransformFakeServer(t *testing.T) {
 // =============================================================================
 
 func TestListsNegativeMinSizeSchema(t *testing.T) {
-	gen := Lists(Integers(0, 10), ListsOptions{MinSize: -5, MaxSize: 10})
+	gen := Lists(Integers[int64](0, 10), ListsOptions{MinSize: -5, MaxSize: 10})
 	bg, ok := gen.(*basicGenerator[[]int64])
 	if !ok {
 		t.Fatalf("expected *basicGenerator[[]int64], got %T", gen)
@@ -2498,8 +2392,8 @@ func TestListsNegativeMinSizeSchema(t *testing.T) {
 // =============================================================================
 
 func TestCompositeOneOfDrawUint64Index(t *testing.T) {
-	nonBasic := &mappedGenerator[int64, int64]{inner: Integers(0, 100), fn: func(v int64) int64 { return v }}
-	gen := &compositeOneOfGenerator[int64]{generators: []Generator[int64]{nonBasic, Integers(0, 5)}}
+	nonBasic := &mappedGenerator[int64, int64]{inner: Integers[int64](0, 100), fn: func(v int64) int64 { return v }}
+	gen := &compositeOneOfGenerator[int64]{generators: []Generator[int64]{nonBasic, Integers[int64](0, 5)}}
 
 	clientConn := fakeServerConn(t, func(serverConn *connection) {
 		ctrl := serverConn.ControlChannel()

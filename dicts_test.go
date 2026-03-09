@@ -18,7 +18,7 @@ import (
 // a basicGenerator with a dict schema containing the expected fields.
 func TestDictsBasicSchema(t *testing.T) {
 	keys := Text(0, 5)
-	vals := Integers(0, 100)
+	vals := Integers[int64](0, 100)
 	gen := Dicts(keys, vals, DictOptions{MinSize: 0, MaxSize: 3, HasMaxSize: true})
 	bg, ok := gen.(*basicGenerator[map[string]int64])
 	if !ok {
@@ -53,7 +53,7 @@ func TestDictsBasicSchema(t *testing.T) {
 
 // TestDictsBasicSchemaNoMaxSize verifies that when HasMaxSize=false, max_size is omitted.
 func TestDictsBasicSchemaNoMaxSize(t *testing.T) {
-	gen := Dicts(Text(0, 5), Integers(0, 100), DictOptions{MinSize: 1})
+	gen := Dicts(Text(0, 5), Integers[int64](0, 100), DictOptions{MinSize: 1})
 	bg, ok := gen.(*basicGenerator[map[string]int64])
 	if !ok {
 		t.Fatalf("expected *basicGenerator[map[string]int64], got %T", gen)
@@ -65,7 +65,7 @@ func TestDictsBasicSchemaNoMaxSize(t *testing.T) {
 
 // TestDictsBasicSchemaMinSize verifies that MinSize is propagated to the schema.
 func TestDictsBasicSchemaMinSize(t *testing.T) {
-	gen := Dicts(Text(0, 5), Integers(0, 100), DictOptions{MinSize: 2, MaxSize: 5, HasMaxSize: true})
+	gen := Dicts(Text(0, 5), Integers[int64](0, 100), DictOptions{MinSize: 2, MaxSize: 5, HasMaxSize: true})
 	bg, ok := gen.(*basicGenerator[map[string]int64])
 	if !ok {
 		t.Fatalf("expected *basicGenerator[map[string]int64], got %T", gen)
@@ -78,7 +78,7 @@ func TestDictsBasicSchemaMinSize(t *testing.T) {
 
 // TestDictsBasicIsBasicGenerator verifies basicGenerator path via type assertion.
 func TestDictsBasicIsBasicGenerator(t *testing.T) {
-	gen := Dicts(Text(0, 5), Integers(0, 100), DictOptions{})
+	gen := Dicts(Text(0, 5), Integers[int64](0, 100), DictOptions{})
 	if _, ok := gen.(*basicGenerator[map[string]int64]); !ok {
 		t.Errorf("Dicts(basic,basic) should be *basicGenerator[map[string]int64], got %T", gen)
 	}
@@ -88,10 +88,10 @@ func TestDictsBasicIsBasicGenerator(t *testing.T) {
 func TestDictsCompositeIsNotBasicGenerator(t *testing.T) {
 	// Use a non-basic key generator (mappedGenerator wrapping a basic generator)
 	nonBasicKeys := &mappedGenerator[int64, int64]{
-		inner: Integers(0, 10),
+		inner: Integers[int64](0, 10),
 		fn:    func(v int64) int64 { return v },
 	}
-	gen := Dicts(nonBasicKeys, Integers(0, 10), DictOptions{})
+	gen := Dicts(nonBasicKeys, Integers[int64](0, 10), DictOptions{})
 	if _, ok := gen.(*basicGenerator[map[int64]int64]); ok {
 		t.Error("Dicts(non-basic, basic) should not be *basicGenerator")
 	}
@@ -100,10 +100,10 @@ func TestDictsCompositeIsNotBasicGenerator(t *testing.T) {
 // TestDictsCompositeMap verifies that Map on a compositeDictGenerator returns a mappedGenerator.
 func TestDictsCompositeMap(t *testing.T) {
 	nonBasicKeys := &mappedGenerator[int64, int64]{
-		inner: Integers(0, 10),
+		inner: Integers[int64](0, 10),
 		fn:    func(v int64) int64 { return v },
 	}
-	gen := Dicts(nonBasicKeys, Integers(0, 10), DictOptions{})
+	gen := Dicts(nonBasicKeys, Integers[int64](0, 10), DictOptions{})
 	mapped := Map(gen, func(m map[int64]int64) map[int64]int64 { return m })
 	if _, ok := mapped.(*mappedGenerator[map[int64]int64, map[int64]int64]); !ok {
 		t.Errorf("Map on compositeDictGenerator should return *mappedGenerator, got %T", mapped)
@@ -252,7 +252,7 @@ func TestDictsBasicGenerateHappyPath(t *testing.T) {
 	cli := newClient(clientConn)
 	var gotMap map[string]int64
 	err := cli.runTest("dicts_basic_happy", func(s *TestCase) {
-		gen := Dicts(Text(0, 5), Integers(0, 100), DictOptions{MinSize: 0, MaxSize: 3, HasMaxSize: true})
+		gen := Dicts(Text(0, 5), Integers[int64](0, 100), DictOptions{MinSize: 0, MaxSize: 3, HasMaxSize: true})
 		gotMap = gen.draw(s)
 	}, runOptions{testCases: 1}, stderrNoteFn)
 	if err != nil {
@@ -317,7 +317,7 @@ func TestDictsBasicWithTransforms(t *testing.T) {
 		}
 		return result
 	})
-	valGen := Map(Integers(0, 100), func(n int64) int64 {
+	valGen := Map(Integers[int64](0, 100), func(n int64) int64 {
 		return n * 2
 	})
 
@@ -370,7 +370,7 @@ func TestDictsCompositeGenerateHappyPath(t *testing.T) {
 		// 5. start_span (MAPPED)  [from mappedGenerator.draw -> group(labelMapped, ...)]
 		// 6. generate key  [from inner Integers]
 		// 7. stop_span (MAPPED)
-		// 8. generate value  [from Integers(0,100), no span]
+		// 8. generate value  [from Integers[int64](0,100), no span]
 		// 9. stop_span (MAP_ENTRY)
 		// 10. collection_more -> false
 		// 11. stop_span (MAP)
@@ -405,10 +405,10 @@ func TestDictsCompositeGenerateHappyPath(t *testing.T) {
 	err := cli.runTest("dicts_composite_happy", func(s *TestCase) {
 		// Non-basic key generator (directly constructed mappedGenerator)
 		nonBasicKeys := &mappedGenerator[int64, int64]{
-			inner: Integers(0, 10),
+			inner: Integers[int64](0, 10),
 			fn:    func(v int64) int64 { return v },
 		}
-		gen := Dicts(nonBasicKeys, Integers(0, 100), DictOptions{MinSize: 0, MaxSize: 2, HasMaxSize: true})
+		gen := Dicts(nonBasicKeys, Integers[int64](0, 100), DictOptions{MinSize: 0, MaxSize: 2, HasMaxSize: true})
 		gotMap = gen.draw(s)
 	}, runOptions{testCases: 1}, stderrNoteFn)
 	if err != nil {
@@ -475,11 +475,11 @@ func TestDictsCompositeNoMaxHappyPath(t *testing.T) {
 	cli := newClient(clientConn)
 	err := cli.runTest("dicts_composite_no_max", func(s *TestCase) {
 		nonBasicKeys := &mappedGenerator[int64, int64]{
-			inner: Integers(0, 10),
+			inner: Integers[int64](0, 10),
 			fn:    func(v int64) int64 { return v },
 		}
 		// No max size: hasMax=false, minSize=2 -> should use maxSz=2+10=12
-		gen := Dicts(nonBasicKeys, Integers(0, 100), DictOptions{MinSize: 2})
+		gen := Dicts(nonBasicKeys, Integers[int64](0, 100), DictOptions{MinSize: 2})
 		_ = gen.draw(s)
 	}, runOptions{testCases: 1}, stderrNoteFn)
 	if err != nil {
@@ -501,10 +501,10 @@ func TestDictsStopTestOnNewCollection(t *testing.T) {
 	t.Setenv("HEGEL_PROTOCOL_TEST_MODE", "stop_test_on_new_collection")
 	err := runHegel("dicts_stop_new_collection", func(s *TestCase) {
 		nonBasicKeys := &mappedGenerator[int64, int64]{
-			inner: Integers(0, 10),
+			inner: Integers[int64](0, 10),
 			fn:    func(v int64) int64 { return v },
 		}
-		gen := Dicts(nonBasicKeys, Integers(0, 100), DictOptions{MinSize: 0, MaxSize: 3, HasMaxSize: true})
+		gen := Dicts(nonBasicKeys, Integers[int64](0, 100), DictOptions{MinSize: 0, MaxSize: 3, HasMaxSize: true})
 		_ = gen.draw(s)
 	}, stderrNoteFn, nil)
 	// StopTest causes test to be skipped or aborted, not fail
@@ -518,10 +518,10 @@ func TestDictsStopTestOnCollectionMore(t *testing.T) {
 	t.Setenv("HEGEL_PROTOCOL_TEST_MODE", "stop_test_on_collection_more")
 	err := runHegel("dicts_stop_collection_more", func(s *TestCase) {
 		nonBasicKeys := &mappedGenerator[int64, int64]{
-			inner: Integers(0, 10),
+			inner: Integers[int64](0, 10),
 			fn:    func(v int64) int64 { return v },
 		}
-		gen := Dicts(nonBasicKeys, Integers(0, 100), DictOptions{MinSize: 0, MaxSize: 3, HasMaxSize: true})
+		gen := Dicts(nonBasicKeys, Integers[int64](0, 100), DictOptions{MinSize: 0, MaxSize: 3, HasMaxSize: true})
 		_ = gen.draw(s)
 	}, stderrNoteFn, nil)
 	_ = err
@@ -536,7 +536,7 @@ func TestDictsStopTestOnCollectionMore(t *testing.T) {
 func TestDictsBasicE2E(t *testing.T) {
 	hegelBinPath(t)
 	if _err := runHegel(t.Name(), func(s *TestCase) {
-		gen := Dicts(Text(0, 5), Integers(0, 100), DictOptions{MinSize: 0, MaxSize: 3, HasMaxSize: true})
+		gen := Dicts(Text(0, 5), Integers[int](0, 100), DictOptions{MinSize: 0, MaxSize: 3, HasMaxSize: true})
 		m := gen.draw(s)
 		if len(m) > 3 {
 			panic(fmt.Sprintf("Dicts: expected at most 3 entries, got %d", len(m)))
@@ -559,7 +559,7 @@ func TestDictsBasicE2E(t *testing.T) {
 func TestDictsBasicWithBoundsE2E(t *testing.T) {
 	hegelBinPath(t)
 	if _err := runHegel(t.Name(), func(s *TestCase) {
-		gen := Dicts(Integers(0, 10), Booleans(0.5), DictOptions{MinSize: 1, MaxSize: 3, HasMaxSize: true})
+		gen := Dicts(Integers[int](0, 10), Booleans(0.5), DictOptions{MinSize: 1, MaxSize: 3, HasMaxSize: true})
 		m := gen.draw(s)
 		if len(m) < 1 || len(m) > 3 {
 			panic(fmt.Sprintf("Dicts bounded: expected 1-3 entries, got %d", len(m)))
@@ -581,7 +581,7 @@ func TestDictsCompositeE2E(t *testing.T) {
 	if _err := runHegel(t.Name(), func(s *TestCase) {
 		// mappedGenerator makes this non-basic -> composite path
 		nonBasicKeys := &mappedGenerator[int64, int64]{
-			inner: Integers(0, 10),
+			inner: Integers[int64](0, 10),
 			fn: func(n int64) int64 {
 				if n > 5 {
 					return n

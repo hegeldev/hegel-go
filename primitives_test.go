@@ -1,7 +1,7 @@
 package hegel
 
 // primitives_test.go contains e2e integration tests for the primitive
-// generator functions: IntegersFrom, Floats, Booleans, Text, Binary.
+// generator functions: Integers, Floats, Booleans, Text, Binary.
 // Schema unit tests live in generators_test.go.
 
 import (
@@ -17,26 +17,11 @@ func floatPtr(f float64) *float64 { return &f }
 // Integration / e2e tests (run against real hegel binary, 50 test cases each)
 // =============================================================================
 
-func TestIntegersFromE2E(t *testing.T) {
+func TestIntegersFullRangeE2E(t *testing.T) {
 	hegelBinPath(t)
-	minV := int64(10)
-	maxV := int64(50)
-	if _err := runHegel("integers_from_e2e", func(s *TestCase) {
-		n := Draw[int64](s, IntegersFrom(&minV, &maxV))
-		if n < 10 || n > 50 {
-			panic("integers_from: out of range [10, 50]")
-		}
-	}, stderrNoteFn, []Option{WithTestCases(50)}); _err != nil {
-		panic(_err)
-	}
-}
-
-func TestIntegersFromUnboundedE2E(t *testing.T) {
-	hegelBinPath(t)
-	if _err := runHegel("integers_from_unbounded_e2e", func(s *TestCase) {
-		// Unbounded integers are converted to int64 by the generator's transform.
-		// Just verify the draw completes without error.
-		_ = Draw[int64](s, IntegersFrom(nil, nil))
+	if _err := runHegel("integers_full_range_e2e", func(s *TestCase) {
+		// Full-range integers: just verify the draw completes without error.
+		_ = Draw[int](s, Integers[int](math.MinInt, math.MaxInt))
 	}, stderrNoteFn, []Option{WithTestCases(20)}); _err != nil {
 		panic(_err)
 	}

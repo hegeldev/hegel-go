@@ -49,7 +49,7 @@ func TestRunHegelTestPasses(t *testing.T) {
 func TestRunHegelTestFails(t *testing.T) {
 	hegelBinPath(t)
 	err := runHegel(t.Name()+"_inner", func(s *TestCase) {
-		x := Draw[int64](s, Integers(0, 100))
+		x := Draw[int](s, Integers[int](0, 100))
 		// This always fails: no integer < 0 in [0,100]
 		if x >= 0 {
 			panic(fmt.Sprintf("assertion failed: %d >= 0", x))
@@ -106,7 +106,7 @@ func TestNoteNotFinal(t *testing.T) {
 func TestTargetSendsCommand(t *testing.T) {
 	hegelBinPath(t)
 	if _err := runHegel(t.Name(), func(s *TestCase) {
-		x := Draw[int64](s, Integers(0, 100))
+		x := Draw[int](s, Integers[int](0, 100))
 		s.Target(float64(x), "my_target")
 		if x < 0 || x > 100 {
 			panic("out of range")
@@ -809,9 +809,9 @@ func TestGenerateFromSchemaConnectionError(t *testing.T) {
 // --- Integers generator: basic path via fake server ---
 
 func TestIntegersGenerateUnit(t *testing.T) {
-	// Use a fake server to exercise Draw(s, Integers()).
+	// Use a fake server to exercise Draw(s, Integers[int64]()).
 	err := runTestOnFakeServer(t, func(s *TestCase) {
-		n := Draw[int64](s, Integers(0, 10))
+		n := Draw[int64](s, Integers[int64](0, 10))
 		if n < 0 || n > 10 {
 			panic(fmt.Sprintf("out of range: %d", n))
 		}

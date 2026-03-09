@@ -14,8 +14,8 @@ import (
 func main() {
 	// Property 1: addition is commutative.
 	hegel.MustRun("add_commutative", func(s *hegel.TestCase) {
-		a := hegel.Draw(s, hegel.Integers(-1_000_000, 1_000_000))
-		b := hegel.Draw(s, hegel.Integers(-1_000_000, 1_000_000))
+		a := hegel.Draw(s, hegel.Integers[int](-1_000_000, 1_000_000))
+		b := hegel.Draw(s, hegel.Integers[int](-1_000_000, 1_000_000))
 		if a+b != b+a {
 			panic(fmt.Sprintf("add not commutative: %d + %d != %d + %d", a, b, b, a))
 		}
@@ -24,7 +24,7 @@ func main() {
 
 	// Property 2: multiplying by one is identity.
 	hegel.MustRun("mul_identity", func(s *hegel.TestCase) {
-		n := hegel.Draw(s, hegel.Integers(-1_000_000, 1_000_000))
+		n := hegel.Draw(s, hegel.Integers[int](-1_000_000, 1_000_000))
 		if n*1 != n {
 			panic(fmt.Sprintf("n*1 != n: %d", n))
 		}
@@ -34,7 +34,7 @@ func main() {
 	// Property 3: integer bounds are respected.
 	const lo, hi = -500, 500
 	hegel.MustRun("integer_bounds", func(s *hegel.TestCase) {
-		n := hegel.Draw(s, hegel.Integers(lo, hi))
+		n := hegel.Draw(s, hegel.Integers[int](lo, hi))
 		if n < lo || n > hi {
 			panic(fmt.Sprintf("out of range: %d not in [%d, %d]", n, lo, hi))
 		}
@@ -53,8 +53,8 @@ func main() {
 
 	// Property 5: Assume filters out unwanted cases.
 	hegel.MustRun("division_remainder", func(s *hegel.TestCase) {
-		n := hegel.Draw(s, hegel.Integers(-1000, 1000))
-		d := hegel.Draw(s, hegel.Integers(-1000, 1000))
+		n := hegel.Draw(s, hegel.Integers[int](-1000, 1000))
+		d := hegel.Draw(s, hegel.Integers[int](-1000, 1000))
 		s.Assume(d != 0)
 		// Euclidean division invariant.
 		q, r := n/d, n%d

@@ -4,6 +4,8 @@ import (
 	"fmt"
 	"math/big"
 	"time"
+
+	"golang.org/x/exp/constraints"
 )
 
 // --- Built-in generators ---
@@ -41,40 +43,23 @@ func extractFloat(v any) float64 {
 	}
 }
 
+// extractIntAs extracts an integer from a CBOR-decoded value and converts it to T.
+func extractIntAs[T constraints.Integer](v any) T {
+	return T(extractInt(v))
+}
+
 // Integers returns a Generator that produces integer values in [minVal, maxVal].
-func Integers(minVal, maxVal int64) Generator[int64] {
-	return &basicGenerator[int64]{
+// For unbounded generation, use the full range of the type:
+//
+//	hegel.Integers[int](math.MinInt, math.MaxInt)
+func Integers[T constraints.Integer](minVal, maxVal T) Generator[T] {
+	return &basicGenerator[T]{
 		schema: map[string]any{
 			"type":      "integer",
-			"min_value": minVal,
-			"max_value": maxVal,
+			"min_value": int64(minVal),
+			"max_value": int64(maxVal),
 		},
-		transform: func(v any) int64 { return extractInt(v) },
-	}
-}
-
-// IntegersUnbounded returns a Generator that produces unbounded integer values.
-func IntegersUnbounded() Generator[int64] {
-	return &basicGenerator[int64]{
-		schema:    map[string]any{"type": "integer"},
-		transform: func(v any) int64 { return extractInt(v) },
-	}
-}
-
-// IntegersFrom returns a Generator that produces integers with optional bounds.
-//
-// Pass nil for minVal or maxVal to leave that bound unbounded.
-func IntegersFrom(minVal, maxVal *int64) Generator[int64] {
-	schema := map[string]any{"type": "integer"}
-	if minVal != nil {
-		schema["min_value"] = *minVal
-	}
-	if maxVal != nil {
-		schema["max_value"] = *maxVal
-	}
-	return &basicGenerator[int64]{
-		schema:    schema,
-		transform: func(v any) int64 { return extractInt(v) },
+		transform: extractIntAs[T],
 	}
 }
 
