@@ -6,6 +6,7 @@ package hegel
 import (
 	"fmt"
 	"math"
+	"net/netip"
 	"regexp"
 	"strings"
 	"testing"
@@ -408,8 +409,11 @@ func TestIPAddressesAreValidFormat(t *testing.T) {
 	hegelBinPath(t)
 	v4gen := IPAddresses(IPAddressOptions{Version: IPVersion4})
 	if _err := runHegel(t.Name(), func(s *TestCase) {
-		addr := Draw[string](s, v4gen)
-		parts := strings.Split(addr, ".")
+		addr := Draw[netip.Addr](s, v4gen)
+		if !addr.Is4() {
+			panic(fmt.Sprintf("IPv4 address must be v4: %v", addr))
+		}
+		parts := strings.Split(addr.String(), ".")
 		if len(parts) != 4 {
 			panic(fmt.Sprintf("IPv4 address must have 4 octets: %q", addr))
 		}

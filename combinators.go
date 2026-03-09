@@ -2,6 +2,7 @@ package hegel
 
 import (
 	"fmt"
+	"net/netip"
 )
 
 // --- OneOf generator ---
@@ -163,16 +164,31 @@ type IPAddressOptions struct {
 }
 
 // IPAddresses returns a Generator that produces IP address strings.
-func IPAddresses(opts IPAddressOptions) Generator[string] {
+func IPAddresses(opts IPAddressOptions) Generator[netip.Addr] {
+	addrTransform := func(a any) netip.Addr {
+		return netip.MustParseAddr(a.(string))
+	}
 	switch opts.Version {
 	case IPVersion4:
-		return &basicGenerator[string]{schema: map[string]any{"type": "ipv4"}}
+		return &basicGenerator[netip.Addr]{
+			schema:    map[string]any{"type": "ipv4"},
+			transform: addrTransform,
+		}
 	case IPVersion6:
-		return &basicGenerator[string]{schema: map[string]any{"type": "ipv6"}}
+		return &basicGenerator[netip.Addr]{
+			schema:    map[string]any{"type": "ipv6"},
+			transform: addrTransform,
+		}
 	default:
-		return OneOf[string](
-			&basicGenerator[string]{schema: map[string]any{"type": "ipv4"}},
-			&basicGenerator[string]{schema: map[string]any{"type": "ipv6"}},
+		return OneOf(
+			&basicGenerator[netip.Addr]{
+				schema:    map[string]any{"type": "ipv4"},
+				transform: addrTransform,
+			},
+			&basicGenerator[netip.Addr]{
+				schema:    map[string]any{"type": "ipv6"},
+				transform: addrTransform,
+			},
 		)
 	}
 }

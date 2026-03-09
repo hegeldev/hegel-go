@@ -4,7 +4,7 @@ package hegel
 
 import (
 	"fmt"
-	"strings"
+	"net/netip"
 	"testing"
 	"time"
 )
@@ -432,9 +432,9 @@ func TestOptionalNonBasicE2E(t *testing.T) {
 // TestIPAddressesV4Schema verifies that IPAddresses(v4) produces {"type":"ipv4"}.
 func TestIPAddressesV4Schema(t *testing.T) {
 	g := IPAddresses(IPAddressOptions{Version: IPVersion4})
-	bg, ok := g.(*basicGenerator[string])
+	bg, ok := g.(*basicGenerator[netip.Addr])
 	if !ok {
-		t.Fatalf("IPAddresses(v4) should return *basicGenerator[string], got %T", g)
+		t.Fatalf("IPAddresses(v4) should return *basicGenerator[netip.Addr], got %T", g)
 	}
 	if bg.schema["type"] != "ipv4" {
 		t.Errorf("IPAddresses(v4) type: expected ipv4, got %v", bg.schema["type"])
@@ -444,9 +444,9 @@ func TestIPAddressesV4Schema(t *testing.T) {
 // TestIPAddressesV6Schema verifies that IPAddresses(v6) produces {"type":"ipv6"}.
 func TestIPAddressesV6Schema(t *testing.T) {
 	g := IPAddresses(IPAddressOptions{Version: IPVersion6})
-	bg, ok := g.(*basicGenerator[string])
+	bg, ok := g.(*basicGenerator[netip.Addr])
 	if !ok {
-		t.Fatalf("IPAddresses(v6) should return *basicGenerator[string], got %T", g)
+		t.Fatalf("IPAddresses(v6) should return *basicGenerator[netip.Addr], got %T", g)
 	}
 	if bg.schema["type"] != "ipv6" {
 		t.Errorf("IPAddresses(v6) type: expected ipv6, got %v", bg.schema["type"])
@@ -456,9 +456,9 @@ func TestIPAddressesV6Schema(t *testing.T) {
 // TestIPAddressesDefaultIsOneOf verifies that IPAddresses(no version) returns a OneOf generator.
 func TestIPAddressesDefaultIsOneOf(t *testing.T) {
 	g := IPAddresses(IPAddressOptions{})
-	bg, ok := g.(*basicGenerator[string])
+	bg, ok := g.(*basicGenerator[netip.Addr])
 	if !ok {
-		t.Fatalf("IPAddresses(default) should return *basicGenerator[string], got %T", g)
+		t.Fatalf("IPAddresses(default) should return *basicGenerator[netip.Addr], got %T", g)
 	}
 	// Should be a one_of of ipv4 and ipv6
 	oneOf, hasOneOf := bg.schema["one_of"]
@@ -477,8 +477,8 @@ func TestIPAddressesV4E2E(t *testing.T) {
 	g := IPAddresses(IPAddressOptions{Version: IPVersion4})
 	if _err := runHegel(t.Name(), func(s *TestCase) {
 		v := g.draw(s)
-		if !strings.Contains(v, ".") {
-			panic(fmt.Sprintf("IPv4 address should contain '.': %q", v))
+		if !v.Is4() {
+			panic(fmt.Sprintf("IPv4 address should be v4: %v", v))
 		}
 	}, stderrNoteFn, []Option{WithTestCases(50)}); _err != nil {
 		panic(_err)
@@ -491,8 +491,8 @@ func TestIPAddressesV6E2E(t *testing.T) {
 	g := IPAddresses(IPAddressOptions{Version: IPVersion6})
 	if _err := runHegel(t.Name(), func(s *TestCase) {
 		v := g.draw(s)
-		if !strings.Contains(v, ":") {
-			panic(fmt.Sprintf("IPv6 address should contain ':': %q", v))
+		if !v.Is6() {
+			panic(fmt.Sprintf("IPv6 address should be v6: %v", v))
 		}
 	}, stderrNoteFn, []Option{WithTestCases(50)}); _err != nil {
 		panic(_err)
@@ -507,12 +507,10 @@ func TestIPAddressesDefaultE2E(t *testing.T) {
 	g := IPAddresses(IPAddressOptions{})
 	if _err := runHegel(t.Name(), func(s *TestCase) {
 		v := g.draw(s)
-		if strings.Contains(v, ".") {
+		if v.Is4() {
 			sawV4 = true
-		} else if strings.Contains(v, ":") {
+		} else if v.Is6() {
 			sawV6 = true
-		} else {
-			panic(fmt.Sprintf("IPAddresses default: unrecognized address format: %q", v))
 		}
 	}, stderrNoteFn, []Option{WithTestCases(100)}); _err != nil {
 		panic(_err)
