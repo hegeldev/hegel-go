@@ -62,9 +62,9 @@ jobs:
         with:
           persist-credentials: false
 
-      - uses: ./.github/actions/base  # zizmor: ignore[secrets-outside-env]
+      - uses: ./.github/actions/base
         with:
-          ssh-key: ${{ secrets.HEGEL_DEPLOY_KEY }}
+          ssh-key: ${{ secrets.HEGEL_DEPLOY_KEY }} # zizmor: ignore[secrets-outside-env]
 
       - name: Install just
         run: sudo apt-get update && sudo apt-get install -y just
@@ -108,9 +108,9 @@ jobs:
         with:
           persist-credentials: false
 
-      - uses: ./.github/actions/base  # zizmor: ignore[secrets-outside-env]
+      - uses: ./.github/actions/base
         with:
-          ssh-key: ${{ secrets.HEGEL_DEPLOY_KEY }}
+          ssh-key: ${{ secrets.HEGEL_DEPLOY_KEY }} # zizmor: ignore[secrets-outside-env]
 
       - name: Install just
         run: sudo apt-get update && sudo apt-get install -y just
