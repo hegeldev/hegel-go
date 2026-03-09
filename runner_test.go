@@ -881,8 +881,8 @@ func TestHegelPipSpec(t *testing.T) {
 	}
 }
 
-func TestFindHegelFallbackOnError(t *testing.T) {
-	// Without HEGEL_CMD and with a bad venv dir, findHegel falls back to "hegel".
+func TestFindHegelPanicsOnError(t *testing.T) {
+	// Without HEGEL_CMD and with a bad venv dir, findHegel panics.
 	t.Setenv("HEGEL_CMD", "")
 	oldVenvDir := hegelVenvDir
 	oldVersionFile := hegelVersionFile
@@ -893,10 +893,20 @@ func TestFindHegelFallbackOnError(t *testing.T) {
 	// Point to a non-writable location to force error.
 	hegelVenvDir = "/dev/null/impossible/venv"
 	hegelVersionFile = "/dev/null/impossible/venv/hegel-version"
-	result := findHegel()
-	if result != "hegel" {
-		t.Errorf("findHegel fallback: got %q, want \"hegel\"", result)
-	}
+	defer func() {
+		r := recover()
+		if r == nil {
+			t.Fatal("findHegel should panic on installation failure")
+		}
+		msg, ok := r.(string)
+		if !ok {
+			t.Fatalf("panic value is not a string: %v", r)
+		}
+		if !strings.Contains(msg, "Failed to ensure hegel is installed") {
+			t.Errorf("panic message %q does not contain expected prefix", msg)
+		}
+	}()
+	findHegel()
 }
 
 // =============================================================================

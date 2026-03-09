@@ -662,8 +662,7 @@ func findHegel() string {
 	}
 	bin, err := ensureHegelInstalled()
 	if err != nil {
-		fmt.Fprintf(os.Stderr, "hegel: %v\n", err)
-		return "hegel"
+		panic(fmt.Sprintf("Failed to ensure hegel is installed: %v", err))
 	}
 	return bin
 }
