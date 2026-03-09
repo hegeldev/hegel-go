@@ -62,16 +62,16 @@ def get_current_version() -> str:
 
 
 def pin_hegel_version(runner_go: Path) -> None:
-    """Pin hegelVersion to the current HEAD of hegel-core main."""
-    sha = subprocess.check_output(
-        ["gh", "api", "repos/antithesishq/hegel-core/commits/main", "--jq", ".sha"],
+    """Pin hegelVersion to the latest hegel-core release tag."""
+    tag = subprocess.check_output(
+        ["gh", "api", "repos/antithesishq/hegel-core/releases/latest", "--jq", ".tag_name"],
         text=True,
     ).strip()
 
     text = runner_go.read_text()
     new_text = re.sub(
         r'^const hegelVersion = ".*"',
-        f'const hegelVersion = "{sha}"',
+        f'const hegelVersion = "{tag}"',
         text,
         count=1,
         flags=re.MULTILINE,

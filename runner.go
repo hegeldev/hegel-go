@@ -578,7 +578,7 @@ func (s *hegelSession) runTest(fn testBody, opts runOptions, noteFn func(string)
 }
 
 // hegelVersion is the hegel-core commit this SDK is designed to work with.
-const hegelVersion = "6e327df2dd42553de12ace94cfbddfbbd9e4bf50"
+const hegelVersion = "v0.3.3"
 
 const hegelCmdEnv = "HEGEL_CMD"
 
@@ -616,7 +616,7 @@ func ensureHegelInstalled() (string, error) {
 		return "", fmt.Errorf("hegel: mkdir %s: %w", hegelDir, err)
 	}
 
-	fmt.Fprintf(os.Stderr, "Installing hegel (%s) into %s...\n", hegelVersion[:12], hegelVenvDir)
+	fmt.Fprintf(os.Stderr, "Installing hegel (%s) into %s...\n", hegelVersion, hegelVenvDir)
 
 	// Create venv.
 	uvVenv := exec.Command("uv", "venv", "--clear", hegelVenvDir)
