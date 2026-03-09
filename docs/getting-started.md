@@ -3,7 +3,7 @@
 ## Install Hegel
 
 ```bash
-go get github.com/antithesishq/hegel-go
+go get github.com/antithesishq/hegel-go@latest
 ```
 
 The SDK requires the `hegel` CLI on your PATH:
@@ -12,135 +12,129 @@ The SDK requires the `hegel` CLI on your PATH:
 pip install "git+ssh://git@github.com/antithesishq/hegel-core.git"
 ```
 
-If you are working inside this repository, `just setup` handles both steps.
-
 ## Write your first test
 
-Create `example_test.go`:
+Hegel integrates directly with `go test`. Write a standard `TestXxx` function
+and use `Case` with `t.Run`:
 
 ```go
 package example_test
 
 import (
-	"fmt"
+	"testing"
 
 	hegel "github.com/antithesishq/hegel-go"
 )
 
-func Example_integers() {
-	hegel.RunHegelTest("integers", func() {
-		n, _ := hegel.ExtractInt(hegel.IntegersUnbounded().Generate())
-		fmt.Printf("called with %d\n", n)
-	}, hegel.WithTestCases(5))
+func TestIntegers(t *testing.T) {
+	t.Run("integers", hegel.Case(func(ht *hegel.T) {
+		n := hegel.Draw(ht, hegel.Integers(0, 200))
+		if n >= 50 {
+			ht.Fatalf("n=%d is too large", n)
+		}
+	}))
 }
 ```
 
-`RunHegelTest` runs the test body many times with different random inputs. Inside
-the body, call `.Generate()` on a generator to produce a value. If the test body
-panics, Hegel shrinks the inputs to a minimal counterexample.
+`Case` returns a `func(*testing.T)` for use with `t.Run`. Inside the body,
+call `Draw` on a generator to produce a typed value. If the test body panics or
+calls `ht.Fatal`, Hegel shrinks the inputs to a minimal counterexample.
+Here it will report `n = 50`.
 
 By default Hegel runs **100 test cases**. Override this with `WithTestCases`:
 
 ```go
-hegel.RunHegelTest("my_test", func() { /* … */ }, hegel.WithTestCases(500))
+t.Run("my_test", hegel.Case(func(ht *hegel.T) { /* … */ }, hegel.WithTestCases(500)))
 ```
 
-## Running in a test suite
+## Standalone usage with Run
 
-Hegel integrates directly with `go test`. Write a standard `TestXxx` function
-and call `RunHegelTest` inside it:
+Use `Run` outside of `go test`, for example in standalone binaries or
+conformance tests:
 
 ```go
-func TestBoundedIntegers(t *testing.T) {
-	hegel.RunHegelTest("bounded_integers", func() {
-		n, _ := hegel.ExtractInt(hegel.Integers(0, 200).Generate())
-		if n >= 50 {
-			panic(fmt.Sprintf("n=%d is too large", n))
-		}
-	})
-}
+err := hegel.Run("my_property", func(s *hegel.TestCase) {
+	n := hegel.Draw(tc, hegel.Integers(0, 100))
+	if n < 0 || n > 100 {
+		panic("out of range")
+	}
+}, hegel.WithTestCases(50))
 ```
 
-When a test fails, Hegel shrinks the counterexample to the smallest value that
-still triggers the failure — here it will report `n = 50`.
+`Run` returns an error on failure. Use `MustRun` to panic instead.
 
-## Generating multiple values
+## Drawing multiple values
 
-Call `.Generate()` multiple times to produce multiple values in a single test:
+Call `Draw` multiple times to produce multiple values in a single test:
 
 ```go
-hegel.RunHegelTest("multiple_values", func() {
-	n, _ := hegel.ExtractInt(hegel.IntegersUnbounded().Generate())
-	s := hegel.Text(0, 50).Generate()
+t.Run("multiple_values", hegel.Case(func(ht *hegel.T) {
+	n := hegel.Draw(ht, hegel.IntegersUnbounded())
+	s := hegel.Draw(ht, hegel.Text(0, 50))
 
-	_ = n // n is an int64
-	_ = s // s is a string
-})
+	_ = n // n is int64
+	_ = s // s is string
+}))
 ```
 
-Because generation is imperative, you can call `.Generate()` at any point —
+Because generation is imperative, you can call `Draw` at any point —
 including conditionally or in loops.
 
 ## Filtering
 
-Use `.Filter` on a generator for simple per-value conditions:
+Use `Filter` on a generator for simple per-value conditions:
 
 ```go
-hegel.RunHegelTest("even_integers", func() {
-	n, _ := hegel.ExtractInt(
-		hegel.IntegersUnbounded().Filter(func(v any) bool {
-			i, _ := hegel.ExtractInt(v)
-			return i%2 == 0
-		}).Generate(),
-	)
-	if n%2 != 0 {
-		panic(fmt.Sprintf("%d is not even", n))
+t.Run("even_integers", hegel.Case(func(ht *hegel.T) {
+	evenIntegers := hegel.Filter(hegel.IntegersUnbounded(), func(v int64) bool {
+		return v%2 == 0
 	}
-})
+	if n := hegel.Draw(ht, evenIntegers)); n%2 != 0 {
+		ht.Fatalf("%d is not even", n)
+	}
+}))
 ```
 
 For conditions that depend on multiple generated values, use `Assume` inside
 the test body:
 
 ```go
-hegel.RunHegelTest("division", func() {
-	n1, _ := hegel.ExtractInt(hegel.Integers(-1000, 1000).Generate())
-	n2, _ := hegel.ExtractInt(hegel.Integers(-1000, 1000).Generate())
+t.Run("division", hegel.Case(func(ht *hegel.T) {
+	n1 := hegel.Draw(ht, hegel.Integers(-1000, 1000))
+	n2 := hegel.Draw(ht, hegel.Integers(-1000, 1000))
 
-	hegel.Assume(n2 != 0) // discard the case where n2 is zero
+	ht.Assume(n2 != 0) // discard the case where n2 is zero
 
 	// n2 is guaranteed non-zero from here
 	q, r := n1/n2, n1%n2
 	if n1 != q*n2+r {
-		panic(fmt.Sprintf("%d != %d*%d + %d", n1, q, n2, r))
+		ht.Fatalf("%d != %d*%d + %d", n1, q, n2, r)
 	}
-})
+}))
 ```
 
-Using bounds and `.Map` is more efficient than `.Filter` or `Assume` because
+Using bounds and `Map` is more efficient than `Filter` or `Assume` because
 they avoid generating values that will be rejected.
 
 ## Transforming generated values
 
-Use `.Map` to transform values after generation:
+Use `Map` to transform values after generation:
 
 ```go
-hegel.RunHegelTest("string_of_digits", func() {
-	s := hegel.Integers(0, 100).Map(func(v any) any {
-		n, _ := hegel.ExtractInt(v)
+t.Run("string_of_digits", hegel.Case(func(ht *hegel.T) {
+	s := hegel.Draw(ht, hegel.Map(hegel.Integers(0, 100), func(n int64) string {
 		return fmt.Sprintf("%d", n)
-	}).Generate().(string)
+	}))
 
 	for _, c := range s {
 		if c < '0' || c > '9' {
-			panic(fmt.Sprintf("%q contains non-digit %c", s, c))
+			ht.Fatalf("%q contains non-digit %c", s, c)
 		}
 	}
-})
+}))
 ```
 
-`.Map` receives and returns `any`. Use the `ExtractInt`, `ExtractString`, etc.
-helpers to safely unwrap values.
+`Map` is generic — the input and output types are inferred automatically.
 
 ## Dependent generation
 
@@ -148,40 +142,39 @@ Because generation is imperative in Hegel, you can use earlier results to
 configure later generators directly:
 
 ```go
-hegel.RunHegelTest("list_with_valid_index", func() {
-	n, _ := hegel.ExtractInt(hegel.Integers(1, 10).Generate())
-	lst := hegel.Lists(
+t.Run("list_with_valid_index", hegel.Case(func(ht *hegel.T) {
+	n := hegel.Draw(ht, hegel.Integers(1, 10))
+	lst := hegel.Draw(ht, hegel.Lists(
 		hegel.IntegersUnbounded(),
 		hegel.ListsOptions{MinSize: int(n), MaxSize: int(n)},
-	).Generate().([]any)
-	index, _ := hegel.ExtractInt(hegel.Integers(0, n-1).Generate())
+	))
+	index := hegel.Draw(ht, hegel.Integers(0, n-1))
 
 	if index < 0 || index >= int64(len(lst)) {
-		panic("index out of range")
+		ht.Fatal("index out of range")
 	}
-})
+}))
 ```
 
 You can also use `FlatMap` for dependent generation within a single generator
 expression:
 
 ```go
-hegel.RunHegelTest("flatmap_example", func() {
-	result := hegel.FlatMap(
+t.Run("flatmap_example", hegel.Case(func(ht *hegel.T) {
+	result := hegel.Draw(ht, hegel.FlatMap(
 		hegel.Integers(1, 5),
-		func(v any) hegel.Generator {
-			n, _ := hegel.ExtractInt(v)
+		func(n int64) hegel.Generator[[]int64] {
 			return hegel.Lists(
 				hegel.IntegersUnbounded(),
 				hegel.ListsOptions{MinSize: int(n), MaxSize: int(n)},
 			)
 		},
-	).Generate().([]any)
+	))
 
 	if len(result) < 1 || len(result) > 5 {
-		panic(fmt.Sprintf("unexpected list length: %d", len(result)))
+		ht.Fatalf("unexpected list length: %d", len(result))
 	}
-})
+}))
 ```
 
 ## What you can generate
@@ -192,6 +185,7 @@ hegel.RunHegelTest("flatmap_example", func() {
 hegel.Booleans(0.5)                          // bool with probability p of true
 hegel.Integers(-1000, 1000)                  // int64 in [min, max]
 hegel.IntegersUnbounded()                    // unbounded int64
+hegel.IntegersFrom(&min, nil)                // int64 with optional bounds (nil = unbounded)
 hegel.Floats(min, max, nan, inf, eMin, eMax) // float64 (use nil to omit bounds)
 hegel.Text(0, 50)                            // Unicode string (pass maxSize < 0 for unbounded)
 hegel.Binary(0, 64)                          // []byte (pass maxSize < 0 for unbounded)
@@ -200,27 +194,24 @@ hegel.Binary(0, 64)                          // []byte (pass maxSize < 0 for unb
 ### Constants and choices
 
 ```go
-hegel.Just(42)                                // always returns 42
-hegel.MustSampledFrom([]any{1, 2, 3})        // uniform random pick from a slice
+hegel.Just(42)                               // always returns 42
+hegel.SampledFrom([]string{"a", "b", "c"})   // uniform random pick from a slice
 ```
 
 ### Collections
 
 ```go
-hegel.Lists(elemGen, hegel.ListsOptions{MinSize: 1, MaxSize: 10}) // []any
-hegel.Dicts(keyGen, valGen, hegel.DictOptions{MaxSize: 5})         // map[any]any
-hegel.Tuples2(g1, g2)                                              // []any of length 2
-hegel.Tuples3(g1, g2, g3)                                          // []any of length 3
-hegel.Tuples4(g1, g2, g3, g4)                                      // []any of length 4
+hegel.Lists(elemGen, hegel.ListsOptions{MinSize: 1, MaxSize: 10}) // []T
+hegel.Dicts(keyGen, valGen, hegel.DictOptions{MaxSize: 5})        // map[K]V
 ```
 
 ### Combinators
 
 ```go
 hegel.OneOf(g1, g2)             // value from any of the given generators
-hegel.Optional(g)               // nil or a value from g
-gen.Map(fn)                     // transform generated values
-gen.Filter(pred)                // keep only values matching a predicate
+hegel.Optional(g)               // *T — nil or a pointer to a value from g
+hegel.Map(gen, fn)              // transform generated values
+hegel.Filter(gen, pred)         // keep only values matching a predicate
 hegel.FlatMap(gen, fn)          // dependent generation
 ```
 
@@ -243,16 +234,16 @@ Use `Note` to attach debug messages that appear only when Hegel replays the
 minimal failing example:
 
 ```go
-hegel.RunHegelTest("example", func() {
-	x, _ := hegel.ExtractInt(hegel.Integers(-1000, 1000).Generate())
-	y, _ := hegel.ExtractInt(hegel.Integers(-1000, 1000).Generate())
+t.Run("example", hegel.Case(func(ht *hegel.T) {
+	x := hegel.Draw(ht, hegel.Integers(-1000, 1000))
+	y := hegel.Draw(ht, hegel.Integers(-1000, 1000))
 
-	hegel.Note(fmt.Sprintf("trying x=%d, y=%d", x, y))
+	ht.Note(fmt.Sprintf("trying x=%d, y=%d", x, y))
 
 	if x+y != y+x {
-		panic("addition is not commutative")
+		ht.Fatal("addition is not commutative")
 	}
-})
+}))
 ```
 
 ## Guiding generation with Target
@@ -261,14 +252,14 @@ Use `Target` to nudge Hegel toward interesting values, making it more likely to
 find boundary failures:
 
 ```go
-hegel.RunHegelTest("seek_large_values", func() {
-	x := hegel.Integers(0, 10000).Generate().(int64)
-	hegel.Target(float64(x), "maximize_x")
+t.Run("seek_large_values", hegel.Case(func(ht *hegel.T) {
+	x := hegel.Draw(ht, hegel.Integers(0, 10000))
+	ht.Target(float64(x), "maximize_x")
 
 	if x > 9999 {
-		panic(fmt.Sprintf("x=%d exceeds limit", x))
+		ht.Fatalf("x=%d exceeds limit", x)
 	}
-}, hegel.WithTestCases(1000))
+}, hegel.WithTestCases(1000)))
 ```
 
 `Target` is advisory — Hegel will try to maximize the targeted metric, but it

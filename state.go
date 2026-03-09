@@ -6,11 +6,9 @@ import (
 )
 
 // T is the test context for property tests run via [Case].
-// It embeds *[testing.T] along with internal Hegel state, providing Hegel-aware
-// replacements for methods that would otherwise call runtime.Goexit().
 //
-// T satisfies [state] via promoted Assume, Note, and Target methods, and
-// satisfies [testing.TB] via the embedded *testing.T.
+// It embeds *[testing.T] and overrides methods like Fatal and Skip so they
+// work correctly inside a Hegel test body instead of calling runtime.Goexit.
 type T struct {
 	*TestCase
 	*testing.T
@@ -18,46 +16,49 @@ type T struct {
 
 // Shadowed methods — override testing.T behavior for Hegel compatibility.
 
-// Fatal logs the message via [T.Note] and panics with a sentinel to mark
-// the test case as INTERESTING. It does not call runtime.Goexit().
+// Fatal logs the message via [T.Note] and marks the test case as failed.
+//
+// It does not call runtime.Goexit.
 func (t *T) Fatal(args ...any) {
 	msg := fmt.Sprint(args...)
 	t.Note(msg)
 	panic(fatalSentinel{msg: msg})
 }
 
-// Fatalf logs the formatted message via [T.Note] and panics with a sentinel
-// to mark the test case as INTERESTING.
+// Fatalf logs the formatted message via [T.Note] and marks the test case as failed.
+//
+// It does not call runtime.Goexit.
 func (t *T) Fatalf(format string, args ...any) {
 	msg := fmt.Sprintf(format, args...)
 	t.Note(msg)
 	panic(fatalSentinel{msg: msg})
 }
 
-// FailNow panics with a sentinel to mark the test case as INTERESTING.
+// FailNow marks the test case as failed and stops the test body.
 func (t *T) FailNow() {
 	panic(fatalSentinel{msg: "FailNow called"})
 }
 
-// Skip marks the test case as INVALID via Assume(false).
+// Skip discards the current test case.
 func (t *T) Skip(args ...any) {
 	_ = args
 	t.Assume(false)
 }
 
-// Skipf marks the test case as INVALID via Assume(false).
+// Skipf discards the current test case.
 func (t *T) Skipf(format string, args ...any) {
 	_, _ = format, args
 	t.Assume(false)
 }
 
-// SkipNow marks the test case as INVALID via Assume(false).
+// SkipNow discards the current test case.
 func (t *T) SkipNow() {
 	t.Assume(false)
 }
 
 // Error logs the message via [T.Note] and sets the failed flag.
-// The test case continues running but will be marked INTERESTING after return.
+//
+// The test case continues running but will be treated as a failure after return.
 func (t *T) Error(args ...any) {
 	msg := fmt.Sprint(args...)
 	t.Note(msg)

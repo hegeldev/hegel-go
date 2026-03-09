@@ -51,14 +51,15 @@ func (s *TestCase) Assume(condition bool) {
 }
 
 // Note prints message, but only during the final (replay) test case.
-// Output is routed via noteFn (t.Log for Case, stderr for Run).
+//
+// Output is routed to t.Log for [Case], or stderr for [Run].
 func (s *TestCase) Note(message string) {
 	if s.isFinal && s.noteFn != nil {
 		s.noteFn(message)
 	}
 }
 
-// Target sends a target value to the Hegel server to guide test generation.
+// Target guides Hegel toward values that maximize the given metric.
 func (s *TestCase) Target(value float64, label string) {
 	ch := s.channel
 	payload, err := encodeCBOR(map[string]any{
@@ -141,6 +142,7 @@ func WithTestCases(n int) Option {
 // --- Public API ---
 
 // Run runs a property test and returns any error.
+//
 // Note output goes to stderr. For use in standalone binaries and conformance tests.
 func Run(name string, fn func(*TestCase), opts ...Option) error {
 	return runHegel(name, fn, stderrNoteFn, opts)

@@ -61,6 +61,7 @@ func IntegersUnbounded() Generator[int64] {
 }
 
 // IntegersFrom returns a Generator that produces integers with optional bounds.
+//
 // Pass nil for minVal or maxVal to leave that bound unbounded.
 func IntegersFrom(minVal, maxVal *int64) Generator[int64] {
 	schema := map[string]any{"type": "integer"}
@@ -120,8 +121,9 @@ func Booleans(p float64) Generator[bool] {
 	}
 }
 
-// Text returns a Generator that produces string values with codepoint count in
-// [minSize, maxSize]. Pass maxSize < 0 for unbounded.
+// Text returns a Generator that produces string values with codepoint count in [minSize, maxSize].
+//
+// Pass maxSize < 0 for unbounded.
 func Text(minSize int, maxSize int) Generator[string] {
 	schema := map[string]any{
 		"type":     "string",
@@ -133,8 +135,9 @@ func Text(minSize int, maxSize int) Generator[string] {
 	return &basicGenerator[string]{schema: schema}
 }
 
-// Binary returns a Generator that produces byte slices with length in
-// [minSize, maxSize]. Pass maxSize < 0 for unbounded.
+// Binary returns a Generator that produces byte slices with length in [minSize, maxSize].
+//
+// Pass maxSize < 0 for unbounded.
 func Binary(minSize int, maxSize int) Generator[[]byte] {
 	schema := map[string]any{
 		"type":     "binary",
@@ -213,6 +216,7 @@ func Just[T any](value T) Generator[T] {
 }
 
 // SampledFrom returns a Generator that picks uniformly at random from values.
+//
 // Panics if values is empty.
 func SampledFrom[T any](values []T) Generator[T] {
 	if len(values) == 0 {

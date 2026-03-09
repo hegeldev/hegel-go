@@ -33,10 +33,6 @@ func (g *compositeOneOfGenerator[T]) draw(s *TestCase) T {
 
 // OneOf returns a Generator that produces values from one of the given generators.
 //
-// Path 1 — all basic with identity transforms: schema {"one_of": [s1, s2, ...]}
-// Path 2 — all basic with some transforms: tagged-tuple schema, transform dispatches by tag
-// Path 3 — any non-basic: compositeOneOfGenerator using ONE_OF span
-//
 // Requires at least 2 generators.
 func OneOf[T any](generators ...Generator[T]) Generator[T] {
 	if len(generators) < 2 {

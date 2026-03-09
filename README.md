@@ -9,7 +9,7 @@ shrinks them to minimal counterexamples.
 ## Installation
 
 ```bash
-go get github.com/antithesishq/hegel-go
+go get github.com/antithesishq/hegel-go@latest
 ```
 
 The SDK requires the `hegel` CLI on your PATH:
@@ -30,18 +30,18 @@ import (
 )
 
 func TestAddCommutative(t *testing.T) {
-    hegel.RunHegelTest("add_commutative", func() {
-        a, _ := hegel.ExtractInt(hegel.Integers(-1000, 1000).Generate())
-        b, _ := hegel.ExtractInt(hegel.Integers(-1000, 1000).Generate())
+    t.Run("add_commutative", hegel.Case(func(t *hegel.T) {
+        a, _ := hegel.Draw(t, hegel.Integers(-1000, 1000))
+        b, _ := hegel.Draw(t, hegel.Integers(-1000, 1000))
         if a+b != b+a {
-            panic("addition is not commutative!")
+            t.Fatal("addition is not commutative!")
         }
-    })
+    }))
 }
 ```
 
-Run with `go test` as normal. Hegel generates 100 random input pairs and reports
-the minimal counterexample if it finds one.
+Run with `go test` as normal. Hegel by default generates 100 random input pairs
+and reports the minimal counterexample if it finds one.
 
 For a full walkthrough, see [docs/getting-started.md](docs/getting-started.md).
 
