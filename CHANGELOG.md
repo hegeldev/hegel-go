@@ -1,5 +1,10 @@
 # Changelog
 
+## 0.0.1 - 2026-03-09
+
+Improve documentation by removing implementation details.
+
+
 ## 0.0.1 - 2026-03-05
 
 Refactor internal generator code.

@@ -11,9 +11,6 @@ type ListsOptions struct {
 }
 
 // Lists returns a Generator that produces slices of values from the elements generator.
-//
-// If elements is a basicGenerator (schema-backed), the list is generated with a single
-// server call using a list schema. Otherwise, the collection protocol is used.
 func Lists[T any](elements Generator[T], opts ListsOptions) Generator[[]T] {
 	minSize := opts.MinSize
 	if minSize < 0 {
