@@ -63,7 +63,7 @@ def get_current_version() -> str:
 
 def add_changelog(path: Path, *, version: str, content: str) -> None:
     date = datetime.now(timezone.utc).strftime("%Y-%m-%d")
-    entry = f"## {version} - {date}\n\n{content}\n"
+    entry = f"## {version} - {date}\n\n{content}"
 
     existing = path.read_text()
     assert existing.startswith("# Changelog")
@@ -83,10 +83,22 @@ def check(base_ref: str) -> None:
         return
 
     release_file = ROOT / "RELEASE.md"
+
+    process = subprocess.run(
+        ["git", "cat-file", "-e", f"origin/{base_ref}:RELEASE.md"],
+        capture_output=True,
+        cwd=ROOT,
+    )
+    if process.returncode == 0:
+        raise ValueError(
+            f"RELEASE.md already exists on {base_ref}. It's possible the CI job "
+            "responsible for cutting a new release is in progress, or has failed."
+        )
+
     if not release_file.exists():
         lines = [
-            "Changes to source files require a RELEASE.md file.",
-            "You can find an example in RELEASE-sample.md.",
+            "Every pull request to hegel-go requires a RELEASE.md file.",
+            "You can find an example and instructions in RELEASE-sample.md.",
         ]
         width = max(len(l) for l in lines) + 6
         border = " ".join("*" * ((width + 1) // 2))

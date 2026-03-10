@@ -53,6 +53,9 @@ func extractIntAs[T constraints.Integer](v any) T {
 //
 //	hegel.Integers[int](math.MinInt, math.MaxInt)
 func Integers[T constraints.Integer](minVal, maxVal T) Generator[T] {
+	if minVal > maxVal {
+		panic(fmt.Sprintf("hegel: Cannot have max_value=%d < min_value=%d", maxVal, minVal))
+	}
 	return &basicGenerator[T]{
 		schema: map[string]any{
 			"type":      "integer",
@@ -75,6 +78,16 @@ func Floats(minVal, maxVal *float64, allowNaN, allowInfinity *bool, excludeMin, 
 	inf := !hasMin || !hasMax
 	if allowInfinity != nil {
 		inf = *allowInfinity
+	}
+
+	if nan && (hasMin || hasMax) {
+		panic("hegel: Cannot have allow_nan=true with min_value or max_value")
+	}
+	if hasMin && hasMax && *minVal > *maxVal {
+		panic(fmt.Sprintf("hegel: Cannot have max_value=%v < min_value=%v", *maxVal, *minVal))
+	}
+	if inf && hasMin && hasMax {
+		panic("hegel: Cannot have allow_infinity=true with both min_value and max_value")
 	}
 
 	schema := map[string]any{
@@ -110,6 +123,12 @@ func Booleans() Generator[bool] {
 //
 // Pass maxSize < 0 for unbounded.
 func Text(minSize int, maxSize int) Generator[string] {
+	if minSize < 0 {
+		panic(fmt.Sprintf("hegel: min_size=%d must be non-negative", minSize))
+	}
+	if maxSize >= 0 && minSize > maxSize {
+		panic(fmt.Sprintf("hegel: Cannot have max_size=%d < min_size=%d", maxSize, minSize))
+	}
 	schema := map[string]any{
 		"type":     "string",
 		"min_size": int64(minSize),
@@ -124,6 +143,12 @@ func Text(minSize int, maxSize int) Generator[string] {
 //
 // Pass maxSize < 0 for unbounded.
 func Binary(minSize int, maxSize int) Generator[[]byte] {
+	if minSize < 0 {
+		panic(fmt.Sprintf("hegel: min_size=%d must be non-negative", minSize))
+	}
+	if maxSize >= 0 && minSize > maxSize {
+		panic(fmt.Sprintf("hegel: Cannot have max_size=%d < min_size=%d", maxSize, minSize))
+	}
 	schema := map[string]any{
 		"type":     "binary",
 		"min_size": int64(minSize),
@@ -172,6 +197,9 @@ func Domains(opts ...DomainOption) Generator[string] {
 	maxLen := cfg.maxLength
 	if maxLen <= 0 {
 		maxLen = defaultDomainMaxLength
+	}
+	if maxLen < 4 || maxLen > 255 {
+		panic(fmt.Sprintf("hegel: max_length=%d must be between 4 and 255", maxLen))
 	}
 	return &basicGenerator[string]{
 		schema: map[string]any{

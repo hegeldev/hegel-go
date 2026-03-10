@@ -19,7 +19,6 @@ Refactor internal generator code.
 
 Rework the API to integrate better with testing.T
 
-
 ## 0.1.0 - 2026-02-27
 
 Complete rewrite of the Go SDK with full protocol implementation, generator
