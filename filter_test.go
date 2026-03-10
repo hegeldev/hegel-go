@@ -65,7 +65,7 @@ func TestCompositeListGeneratorFilterReturnsfilteredGenerator(t *testing.T) {
 	// compositeListGenerator is produced when elements are non-basic.
 	// Filter produces a filteredGenerator (non-basic), forcing Lists into composite path.
 	nonBasic := Filter(Integers[int](0, 10), func(v int) bool { return true })
-	listGen := Lists(nonBasic, ListsOptions{MinSize: 0, MaxSize: 5})
+	listGen := Lists(nonBasic, ListMaxSize(5))
 	filtered := Filter(listGen, func(v []int) bool { return true })
 	if _, ok := filtered.(*filteredGenerator[[]int]); !ok {
 		t.Fatalf("Filter(compositeListGenerator) should return *filteredGenerator, got %T", filtered)
@@ -78,7 +78,7 @@ func TestCompositeDictGeneratorFilterReturnsfilteredGenerator(t *testing.T) {
 	// compositeDictGenerator is produced when key or value is non-basic.
 	// Filter produces a filteredGenerator (non-basic), forcing Dicts into composite path.
 	nonBasic := Filter(Integers[int](0, 10), func(v int) bool { return true })
-	dictGen := Dicts(nonBasic, Integers[int](0, 100), DictOptions{MinSize: 0})
+	dictGen := Dicts(nonBasic, Integers[int](0, 100))
 	filtered := Filter(dictGen, func(v map[int]int) bool { return true })
 	if _, ok := filtered.(*filteredGenerator[map[int]int]); !ok {
 		t.Fatalf("Filter(compositeDictGenerator) should return *filteredGenerator, got %T", filtered)

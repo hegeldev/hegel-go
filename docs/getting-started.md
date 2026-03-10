@@ -146,7 +146,7 @@ t.Run("list_with_valid_index", hegel.Case(func(ht *hegel.T) {
 	n := hegel.Draw(ht, hegel.Integers(1, 10))
 	lst := hegel.Draw(ht, hegel.Lists(
 		hegel.Integers(math.MinInt, math.MaxInt),
-		hegel.ListsOptions{MinSize: int(n), MaxSize: int(n)},
+		hegel.ListMinSize(int(n)), hegel.ListMaxSize(int(n)),
 	))
 	index := hegel.Draw(ht, hegel.Integers(0, n-1))
 
@@ -166,7 +166,7 @@ t.Run("flatmap_example", hegel.Case(func(ht *hegel.T) {
 		func(n int64) hegel.Generator[[]int64] {
 			return hegel.Lists(
 				hegel.Integers(math.MinInt, math.MaxInt),
-				hegel.ListsOptions{MinSize: int(n), MaxSize: int(n)},
+				hegel.ListMinSize(int(n)), hegel.ListMaxSize(int(n)),
 			)
 		},
 	))
@@ -200,8 +200,8 @@ hegel.SampledFrom([]string{"a", "b", "c"})   // uniform random pick from a slice
 ### Collections
 
 ```go
-hegel.Lists(elemGen, hegel.ListsOptions{MinSize: 1, MaxSize: 10}) // []T
-hegel.Dicts(keyGen, valGen, hegel.DictOptions{MaxSize: 5})        // map[K]V
+hegel.Lists(elemGen, hegel.ListMinSize(1), hegel.ListMaxSize(10)) // []any
+hegel.Dicts(keyGen, valGen, hegel.DictMaxSize(5))                 // map[any]any
 ```
 
 ### Combinators

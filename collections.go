@@ -2,29 +2,40 @@ package hegel
 
 // --- Lists generator ---
 
-// ListsOptions holds optional size constraints for the Lists generator.
-type ListsOptions struct {
-	// MinSize is the minimum number of elements (inclusive). Defaults to 0.
-	MinSize int
-	// MaxSize is the maximum number of elements (inclusive). Negative means unbounded.
-	MaxSize int
+// ListOption configures optional behavior for the [Lists] generator.
+type ListOption func(*listConfig)
+
+type listConfig struct {
+	minSize int
+	maxSize int
+}
+
+// ListMinSize sets the minimum number of elements (inclusive). Defaults to 0.
+func ListMinSize(n int) ListOption {
+	return func(cfg *listConfig) { cfg.minSize = n }
+}
+
+// ListMaxSize sets the maximum number of elements (inclusive). Negative means unbounded.
+func ListMaxSize(n int) ListOption {
+	return func(cfg *listConfig) { cfg.maxSize = n }
 }
 
 // Lists returns a Generator that produces slices of values from the elements generator.
-func Lists[T any](elements Generator[T], opts ListsOptions) Generator[[]T] {
-	minSize := opts.MinSize
-	if minSize < 0 {
-		minSize = 0
+func Lists[T any](elements Generator[T], opts ...ListOption) Generator[[]T] {
+	cfg := listConfig{maxSize: -1}
+	for _, o := range opts {
+		o(&cfg)
 	}
 
+	minSize := max(cfg.minSize, 0)
 	if bg, ok := elements.(*basicGenerator[T]); ok {
 		rawSchema := map[string]any{
 			"type":     "list",
 			"elements": bg.schema,
 			"min_size": int64(minSize),
 		}
-		if opts.MaxSize >= 0 {
-			rawSchema["max_size"] = int64(opts.MaxSize)
+		if cfg.maxSize >= 0 {
+			rawSchema["max_size"] = int64(cfg.maxSize)
 		}
 		if bg.transform != nil {
 			t := bg.transform
@@ -62,7 +73,7 @@ func Lists[T any](elements Generator[T], opts ListsOptions) Generator[[]T] {
 	return &compositeListGenerator[T]{
 		elements: elements,
 		minSize:  minSize,
-		maxSize:  opts.MaxSize,
+		maxSize:  cfg.maxSize,
 	}
 }
 
@@ -91,18 +102,31 @@ func (g *compositeListGenerator[T]) draw(s *TestCase) []T {
 
 // --- Dicts generator ---
 
-// DictOptions holds optional parameters for the Dicts generator.
-type DictOptions struct {
-	// MinSize is the minimum number of key-value pairs. Defaults to 0.
-	MinSize int
-	// MaxSize is the maximum number of key-value pairs. Negative means unbounded.
-	MaxSize int
-	// HasMaxSize indicates whether MaxSize should be applied.
-	HasMaxSize bool
+// DictOption configures optional behavior for the [Dicts] generator.
+type DictOption func(*dictConfig)
+
+type dictConfig struct {
+	minSize int
+	maxSize int
+	hasMax  bool
+}
+
+// DictMinSize sets the minimum number of key-value pairs. Defaults to 0.
+func DictMinSize(n int) DictOption {
+	return func(cfg *dictConfig) { cfg.minSize = n }
+}
+
+// DictMaxSize sets the maximum number of key-value pairs.
+func DictMaxSize(n int) DictOption {
+	return func(cfg *dictConfig) { cfg.maxSize = n; cfg.hasMax = true }
 }
 
 // Dicts returns a Generator that produces map[K]V values.
-func Dicts[K comparable, V any](keys Generator[K], values Generator[V], opts DictOptions) Generator[map[K]V] {
+func Dicts[K comparable, V any](keys Generator[K], values Generator[V], opts ...DictOption) Generator[map[K]V] {
+	var cfg dictConfig
+	for _, o := range opts {
+		o(&cfg)
+	}
 	keyBasic, keyIsBasic := keys.(*basicGenerator[K])
 	valBasic, valIsBasic := values.(*basicGenerator[V])
 	if keyIsBasic && valIsBasic {
@@ -110,10 +134,10 @@ func Dicts[K comparable, V any](keys Generator[K], values Generator[V], opts Dic
 			"type":     "dict",
 			"keys":     keyBasic.schema,
 			"values":   valBasic.schema,
-			"min_size": int64(opts.MinSize),
+			"min_size": int64(cfg.minSize),
 		}
-		if opts.HasMaxSize {
-			rawSchema["max_size"] = int64(opts.MaxSize)
+		if cfg.hasMax {
+			rawSchema["max_size"] = int64(cfg.maxSize)
 		}
 		keyTransform := keyBasic.transform
 		valTransform := valBasic.transform
@@ -127,9 +151,9 @@ func Dicts[K comparable, V any](keys Generator[K], values Generator[V], opts Dic
 	return &compositeDictGenerator[K, V]{
 		keys:    keys,
 		values:  values,
-		minSize: opts.MinSize,
-		maxSize: opts.MaxSize,
-		hasMax:  opts.HasMaxSize,
+		minSize: cfg.minSize,
+		maxSize: cfg.maxSize,
+		hasMax:  cfg.hasMax,
 	}
 }
 

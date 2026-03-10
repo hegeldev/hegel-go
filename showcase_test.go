@@ -226,7 +226,7 @@ func TestMapDoubledIntegersAreEven(t *testing.T) {
 func TestListsSortedIsSorted(t *testing.T) {
 	hegelBinPath(t)
 	if _err := runHegel(t.Name(), func(s *TestCase) {
-		nums := Draw[[]int](s, Lists(Integers[int](-100, 100), ListsOptions{MinSize: 0, MaxSize: 20}))
+		nums := Draw[[]int](s, Lists(Integers[int](-100, 100), ListMaxSize(20)))
 		// Insertion sort (simple, verifiable).
 		sorted := make([]int, len(nums))
 		copy(sorted, nums)
@@ -250,7 +250,7 @@ func TestListsSortedIsSorted(t *testing.T) {
 func TestListsLengthBoundsAreRespected(t *testing.T) {
 	hegelBinPath(t)
 	if _err := runHegel(t.Name(), func(s *TestCase) {
-		xs := Draw[[]int](s, Lists(Integers[int](0, 1000), ListsOptions{MinSize: 2, MaxSize: 8}))
+		xs := Draw[[]int](s, Lists(Integers[int](0, 1000), ListMinSize(2), ListMaxSize(8)))
 		if len(xs) < 2 || len(xs) > 8 {
 			panic(fmt.Sprintf("Lists: length %d out of [2, 8]", len(xs)))
 		}
@@ -270,7 +270,7 @@ func TestListsLengthBoundsAreRespected(t *testing.T) {
 func TestDictsKeyValueTypes(t *testing.T) {
 	hegelBinPath(t)
 	if _err := runHegel(t.Name(), func(s *TestCase) {
-		gen := Dicts(Text(1, 8), Integers[int](0, 255), DictOptions{MinSize: 0, MaxSize: 4, HasMaxSize: true})
+		gen := Dicts(Text(1, 8), Integers[int](0, 255), DictMaxSize(4))
 		m := Draw[map[string]int](s, gen)
 		if len(m) > 4 {
 			panic(fmt.Sprintf("Dicts: at most 4 entries expected, got %d", len(m)))
@@ -295,7 +295,7 @@ func TestDictsKeyValueTypes(t *testing.T) {
 func TestDictsSizeBoundsHold(t *testing.T) {
 	hegelBinPath(t)
 	if _err := runHegel(t.Name(), func(s *TestCase) {
-		gen := Dicts(Integers[int](0, 100), Booleans(), DictOptions{MinSize: 2, MaxSize: 5, HasMaxSize: true})
+		gen := Dicts(Integers[int](0, 100), Booleans(), DictMinSize(2), DictMaxSize(5))
 		m := Draw[map[int]bool](s, gen)
 		if len(m) < 2 || len(m) > 5 {
 			panic(fmt.Sprintf("Dicts: expected size in [2,5], got %d", len(m)))
@@ -393,7 +393,7 @@ func TestOptionalSometimesNil(t *testing.T) {
 // the correct format: IPv4 has exactly 4 dot-separated octets.
 func TestIPAddressesAreValidFormat(t *testing.T) {
 	hegelBinPath(t)
-	v4gen := IPAddresses(IPAddressOptions{Version: IPVersion4})
+	v4gen := IPAddresses(IPv4())
 	if _err := runHegel(t.Name(), func(s *TestCase) {
 		addr := Draw[netip.Addr](s, v4gen)
 		if !addr.Is4() {
@@ -485,7 +485,7 @@ func TestFlatMapListLengthMatchesInteger(t *testing.T) {
 	// matches the integer that controlled the generation.
 	gen := FlatMap[int, []bool](Integers[int](1, 6), func(n int) Generator[[]bool] {
 		sz := n
-		return Lists(Booleans(), ListsOptions{MinSize: sz, MaxSize: sz})
+		return Lists(Booleans(), ListMinSize(sz), ListMaxSize(sz))
 	})
 	if _err := runHegel(t.Name(), func(s *TestCase) {
 		bools := Draw[[]bool](s, gen)

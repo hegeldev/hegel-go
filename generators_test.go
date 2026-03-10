@@ -1817,7 +1817,7 @@ func TestFlatMappedGeneratorDependency(t *testing.T) {
 	hegelBinPath(t)
 	gen := FlatMap[int64, []int64](Integers[int64](2, 4), func(v int64) Generator[[]int64] {
 		sz := int(v)
-		return Lists[int64](Integers[int64](0, 100), ListsOptions{MinSize: sz, MaxSize: sz})
+		return Lists[int64](Integers[int64](0, 100), ListMinSize(sz), ListMaxSize(sz))
 	})
 	if _err := runHegel(t.Name(), func(s *TestCase) {
 		slice := Draw[[]int64](s, gen)
@@ -2183,7 +2183,7 @@ func TestOptionalGeneratorDrawValueFakeServer(t *testing.T) {
 func TestNewCollectionStopTestFakeServer(t *testing.T) {
 	inner := Integers[int64](0, 10)
 	nonBasic := &mappedGenerator[int64, int64]{inner: inner, fn: func(v int64) int64 { return v }}
-	gen := Lists(nonBasic, ListsOptions{MinSize: 0, MaxSize: 5})
+	gen := Lists(nonBasic, ListMaxSize(5))
 
 	clientConn := fakeServerConn(t, func(serverConn *connection) {
 		ctrl := serverConn.ControlChannel()
@@ -2230,7 +2230,7 @@ func TestNewCollectionStopTestFakeServer(t *testing.T) {
 func TestCollectionMoreStopTestFakeServer(t *testing.T) {
 	inner := Integers[int64](0, 10)
 	nonBasic := &mappedGenerator[int64, int64]{inner: inner, fn: func(v int64) int64 { return v }}
-	gen := Lists(nonBasic, ListsOptions{MinSize: 0, MaxSize: 5})
+	gen := Lists(nonBasic, ListMaxSize(5))
 
 	clientConn := fakeServerConn(t, func(serverConn *connection) {
 		ctrl := serverConn.ControlChannel()
@@ -2308,7 +2308,7 @@ func TestRejectFinishedCollection(t *testing.T) {
 func TestListsIdentityTransformFakeServer(t *testing.T) {
 	// Lists(Booleans()) on a basic generator with nil transform.
 	// This hits the identity transform path in Lists (lines 616-629).
-	gen := Lists(Booleans(), ListsOptions{MinSize: 0, MaxSize: 3})
+	gen := Lists(Booleans(), ListMaxSize(3))
 
 	clientConn := fakeServerConn(t, func(serverConn *connection) {
 		ctrl := serverConn.ControlChannel()
@@ -2360,7 +2360,7 @@ func TestListsIdentityTransformFakeServer(t *testing.T) {
 // =============================================================================
 
 func TestListsNegativeMinSizeSchema(t *testing.T) {
-	gen := Lists(Integers[int64](0, 10), ListsOptions{MinSize: -5, MaxSize: 10})
+	gen := Lists(Integers[int64](0, 10), ListMinSize(-5), ListMaxSize(10))
 	bg, ok := gen.(*basicGenerator[[]int64])
 	if !ok {
 		t.Fatalf("expected *basicGenerator[[]int64], got %T", gen)

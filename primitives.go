@@ -148,18 +148,28 @@ func URLs() Generator[string] {
 	}
 }
 
-// DomainOptions holds options for the Domains generator.
-type DomainOptions struct {
-	// MaxLength is the maximum length of the domain name.
-	// Zero means use the default maximum length (255, matching RFC 1035).
-	MaxLength int
+// DomainOption configures optional behavior for the [Domains] generator.
+type DomainOption func(*domainConfig)
+
+type domainConfig struct {
+	maxLength int
+}
+
+// DomainMaxLength sets the maximum length of the domain name.
+// Defaults to 255 (matching RFC 1035).
+func DomainMaxLength(n int) DomainOption {
+	return func(cfg *domainConfig) { cfg.maxLength = n }
 }
 
 const defaultDomainMaxLength = 255
 
 // Domains returns a Generator that produces domain name strings.
-func Domains(opts DomainOptions) Generator[string] {
-	maxLen := opts.MaxLength
+func Domains(opts ...DomainOption) Generator[string] {
+	var cfg domainConfig
+	for _, o := range opts {
+		o(&cfg)
+	}
+	maxLen := cfg.maxLength
 	if maxLen <= 0 {
 		maxLen = defaultDomainMaxLength
 	}

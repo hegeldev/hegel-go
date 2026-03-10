@@ -17,7 +17,7 @@ func main() {
 	hegel.MustRun("list_size_bounds", func(s *hegel.TestCase) {
 		lst := hegel.Draw(s, hegel.Lists(
 			hegel.Integers[int](math.MinInt, math.MaxInt),
-			hegel.ListsOptions{MinSize: 2, MaxSize: 10},
+			hegel.ListMinSize(2), hegel.ListMaxSize(10),
 		))
 
 		if len(lst) < 2 || len(lst) > 10 {
@@ -30,7 +30,7 @@ func main() {
 	hegel.MustRun("sort_idempotent", func(s *hegel.TestCase) {
 		nums := hegel.Draw(s, hegel.Lists(
 			hegel.Integers[int](-1000, 1000),
-			hegel.ListsOptions{MinSize: 0, MaxSize: 20},
+			hegel.ListMaxSize(20),
 		))
 
 		sorted1 := make([]int, len(nums))
@@ -54,7 +54,7 @@ func main() {
 		d := hegel.Draw(s, hegel.Dicts(
 			hegel.Integers[int](-100, 100),
 			hegel.Integers[int](-100, 100),
-			hegel.DictOptions{MinSize: 1, MaxSize: 5, HasMaxSize: true},
+			hegel.DictMinSize(1), hegel.DictMaxSize(5),
 		))
 
 		if len(d) < 1 || len(d) > 5 {
@@ -118,7 +118,7 @@ func main() {
 		count := hegel.Draw(s, hegel.Integers[int](1, 8))
 		lst := hegel.Draw(s, hegel.Lists(
 			hegel.Integers[int](math.MinInt, math.MaxInt),
-			hegel.ListsOptions{MinSize: count, MaxSize: count},
+			hegel.ListMinSize(count), hegel.ListMaxSize(count),
 		))
 
 		if len(lst) != count {

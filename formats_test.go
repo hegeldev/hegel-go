@@ -45,7 +45,7 @@ func TestURLsSchema(t *testing.T) {
 
 // TestDomainsSchemaNoMaxLength verifies that Domains() with no MaxLength uses the default (255).
 func TestDomainsSchemaNoMaxLength(t *testing.T) {
-	g := Domains(DomainOptions{})
+	g := Domains()
 	bg, ok := g.(*basicGenerator[string])
 	if !ok {
 		t.Fatalf("Domains() should return *basicGenerator[string], got %T", g)
@@ -65,7 +65,7 @@ func TestDomainsSchemaNoMaxLength(t *testing.T) {
 
 // TestDomainsSchemaWithMaxLength verifies that Domains() with MaxLength includes it.
 func TestDomainsSchemaWithMaxLength(t *testing.T) {
-	g := Domains(DomainOptions{MaxLength: 63})
+	g := Domains(DomainMaxLength(63))
 	bg, ok := g.(*basicGenerator[string])
 	if !ok {
 		t.Fatalf("Domains() should return *basicGenerator[string], got %T", g)
@@ -194,7 +194,7 @@ func TestDatetimesGeneratesCorrectSchema(t *testing.T) {
 
 // TestDomainsGeneratesCorrectSchemaNoMax checks the wire schema for Domains() with default max_length.
 func TestDomainsGeneratesCorrectSchemaNoMax(t *testing.T) {
-	schema := testGeneratorSchema(t, Domains(DomainOptions{}))
+	schema := testGeneratorSchema(t, Domains())
 	if schema[any("type")] != "domain" {
 		t.Errorf("generate schema type: expected domain, got %v", schema[any("type")])
 	}
@@ -210,7 +210,7 @@ func TestDomainsGeneratesCorrectSchemaNoMax(t *testing.T) {
 
 // TestDomainsGeneratesCorrectSchemaWithMax checks the wire schema for Domains() with max_length.
 func TestDomainsGeneratesCorrectSchemaWithMax(t *testing.T) {
-	schema := testGeneratorSchema(t, Domains(DomainOptions{MaxLength: 30}))
+	schema := testGeneratorSchema(t, Domains(DomainMaxLength(30)))
 	if schema[any("type")] != "domain" {
 		t.Errorf("generate schema type: expected domain, got %v", schema[any("type")])
 	}
@@ -263,7 +263,7 @@ func isValidDomainChar(r rune) bool {
 func TestDomainsE2E(t *testing.T) {
 	hegelBinPath(t)
 	if _err := runHegel(t.Name(), func(s *TestCase) {
-		v := Draw(s, Domains(DomainOptions{}))
+		v := Draw(s, Domains())
 		for _, r := range v {
 			if !isValidDomainChar(r) {
 				panic("domain contains invalid character '" + string(r) + "': " + v)
@@ -279,7 +279,7 @@ func TestDomainsMaxLengthE2E(t *testing.T) {
 	hegelBinPath(t)
 	const maxLen = 20
 	if _err := runHegel(t.Name(), func(s *TestCase) {
-		v := Draw(s, Domains(DomainOptions{MaxLength: maxLen}))
+		v := Draw(s, Domains(DomainMaxLength(maxLen)))
 		if len(v) > maxLen {
 			panic("domain exceeds max_length constraint: " + v)
 		}

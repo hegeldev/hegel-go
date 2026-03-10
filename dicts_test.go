@@ -19,7 +19,7 @@ import (
 func TestDictsBasicSchema(t *testing.T) {
 	keys := Text(0, 5)
 	vals := Integers[int64](0, 100)
-	gen := Dicts(keys, vals, DictOptions{MinSize: 0, MaxSize: 3, HasMaxSize: true})
+	gen := Dicts(keys, vals, DictMaxSize(3))
 	bg, ok := gen.(*basicGenerator[map[string]int64])
 	if !ok {
 		t.Fatalf("Dicts(basic, basic) should return *basicGenerator[map[string]int64], got %T", gen)
@@ -53,7 +53,7 @@ func TestDictsBasicSchema(t *testing.T) {
 
 // TestDictsBasicSchemaNoMaxSize verifies that when HasMaxSize=false, max_size is omitted.
 func TestDictsBasicSchemaNoMaxSize(t *testing.T) {
-	gen := Dicts(Text(0, 5), Integers[int64](0, 100), DictOptions{MinSize: 1})
+	gen := Dicts(Text(0, 5), Integers[int64](0, 100), DictMinSize(1))
 	bg, ok := gen.(*basicGenerator[map[string]int64])
 	if !ok {
 		t.Fatalf("expected *basicGenerator[map[string]int64], got %T", gen)
@@ -65,7 +65,7 @@ func TestDictsBasicSchemaNoMaxSize(t *testing.T) {
 
 // TestDictsBasicSchemaMinSize verifies that MinSize is propagated to the schema.
 func TestDictsBasicSchemaMinSize(t *testing.T) {
-	gen := Dicts(Text(0, 5), Integers[int64](0, 100), DictOptions{MinSize: 2, MaxSize: 5, HasMaxSize: true})
+	gen := Dicts(Text(0, 5), Integers[int64](0, 100), DictMinSize(2), DictMaxSize(5))
 	bg, ok := gen.(*basicGenerator[map[string]int64])
 	if !ok {
 		t.Fatalf("expected *basicGenerator[map[string]int64], got %T", gen)
@@ -78,7 +78,7 @@ func TestDictsBasicSchemaMinSize(t *testing.T) {
 
 // TestDictsBasicIsBasicGenerator verifies basicGenerator path via type assertion.
 func TestDictsBasicIsBasicGenerator(t *testing.T) {
-	gen := Dicts(Text(0, 5), Integers[int64](0, 100), DictOptions{})
+	gen := Dicts(Text(0, 5), Integers[int64](0, 100))
 	if _, ok := gen.(*basicGenerator[map[string]int64]); !ok {
 		t.Errorf("Dicts(basic,basic) should be *basicGenerator[map[string]int64], got %T", gen)
 	}
@@ -91,7 +91,7 @@ func TestDictsCompositeIsNotBasicGenerator(t *testing.T) {
 		inner: Integers[int64](0, 10),
 		fn:    func(v int64) int64 { return v },
 	}
-	gen := Dicts(nonBasicKeys, Integers[int64](0, 10), DictOptions{})
+	gen := Dicts(nonBasicKeys, Integers[int64](0, 10))
 	if _, ok := gen.(*basicGenerator[map[int64]int64]); ok {
 		t.Error("Dicts(non-basic, basic) should not be *basicGenerator")
 	}
@@ -103,7 +103,7 @@ func TestDictsCompositeMap(t *testing.T) {
 		inner: Integers[int64](0, 10),
 		fn:    func(v int64) int64 { return v },
 	}
-	gen := Dicts(nonBasicKeys, Integers[int64](0, 10), DictOptions{})
+	gen := Dicts(nonBasicKeys, Integers[int64](0, 10))
 	mapped := Map(gen, func(m map[int64]int64) map[int64]int64 { return m })
 	if _, ok := mapped.(*mappedGenerator[map[int64]int64, map[int64]int64]); !ok {
 		t.Errorf("Map on compositeDictGenerator should return *mappedGenerator, got %T", mapped)
@@ -252,7 +252,7 @@ func TestDictsBasicGenerateHappyPath(t *testing.T) {
 	cli := newClient(clientConn)
 	var gotMap map[string]int64
 	err := cli.runTest("dicts_basic_happy", func(s *TestCase) {
-		gen := Dicts(Text(0, 5), Integers[int64](0, 100), DictOptions{MinSize: 0, MaxSize: 3, HasMaxSize: true})
+		gen := Dicts(Text(0, 5), Integers[int64](0, 100), DictMaxSize(3))
 		gotMap = gen.draw(s)
 	}, runOptions{testCases: 1}, stderrNoteFn)
 	if err != nil {
@@ -322,7 +322,7 @@ func TestDictsBasicWithTransforms(t *testing.T) {
 	})
 
 	err := cli.runTest("dicts_with_transforms", func(s *TestCase) {
-		gen := Dicts(keyGen, valGen, DictOptions{MinSize: 0, MaxSize: 3, HasMaxSize: true})
+		gen := Dicts(keyGen, valGen, DictMaxSize(3))
 		gotMap = gen.draw(s)
 	}, runOptions{testCases: 1}, stderrNoteFn)
 	if err != nil {
@@ -408,7 +408,7 @@ func TestDictsCompositeGenerateHappyPath(t *testing.T) {
 			inner: Integers[int64](0, 10),
 			fn:    func(v int64) int64 { return v },
 		}
-		gen := Dicts(nonBasicKeys, Integers[int64](0, 100), DictOptions{MinSize: 0, MaxSize: 2, HasMaxSize: true})
+		gen := Dicts(nonBasicKeys, Integers[int64](0, 100), DictMaxSize(2))
 		gotMap = gen.draw(s)
 	}, runOptions{testCases: 1}, stderrNoteFn)
 	if err != nil {
@@ -479,7 +479,7 @@ func TestDictsCompositeNoMaxHappyPath(t *testing.T) {
 			fn:    func(v int64) int64 { return v },
 		}
 		// No max size: hasMax=false, minSize=2 -> should use maxSz=2+10=12
-		gen := Dicts(nonBasicKeys, Integers[int64](0, 100), DictOptions{MinSize: 2})
+		gen := Dicts(nonBasicKeys, Integers[int64](0, 100), DictMinSize(2))
 		_ = gen.draw(s)
 	}, runOptions{testCases: 1}, stderrNoteFn)
 	if err != nil {
@@ -504,7 +504,7 @@ func TestDictsStopTestOnNewCollection(t *testing.T) {
 			inner: Integers[int64](0, 10),
 			fn:    func(v int64) int64 { return v },
 		}
-		gen := Dicts(nonBasicKeys, Integers[int64](0, 100), DictOptions{MinSize: 0, MaxSize: 3, HasMaxSize: true})
+		gen := Dicts(nonBasicKeys, Integers[int64](0, 100), DictMaxSize(3))
 		_ = gen.draw(s)
 	}, stderrNoteFn, nil)
 	// StopTest causes test to be skipped or aborted, not fail
@@ -521,7 +521,7 @@ func TestDictsStopTestOnCollectionMore(t *testing.T) {
 			inner: Integers[int64](0, 10),
 			fn:    func(v int64) int64 { return v },
 		}
-		gen := Dicts(nonBasicKeys, Integers[int64](0, 100), DictOptions{MinSize: 0, MaxSize: 3, HasMaxSize: true})
+		gen := Dicts(nonBasicKeys, Integers[int64](0, 100), DictMaxSize(3))
 		_ = gen.draw(s)
 	}, stderrNoteFn, nil)
 	_ = err
@@ -536,7 +536,7 @@ func TestDictsStopTestOnCollectionMore(t *testing.T) {
 func TestDictsBasicE2E(t *testing.T) {
 	hegelBinPath(t)
 	if _err := runHegel(t.Name(), func(s *TestCase) {
-		gen := Dicts(Text(0, 5), Integers[int](0, 100), DictOptions{MinSize: 0, MaxSize: 3, HasMaxSize: true})
+		gen := Dicts(Text(0, 5), Integers[int](0, 100), DictMaxSize(3))
 		m := gen.draw(s)
 		if len(m) > 3 {
 			panic(fmt.Sprintf("Dicts: expected at most 3 entries, got %d", len(m)))
@@ -559,7 +559,7 @@ func TestDictsBasicE2E(t *testing.T) {
 func TestDictsBasicWithBoundsE2E(t *testing.T) {
 	hegelBinPath(t)
 	if _err := runHegel(t.Name(), func(s *TestCase) {
-		gen := Dicts(Integers[int](0, 10), Booleans(), DictOptions{MinSize: 1, MaxSize: 3, HasMaxSize: true})
+		gen := Dicts(Integers[int](0, 10), Booleans(), DictMinSize(1), DictMaxSize(3))
 		m := gen.draw(s)
 		if len(m) < 1 || len(m) > 3 {
 			panic(fmt.Sprintf("Dicts bounded: expected 1-3 entries, got %d", len(m)))
@@ -589,7 +589,7 @@ func TestDictsCompositeE2E(t *testing.T) {
 				return int64(6) // clamp to > 5
 			},
 		}
-		gen := Dicts(nonBasicKeys, Just("val"), DictOptions{MinSize: 0, MaxSize: 3, HasMaxSize: true})
+		gen := Dicts(nonBasicKeys, Just("val"), DictMaxSize(3))
 		m := gen.draw(s)
 		// All values must be "val"
 		for k, val := range m {

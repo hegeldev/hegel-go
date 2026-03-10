@@ -431,7 +431,7 @@ func TestOptionalNonBasicE2E(t *testing.T) {
 
 // TestIPAddressesV4Schema verifies that IPAddresses(v4) produces {"type":"ipv4"}.
 func TestIPAddressesV4Schema(t *testing.T) {
-	g := IPAddresses(IPAddressOptions{Version: IPVersion4})
+	g := IPAddresses(IPv4())
 	bg, ok := g.(*basicGenerator[netip.Addr])
 	if !ok {
 		t.Fatalf("IPAddresses(v4) should return *basicGenerator[netip.Addr], got %T", g)
@@ -443,7 +443,7 @@ func TestIPAddressesV4Schema(t *testing.T) {
 
 // TestIPAddressesV6Schema verifies that IPAddresses(v6) produces {"type":"ipv6"}.
 func TestIPAddressesV6Schema(t *testing.T) {
-	g := IPAddresses(IPAddressOptions{Version: IPVersion6})
+	g := IPAddresses(IPv6())
 	bg, ok := g.(*basicGenerator[netip.Addr])
 	if !ok {
 		t.Fatalf("IPAddresses(v6) should return *basicGenerator[netip.Addr], got %T", g)
@@ -455,7 +455,7 @@ func TestIPAddressesV6Schema(t *testing.T) {
 
 // TestIPAddressesDefaultIsOneOf verifies that IPAddresses(no version) returns a OneOf generator.
 func TestIPAddressesDefaultIsOneOf(t *testing.T) {
-	g := IPAddresses(IPAddressOptions{})
+	g := IPAddresses()
 	bg, ok := g.(*basicGenerator[netip.Addr])
 	if !ok {
 		t.Fatalf("IPAddresses(default) should return *basicGenerator[netip.Addr], got %T", g)
@@ -474,7 +474,7 @@ func TestIPAddressesDefaultIsOneOf(t *testing.T) {
 // TestIPAddressesV4E2E verifies IPv4 addresses contain dots.
 func TestIPAddressesV4E2E(t *testing.T) {
 	hegelBinPath(t)
-	g := IPAddresses(IPAddressOptions{Version: IPVersion4})
+	g := IPAddresses(IPv4())
 	if _err := runHegel(t.Name(), func(s *TestCase) {
 		v := g.draw(s)
 		if !v.Is4() {
@@ -488,7 +488,7 @@ func TestIPAddressesV4E2E(t *testing.T) {
 // TestIPAddressesV6E2E verifies IPv6 addresses contain colons.
 func TestIPAddressesV6E2E(t *testing.T) {
 	hegelBinPath(t)
-	g := IPAddresses(IPAddressOptions{Version: IPVersion6})
+	g := IPAddresses(IPv6())
 	if _err := runHegel(t.Name(), func(s *TestCase) {
 		v := g.draw(s)
 		if !v.Is6() {
@@ -504,7 +504,7 @@ func TestIPAddressesDefaultE2E(t *testing.T) {
 	hegelBinPath(t)
 	sawV4 := false
 	sawV6 := false
-	g := IPAddresses(IPAddressOptions{})
+	g := IPAddresses()
 	if _err := runHegel(t.Name(), func(s *TestCase) {
 		v := g.draw(s)
 		if v.Is4() {
