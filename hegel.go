@@ -16,15 +16,6 @@
 //	    }, hegel.WithTestCases(50)))
 //	}
 //
-// Or use [Run] in standalone binaries:
-//
-//	err := hegel.Run(func(s *hegel.TestCase) {
-//	    n := hegel.Draw(s, hegel.Integers[int](0, 100))
-//	    if n < 0 || n > 100 {
-//	        panic("out of range")
-//	    }
-//	}, hegel.WithTestCases(50))
-//
 // Use the composable [Generator] types returned by functions such as [Integers],
 // [Booleans], [Text], [Lists], and [OneOf].
 //
