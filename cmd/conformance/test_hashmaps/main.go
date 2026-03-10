@@ -42,43 +42,39 @@ func main() {
 		}
 	}
 
-	minKey := int64(-1000)
-	maxKey := int64(1000)
-	minVal := int64(-1000)
-	maxVal := int64(1000)
+	minKey := int(-1000)
+	maxKey := int(1000)
+	minVal := int(-1000)
+	maxVal := int(1000)
 
 	if v, ok := params["min_key"]; ok && v != nil {
 		if x, ok := v.(float64); ok {
-			minKey = int64(x)
+			minKey = int(x)
 		}
 	}
 	if v, ok := params["max_key"]; ok && v != nil {
 		if x, ok := v.(float64); ok {
-			maxKey = int64(x)
+			maxKey = int(x)
 		}
 	}
 	if v, ok := params["min_value"]; ok && v != nil {
 		if x, ok := v.(float64); ok {
-			minVal = int64(x)
+			minVal = int(x)
 		}
 	}
 	if v, ok := params["max_value"]; ok && v != nil {
 		if x, ok := v.(float64); ok {
-			maxVal = int64(x)
+			maxVal = int(x)
 		}
 	}
 
-	valsGen := hegel.Integers(minVal, maxVal)
-	opts := hegel.DictOptions{
-		MinSize:    minSize,
-		MaxSize:    maxSize,
-		HasMaxSize: true,
-	}
+	valsGen := hegel.Integers[int](minVal, maxVal)
+	opts := []hegel.DictOption{hegel.DictMinSize(minSize), hegel.DictMaxSize(maxSize)}
 	n := conformance.GetTestCases()
 
 	if keyType == "string" {
 		keysGen := hegel.Text(0, -1)
-		gen := hegel.Dicts(keysGen, valsGen, opts)
+		gen := hegel.Dicts(keysGen, valsGen, opts...)
 
 		hegel.MustRun("conformance_hashmaps", func(s *hegel.TestCase) {
 			m := hegel.Draw(s, gen)
@@ -86,8 +82,8 @@ func main() {
 
 			var minKeyOut, maxKeyOut, minValueOut, maxValueOut any
 			if size > 0 {
-				minIntVal := int64(math.MaxInt64)
-				maxIntVal := int64(math.MinInt64)
+				minIntVal := math.MaxInt
+				maxIntVal := math.MinInt
 				minStrKey := ""
 				maxStrKey := ""
 				firstKey := true
@@ -123,8 +119,8 @@ func main() {
 			})
 		}, hegel.WithTestCases(n))
 	} else {
-		keysGen := hegel.Integers(minKey, maxKey)
-		gen := hegel.Dicts(keysGen, valsGen, opts)
+		keysGen := hegel.Integers[int](minKey, maxKey)
+		gen := hegel.Dicts(keysGen, valsGen, opts...)
 
 		hegel.MustRun("conformance_hashmaps", func(s *hegel.TestCase) {
 			m := hegel.Draw(s, gen)
@@ -132,10 +128,10 @@ func main() {
 
 			var minKeyOut, maxKeyOut, minValueOut, maxValueOut any
 			if size > 0 {
-				minIntKey := int64(math.MaxInt64)
-				maxIntKey := int64(math.MinInt64)
-				minIntVal := int64(math.MaxInt64)
-				maxIntVal := int64(math.MinInt64)
+				minIntKey := math.MaxInt
+				maxIntKey := math.MinInt
+				minIntVal := math.MaxInt
+				maxIntVal := math.MinInt
 
 				for k, v := range m {
 					if v < minIntVal {

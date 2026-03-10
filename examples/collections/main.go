@@ -6,6 +6,7 @@ package main
 
 import (
 	"fmt"
+	"math"
 	"sort"
 
 	hegel "github.com/antithesishq/hegel-go"
@@ -15,8 +16,8 @@ func main() {
 	// Property 1: the length of a generated list is within [minSize, maxSize].
 	hegel.MustRun("list_size_bounds", func(s *hegel.TestCase) {
 		lst := hegel.Draw(s, hegel.Lists(
-			hegel.IntegersUnbounded(),
-			hegel.ListsOptions{MinSize: 2, MaxSize: 10},
+			hegel.Integers[int](math.MinInt, math.MaxInt),
+			hegel.ListMinSize(2), hegel.ListMaxSize(10),
 		))
 
 		if len(lst) < 2 || len(lst) > 10 {
@@ -28,15 +29,15 @@ func main() {
 	// Property 2: sorting a list of integers is idempotent (sort(sort(x)) == sort(x)).
 	hegel.MustRun("sort_idempotent", func(s *hegel.TestCase) {
 		nums := hegel.Draw(s, hegel.Lists(
-			hegel.Integers(-1000, 1000),
-			hegel.ListsOptions{MinSize: 0, MaxSize: 20},
+			hegel.Integers[int](-1000, 1000),
+			hegel.ListMaxSize(20),
 		))
 
-		sorted1 := make([]int64, len(nums))
+		sorted1 := make([]int, len(nums))
 		copy(sorted1, nums)
 		sort.Slice(sorted1, func(i, j int) bool { return sorted1[i] < sorted1[j] })
 
-		sorted2 := make([]int64, len(sorted1))
+		sorted2 := make([]int, len(sorted1))
 		copy(sorted2, sorted1)
 		sort.Slice(sorted2, func(i, j int) bool { return sorted2[i] < sorted2[j] })
 
@@ -51,9 +52,9 @@ func main() {
 	// Property 3: a dict's size is within the requested bounds.
 	hegel.MustRun("dict_size_bounds", func(s *hegel.TestCase) {
 		d := hegel.Draw(s, hegel.Dicts(
-			hegel.Integers(-100, 100),
-			hegel.Integers(-100, 100),
-			hegel.DictOptions{MinSize: 1, MaxSize: 5, HasMaxSize: true},
+			hegel.Integers[int](-100, 100),
+			hegel.Integers[int](-100, 100),
+			hegel.DictMinSize(1), hegel.DictMaxSize(5),
 		))
 
 		if len(d) < 1 || len(d) > 5 {
@@ -64,7 +65,7 @@ func main() {
 
 	// Property 4: drawing two values independently produces a pair.
 	hegel.MustRun("independent_draws", func(s *hegel.TestCase) {
-		n := hegel.Draw(s, hegel.Integers(0, 100))
+		n := hegel.Draw(s, hegel.Integers[int](0, 100))
 		str := hegel.Draw(s, hegel.Text(0, 10))
 
 		// Verify we got the expected types and ranges.
@@ -80,8 +81,8 @@ func main() {
 	// Property 5: OneOf produces values from one of the given generators.
 	hegel.MustRun("one_of_membership", func(s *hegel.TestCase) {
 		n := hegel.Draw(s, hegel.OneOf(
-			hegel.Integers(1, 10),
-			hegel.Integers(100, 200),
+			hegel.Integers[int](1, 10),
+			hegel.Integers[int](100, 200),
 		))
 		if !((n >= 1 && n <= 10) || (n >= 100 && n <= 200)) {
 			panic(fmt.Sprintf("value %d not in either range", n))
@@ -91,7 +92,7 @@ func main() {
 
 	// Property 6: Optional is either nil or from the inner generator.
 	hegel.MustRun("optional_nil_or_value", func(s *hegel.TestCase) {
-		v := hegel.Draw(s, hegel.Optional(hegel.Integers(1, 100)))
+		v := hegel.Draw(s, hegel.Optional(hegel.Integers[int](1, 100)))
 		if v == nil {
 			return // nil is always acceptable
 		}
@@ -103,7 +104,7 @@ func main() {
 
 	// Property 7: Map transforms values correctly.
 	hegel.MustRun("map_doubles", func(s *hegel.TestCase) {
-		n := hegel.Draw(s, hegel.Map(hegel.Integers(0, 500), func(v int64) int64 {
+		n := hegel.Draw(s, hegel.Map(hegel.Integers[int](0, 500), func(v int) int {
 			return v * 2
 		}))
 		if n%2 != 0 {
@@ -114,13 +115,13 @@ func main() {
 
 	// Property 8: dependent generation -- list length matches a generated count.
 	hegel.MustRun("list_length_matches_count", func(s *hegel.TestCase) {
-		count := hegel.Draw(s, hegel.Integers(1, 8))
+		count := hegel.Draw(s, hegel.Integers[int](1, 8))
 		lst := hegel.Draw(s, hegel.Lists(
-			hegel.IntegersUnbounded(),
-			hegel.ListsOptions{MinSize: int(count), MaxSize: int(count)},
+			hegel.Integers[int](math.MinInt, math.MaxInt),
+			hegel.ListMinSize(count), hegel.ListMaxSize(count),
 		))
 
-		if int64(len(lst)) != count {
+		if len(lst) != count {
 			panic(fmt.Sprintf("list length %d != count %d", len(lst), count))
 		}
 	}, hegel.WithTestCases(100))

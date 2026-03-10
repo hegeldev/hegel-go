@@ -2,6 +2,7 @@ package hegel
 
 import (
 	"fmt"
+	"net/netip"
 )
 
 // --- OneOf generator ---
@@ -146,33 +147,47 @@ func (g *optionalGenerator[T]) draw(s *TestCase) *T {
 
 // --- IPAddresses generator ---
 
-// IPAddressVersion specifies which IP version to generate.
-type IPAddressVersion int
+// IPAddressOption configures optional behavior for the [IPAddresses] generator.
+type IPAddressOption func(*ipAddressConfig)
 
-const (
-	// IPVersion4 generates IPv4 addresses.
-	IPVersion4 IPAddressVersion = 4
-	// IPVersion6 generates IPv6 addresses.
-	IPVersion6 IPAddressVersion = 6
-)
+type ipAddressConfig struct {
+	version string
+}
 
-// IPAddressOptions holds options for the IPAddresses generator.
-type IPAddressOptions struct {
-	// Version selects the IP version (4 or 6). Zero means generate both.
-	Version IPAddressVersion
+// IPv4 restricts the generator to IPv4 addresses only.
+func IPv4() IPAddressOption {
+	return func(cfg *ipAddressConfig) { cfg.version = "ipv4" }
+}
+
+// IPv6 restricts the generator to IPv6 addresses only.
+func IPv6() IPAddressOption {
+	return func(cfg *ipAddressConfig) { cfg.version = "ipv6" }
 }
 
 // IPAddresses returns a Generator that produces IP address strings.
-func IPAddresses(opts IPAddressOptions) Generator[string] {
-	switch opts.Version {
-	case IPVersion4:
-		return &basicGenerator[string]{schema: map[string]any{"type": "ipv4"}}
-	case IPVersion6:
-		return &basicGenerator[string]{schema: map[string]any{"type": "ipv6"}}
-	default:
-		return OneOf[string](
-			&basicGenerator[string]{schema: map[string]any{"type": "ipv4"}},
-			&basicGenerator[string]{schema: map[string]any{"type": "ipv6"}},
+func IPAddresses(opts ...IPAddressOption) Generator[netip.Addr] {
+	var cfg ipAddressConfig
+	for _, o := range opts {
+		o(&cfg)
+	}
+	addrTransform := func(a any) netip.Addr {
+		return netip.MustParseAddr(a.(string))
+	}
+	if cfg.version != "" {
+		return &basicGenerator[netip.Addr]{
+			schema:    map[string]any{"type": cfg.version},
+			transform: addrTransform,
+		}
+	} else {
+		return OneOf(
+			&basicGenerator[netip.Addr]{
+				schema:    map[string]any{"type": "ipv4"},
+				transform: addrTransform,
+			},
+			&basicGenerator[netip.Addr]{
+				schema:    map[string]any{"type": "ipv6"},
+				transform: addrTransform,
+			},
 		)
 	}
 }
