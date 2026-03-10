@@ -1,5 +1,10 @@
 # Changelog
 
+## 0.1.0 - 2026-03-10
+
+Change generators to use standard library types where it makes sense and use functional options throughout
+
+
 ## 0.0.1 - 2026-03-09
 
 Improve documentation by removing implementation details.

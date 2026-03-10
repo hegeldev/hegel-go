@@ -3,6 +3,9 @@ package hegel
 import (
 	"fmt"
 	"math/big"
+	"time"
+
+	"golang.org/x/exp/constraints"
 )
 
 // --- Built-in generators ---
@@ -40,40 +43,23 @@ func extractFloat(v any) float64 {
 	}
 }
 
+// extractIntAs extracts an integer from a CBOR-decoded value and converts it to T.
+func extractIntAs[T constraints.Integer](v any) T {
+	return T(extractInt(v))
+}
+
 // Integers returns a Generator that produces integer values in [minVal, maxVal].
-func Integers(minVal, maxVal int64) Generator[int64] {
-	return &basicGenerator[int64]{
+// For unbounded generation, use the full range of the type:
+//
+//	hegel.Integers[int](math.MinInt, math.MaxInt)
+func Integers[T constraints.Integer](minVal, maxVal T) Generator[T] {
+	return &basicGenerator[T]{
 		schema: map[string]any{
 			"type":      "integer",
-			"min_value": minVal,
-			"max_value": maxVal,
+			"min_value": int64(minVal),
+			"max_value": int64(maxVal),
 		},
-		transform: func(v any) int64 { return extractInt(v) },
-	}
-}
-
-// IntegersUnbounded returns a Generator that produces unbounded integer values.
-func IntegersUnbounded() Generator[int64] {
-	return &basicGenerator[int64]{
-		schema:    map[string]any{"type": "integer"},
-		transform: func(v any) int64 { return extractInt(v) },
-	}
-}
-
-// IntegersFrom returns a Generator that produces integers with optional bounds.
-//
-// Pass nil for minVal or maxVal to leave that bound unbounded.
-func IntegersFrom(minVal, maxVal *int64) Generator[int64] {
-	schema := map[string]any{"type": "integer"}
-	if minVal != nil {
-		schema["min_value"] = *minVal
-	}
-	if maxVal != nil {
-		schema["max_value"] = *maxVal
-	}
-	return &basicGenerator[int64]{
-		schema:    schema,
-		transform: func(v any) int64 { return extractInt(v) },
+		transform: extractIntAs[T],
 	}
 }
 
@@ -111,12 +97,11 @@ func Floats(minVal, maxVal *float64, allowNaN, allowInfinity *bool, excludeMin, 
 	}
 }
 
-// Booleans returns a Generator that produces boolean values with probability p of true.
-func Booleans(p float64) Generator[bool] {
+// Booleans returns a Generator that produces boolean values.
+func Booleans() Generator[bool] {
 	return &basicGenerator[bool]{
 		schema: map[string]any{
 			"type": "boolean",
-			"p":    p,
 		},
 	}
 }
@@ -163,18 +148,28 @@ func URLs() Generator[string] {
 	}
 }
 
-// DomainOptions holds options for the Domains generator.
-type DomainOptions struct {
-	// MaxLength is the maximum length of the domain name.
-	// Zero means use the default maximum length (255, matching RFC 1035).
-	MaxLength int
+// DomainOption configures optional behavior for the [Domains] generator.
+type DomainOption func(*domainConfig)
+
+type domainConfig struct {
+	maxLength int
+}
+
+// DomainMaxLength sets the maximum length of the domain name.
+// Defaults to 255 (matching RFC 1035).
+func DomainMaxLength(n int) DomainOption {
+	return func(cfg *domainConfig) { cfg.maxLength = n }
 }
 
 const defaultDomainMaxLength = 255
 
 // Domains returns a Generator that produces domain name strings.
-func Domains(opts DomainOptions) Generator[string] {
-	maxLen := opts.MaxLength
+func Domains(opts ...DomainOption) Generator[string] {
+	var cfg domainConfig
+	for _, o := range opts {
+		o(&cfg)
+	}
+	maxLen := cfg.maxLength
 	if maxLen <= 0 {
 		maxLen = defaultDomainMaxLength
 	}
@@ -186,10 +181,17 @@ func Domains(opts DomainOptions) Generator[string] {
 	}
 }
 
-// Dates returns a Generator that produces ISO 8601 date strings (YYYY-MM-DD).
-func Dates() Generator[string] {
-	return &basicGenerator[string]{
+// Dates returns a Generator that produces time.Time values from ISO 8601 date strings (YYYY-MM-DD).
+func Dates() Generator[time.Time] {
+	return &basicGenerator[time.Time]{
 		schema: map[string]any{"type": "date"},
+		transform: func(a any) time.Time {
+			t, err := time.Parse("2006-01-02", a.(string))
+			if err != nil {
+				panic(fmt.Sprintf("hegel: failed to parse date %q: %v", a, err))
+			}
+			return t
+		},
 	}
 }
 
@@ -200,10 +202,17 @@ func Times() Generator[string] {
 	}
 }
 
-// Datetimes returns a Generator that produces ISO 8601 datetime strings.
-func Datetimes() Generator[string] {
-	return &basicGenerator[string]{
+// Datetimes returns a Generator that produces time.Time values from ISO 8601 datetime strings.
+func Datetimes() Generator[time.Time] {
+	return &basicGenerator[time.Time]{
 		schema: map[string]any{"type": "datetime"},
+		transform: func(a any) time.Time {
+			t, err := time.Parse("2006-01-02T15:04:05", a.(string))
+			if err != nil {
+				panic(fmt.Sprintf("hegel: failed to parse datetime %q: %v", a, err))
+			}
+			return t
+		},
 	}
 }
 

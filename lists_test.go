@@ -15,8 +15,8 @@ import (
 // TestListsBasicElementSchema verifies that Lists on a basicGenerator[int64] (no transform)
 // produces a basicGenerator[[]int64] with the correct list schema.
 func TestListsBasicElementSchema(t *testing.T) {
-	elem := Integers(0, 100)
-	gen := Lists(elem, ListsOptions{MinSize: 2, MaxSize: 10})
+	elem := Integers[int64](0, 100)
+	gen := Lists(elem, ListMinSize(2), ListMaxSize(10))
 	bg, ok := gen.(*basicGenerator[[]int64])
 	if !ok {
 		t.Fatalf("Lists(basic) should return *basicGenerator[[]int64], got %T", gen)
@@ -43,8 +43,8 @@ func TestListsBasicElementSchema(t *testing.T) {
 
 // TestListsBasicElementNoMaxSchema verifies that when MaxSize < 0, max_size is omitted.
 func TestListsBasicElementNoMaxSchema(t *testing.T) {
-	elem := Integers(0, 100)
-	gen := Lists(elem, ListsOptions{MinSize: 0, MaxSize: -1})
+	elem := Integers[int64](0, 100)
+	gen := Lists(elem, ListMaxSize(-1))
 	bg, ok := gen.(*basicGenerator[[]int64])
 	if !ok {
 		t.Fatalf("Lists(basic, no max) should return *basicGenerator[[]int64], got %T", gen)
@@ -57,11 +57,11 @@ func TestListsBasicElementNoMaxSchema(t *testing.T) {
 // TestListsBasicElementWithTransformSchema verifies that Lists on a basicGenerator with
 // a transform applies the transform element-wise in the list transform.
 func TestListsBasicElementWithTransformSchema(t *testing.T) {
-	// Integers(0, 100) mapped to double: basicGenerator with transform.
-	elem := Map(Integers(0, 100), func(n int64) int64 {
+	// Integers[int64](0, 100) mapped to double: basicGenerator with transform.
+	elem := Map(Integers[int64](0, 100), func(n int64) int64 {
 		return n * 2
 	})
-	gen := Lists(elem, ListsOptions{MinSize: 0, MaxSize: 5})
+	gen := Lists(elem, ListMaxSize(5))
 	bg, ok := gen.(*basicGenerator[[]int64])
 	if !ok {
 		t.Fatalf("Lists(basic with transform) should return *basicGenerator[[]int64], got %T", gen)
@@ -88,8 +88,8 @@ func TestListsBasicElementWithTransformSchema(t *testing.T) {
 // TestListsBasicElementWithTransformNonSlicePassthrough verifies that the list transform
 // returns nil for non-slice values (defensive path in transform).
 func TestListsBasicElementWithTransformNonSlicePassthrough(t *testing.T) {
-	elem := Map(Integers(0, 10), func(n int64) int64 { return n })
-	gen := Lists(elem, ListsOptions{MinSize: 0, MaxSize: 5})
+	elem := Map(Integers[int64](0, 10), func(n int64) int64 { return n })
+	gen := Lists(elem, ListMaxSize(5))
 	bg, ok := gen.(*basicGenerator[[]int64])
 	if !ok {
 		t.Fatalf("expected *basicGenerator[[]int64], got %T", gen)
@@ -104,8 +104,8 @@ func TestListsBasicElementWithTransformNonSlicePassthrough(t *testing.T) {
 // TestListsBasicElementNoTransformNonSlicePassthrough verifies that the list transform
 // for a basic element with no transform returns nil for non-slice values.
 func TestListsBasicElementNoTransformNonSlicePassthrough(t *testing.T) {
-	elem := Booleans(0.5)
-	gen := Lists(elem, ListsOptions{MinSize: 0, MaxSize: 5})
+	elem := Booleans()
+	gen := Lists(elem, ListMaxSize(5))
 	bg, ok := gen.(*basicGenerator[[]bool])
 	if !ok {
 		t.Fatalf("expected *basicGenerator[[]bool], got %T", gen)
@@ -121,9 +121,9 @@ func TestListsBasicElementNoTransformNonSlicePassthrough(t *testing.T) {
 // returns a compositeListGenerator (not a basicGenerator).
 func TestListsNonBasicElementReturnsComposite(t *testing.T) {
 	// mappedGenerator is non-basic.
-	inner := Integers(0, 10)
+	inner := Integers[int64](0, 10)
 	nonBasic := &mappedGenerator[int64, int64]{inner: inner, fn: func(v int64) int64 { return v }}
-	gen := Lists(nonBasic, ListsOptions{MinSize: 1, MaxSize: 3})
+	gen := Lists(nonBasic, ListMinSize(1), ListMaxSize(3))
 	if _, ok := gen.(*compositeListGenerator[int64]); !ok {
 		t.Fatalf("Lists(non-basic) should return *compositeListGenerator[int64], got %T", gen)
 	}
@@ -131,8 +131,8 @@ func TestListsNonBasicElementReturnsComposite(t *testing.T) {
 
 // TestListsNegativeMinSizeClampedToZero verifies that a negative MinSize is clamped to 0.
 func TestListsNegativeMinSizeClampedToZero(t *testing.T) {
-	elem := Integers(0, 100)
-	gen := Lists(elem, ListsOptions{MinSize: -5, MaxSize: 10})
+	elem := Integers[int64](0, 100)
+	gen := Lists(elem, ListMinSize(-5), ListMaxSize(10))
 	bg, ok := gen.(*basicGenerator[[]int64])
 	if !ok {
 		t.Fatalf("expected *basicGenerator[[]int64], got %T", gen)
@@ -151,11 +151,11 @@ func TestListsNegativeMinSizeClampedToZero(t *testing.T) {
 // using a fake server (no real hegel binary needed).
 func TestCompositeListGeneratorProtocol(t *testing.T) {
 	// Non-basic generator: mappedGenerator wrapping integers
-	inner := Integers(0, 10)
+	inner := Integers[int64](0, 10)
 	nonBasic := &mappedGenerator[int64, int64]{inner: inner, fn: func(v int64) int64 {
 		return v * 2
 	}}
-	gen := Lists(nonBasic, ListsOptions{MinSize: 1, MaxSize: 3})
+	gen := Lists(nonBasic, ListMinSize(1), ListMaxSize(3))
 
 	clientConn := fakeServerConn(t, func(serverConn *connection) {
 		ctrl := serverConn.ControlChannel()
@@ -241,9 +241,9 @@ func TestCompositeListGeneratorProtocol(t *testing.T) {
 // TestCompositeListGeneratorEmptyList tests that a composite list with no elements
 // returns an empty (but non-nil via append behavior) slice.
 func TestCompositeListGeneratorEmptyList(t *testing.T) {
-	inner := Integers(0, 10)
+	inner := Integers[int64](0, 10)
 	nonBasic := &mappedGenerator[int64, int64]{inner: inner, fn: func(v int64) int64 { return v }}
-	gen := Lists(nonBasic, ListsOptions{MinSize: 0, MaxSize: 3})
+	gen := Lists(nonBasic, ListMaxSize(3))
 
 	clientConn := fakeServerConn(t, func(serverConn *connection) {
 		ctrl := serverConn.ControlChannel()
@@ -304,12 +304,12 @@ func TestCompositeListGeneratorEmptyList(t *testing.T) {
 // Lists e2e integration tests (real hegel binary)
 // =============================================================================
 
-// TestListsBasicIntegersE2E verifies that Lists(Integers(0,100)) always produces
+// TestListsBasicIntegersE2E verifies that Lists(Integers[int](0,100)) always produces
 // a list where every element is in [0, 100].
 func TestListsBasicIntegersE2E(t *testing.T) {
 	hegelBinPath(t)
 	if _err := runHegel("lists_basic_integers_e2e", func(s *TestCase) {
-		xs := Lists(Integers(0, 100), ListsOptions{MinSize: 0, MaxSize: 10}).draw(s)
+		xs := Lists(Integers[int](0, 100), ListMaxSize(10)).draw(s)
 		for _, x := range xs {
 			if x < 0 || x > 100 {
 				panic(fmt.Sprintf("Lists: element %d out of range [0, 100]", x))
@@ -325,7 +325,7 @@ func TestListsBasicIntegersE2E(t *testing.T) {
 func TestListsWithSizeBoundsE2E(t *testing.T) {
 	hegelBinPath(t)
 	if _err := runHegel("lists_with_bounds_e2e", func(s *TestCase) {
-		xs := Lists(Booleans(0.5), ListsOptions{MinSize: 3, MaxSize: 5}).draw(s)
+		xs := Lists(Booleans(), ListMinSize(3), ListMaxSize(5)).draw(s)
 		if len(xs) < 3 || len(xs) > 5 {
 			panic(fmt.Sprintf("Lists: length %d out of [3, 5]", len(xs)))
 		}
@@ -339,13 +339,13 @@ func TestListsWithSizeBoundsE2E(t *testing.T) {
 func TestListsNonBasicElementE2E(t *testing.T) {
 	hegelBinPath(t)
 	// Mapped generator: integers in [0,100] then round to nearest even.
-	mapped := Map(Integers(0, 100), func(n int64) int64 {
+	mapped := Map(Integers[int](0, 100), func(n int) int {
 		return (n / 2) * 2
 	})
-	nonBasic := &mappedGenerator[int64, int64]{inner: mapped, fn: func(v int64) int64 { return v }}
+	nonBasic := &mappedGenerator[int, int]{inner: mapped, fn: func(v int) int { return v }}
 
 	if _err := runHegel("lists_non_basic_e2e", func(s *TestCase) {
-		xs := Lists(nonBasic, ListsOptions{MinSize: 0, MaxSize: 5}).draw(s)
+		xs := Lists(nonBasic, ListMaxSize(5)).draw(s)
 		for _, x := range xs {
 			if x%2 != 0 {
 				panic(fmt.Sprintf("Lists(non-basic): expected even element, got %d", x))
@@ -361,7 +361,7 @@ func TestListsNonBasicElementE2E(t *testing.T) {
 func TestListsNestedE2E(t *testing.T) {
 	hegelBinPath(t)
 	if _err := runHegel("lists_nested_e2e", func(s *TestCase) {
-		outer := Lists(Lists(Booleans(0.5), ListsOptions{MinSize: 0, MaxSize: 3}), ListsOptions{MinSize: 0, MaxSize: 3}).draw(s)
+		outer := Lists(Lists(Booleans(), ListMaxSize(3)), ListMaxSize(3)).draw(s)
 		for i, inner := range outer {
 			for j, b := range inner {
 				// b is already bool due to typed generators; verify it is true or false.
@@ -379,12 +379,12 @@ func TestListsNestedE2E(t *testing.T) {
 // applies the transform element-wise to the result.
 func TestListsBasicWithTransformE2E(t *testing.T) {
 	hegelBinPath(t)
-	// Map Integers(0,10) -> double. Lists wraps this into a list schema with element transform.
-	doubled := Map(Integers(0, 10), func(n int64) int64 {
+	// Map Integers[int](0,10) -> double. Lists wraps this into a list schema with element transform.
+	doubled := Map(Integers[int](0, 10), func(n int) int {
 		return n * 2
 	})
 	if _err := runHegel("lists_basic_transform_e2e", func(s *TestCase) {
-		xs := Lists(doubled, ListsOptions{MinSize: 0, MaxSize: 5}).draw(s)
+		xs := Lists(doubled, ListMaxSize(5)).draw(s)
 		for _, x := range xs {
 			if x%2 != 0 || x < 0 || x > 20 {
 				panic(fmt.Sprintf("Lists(basic+transform): element %d should be even in [0,20]", x))

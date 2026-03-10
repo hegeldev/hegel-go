@@ -9,7 +9,7 @@
 //
 //	func TestMyProperty(t *testing.T) {
 //	    t.Run("bounds", hegel.Case(func(ht *hegel.T) {
-//	        n := hegel.Draw(ht, hegel.Integers(0, 100))
+//	        n := hegel.Draw(ht, hegel.Integers[int](0, 100))
 //	        if n < 0 || n > 100 {
 //	            ht.Fatal("out of range")
 //	        }
@@ -19,7 +19,7 @@
 // Or use [Run] in standalone binaries:
 //
 //	err := hegel.Run("my_property", func(s *hegel.TestCase) {
-//	    n := hegel.Draw(s, hegel.Integers(0, 100))
+//	    n := hegel.Draw(s, hegel.Integers[int](0, 100))
 //	    if n < 0 || n > 100 {
 //	        panic("out of range")
 //	    }

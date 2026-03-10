@@ -4,7 +4,7 @@ package hegel
 
 import (
 	"fmt"
-	"strings"
+	"net/netip"
 	"testing"
 	"time"
 )
@@ -16,8 +16,8 @@ import (
 // TestOneOfPath1Schema verifies that OneOf with all-identity-transform basic
 // generators produces a simple {"one_of": [...]} schema.
 func TestOneOfPath1Schema(t *testing.T) {
-	g1 := Booleans(0.5)
-	g2 := Booleans(0.3)
+	g1 := Booleans()
+	g2 := Booleans()
 	combined := OneOf(g1, g2)
 
 	bg, ok := combined.(*basicGenerator[bool])
@@ -157,7 +157,7 @@ func TestOneOfPath2Transform(t *testing.T) {
 func TestOneOfPath2TransformNilBranch(t *testing.T) {
 	// Mix: one identity branch (no transform), one with transform.
 	// Booleans has no transform (identity), Just(true) has a transform.
-	gen1 := Booleans(0.5)                                    // nil transform
+	gen1 := Booleans()                                       // nil transform
 	gen2 := Map(Just(true), func(v bool) bool { return !v }) // has transform (negate)
 	combined := OneOf(gen1, gen2)
 
@@ -197,8 +197,8 @@ func TestOneOfPath2TransformShortTuple(t *testing.T) {
 // TestOneOfPath2E2E verifies that Path 2 generates correctly through the real server.
 func TestOneOfPath2E2E(t *testing.T) {
 	hegelBinPath(t)
-	gen1 := Map(Just(int64(1)), func(v int64) int64 { return v * 2 })
-	gen2 := Map(Just(int64(2)), func(v int64) int64 { return v * 3 })
+	gen1 := Map(Just(int(1)), func(v int) int { return v * 2 })
+	gen2 := Map(Just(int(2)), func(v int) int { return v * 3 })
 	combined := OneOf(gen1, gen2)
 
 	if _err := runHegel(t.Name(), func(s *TestCase) {
@@ -220,10 +220,10 @@ func TestOneOfPath2E2E(t *testing.T) {
 func TestOneOfPath3IsComposite(t *testing.T) {
 	// A mappedGenerator is not a basicGenerator.
 	nonBasic := &mappedGenerator[int64, int64]{
-		inner: Integers(0, 10),
+		inner: Integers[int64](0, 10),
 		fn:    func(v int64) int64 { return v },
 	}
-	basic := Integers(0, 10)
+	basic := Integers[int64](0, 10)
 	combined := OneOf[int64](nonBasic, basic)
 	if _, ok := combined.(*compositeOneOfGenerator[int64]); !ok {
 		t.Fatalf("OneOf with non-basic should return *compositeOneOfGenerator[int64], got %T", combined)
@@ -233,8 +233,8 @@ func TestOneOfPath3IsComposite(t *testing.T) {
 // TestOneOfPath3MapReturnsMapGen verifies that mapping a compositeOneOfGenerator
 // returns a mappedGenerator.
 func TestOneOfPath3MapReturnsMapGen(t *testing.T) {
-	nonBasic := &mappedGenerator[int64, int64]{inner: Integers(0, 10), fn: func(v int64) int64 { return v }}
-	combined := OneOf[int64](nonBasic, Integers(0, 5))
+	nonBasic := &mappedGenerator[int64, int64]{inner: Integers[int64](0, 10), fn: func(v int64) int64 { return v }}
+	combined := OneOf[int64](nonBasic, Integers[int64](0, 5))
 	mapped := Map(combined, func(v int64) int64 { return v })
 	if _, ok := mapped.(*mappedGenerator[int64, int64]); !ok {
 		t.Fatalf("Map(compositeOneOfGenerator) should return *mappedGenerator, got %T", mapped)
@@ -246,13 +246,13 @@ func TestOneOfPath3MapReturnsMapGen(t *testing.T) {
 func TestOneOfPath3E2E(t *testing.T) {
 	hegelBinPath(t)
 	// nonBasic: a mappedGenerator (not a *basicGenerator)
-	nonBasic := &mappedGenerator[int64, int64]{
-		inner: Integers(0, 1000),
-		fn:    func(v int64) int64 { return v }, // identity, but still a mappedGenerator
+	nonBasic := &mappedGenerator[int, int]{
+		inner: Integers[int](0, 1000),
+		fn:    func(v int) int { return v }, // identity, but still a mappedGenerator
 	}
 	text := Text(1, 5)
 	// These have different types so we need to unify. Use any.
-	nonBasicAny := Map[int64, any](nonBasic, func(v int64) any { return v })
+	nonBasicAny := Map[int, any](nonBasic, func(v int) any { return v })
 	textAny := Map[string, any](text, func(v string) any { return v })
 	combined := OneOf[any](nonBasicAny, textAny)
 
@@ -261,7 +261,7 @@ func TestOneOfPath3E2E(t *testing.T) {
 	if _err := runHegel(t.Name(), func(s *TestCase) {
 		v := combined.draw(s)
 		switch v.(type) {
-		case int64:
+		case int:
 			sawInt = true
 		case string:
 			sawStr = true
@@ -281,8 +281,8 @@ func TestOneOfPath3E2E(t *testing.T) {
 
 // TestOneOfPath3UnitFakeServer verifies the compositeOneOfGenerator through a fake server.
 func TestOneOfPath3UnitFakeServer(t *testing.T) {
-	nonBasic := &mappedGenerator[int64, int64]{inner: Integers(0, 100), fn: func(v int64) int64 { return v }}
-	gen := &compositeOneOfGenerator[int64]{generators: []Generator[int64]{nonBasic, Integers(0, 5)}}
+	nonBasic := &mappedGenerator[int64, int64]{inner: Integers[int64](0, 100), fn: func(v int64) int64 { return v }}
+	gen := &compositeOneOfGenerator[int64]{generators: []Generator[int64]{nonBasic, Integers[int64](0, 5)}}
 
 	// server side: handle ONE_OF span start + int generate for index + inner generate + stop_span
 	clientConn := fakeServerConn(t, func(serverConn *connection) {
@@ -354,7 +354,7 @@ func TestOneOfPanicsWithFewerThanTwo(t *testing.T) {
 			t.Error("OneOf with 1 generator should panic")
 		}
 	}()
-	OneOf(Integers(0, 10))
+	OneOf(Integers[int64](0, 10))
 }
 
 // =============================================================================
@@ -363,7 +363,7 @@ func TestOneOfPanicsWithFewerThanTwo(t *testing.T) {
 
 // TestOptionalSchema verifies that Optional returns an optionalGenerator.
 func TestOptionalSchema(t *testing.T) {
-	g := Optional(Integers(0, 10))
+	g := Optional(Integers[int64](0, 10))
 	if _, ok := g.(*optionalGenerator[int64]); !ok {
 		t.Fatalf("Optional(Integers) should return *optionalGenerator[int64], got %T", g)
 	}
@@ -374,7 +374,7 @@ func TestOptionalE2E(t *testing.T) {
 	hegelBinPath(t)
 	sawNil := false
 	sawInt := false
-	g := Optional(Integers(0, 100))
+	g := Optional(Integers[int](0, 100))
 	if _err := runHegel(t.Name(), func(s *TestCase) {
 		v := g.draw(s)
 		if v == nil {
@@ -400,10 +400,10 @@ func TestOptionalE2E(t *testing.T) {
 // works correctly (optionalGenerator handles any inner generator).
 func TestOptionalNonBasicE2E(t *testing.T) {
 	hegelBinPath(t)
-	nonBasic := &mappedGenerator[int64, int64]{inner: Integers(0, 10), fn: func(v int64) int64 { return v }}
-	g := Optional[int64](nonBasic)
-	if _, ok := g.(*optionalGenerator[int64]); !ok {
-		t.Fatalf("Optional(nonBasic) should return *optionalGenerator[int64], got %T", g)
+	nonBasic := &mappedGenerator[int, int]{inner: Integers[int](0, 10), fn: func(v int) int { return v }}
+	g := Optional[int](nonBasic)
+	if _, ok := g.(*optionalGenerator[int]); !ok {
+		t.Fatalf("Optional(nonBasic) should return *optionalGenerator[int], got %T", g)
 	}
 	sawNil := false
 	sawVal := false
@@ -431,10 +431,10 @@ func TestOptionalNonBasicE2E(t *testing.T) {
 
 // TestIPAddressesV4Schema verifies that IPAddresses(v4) produces {"type":"ipv4"}.
 func TestIPAddressesV4Schema(t *testing.T) {
-	g := IPAddresses(IPAddressOptions{Version: IPVersion4})
-	bg, ok := g.(*basicGenerator[string])
+	g := IPAddresses(IPv4())
+	bg, ok := g.(*basicGenerator[netip.Addr])
 	if !ok {
-		t.Fatalf("IPAddresses(v4) should return *basicGenerator[string], got %T", g)
+		t.Fatalf("IPAddresses(v4) should return *basicGenerator[netip.Addr], got %T", g)
 	}
 	if bg.schema["type"] != "ipv4" {
 		t.Errorf("IPAddresses(v4) type: expected ipv4, got %v", bg.schema["type"])
@@ -443,10 +443,10 @@ func TestIPAddressesV4Schema(t *testing.T) {
 
 // TestIPAddressesV6Schema verifies that IPAddresses(v6) produces {"type":"ipv6"}.
 func TestIPAddressesV6Schema(t *testing.T) {
-	g := IPAddresses(IPAddressOptions{Version: IPVersion6})
-	bg, ok := g.(*basicGenerator[string])
+	g := IPAddresses(IPv6())
+	bg, ok := g.(*basicGenerator[netip.Addr])
 	if !ok {
-		t.Fatalf("IPAddresses(v6) should return *basicGenerator[string], got %T", g)
+		t.Fatalf("IPAddresses(v6) should return *basicGenerator[netip.Addr], got %T", g)
 	}
 	if bg.schema["type"] != "ipv6" {
 		t.Errorf("IPAddresses(v6) type: expected ipv6, got %v", bg.schema["type"])
@@ -455,10 +455,10 @@ func TestIPAddressesV6Schema(t *testing.T) {
 
 // TestIPAddressesDefaultIsOneOf verifies that IPAddresses(no version) returns a OneOf generator.
 func TestIPAddressesDefaultIsOneOf(t *testing.T) {
-	g := IPAddresses(IPAddressOptions{})
-	bg, ok := g.(*basicGenerator[string])
+	g := IPAddresses()
+	bg, ok := g.(*basicGenerator[netip.Addr])
 	if !ok {
-		t.Fatalf("IPAddresses(default) should return *basicGenerator[string], got %T", g)
+		t.Fatalf("IPAddresses(default) should return *basicGenerator[netip.Addr], got %T", g)
 	}
 	// Should be a one_of of ipv4 and ipv6
 	oneOf, hasOneOf := bg.schema["one_of"]
@@ -474,11 +474,11 @@ func TestIPAddressesDefaultIsOneOf(t *testing.T) {
 // TestIPAddressesV4E2E verifies IPv4 addresses contain dots.
 func TestIPAddressesV4E2E(t *testing.T) {
 	hegelBinPath(t)
-	g := IPAddresses(IPAddressOptions{Version: IPVersion4})
+	g := IPAddresses(IPv4())
 	if _err := runHegel(t.Name(), func(s *TestCase) {
 		v := g.draw(s)
-		if !strings.Contains(v, ".") {
-			panic(fmt.Sprintf("IPv4 address should contain '.': %q", v))
+		if !v.Is4() {
+			panic(fmt.Sprintf("IPv4 address should be v4: %v", v))
 		}
 	}, stderrNoteFn, []Option{WithTestCases(50)}); _err != nil {
 		panic(_err)
@@ -488,11 +488,11 @@ func TestIPAddressesV4E2E(t *testing.T) {
 // TestIPAddressesV6E2E verifies IPv6 addresses contain colons.
 func TestIPAddressesV6E2E(t *testing.T) {
 	hegelBinPath(t)
-	g := IPAddresses(IPAddressOptions{Version: IPVersion6})
+	g := IPAddresses(IPv6())
 	if _err := runHegel(t.Name(), func(s *TestCase) {
 		v := g.draw(s)
-		if !strings.Contains(v, ":") {
-			panic(fmt.Sprintf("IPv6 address should contain ':': %q", v))
+		if !v.Is6() {
+			panic(fmt.Sprintf("IPv6 address should be v6: %v", v))
 		}
 	}, stderrNoteFn, []Option{WithTestCases(50)}); _err != nil {
 		panic(_err)
@@ -504,15 +504,13 @@ func TestIPAddressesDefaultE2E(t *testing.T) {
 	hegelBinPath(t)
 	sawV4 := false
 	sawV6 := false
-	g := IPAddresses(IPAddressOptions{})
+	g := IPAddresses()
 	if _err := runHegel(t.Name(), func(s *TestCase) {
 		v := g.draw(s)
-		if strings.Contains(v, ".") {
+		if v.Is4() {
 			sawV4 = true
-		} else if strings.Contains(v, ":") {
+		} else if v.Is6() {
 			sawV6 = true
-		} else {
-			panic(fmt.Sprintf("IPAddresses default: unrecognized address format: %q", v))
 		}
 	}, stderrNoteFn, []Option{WithTestCases(100)}); _err != nil {
 		panic(_err)
@@ -529,10 +527,10 @@ func TestIPAddressesDefaultE2E(t *testing.T) {
 // generators produces correct values.
 func TestOneOfWithMapMixedTypesE2E(t *testing.T) {
 	hegelBinPath(t)
-	// Integers(0,10).Map(*2): always even numbers; Just(int64(0)): always 0
+	// Integers[int](0,10).Map(*2): always even numbers; Just(int(0)): always 0
 	gen := OneOf(
-		Map(Integers(0, 10), func(v int64) int64 { return v * 2 }),
-		Just(int64(0)),
+		Map(Integers[int](0, 10), func(v int) int { return v * 2 }),
+		Just(int(0)),
 	)
 	if _err := runHegel(t.Name(), func(s *TestCase) {
 		v := gen.draw(s)
@@ -580,8 +578,8 @@ func TestCompositeOneOfGenerateErrorResponse(t *testing.T) {
 	hegelBinPath(t)
 	t.Setenv("HEGEL_PROTOCOL_TEST_MODE", "error_response")
 	// Use a compositeOneOfGenerator (non-basic branches -> Path 3).
-	nonBasic1 := &mappedGenerator[int64, int64]{inner: Integers(0, 5), fn: func(v int64) int64 { return v }}
-	nonBasic2 := &mappedGenerator[int64, int64]{inner: Integers(6, 10), fn: func(v int64) int64 { return v }}
+	nonBasic1 := &mappedGenerator[int64, int64]{inner: Integers[int64](0, 5), fn: func(v int64) int64 { return v }}
+	nonBasic2 := &mappedGenerator[int64, int64]{inner: Integers[int64](6, 10), fn: func(v int64) int64 { return v }}
 	gen := &compositeOneOfGenerator[int64]{generators: []Generator[int64]{nonBasic1, nonBasic2}}
 	err := runHegel(t.Name(), func(s *TestCase) {
 		_ = gen.draw(s) // should panic with requestError

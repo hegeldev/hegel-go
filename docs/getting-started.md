@@ -69,7 +69,7 @@ Call `Draw` multiple times to produce multiple values in a single test:
 
 ```go
 t.Run("multiple_values", hegel.Case(func(ht *hegel.T) {
-	n := hegel.Draw(ht, hegel.IntegersUnbounded())
+	n := hegel.Draw(ht, hegel.Integers(math.MinInt, math.MaxInt))
 	s := hegel.Draw(ht, hegel.Text(0, 50))
 
 	_ = n // n is int64
@@ -86,7 +86,7 @@ Use `Filter` on a generator for simple per-value conditions:
 
 ```go
 t.Run("even_integers", hegel.Case(func(ht *hegel.T) {
-	evenIntegers := hegel.Filter(hegel.IntegersUnbounded(), func(v int64) bool {
+	evenIntegers := hegel.Filter(hegel.Integers(math.MinInt, math.MaxInt), func(v int64) bool {
 		return v%2 == 0
 	}
 	if n := hegel.Draw(ht, evenIntegers)); n%2 != 0 {
@@ -145,8 +145,8 @@ configure later generators directly:
 t.Run("list_with_valid_index", hegel.Case(func(ht *hegel.T) {
 	n := hegel.Draw(ht, hegel.Integers(1, 10))
 	lst := hegel.Draw(ht, hegel.Lists(
-		hegel.IntegersUnbounded(),
-		hegel.ListsOptions{MinSize: int(n), MaxSize: int(n)},
+		hegel.Integers(math.MinInt, math.MaxInt),
+		hegel.ListMinSize(int(n)), hegel.ListMaxSize(int(n)),
 	))
 	index := hegel.Draw(ht, hegel.Integers(0, n-1))
 
@@ -165,8 +165,8 @@ t.Run("flatmap_example", hegel.Case(func(ht *hegel.T) {
 		hegel.Integers(1, 5),
 		func(n int64) hegel.Generator[[]int64] {
 			return hegel.Lists(
-				hegel.IntegersUnbounded(),
-				hegel.ListsOptions{MinSize: int(n), MaxSize: int(n)},
+				hegel.Integers(math.MinInt, math.MaxInt),
+				hegel.ListMinSize(int(n)), hegel.ListMaxSize(int(n)),
 			)
 		},
 	))
@@ -182,10 +182,9 @@ t.Run("flatmap_example", hegel.Case(func(ht *hegel.T) {
 ### Primitive types
 
 ```go
-hegel.Booleans(0.5)                          // bool with probability p of true
+hegel.Booleans()                             // bool
 hegel.Integers(-1000, 1000)                  // int64 in [min, max]
-hegel.IntegersUnbounded()                    // unbounded int64
-hegel.IntegersFrom(&min, nil)                // int64 with optional bounds (nil = unbounded)
+hegel.Integers(math.MinInt, math.MaxInt)     // unbounded int
 hegel.Floats(min, max, nan, inf, eMin, eMax) // float64 (use nil to omit bounds)
 hegel.Text(0, 50)                            // Unicode string (pass maxSize < 0 for unbounded)
 hegel.Binary(0, 64)                          // []byte (pass maxSize < 0 for unbounded)
@@ -201,8 +200,8 @@ hegel.SampledFrom([]string{"a", "b", "c"})   // uniform random pick from a slice
 ### Collections
 
 ```go
-hegel.Lists(elemGen, hegel.ListsOptions{MinSize: 1, MaxSize: 10}) // []T
-hegel.Dicts(keyGen, valGen, hegel.DictOptions{MaxSize: 5})        // map[K]V
+hegel.Lists(elemGen, hegel.ListMinSize(1), hegel.ListMaxSize(10)) // []any
+hegel.Dicts(keyGen, valGen, hegel.DictMaxSize(5))                 // map[any]any
 ```
 
 ### Combinators

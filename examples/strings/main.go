@@ -52,7 +52,7 @@ func main() {
 		// Generate a list of non-empty words (no commas so the separator is unambiguous).
 		words := hegel.Draw(s, hegel.Lists(
 			hegel.FromRegex(`[a-z]+`, true),
-			hegel.ListsOptions{MinSize: 1, MaxSize: 8},
+			hegel.ListMinSize(1), hegel.ListMaxSize(8),
 		))
 
 		joined := strings.Join(words, ",")
