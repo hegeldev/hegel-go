@@ -58,7 +58,7 @@ func main() {
 
 	gen := hegel.Floats(minPtr, maxPtr, allowNaN, allowInfinity, excludeMin, excludeMax)
 	n := conformance.GetTestCases()
-	hegel.MustRun("conformance_floats", func(s *hegel.TestCase) {
+	hegel.MustRun(func(s *hegel.TestCase) {
 		val := hegel.Draw(s, gen)
 		isNaN := math.IsNaN(val)
 		isInfinite := math.IsInf(val, 0)

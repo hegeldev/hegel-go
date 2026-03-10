@@ -76,7 +76,7 @@ conformance: build-conformance
     #!/usr/bin/env bash
     set -euo pipefail
     export PATH="$(pwd)/.venv/bin:$PATH"
-    uv pip install --python .venv/bin/python pytest pytest-subtests hypothesis > /dev/null 2>&1 || true
+    uv pip install --python .venv/bin/python pytest hypothesis > /dev/null 2>&1 || true
     .venv/bin/python -m pytest tests/conformance/ -v
 
 # Run lint + docs + test (the full CI check).

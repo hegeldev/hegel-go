@@ -144,13 +144,13 @@ func WithTestCases(n int) Option {
 // Run runs a property test and returns any error.
 //
 // Note output goes to stderr. For use in standalone binaries and conformance tests.
-func Run(name string, fn func(*TestCase), opts ...Option) error {
-	return runHegel(name, fn, stderrNoteFn, opts)
+func Run(fn func(*TestCase), opts ...Option) error {
+	return runHegel(fn, stderrNoteFn, opts)
 }
 
 // MustRun runs a property test and panics if it fails.
-func MustRun(name string, fn func(*TestCase), opts ...Option) {
-	if err := Run(name, fn, opts...); err != nil {
+func MustRun(fn func(*TestCase), opts ...Option) {
+	if err := Run(fn, opts...); err != nil {
 		panic(err)
 	}
 }
@@ -166,7 +166,7 @@ func Case(fn func(*T), opts ...Option) func(*testing.T) {
 			ht := &T{TestCase: s, T: t}
 			fn(ht)
 		}
-		err := runHegel(t.Name(), body, func(msg string) { t.Log(msg) }, opts)
+		err := runHegel(body, func(msg string) { t.Log(msg) }, opts)
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -179,7 +179,7 @@ func stderrNoteFn(msg string) {
 }
 
 // runHegel is the shared implementation for Run, MustRun, and Case.
-func runHegel(name string, fn testBody, noteFn func(string), opts []Option) error {
+func runHegel(fn testBody, noteFn func(string), opts []Option) error {
 	o := runOptions{testCases: 100}
 	for _, opt := range opts {
 		opt(&o)
@@ -195,13 +195,13 @@ func runHegel(name string, fn testBody, noteFn func(string), opts []Option) erro
 		if err := s.start(); err != nil {
 			return fmt.Errorf("hegel: session start: %w", err)
 		}
-		return s.runTest(name, fn, o, noteFn)
+		return s.runTest(fn, o, noteFn)
 	}
 
 	if err := globalSession.start(); err != nil {
 		return fmt.Errorf("hegel: session start: %w", err)
 	}
-	return globalSession.runTest(name, fn, o, noteFn)
+	return globalSession.runTest(fn, o, noteFn)
 }
 
 // extractPanicOrigin extracts file/line from a recovered panic using runtime.Callers,
@@ -244,7 +244,7 @@ func newClient(conn *connection) *client {
 }
 
 // runTest executes one property test against the server.
-func (c *client) runTest(name string, fn testBody, opts runOptions, noteFn func(string)) error {
+func (c *client) runTest(fn testBody, opts runOptions, noteFn func(string)) error {
 	// Serialize the entire test run — the control channel and connection
 	// are not thread-safe for concurrent access across goroutines.
 	c.mu.Lock()
@@ -254,7 +254,6 @@ func (c *client) runTest(name string, fn testBody, opts runOptions, noteFn func(
 
 	payload, err := encodeCBOR(map[string]any{
 		"command":    "run_test",
-		"name":       name,
 		"test_cases": int64(opts.testCases),
 		"channel_id": int64(testCh.ChannelID()),
 	})
@@ -593,8 +592,8 @@ func (s *hegelSession) cleanup() {
 }
 
 // runTest runs a test via the session's client.
-func (s *hegelSession) runTest(name string, fn testBody, opts runOptions, noteFn func(string)) error {
-	return s.cli.runTest(name, fn, opts, noteFn)
+func (s *hegelSession) runTest(fn testBody, opts runOptions, noteFn func(string)) error {
+	return s.cli.runTest(fn, opts, noteFn)
 }
 
 // findHegel locates the hegel binary.

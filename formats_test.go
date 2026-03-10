@@ -146,7 +146,7 @@ func testGeneratorSchema[T any](t *testing.T, g Generator[T]) map[any]any {
 		caseCh.SendReplyValue(genID, "test-value") //nolint:errcheck
 	})
 	cli := newClient(clientConn)
-	cli.runTest("schema_check", func(s *TestCase) { //nolint:errcheck
+	cli.runTest(func(s *TestCase) { //nolint:errcheck
 		g.draw(s)
 	}, runOptions{testCases: 1}, stderrNoteFn)
 	return gotSchema
@@ -231,7 +231,7 @@ func TestDomainsGeneratesCorrectSchemaWithMax(t *testing.T) {
 // TestEmailsE2E verifies that generated emails contain "@".
 func TestEmailsE2E(t *testing.T) {
 	hegelBinPath(t)
-	if _err := runHegel(t.Name(), func(s *TestCase) {
+	if _err := runHegel(func(s *TestCase) {
 		v := Draw(s, Emails())
 		if !strings.Contains(v, "@") {
 			panic("email does not contain '@': " + v)
@@ -244,7 +244,7 @@ func TestEmailsE2E(t *testing.T) {
 // TestURLsE2E verifies that generated URLs start with "http://" or "https://".
 func TestURLsE2E(t *testing.T) {
 	hegelBinPath(t)
-	if _err := runHegel(t.Name(), func(s *TestCase) {
+	if _err := runHegel(func(s *TestCase) {
 		v := Draw(s, URLs())
 		if !strings.HasPrefix(v, "http://") && !strings.HasPrefix(v, "https://") {
 			panic("url does not start with http:// or https://: " + v)
@@ -262,7 +262,7 @@ func isValidDomainChar(r rune) bool {
 // TestDomainsE2E verifies that generated domains contain only valid domain characters.
 func TestDomainsE2E(t *testing.T) {
 	hegelBinPath(t)
-	if _err := runHegel(t.Name(), func(s *TestCase) {
+	if _err := runHegel(func(s *TestCase) {
 		v := Draw(s, Domains())
 		for _, r := range v {
 			if !isValidDomainChar(r) {
@@ -278,7 +278,7 @@ func TestDomainsE2E(t *testing.T) {
 func TestDomainsMaxLengthE2E(t *testing.T) {
 	hegelBinPath(t)
 	const maxLen = 20
-	if _err := runHegel(t.Name(), func(s *TestCase) {
+	if _err := runHegel(func(s *TestCase) {
 		v := Draw(s, Domains(DomainMaxLength(maxLen)))
 		if len(v) > maxLen {
 			panic("domain exceeds max_length constraint: " + v)
@@ -291,7 +291,7 @@ func TestDomainsMaxLengthE2E(t *testing.T) {
 // TestDatesE2E verifies that generated dates are valid time.Time values.
 func TestDatesE2E(t *testing.T) {
 	hegelBinPath(t)
-	if _err := runHegel(t.Name(), func(s *TestCase) {
+	if _err := runHegel(func(s *TestCase) {
 		v := Draw(s, Dates())
 		if v.IsZero() {
 			panic("date is zero value")
@@ -304,7 +304,7 @@ func TestDatesE2E(t *testing.T) {
 // TestTimesE2E verifies that generated times contain ":".
 func TestTimesE2E(t *testing.T) {
 	hegelBinPath(t)
-	if _err := runHegel(t.Name(), func(s *TestCase) {
+	if _err := runHegel(func(s *TestCase) {
 		v := Draw(s, Times())
 		if !strings.Contains(v, ":") {
 			panic("time does not contain ':': " + v)
@@ -317,7 +317,7 @@ func TestTimesE2E(t *testing.T) {
 // TestDatetimesE2E verifies that generated datetimes are valid time.Time values.
 func TestDatetimesE2E(t *testing.T) {
 	hegelBinPath(t)
-	if _err := runHegel(t.Name(), func(s *TestCase) {
+	if _err := runHegel(func(s *TestCase) {
 		v := Draw(s, Datetimes())
 		if v.IsZero() {
 			panic("datetime is zero value")

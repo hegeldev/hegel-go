@@ -18,7 +18,7 @@
 //
 // Or use [Run] in standalone binaries:
 //
-//	err := hegel.Run("my_property", func(s *hegel.TestCase) {
+//	err := hegel.Run(func(s *hegel.TestCase) {
 //	    n := hegel.Draw(s, hegel.Integers[int](0, 100))
 //	    if n < 0 || n > 100 {
 //	        panic("out of range")

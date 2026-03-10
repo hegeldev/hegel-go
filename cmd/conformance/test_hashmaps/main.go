@@ -76,7 +76,7 @@ func main() {
 		keysGen := hegel.Text(0, -1)
 		gen := hegel.Dicts(keysGen, valsGen, opts...)
 
-		hegel.MustRun("conformance_hashmaps", func(s *hegel.TestCase) {
+		hegel.MustRun(func(s *hegel.TestCase) {
 			m := hegel.Draw(s, gen)
 			size := len(m)
 
@@ -122,7 +122,7 @@ func main() {
 		keysGen := hegel.Integers[int](minKey, maxKey)
 		gen := hegel.Dicts(keysGen, valsGen, opts...)
 
-		hegel.MustRun("conformance_hashmaps", func(s *hegel.TestCase) {
+		hegel.MustRun(func(s *hegel.TestCase) {
 			m := hegel.Draw(s, gen)
 			size := len(m)
 

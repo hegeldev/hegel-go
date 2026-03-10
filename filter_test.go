@@ -120,7 +120,7 @@ func TestFilteredGeneratorGeneratePredicatePassesFirstTry(t *testing.T) {
 	hegelBinPath(t)
 	// Filter that always passes: every value is accepted on first try.
 	gen := Filter(Integers[int](0, 100), func(v int) bool { return true })
-	if _err := runHegel(t.Name(), func(s *TestCase) {
+	if _err := runHegel(func(s *TestCase) {
 		n := gen.draw(s)
 		if n < 0 || n > 100 {
 			panic(fmt.Sprintf("Filter: expected [0,100], got %d", n))
@@ -138,7 +138,7 @@ func TestFilteredGeneratorGenerateWithRealPredicate(t *testing.T) {
 	gen := Filter(Integers[int](0, 50), func(v int) bool {
 		return v%2 == 0
 	})
-	if _err := runHegel(t.Name(), func(s *TestCase) {
+	if _err := runHegel(func(s *TestCase) {
 		n := gen.draw(s)
 		if n%2 != 0 {
 			panic(fmt.Sprintf("Filter even: expected even number, got %d", n))
@@ -205,7 +205,7 @@ func TestFilteredGeneratorGenerateAllFailsCallsAssume(t *testing.T) {
 	})
 
 	cli := newClient(clientConn)
-	err := cli.runTest("filter_all_fail", func(s *TestCase) {
+	err := cli.runTest(func(s *TestCase) {
 		inner := &basicGenerator[int64]{
 			schema:    schema,
 			transform: func(v any) int64 { return extractInt(v) },
@@ -236,7 +236,7 @@ func TestFilteredGeneratorGenerateChainedFilters(t *testing.T) {
 		Filter(Integers[int](0, 100), func(v int) bool { return v%2 == 0 }),
 		func(v int) bool { return v%4 == 0 },
 	)
-	if _err := runHegel(t.Name(), func(s *TestCase) {
+	if _err := runHegel(func(s *TestCase) {
 		n := gen.draw(s)
 		if n%4 != 0 {
 			panic(fmt.Sprintf("chained filter: expected multiple of 4, got %d", n))
@@ -258,7 +258,7 @@ func TestFilteredGeneratorGenerateThenMap(t *testing.T) {
 	if _, ok := gen.(*mappedGenerator[int, int]); !ok {
 		t.Fatalf("Map(Filter(...)) should return *mappedGenerator, got %T", gen)
 	}
-	if _err := runHegel(t.Name(), func(s *TestCase) {
+	if _err := runHegel(func(s *TestCase) {
 		n := gen.draw(s)
 		// result must be odd*10, so divisible by 10 but result/10 must be odd
 		quotient := n / 10
@@ -321,7 +321,7 @@ func TestFilteredGeneratorGenerateUnitPredicatePasses(t *testing.T) {
 
 	cli := newClient(clientConn)
 	var gotVal int64
-	err := cli.runTest("filter_predicate_passes", func(s *TestCase) {
+	err := cli.runTest(func(s *TestCase) {
 		inner := &basicGenerator[int64]{
 			schema:    schema,
 			transform: func(v any) int64 { return extractInt(v) },
@@ -408,7 +408,7 @@ func TestFilteredGeneratorGenerateUnitPredicateFailsThenPasses(t *testing.T) {
 
 	cli := newClient(clientConn)
 	var gotVal int64
-	err := cli.runTest("filter_fail_then_pass", func(s *TestCase) {
+	err := cli.runTest(func(s *TestCase) {
 		inner := &basicGenerator[int64]{
 			schema:    schema,
 			transform: func(v any) int64 { return extractInt(v) },

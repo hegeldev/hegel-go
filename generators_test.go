@@ -53,7 +53,7 @@ func TestBasicGeneratorGenerateNoTransform(t *testing.T) {
 
 	cli := newClient(clientConn)
 	var gotVal string
-	err := cli.runTest("basic_gen_no_transform", func(s *TestCase) {
+	err := cli.runTest(func(s *TestCase) {
 		// No transform: the raw CBOR string "hello" is returned as-is via v.(T).
 		g := &basicGenerator[string]{schema: schema}
 		gotVal = g.draw(s)
@@ -100,7 +100,7 @@ func TestBasicGeneratorGenerateWithTransform(t *testing.T) {
 
 	cli := newClient(clientConn)
 	var gotVal int64
-	err := cli.runTest("basic_gen_with_transform", func(s *TestCase) {
+	err := cli.runTest(func(s *TestCase) {
 		// transform: multiply by 2
 		g := &basicGenerator[int64]{
 			schema:    schema,
@@ -205,7 +205,7 @@ func TestMappedGeneratorGenerate(t *testing.T) {
 
 	cli := newClient(clientConn)
 	var gotVal int64
-	err := cli.runTest("mapped_gen", func(s *TestCase) {
+	err := cli.runTest(func(s *TestCase) {
 		inner := &basicGenerator[int64]{schema: schema, transform: func(v any) int64 { return extractInt(v) }}
 		mg := &mappedGenerator[int64, int64]{
 			inner: inner,
@@ -288,7 +288,7 @@ func TestStartStopSpan(t *testing.T) {
 	})
 
 	cli := newClient(clientConn)
-	err := cli.runTest("spans", func(s *TestCase) {
+	err := cli.runTest(func(s *TestCase) {
 		startSpan(s, labelMapped)
 		stopSpan(s, false)
 	}, runOptions{testCases: 1}, stderrNoteFn)
@@ -321,7 +321,7 @@ func TestStopSpanDiscard(t *testing.T) {
 	})
 
 	cli := newClient(clientConn)
-	err := cli.runTest("stop_span_discard", func(s *TestCase) {
+	err := cli.runTest(func(s *TestCase) {
 		startSpan(s, labelList)
 		stopSpan(s, true)
 	}, runOptions{testCases: 1}, stderrNoteFn)
@@ -343,7 +343,7 @@ func TestStartSpanNoOpWhenAborted(t *testing.T) {
 	})
 
 	cli := newClient(clientConn)
-	err := cli.runTest("span_noop_aborted", func(s *TestCase) {
+	err := cli.runTest(func(s *TestCase) {
 		// Directly set the aborted flag.
 		s.aborted = true
 		startSpan(s, labelList) // should be no-op
@@ -391,7 +391,7 @@ func TestGroup(t *testing.T) {
 	})
 
 	cli := newClient(clientConn)
-	err := cli.runTest("group_test", func(s *TestCase) {
+	err := cli.runTest(func(s *TestCase) {
 		group(s, labelMapped, func() {
 			// nothing inside, just test the wrapping
 		})
@@ -446,7 +446,7 @@ func TestDiscardableGroupNoPanic(t *testing.T) {
 	})
 
 	cli := newClient(clientConn)
-	err := cli.runTest("discardable_group_ok", func(s *TestCase) {
+	err := cli.runTest(func(s *TestCase) {
 		discardableGroup(s, labelFilter, func() {
 			// runs normally
 		})
@@ -478,7 +478,7 @@ func TestDiscardableGroupPanic(t *testing.T) {
 	})
 
 	cli := newClient(clientConn)
-	err := cli.runTest("discardable_group_panic", func(s *TestCase) {
+	err := cli.runTest(func(s *TestCase) {
 		discardableGroup(s, labelFilter, func() {
 			panic("inner panic")
 		})
@@ -515,7 +515,7 @@ func TestNewCollection(t *testing.T) {
 	})
 
 	cli := newClient(clientConn)
-	err := cli.runTest("new_collection", func(s *TestCase) {
+	err := cli.runTest(func(s *TestCase) {
 		coll := newCollection(s, 2, 10)
 		more := coll.More(s)
 		_ = more
@@ -552,7 +552,7 @@ func TestCollectionMore(t *testing.T) {
 	})
 
 	cli := newClient(clientConn)
-	err := cli.runTest("coll_more", func(s *TestCase) {
+	err := cli.runTest(func(s *TestCase) {
 		coll := newCollection(s, 0, 5)
 		for coll.More(s) {
 			moreCount++
@@ -580,7 +580,7 @@ func TestCollectionMoreCachesFalse(t *testing.T) {
 	})
 
 	cli := newClient(clientConn)
-	err := cli.runTest("coll_cache", func(s *TestCase) {
+	err := cli.runTest(func(s *TestCase) {
 		coll := newCollection(s, 0, 1)
 		r1 := coll.More(s)
 		r2 := coll.More(s) // should be cached false, no network call
@@ -619,7 +619,7 @@ func TestCollectionReject(t *testing.T) {
 	})
 
 	cli := newClient(clientConn)
-	err := cli.runTest("coll_reject", func(s *TestCase) {
+	err := cli.runTest(func(s *TestCase) {
 		coll := newCollection(s, 0, 5)
 		if coll.More(s) {
 			coll.Reject(s)
@@ -650,7 +650,7 @@ func TestCollectionRejectNoOpAfterFinished(t *testing.T) {
 	})
 
 	cli := newClient(clientConn)
-	err := cli.runTest("coll_reject_noop", func(s *TestCase) {
+	err := cli.runTest(func(s *TestCase) {
 		coll := newCollection(s, 0, 1)
 		coll.More(s)   // false -> finished
 		coll.Reject(s) // no-op
@@ -665,7 +665,7 @@ func TestCollectionRejectNoOpAfterFinished(t *testing.T) {
 func TestCollectionStopTestOnNewCollection(t *testing.T) {
 	hegelBinPath(t)
 	t.Setenv("HEGEL_PROTOCOL_TEST_MODE", "stop_test_on_new_collection")
-	err := runHegel("coll_stop_new", func(s *TestCase) {
+	err := runHegel(func(s *TestCase) {
 		coll := newCollection(s, 0, 5)
 		_ = coll.More(s)
 	}, stderrNoteFn, nil)
@@ -678,7 +678,7 @@ func TestCollectionStopTestOnNewCollection(t *testing.T) {
 func TestCollectionStopTestOnCollectionMore(t *testing.T) {
 	hegelBinPath(t)
 	t.Setenv("HEGEL_PROTOCOL_TEST_MODE", "stop_test_on_collection_more")
-	err := runHegel("coll_stop_more", func(s *TestCase) {
+	err := runHegel(func(s *TestCase) {
 		coll := newCollection(s, 0, 5)
 		_ = coll.More(s)
 	}, stderrNoteFn, nil)
@@ -727,7 +727,7 @@ func TestLabelConstants(t *testing.T) {
 func TestIntegersGeneratorHappyPath(t *testing.T) {
 	hegelBinPath(t)
 	var vals []int64
-	if _err := runHegel("integers_happy", func(s *TestCase) {
+	if _err := runHegel(func(s *TestCase) {
 		v := Draw[int64](s, Integers[int64](0, 100))
 		vals = append(vals, v)
 		if v < 0 || v > 100 {
@@ -797,7 +797,7 @@ func TestJustTransformIgnoresInput(t *testing.T) {
 // TestJustE2E verifies that Just always generates the constant value against the real server.
 func TestJustE2E(t *testing.T) {
 	hegelBinPath(t)
-	if _err := runHegel(t.Name(), func(s *TestCase) {
+	if _err := runHegel(func(s *TestCase) {
 		v := Draw[int](s, Just(42))
 		if v != 42 {
 			panic(fmt.Sprintf("Just: expected 42, got %v", v))
@@ -812,7 +812,7 @@ func TestJustNonPrimitive(t *testing.T) {
 	hegelBinPath(t)
 	type myStruct struct{ x int }
 	val := &myStruct{x: 99}
-	if _err := runHegel(t.Name(), func(s *TestCase) {
+	if _err := runHegel(func(s *TestCase) {
 		v := Draw[*myStruct](s, Just(val))
 		if v != val {
 			panic("Just: pointer identity not preserved")
@@ -871,7 +871,7 @@ func TestSampledFromTransformMapsIndices(t *testing.T) {
 // TestSampledFromSingleElement verifies that a single-element slice always returns that element.
 func TestSampledFromSingleElement(t *testing.T) {
 	hegelBinPath(t)
-	if _err := runHegel(t.Name(), func(s *TestCase) {
+	if _err := runHegel(func(s *TestCase) {
 		v := Draw[string](s, SampledFrom([]string{"only"}))
 		if v != "only" {
 			panic(fmt.Sprintf("SampledFrom single: expected 'only', got %v", v))
@@ -887,7 +887,7 @@ func TestSampledFromE2E(t *testing.T) {
 	hegelBinPath(t)
 	choices := []string{"apple", "banana", "cherry"}
 	seen := map[string]bool{}
-	if _err := runHegel(t.Name(), func(s *TestCase) {
+	if _err := runHegel(func(s *TestCase) {
 		v := Draw[string](s, SampledFrom(choices))
 		found := false
 		for _, c := range choices {
@@ -918,7 +918,7 @@ func TestSampledFromNonPrimitive(t *testing.T) {
 	type myStruct struct{ x int }
 	obj1 := &myStruct{x: 1}
 	obj2 := &myStruct{x: 2}
-	if _err := runHegel(t.Name(), func(s *TestCase) {
+	if _err := runHegel(func(s *TestCase) {
 		v := Draw[*myStruct](s, SampledFrom([]*myStruct{obj1, obj2}))
 		if v != obj1 && v != obj2 {
 			panic("SampledFrom: value is not one of the original pointers")
@@ -960,7 +960,7 @@ func TestFromRegexFullmatchFalse(t *testing.T) {
 func TestFromRegexE2E(t *testing.T) {
 	hegelBinPath(t)
 	// Only digits, 1-5 chars
-	if _err := runHegel(t.Name(), func(s *TestCase) {
+	if _err := runHegel(func(s *TestCase) {
 		v := Draw[string](s, FromRegex(`[0-9]{1,5}`, true))
 		if len(v) == 0 || len(v) > 5 {
 			panic(fmt.Sprintf("FromRegex: length out of range: %q", v))
@@ -984,7 +984,7 @@ func TestFromRegexE2E(t *testing.T) {
 func TestBasicGeneratorGenerateErrorResponse(t *testing.T) {
 	hegelBinPath(t)
 	t.Setenv("HEGEL_PROTOCOL_TEST_MODE", "error_response")
-	err := runHegel(t.Name(), func(s *TestCase) {
+	err := runHegel(func(s *TestCase) {
 		g := &basicGenerator[int64]{schema: map[string]any{"type": "integer"}, transform: func(v any) int64 { return extractInt(v) }}
 		_ = g.draw(s) // should panic with requestError -> caught as INTERESTING
 	}, stderrNoteFn, nil)
@@ -1024,7 +1024,7 @@ func TestMapBasicGeneratorE2E(t *testing.T) {
 	if _, ok := gen.(*basicGenerator[int]); !ok {
 		t.Fatalf("Map on basicGenerator should return *basicGenerator[int], got %T", gen)
 	}
-	if _err := runHegel(t.Name(), func(s *TestCase) {
+	if _err := runHegel(func(s *TestCase) {
 		n := Draw[int](s, gen)
 		if n%2 != 0 {
 			panic(fmt.Sprintf("map(x*2): expected even number, got %d", n))
@@ -1050,7 +1050,7 @@ func TestMapChainedBasicGeneratorE2E(t *testing.T) {
 	if _, ok := gen.(*basicGenerator[int]); !ok {
 		t.Fatalf("chained Map on basicGenerator should return *basicGenerator[int], got %T", gen)
 	}
-	if _err := runHegel(t.Name(), func(s *TestCase) {
+	if _err := runHegel(func(s *TestCase) {
 		n := Draw[int](s, gen)
 		// (x+1)*2 is always even. x in [0,100] -> result in [2, 202].
 		if n%2 != 0 {
@@ -1081,7 +1081,7 @@ func TestMapNonBasicGeneratorE2E(t *testing.T) {
 	if _, ok := gen.(*mappedGenerator[int, int]); !ok {
 		t.Fatalf("Map on non-basic Generator should return *mappedGenerator, got %T", gen)
 	}
-	if _err := runHegel(t.Name(), func(s *TestCase) {
+	if _err := runHegel(func(s *TestCase) {
 		n := Draw[int](s, gen)
 		// inner is Integers[int](1,5)*1, map(*3): result is in {3, 6, 9, 12, 15}
 		if n < 3 || n > 15 || n%3 != 0 {
@@ -1226,7 +1226,7 @@ func TestFilteredGeneratorPredicatePasses(t *testing.T) {
 	})
 
 	cli := newClient(clientConn)
-	err := cli.runTest("filter_passes", func(s *TestCase) {
+	err := cli.runTest(func(s *TestCase) {
 		g := &filteredGenerator[int64]{
 			source:    &basicGenerator[int64]{schema: map[string]any{"type": "integer"}, transform: func(v any) int64 { return extractInt(v) }},
 			predicate: func(v int64) bool { return true },
@@ -1296,7 +1296,7 @@ func TestFilteredGeneratorAllAttemptsFailRejectsCase(t *testing.T) {
 	})
 
 	cli := newClient(clientConn)
-	err := cli.runTest("filter_exhaust", func(s *TestCase) {
+	err := cli.runTest(func(s *TestCase) {
 		g := &filteredGenerator[int64]{
 			source:    &basicGenerator[int64]{schema: map[string]any{"type": "integer"}, transform: func(v any) int64 { return extractInt(v) }},
 			predicate: func(v int64) bool { return false }, // always reject
@@ -1370,7 +1370,7 @@ func TestFilteredGeneratorPartialAttemptsSucceed(t *testing.T) {
 	})
 
 	cli := newClient(clientConn)
-	err := cli.runTest("filter_partial", func(s *TestCase) {
+	err := cli.runTest(func(s *TestCase) {
 		g := &filteredGenerator[int64]{
 			source: &basicGenerator[int64]{schema: map[string]any{"type": "integer"}, transform: func(v any) int64 { return extractInt(v) }},
 			predicate: func(v int64) bool {
@@ -1395,7 +1395,7 @@ func TestFilteredGeneratorPartialAttemptsSucceed(t *testing.T) {
 // that values greater than 50.
 func TestFilteredGeneratorE2EAlwaysPasses(t *testing.T) {
 	hegelBinPath(t)
-	if _err := runHegel(t.Name(), func(s *TestCase) {
+	if _err := runHegel(func(s *TestCase) {
 		gen := Filter[int](Integers[int](0, 100), func(v int) bool {
 			return v > 50
 		})
@@ -1411,7 +1411,7 @@ func TestFilteredGeneratorE2EAlwaysPasses(t *testing.T) {
 // TestFilteredGeneratorE2EEvenNumbers verifies filter for even numbers.
 func TestFilteredGeneratorE2EEvenNumbers(t *testing.T) {
 	hegelBinPath(t)
-	if _err := runHegel(t.Name(), func(s *TestCase) {
+	if _err := runHegel(func(s *TestCase) {
 		gen := Filter[int](Integers[int](0, 10), func(v int) bool {
 			return v%2 == 0
 		})
@@ -1707,7 +1707,7 @@ func TestFlatMappedGeneratorGenerate(t *testing.T) {
 
 	cli := newClient(clientConn)
 	var gotVal int64
-	err := cli.runTest("flatmap_protocol", func(s *TestCase) {
+	err := cli.runTest(func(s *TestCase) {
 		gen := FlatMap[int64, int64](
 			Integers[int64](0, 100),
 			func(v int64) Generator[int64] { return Integers[int64](0, 100) },
@@ -1779,7 +1779,7 @@ func TestFlatMappedGeneratorStartSpanLabel(t *testing.T) {
 	})
 
 	cli := newClient(clientConn)
-	err := cli.runTest("flatmap_label", func(s *TestCase) {
+	err := cli.runTest(func(s *TestCase) {
 		gen := FlatMap[int64, int64](Integers[int64](0, 10), func(v int64) Generator[int64] { return Integers[int64](0, 10) })
 		_ = gen.draw(s)
 	}, runOptions{testCases: 1}, stderrNoteFn)
@@ -1798,7 +1798,7 @@ func TestFlatMappedGeneratorE2E(t *testing.T) {
 	gen := FlatMap[int, string](Integers[int](1, 5), func(v int) Generator[string] {
 		return Text(v, v) // exact length = n
 	})
-	if _err := runHegel(t.Name(), func(s *TestCase) {
+	if _err := runHegel(func(s *TestCase) {
 		v := Draw[string](s, gen)
 		count := len([]rune(v))
 		// n is in [1,5], so text length is in [1,5].
@@ -1819,7 +1819,7 @@ func TestFlatMappedGeneratorDependency(t *testing.T) {
 		sz := int(v)
 		return Lists[int64](Integers[int64](0, 100), ListMinSize(sz), ListMaxSize(sz))
 	})
-	if _err := runHegel(t.Name(), func(s *TestCase) {
+	if _err := runHegel(func(s *TestCase) {
 		slice := Draw[[]int64](s, gen)
 		if len(slice) < 2 || len(slice) > 4 {
 			panic(fmt.Sprintf("flat_map dependency: list length %d not in [2,4]", len(slice)))
@@ -1963,7 +1963,7 @@ func TestIntegersUint64ReplyTransformFakeServer(t *testing.T) {
 
 	cli := newClient(clientConn)
 	var got int64
-	err := cli.runTest("integers_uint64_reply", func(s *TestCase) {
+	err := cli.runTest(func(s *TestCase) {
 		got = gen.draw(s)
 	}, runOptions{testCases: 1}, stderrNoteFn)
 	if err != nil {
@@ -2012,7 +2012,7 @@ func TestFloatsTransformFakeServer(t *testing.T) {
 
 	cli := newClient(clientConn)
 	var got float64
-	err := cli.runTest("floats_transform", func(s *TestCase) {
+	err := cli.runTest(func(s *TestCase) {
 		got = gen.draw(s)
 	}, runOptions{testCases: 1}, stderrNoteFn)
 	if err != nil {
@@ -2101,7 +2101,7 @@ func TestOptionalGeneratorDrawNilFakeServer(t *testing.T) {
 
 	cli := newClient(clientConn)
 	var result *int64
-	err := cli.runTest("optional_nil", func(s *TestCase) {
+	err := cli.runTest(func(s *TestCase) {
 		result = gen.draw(s)
 	}, runOptions{testCases: 1}, stderrNoteFn)
 	if err != nil {
@@ -2158,7 +2158,7 @@ func TestOptionalGeneratorDrawValueFakeServer(t *testing.T) {
 
 	cli := newClient(clientConn)
 	var result *int64
-	err := cli.runTest("optional_value", func(s *TestCase) {
+	err := cli.runTest(func(s *TestCase) {
 		result = gen.draw(s)
 	}, runOptions{testCases: 1}, stderrNoteFn)
 	if err != nil {
@@ -2211,7 +2211,7 @@ func TestNewCollectionStopTestFakeServer(t *testing.T) {
 	})
 
 	cli := newClient(clientConn)
-	err := cli.runTest("new_collection_stoptest", func(s *TestCase) {
+	err := cli.runTest(func(s *TestCase) {
 		_ = gen.draw(s) // should trigger StopTest -> dataExhausted panic -> aborted
 	}, runOptions{testCases: 1}, stderrNoteFn)
 	if err != nil {
@@ -2262,7 +2262,7 @@ func TestCollectionMoreStopTestFakeServer(t *testing.T) {
 	})
 
 	cli := newClient(clientConn)
-	err := cli.runTest("collection_more_stoptest", func(s *TestCase) {
+	err := cli.runTest(func(s *TestCase) {
 		_ = gen.draw(s) // should trigger StopTest during collection_more
 	}, runOptions{testCases: 1}, stderrNoteFn)
 	if err != nil {
@@ -2337,7 +2337,7 @@ func TestListsIdentityTransformFakeServer(t *testing.T) {
 
 	cli := newClient(clientConn)
 	var got []bool
-	err := cli.runTest("lists_identity_transform", func(s *TestCase) {
+	err := cli.runTest(func(s *TestCase) {
 		got = gen.draw(s)
 	}, runOptions{testCases: 1}, stderrNoteFn)
 	if err != nil {
@@ -2414,7 +2414,7 @@ func TestCompositeOneOfDrawUint64Index(t *testing.T) {
 
 	cli := newClient(clientConn)
 	var got int64
-	err := cli.runTest("composite_oneof_uint64", func(s *TestCase) {
+	err := cli.runTest(func(s *TestCase) {
 		got = gen.draw(s)
 	}, runOptions{testCases: 1}, stderrNoteFn)
 	if err != nil {

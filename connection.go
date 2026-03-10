@@ -11,7 +11,7 @@ import (
 )
 
 // protocolVersion is the version string used in handshakes.
-const protocolVersion = "0.1"
+const protocolVersion = "0.4"
 
 // handshakePrefix is the prefix expected at the start of a valid handshake response.
 const handshakePrefix = "Hegel/"

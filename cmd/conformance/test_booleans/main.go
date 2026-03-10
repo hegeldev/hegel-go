@@ -12,7 +12,7 @@ import (
 
 func main() {
 	n := conformance.GetTestCases()
-	hegel.MustRun("conformance_booleans", func(s *hegel.TestCase) {
+	hegel.MustRun(func(s *hegel.TestCase) {
 		v := hegel.Draw(s, hegel.Booleans())
 		conformance.WriteMetrics(map[string]any{
 			"value": v,

@@ -251,7 +251,7 @@ func TestDictsBasicGenerateHappyPath(t *testing.T) {
 
 	cli := newClient(clientConn)
 	var gotMap map[string]int64
-	err := cli.runTest("dicts_basic_happy", func(s *TestCase) {
+	err := cli.runTest(func(s *TestCase) {
 		gen := Dicts(Text(0, 5), Integers[int64](0, 100), DictMaxSize(3))
 		gotMap = gen.draw(s)
 	}, runOptions{testCases: 1}, stderrNoteFn)
@@ -321,7 +321,7 @@ func TestDictsBasicWithTransforms(t *testing.T) {
 		return n * 2
 	})
 
-	err := cli.runTest("dicts_with_transforms", func(s *TestCase) {
+	err := cli.runTest(func(s *TestCase) {
 		gen := Dicts(keyGen, valGen, DictMaxSize(3))
 		gotMap = gen.draw(s)
 	}, runOptions{testCases: 1}, stderrNoteFn)
@@ -402,7 +402,7 @@ func TestDictsCompositeGenerateHappyPath(t *testing.T) {
 
 	cli := newClient(clientConn)
 	var gotMap map[int64]int64
-	err := cli.runTest("dicts_composite_happy", func(s *TestCase) {
+	err := cli.runTest(func(s *TestCase) {
 		// Non-basic key generator (directly constructed mappedGenerator)
 		nonBasicKeys := &mappedGenerator[int64, int64]{
 			inner: Integers[int64](0, 10),
@@ -473,7 +473,7 @@ func TestDictsCompositeNoMaxHappyPath(t *testing.T) {
 	})
 
 	cli := newClient(clientConn)
-	err := cli.runTest("dicts_composite_no_max", func(s *TestCase) {
+	err := cli.runTest(func(s *TestCase) {
 		nonBasicKeys := &mappedGenerator[int64, int64]{
 			inner: Integers[int64](0, 10),
 			fn:    func(v int64) int64 { return v },
@@ -499,7 +499,7 @@ func TestDictsCompositeNoMaxHappyPath(t *testing.T) {
 func TestDictsStopTestOnNewCollection(t *testing.T) {
 	hegelBinPath(t)
 	t.Setenv("HEGEL_PROTOCOL_TEST_MODE", "stop_test_on_new_collection")
-	err := runHegel("dicts_stop_new_collection", func(s *TestCase) {
+	err := runHegel(func(s *TestCase) {
 		nonBasicKeys := &mappedGenerator[int64, int64]{
 			inner: Integers[int64](0, 10),
 			fn:    func(v int64) int64 { return v },
@@ -516,7 +516,7 @@ func TestDictsStopTestOnNewCollection(t *testing.T) {
 func TestDictsStopTestOnCollectionMore(t *testing.T) {
 	hegelBinPath(t)
 	t.Setenv("HEGEL_PROTOCOL_TEST_MODE", "stop_test_on_collection_more")
-	err := runHegel("dicts_stop_collection_more", func(s *TestCase) {
+	err := runHegel(func(s *TestCase) {
 		nonBasicKeys := &mappedGenerator[int64, int64]{
 			inner: Integers[int64](0, 10),
 			fn:    func(v int64) int64 { return v },
@@ -535,7 +535,7 @@ func TestDictsStopTestOnCollectionMore(t *testing.T) {
 // string keys and integer values within bounds.
 func TestDictsBasicE2E(t *testing.T) {
 	hegelBinPath(t)
-	if _err := runHegel(t.Name(), func(s *TestCase) {
+	if _err := runHegel(func(s *TestCase) {
 		gen := Dicts(Text(0, 5), Integers[int](0, 100), DictMaxSize(3))
 		m := gen.draw(s)
 		if len(m) > 3 {
@@ -558,7 +558,7 @@ func TestDictsBasicE2E(t *testing.T) {
 // produces maps with the right number of entries.
 func TestDictsBasicWithBoundsE2E(t *testing.T) {
 	hegelBinPath(t)
-	if _err := runHegel(t.Name(), func(s *TestCase) {
+	if _err := runHegel(func(s *TestCase) {
 		gen := Dicts(Integers[int](0, 10), Booleans(), DictMinSize(1), DictMaxSize(3))
 		m := gen.draw(s)
 		if len(m) < 1 || len(m) > 3 {
@@ -578,7 +578,7 @@ func TestDictsBasicWithBoundsE2E(t *testing.T) {
 // produces valid maps.
 func TestDictsCompositeE2E(t *testing.T) {
 	hegelBinPath(t)
-	if _err := runHegel(t.Name(), func(s *TestCase) {
+	if _err := runHegel(func(s *TestCase) {
 		// mappedGenerator makes this non-basic -> composite path
 		nonBasicKeys := &mappedGenerator[int64, int64]{
 			inner: Integers[int64](0, 10),

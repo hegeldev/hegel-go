@@ -35,7 +35,7 @@ func main() {
 
 	gen := hegel.Text(minSize, maxSize)
 	n := conformance.GetTestCases()
-	hegel.MustRun("conformance_text", func(s *hegel.TestCase) {
+	hegel.MustRun(func(s *hegel.TestCase) {
 		val := hegel.Draw(s, gen)
 		// Count Unicode codepoints (not bytes)
 		length := utf8.RuneCountInString(val)

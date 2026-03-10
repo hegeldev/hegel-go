@@ -29,7 +29,7 @@ func hegelBinPath(t *testing.T) string {
 func TestRunHegelTestPasses(t *testing.T) {
 	hegelBinPath(t)
 	called := false
-	if _err := runHegel(t.Name(), func(s *TestCase) {
+	if _err := runHegel(func(s *TestCase) {
 		called = true
 		b := Draw[bool](s, Booleans())
 		// A valid assertion: b is either true or false.
@@ -48,7 +48,7 @@ func TestRunHegelTestPasses(t *testing.T) {
 
 func TestRunHegelTestFails(t *testing.T) {
 	hegelBinPath(t)
-	err := runHegel(t.Name()+"_inner", func(s *TestCase) {
+	err := runHegel(func(s *TestCase) {
 		x := Draw[int](s, Integers[int](0, 100))
 		// This always fails: no integer < 0 in [0,100]
 		if x >= 0 {
@@ -65,7 +65,7 @@ func TestRunHegelTestFails(t *testing.T) {
 func TestRunHegelTestAllInvalid(t *testing.T) {
 	hegelBinPath(t)
 	// A test that always calls Assume(false) should pass (all cases rejected).
-	if _err := runHegel(t.Name(), func(s *TestCase) {
+	if _err := runHegel(func(s *TestCase) {
 		s.Assume(false)
 	}, stderrNoteFn, []Option{WithTestCases(5)}); _err != nil {
 		panic(_err)
@@ -76,7 +76,7 @@ func TestRunHegelTestAllInvalid(t *testing.T) {
 
 func TestAssumeTrue(t *testing.T) {
 	hegelBinPath(t)
-	if _err := runHegel(t.Name(), func(s *TestCase) {
+	if _err := runHegel(func(s *TestCase) {
 		s.Assume(true)
 		b := Draw[bool](s, Booleans())
 		_ = b // use the value
@@ -93,7 +93,7 @@ func TestAssumeTrue(t *testing.T) {
 func TestNoteNotFinal(t *testing.T) {
 	hegelBinPath(t)
 	// note() should not panic or error when called outside final run
-	if _err := runHegel(t.Name(), func(s *TestCase) {
+	if _err := runHegel(func(s *TestCase) {
 		s.Note("should not appear")
 		_ = Draw[bool](s, Booleans())
 	}, stderrNoteFn, []Option{WithTestCases(3)}); _err != nil {
@@ -105,7 +105,7 @@ func TestNoteNotFinal(t *testing.T) {
 
 func TestTargetSendsCommand(t *testing.T) {
 	hegelBinPath(t)
-	if _err := runHegel(t.Name(), func(s *TestCase) {
+	if _err := runHegel(func(s *TestCase) {
 		x := Draw[int](s, Integers[int](0, 100))
 		s.Target(float64(x), "my_target")
 		if x < 0 || x > 100 {
@@ -122,7 +122,7 @@ func TestStopTestOnGenerate(t *testing.T) {
 	hegelBinPath(t)
 	t.Setenv("HEGEL_PROTOCOL_TEST_MODE", "stop_test_on_generate")
 	// Should complete without error: SDK handles StopTest cleanly.
-	if _err := runHegel(t.Name(), func(s *TestCase) {
+	if _err := runHegel(func(s *TestCase) {
 		Draw[bool](s, Booleans())
 	}, stderrNoteFn, []Option{WithTestCases(5)}); _err != nil {
 		panic(_err)
@@ -134,7 +134,7 @@ func TestStopTestOnGenerate(t *testing.T) {
 func TestStopTestOnMarkComplete(t *testing.T) {
 	hegelBinPath(t)
 	t.Setenv("HEGEL_PROTOCOL_TEST_MODE", "stop_test_on_mark_complete")
-	if _err := runHegel(t.Name(), func(s *TestCase) {
+	if _err := runHegel(func(s *TestCase) {
 		Draw[bool](s, Booleans())
 	}, stderrNoteFn, []Option{WithTestCases(5)}); _err != nil {
 		panic(_err)
@@ -146,7 +146,7 @@ func TestStopTestOnMarkComplete(t *testing.T) {
 func TestEmptyTest(t *testing.T) {
 	hegelBinPath(t)
 	t.Setenv("HEGEL_PROTOCOL_TEST_MODE", "empty_test")
-	if _err := runHegel(t.Name(), func(_ *TestCase) {
+	if _err := runHegel(func(_ *TestCase) {
 		panic("should not be called")
 	}, stderrNoteFn, []Option{WithTestCases(5)}); _err != nil {
 		panic(_err)
@@ -167,7 +167,7 @@ func TestErrorResponse(t *testing.T) {
 				gotErr = fmt.Errorf("%v", r)
 			}
 		}()
-		gotErr = runHegel(t.Name()+"_inner", func(s *TestCase) {
+		gotErr = runHegel(func(s *TestCase) {
 			Draw[bool](s, Booleans()) // server sends error_response here
 		}, stderrNoteFn, []Option{WithTestCases(3)})
 	}()
@@ -338,7 +338,7 @@ func TestHegelSessionConcurrentStart(t *testing.T) {
 func TestRunHegelTestSingleCase(t *testing.T) {
 	hegelBinPath(t)
 	count := 0
-	if _err := runHegel(t.Name(), func(s *TestCase) {
+	if _err := runHegel(func(s *TestCase) {
 		count++
 		b := Draw[bool](s, Booleans())
 		if b != true && b != false {
@@ -361,7 +361,7 @@ func TestConcurrentRunHegelTest(t *testing.T) {
 		wg.Add(1)
 		go func(idx int) {
 			defer wg.Done()
-			if _err := runHegel(fmt.Sprintf("%s_%d", t.Name(), idx), func(s *TestCase) {
+			if _err := runHegel(func(s *TestCase) {
 				b := Draw[bool](s, Booleans())
 				if b != true && b != false {
 					panic("not a bool")
@@ -378,7 +378,7 @@ func TestConcurrentRunHegelTest(t *testing.T) {
 
 func TestRunHegelTestESuccess(t *testing.T) {
 	hegelBinPath(t)
-	err := runHegel(t.Name(), func(s *TestCase) {
+	err := runHegel(func(s *TestCase) {
 		_ = Draw[bool](s, Booleans())
 	}, stderrNoteFn, []Option{WithTestCases(3)})
 	if err != nil {
@@ -391,7 +391,7 @@ func TestRunHegelTestESuccess(t *testing.T) {
 func TestWithTestCasesOption(t *testing.T) {
 	hegelBinPath(t)
 	count := 0
-	if _err := runHegel(t.Name(), func(s *TestCase) {
+	if _err := runHegel(func(s *TestCase) {
 		count++
 		Draw[bool](s, Booleans())
 	}, stderrNoteFn, []Option{WithTestCases(10)}); _err != nil {
@@ -408,7 +408,7 @@ func TestWithTestCasesOption(t *testing.T) {
 func TestStopTestOnCollectionMore(t *testing.T) {
 	hegelBinPath(t)
 	t.Setenv("HEGEL_PROTOCOL_TEST_MODE", "stop_test_on_collection_more")
-	err := runHegel(t.Name(), func(s *TestCase) {
+	err := runHegel(func(s *TestCase) {
 		coll := newCollection(s, 0, 10)
 		_ = coll.More(s)
 	}, stderrNoteFn, nil)
@@ -420,7 +420,7 @@ func TestStopTestOnCollectionMore(t *testing.T) {
 func TestStopTestOnNewCollection(t *testing.T) {
 	hegelBinPath(t)
 	t.Setenv("HEGEL_PROTOCOL_TEST_MODE", "stop_test_on_new_collection")
-	err := runHegel(t.Name(), func(s *TestCase) {
+	err := runHegel(func(s *TestCase) {
 		coll := newCollection(s, 0, 10)
 		_ = coll.More(s)
 	}, stderrNoteFn, nil)
@@ -443,8 +443,8 @@ func TestNoteOnFinalRun(t *testing.T) {
 		panic("intentional failure for final replay test")
 	}
 	func() {
-		defer func() { recover() }()                                                    //nolint:errcheck
-		runHegel(t.Name()+"_inner", noteFunc, stderrNoteFn, []Option{WithTestCases(3)}) //nolint:errcheck
+		defer func() { recover() }()                                 //nolint:errcheck
+		runHegel(noteFunc, stderrNoteFn, []Option{WithTestCases(3)}) //nolint:errcheck
 	}()
 	if !noted {
 		t.Error("expected isFinal to be true during final replay")
@@ -518,7 +518,7 @@ func TestRunTestUnrecognisedEvent(t *testing.T) {
 
 	// Run the client side.
 	cli := newClient(clientConn)
-	err := cli.runTest("unrecognised_event_test", func(_ *TestCase) {}, runOptions{testCases: 1}, stderrNoteFn)
+	err := cli.runTest(func(_ *TestCase) {}, runOptions{testCases: 1}, stderrNoteFn)
 	if err != nil {
 		t.Errorf("runTest with bogus event: unexpected error: %v", err)
 	}
@@ -532,7 +532,7 @@ func TestRunTestUnrecognisedEvent(t *testing.T) {
 
 func TestConnectionErrorInTestFunction(t *testing.T) {
 	hegelBinPath(t)
-	err := runHegel(t.Name(), func(_ *TestCase) {
+	err := runHegel(func(_ *TestCase) {
 		panic(&connectionError{msg: "test connection lost"})
 	}, stderrNoteFn, []Option{WithTestCases(1)})
 	if err == nil {
@@ -664,7 +664,7 @@ func runTestOnFakeServer(t *testing.T, testFn testBody, serverReply func(caseCh 
 	})
 
 	cli := newClient(clientConn)
-	return cli.runTest("unit_test", testFn, runOptions{testCases: 1}, stderrNoteFn)
+	return cli.runTest(testFn, runOptions{testCases: 1}, stderrNoteFn)
 }
 
 // --- Unit tests for error/recovery paths ---
@@ -903,7 +903,7 @@ func TestRunTestEventDecodeError(t *testing.T) {
 	})
 
 	cli := newClient(clientConn)
-	err := cli.runTest("decode_err", func(_ *TestCase) {}, runOptions{testCases: 1}, stderrNoteFn)
+	err := cli.runTest(func(_ *TestCase) {}, runOptions{testCases: 1}, stderrNoteFn)
 	if err == nil {
 		t.Error("expected error from runTest on invalid CBOR event")
 	}
@@ -930,7 +930,7 @@ func TestRunTestEventNotDictError(t *testing.T) {
 	})
 
 	cli := newClient(clientConn)
-	err := cli.runTest("not_dict", func(_ *TestCase) {}, runOptions{testCases: 1}, stderrNoteFn)
+	err := cli.runTest(func(_ *TestCase) {}, runOptions{testCases: 1}, stderrNoteFn)
 	if err == nil {
 		t.Error("expected error from runTest on non-dict event")
 	}
@@ -957,7 +957,7 @@ func TestRunTestCaseMissingChannel(t *testing.T) {
 	})
 
 	cli := newClient(clientConn)
-	err := cli.runTest("missing_ch", func(_ *TestCase) {}, runOptions{testCases: 1}, stderrNoteFn)
+	err := cli.runTest(func(_ *TestCase) {}, runOptions{testCases: 1}, stderrNoteFn)
 	if err == nil {
 		t.Error("expected error from runTest on test_case missing channel")
 	}
@@ -979,7 +979,7 @@ func TestRunTestSendError(t *testing.T) {
 	c.Close()
 
 	cli := newClient(clientConn)
-	err := cli.runTest("closed", func(_ *TestCase) {}, runOptions{testCases: 1}, stderrNoteFn)
+	err := cli.runTest(func(_ *TestCase) {}, runOptions{testCases: 1}, stderrNoteFn)
 	if err == nil {
 		t.Error("expected error from runTest on closed conn")
 	}
@@ -996,7 +996,7 @@ func TestRunTestAckError(t *testing.T) {
 	})
 
 	cli := newClient(clientConn)
-	err := cli.runTest("ack_err", func(_ *TestCase) {}, runOptions{testCases: 1}, stderrNoteFn)
+	err := cli.runTest(func(_ *TestCase) {}, runOptions{testCases: 1}, stderrNoteFn)
 	if err == nil {
 		t.Error("expected error from runTest on ack error")
 	}
@@ -1020,7 +1020,7 @@ func TestRunTestEventRecvError(t *testing.T) {
 	})
 
 	cli := newClient(clientConn)
-	err := cli.runTest("recv_err", func(_ *TestCase) {}, runOptions{testCases: 1}, stderrNoteFn)
+	err := cli.runTest(func(_ *TestCase) {}, runOptions{testCases: 1}, stderrNoteFn)
 	if err == nil {
 		t.Error("expected error from runTest when connection closed before event")
 	}
@@ -1050,7 +1050,7 @@ func TestRunTestConnectCaseChannelError(t *testing.T) {
 	})
 
 	cli := newClient(clientConn)
-	err := cli.runTest("dup_ch", func(_ *TestCase) {}, runOptions{testCases: 1}, stderrNoteFn)
+	err := cli.runTest(func(_ *TestCase) {}, runOptions{testCases: 1}, stderrNoteFn)
 	if err == nil {
 		t.Error("expected error from runTest on duplicate channel")
 	}
@@ -1158,7 +1158,7 @@ func TestRunTestCaseMarkCompleteError(t *testing.T) {
 
 	cli := newClient(clientConn)
 	// Should not panic even if mark_complete fails.
-	cli.runTest("mark_err", func(_ *TestCase) {}, runOptions{testCases: 1}, stderrNoteFn) //nolint:errcheck
+	cli.runTest(func(_ *TestCase) {}, runOptions{testCases: 1}, stderrNoteFn) //nolint:errcheck
 }
 
 // --- runTest: multiple interesting cases (nInteresting > 1) ---
@@ -1205,7 +1205,7 @@ func TestRunTestMultipleInteresting(t *testing.T) {
 	})
 
 	cli := newClient(clientConn)
-	err := cli.runTest("multi_interesting", func(_ *TestCase) {
+	err := cli.runTest(func(_ *TestCase) {
 		panic("always fails")
 	}, runOptions{testCases: 10}, stderrNoteFn)
 	if err == nil {
@@ -1252,7 +1252,7 @@ func TestRunTestSingleInterestingConnectError(t *testing.T) {
 	})
 
 	cli := newClient(clientConn)
-	err := cli.runTest("single_conn_err", func(_ *TestCase) {}, runOptions{testCases: 1}, stderrNoteFn)
+	err := cli.runTest(func(_ *TestCase) {}, runOptions{testCases: 1}, stderrNoteFn)
 	if err == nil {
 		t.Error("expected error from runTest on final connect failure")
 	}
@@ -1291,7 +1291,7 @@ func TestRunTestFinalCaseRecvError(t *testing.T) {
 	})
 
 	cli := newClient(clientConn)
-	err := cli.runTest("final_recv_err", func(_ *TestCase) {}, runOptions{testCases: 1}, stderrNoteFn)
+	err := cli.runTest(func(_ *TestCase) {}, runOptions{testCases: 1}, stderrNoteFn)
 	if err == nil {
 		t.Error("expected error when final case not received")
 	}
@@ -1342,7 +1342,7 @@ func TestRunTestMultiInterestingRecvError(t *testing.T) {
 	})
 
 	cli := newClient(clientConn)
-	err := cli.runTest("multi_recv_err", func(_ *TestCase) {
+	err := cli.runTest(func(_ *TestCase) {
 		panic("always fails")
 	}, runOptions{testCases: 2}, stderrNoteFn)
 	if err == nil {
@@ -1439,7 +1439,7 @@ func TestRunHegelTestESessionError(t *testing.T) {
 	globalSession = newHegelSession()
 	globalSession.hegelCmd = "/nonexistent/hegel"
 
-	err := runHegel("session_start_fail", func(_ *TestCase) {}, stderrNoteFn, []Option{WithTestCases(1)})
+	err := runHegel(func(_ *TestCase) {}, stderrNoteFn, []Option{WithTestCases(1)})
 	if err == nil {
 		t.Error("expected error when session cannot start")
 	}
@@ -1465,7 +1465,7 @@ func TestRunHegelTestPanicsOnFailure(t *testing.T) {
 	fake.hegelCmd = "/nonexistent/hegel"
 	globalSession = fake
 
-	if _err := runHegel("should_panic", func(_ *TestCase) {}, stderrNoteFn, []Option{WithTestCases(1)}); _err != nil {
+	if _err := runHegel(func(_ *TestCase) {}, stderrNoteFn, []Option{WithTestCases(1)}); _err != nil {
 		panic(_err)
 	}
 }
@@ -1475,7 +1475,7 @@ func TestRunHegelTestPanicsOnFailure(t *testing.T) {
 func TestRunHegelTestECallsRunTest(t *testing.T) {
 	hegelBinPath(t)
 	called := false
-	err := runHegel(t.Name(), func(s *TestCase) {
+	err := runHegel(func(s *TestCase) {
 		called = true
 		Draw[bool](s, Booleans())
 	}, stderrNoteFn, []Option{WithTestCases(1)})
@@ -1496,7 +1496,7 @@ func TestHegelSessionRunTest(t *testing.T) {
 	if err := s.start(); err != nil {
 		t.Fatalf("start: %v", err)
 	}
-	err := s.runTest("session_run", func(st *TestCase) {
+	err := s.runTest(func(st *TestCase) {
 		Draw[bool](st, Booleans())
 	}, runOptions{testCases: 2}, stderrNoteFn)
 	if err != nil {
@@ -1609,7 +1609,7 @@ func TestRunTestSingleInterestingCasePasses(t *testing.T) {
 
 	cli := newClient(clientConn)
 	// Test body passes (VALID) -- final case returns nil.
-	err := cli.runTest("single_interesting_pass", func(_ *TestCase) {}, runOptions{testCases: 1}, stderrNoteFn)
+	err := cli.runTest(func(_ *TestCase) {}, runOptions{testCases: 1}, stderrNoteFn)
 	// nil return is fine -- it means the final run also passed.
 	_ = err
 }
@@ -1641,7 +1641,7 @@ func TestRunHegelTestEProtocolModeStartError(t *testing.T) {
 	// Save and restore PATH (remove hegel from it).
 	t.Setenv("PATH", "/nonexistent")
 
-	err := runHegel("protocol_mode_start_error", func(_ *TestCase) {}, stderrNoteFn, []Option{WithTestCases(1)})
+	err := runHegel(func(_ *TestCase) {}, stderrNoteFn, []Option{WithTestCases(1)})
 	if err == nil {
 		t.Error("expected error when session cannot start in protocol test mode")
 	}
@@ -1688,7 +1688,7 @@ func TestRunTestMultiInterestingConnectError(t *testing.T) {
 	})
 
 	cli := newClient(clientConn)
-	err := cli.runTest("multi_connect_err", func(_ *TestCase) {
+	err := cli.runTest(func(_ *TestCase) {
 		panic("always fails")
 	}, runOptions{testCases: 2}, stderrNoteFn)
 	if err == nil {
@@ -1742,7 +1742,7 @@ func TestRunTestMultiInterestingCasePasses(t *testing.T) {
 	})
 
 	cli := newClient(clientConn)
-	err := cli.runTest("multi_interesting_passes", func(_ *TestCase) {
+	err := cli.runTest(func(_ *TestCase) {
 		caseCount++
 		if caseCount == 1 {
 			panic("first case fails")
@@ -1922,7 +1922,7 @@ func TestRunTestCaseFailedFlagOnFinal(t *testing.T) {
 	})
 
 	cli := newClient(clientConn)
-	err := cli.runTest("failed_flag_final", func(s *TestCase) {
+	err := cli.runTest(func(s *TestCase) {
 		s.failed = true // simulate T.Fail() on final run
 	}, runOptions{testCases: 1}, stderrNoteFn)
 	if err == nil {
@@ -1975,7 +1975,7 @@ func TestRunTestCaseFatalSentinelOnFinal(t *testing.T) {
 	})
 
 	cli := newClient(clientConn)
-	err := cli.runTest("fatal_sentinel_final", func(_ *TestCase) {
+	err := cli.runTest(func(_ *TestCase) {
 		panic(fatalSentinel{msg: "fatal on final"})
 	}, runOptions{testCases: 1}, stderrNoteFn)
 	if err == nil {
@@ -2104,7 +2104,7 @@ func TestRunPublicAPI(t *testing.T) {
 	serverConn := fakeGlobalSession(t)
 	go simplePassingServerHandler(t, serverConn)
 
-	err := Run("test_run_api", func(s *TestCase) {
+	err := Run(func(s *TestCase) {
 		_ = Draw[bool](s, Booleans())
 	}, WithTestCases(1))
 	if err != nil {
@@ -2120,7 +2120,7 @@ func TestMustRunSuccess(t *testing.T) {
 	serverConn := fakeGlobalSession(t)
 	go simplePassingServerHandler(t, serverConn)
 
-	MustRun("test_must_run", func(s *TestCase) {
+	MustRun(func(s *TestCase) {
 		_ = Draw[bool](s, Booleans())
 	}, WithTestCases(1))
 }
@@ -2140,7 +2140,7 @@ func TestMustRunPanicsOnError(t *testing.T) {
 			t.Error("expected MustRun to panic on error")
 		}
 	}()
-	MustRun("should_panic", func(*TestCase) {}, WithTestCases(1))
+	MustRun(func(*TestCase) {}, WithTestCases(1))
 }
 
 // =============================================================================
@@ -2245,7 +2245,7 @@ func TestHegelSessionRunTestFakeServer(t *testing.T) {
 		sendTestDone(t, testCh, true, 0)
 	}()
 
-	err := sess.runTest("session_test", func(_ *TestCase) {}, runOptions{testCases: 1}, stderrNoteFn)
+	err := sess.runTest(func(_ *TestCase) {}, runOptions{testCases: 1}, stderrNoteFn)
 	if err != nil {
 		t.Fatalf("session runTest: %v", err)
 	}

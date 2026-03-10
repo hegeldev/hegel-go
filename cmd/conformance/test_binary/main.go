@@ -34,7 +34,7 @@ func main() {
 
 	gen := hegel.Binary(minSize, maxSize)
 	n := conformance.GetTestCases()
-	hegel.MustRun("conformance_binary", func(s *hegel.TestCase) {
+	hegel.MustRun(func(s *hegel.TestCase) {
 		v := hegel.Draw(s, gen)
 		length := len(v)
 		conformance.WriteMetrics(map[string]any{

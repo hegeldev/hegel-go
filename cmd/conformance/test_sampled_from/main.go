@@ -46,7 +46,7 @@ func main() {
 
 	gen := hegel.SampledFrom(int64Options)
 	n := conformance.GetTestCases()
-	hegel.MustRun("conformance_sampled_from", func(s *hegel.TestCase) {
+	hegel.MustRun(func(s *hegel.TestCase) {
 		val := hegel.Draw(s, gen)
 		conformance.WriteMetrics(map[string]any{
 			"value": val,

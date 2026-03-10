@@ -53,7 +53,7 @@ Use `Run` outside of `go test`, for example in standalone binaries or
 conformance tests:
 
 ```go
-err := hegel.Run("my_property", func(s *hegel.TestCase) {
+err := hegel.Run(func(s *hegel.TestCase) {
 	n := hegel.Draw(tc, hegel.Integers(0, 100))
 	if n < 0 || n > 100 {
 		panic("out of range")
