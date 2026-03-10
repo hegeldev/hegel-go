@@ -43,7 +43,7 @@ func main() {
 
 	// Property 4: OR with false is identity (b || false == b).
 	hegel.MustRun("bool_or_false", func(s *hegel.TestCase) {
-		b := hegel.Draw(s, hegel.Booleans(0.5))
+		b := hegel.Draw(s, hegel.Booleans())
 		//nolint:gosimple // property test: explicitly checking the identity law
 		if (b || false) != b {
 			panic(fmt.Sprintf("b || false != b for b=%v", b))

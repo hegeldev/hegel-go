@@ -16,8 +16,8 @@ import (
 // TestOneOfPath1Schema verifies that OneOf with all-identity-transform basic
 // generators produces a simple {"one_of": [...]} schema.
 func TestOneOfPath1Schema(t *testing.T) {
-	g1 := Booleans(0.5)
-	g2 := Booleans(0.3)
+	g1 := Booleans()
+	g2 := Booleans()
 	combined := OneOf(g1, g2)
 
 	bg, ok := combined.(*basicGenerator[bool])
@@ -157,7 +157,7 @@ func TestOneOfPath2Transform(t *testing.T) {
 func TestOneOfPath2TransformNilBranch(t *testing.T) {
 	// Mix: one identity branch (no transform), one with transform.
 	// Booleans has no transform (identity), Just(true) has a transform.
-	gen1 := Booleans(0.5)                                    // nil transform
+	gen1 := Booleans()                                       // nil transform
 	gen2 := Map(Just(true), func(v bool) bool { return !v }) // has transform (negate)
 	combined := OneOf(gen1, gen2)
 

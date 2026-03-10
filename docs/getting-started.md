@@ -182,7 +182,7 @@ t.Run("flatmap_example", hegel.Case(func(ht *hegel.T) {
 ### Primitive types
 
 ```go
-hegel.Booleans(0.5)                          // bool with probability p of true
+hegel.Booleans()                             // bool
 hegel.Integers(-1000, 1000)                  // int64 in [min, max]
 hegel.Integers(math.MinInt, math.MaxInt)     // unbounded int
 hegel.Floats(min, max, nan, inf, eMin, eMax) // float64 (use nil to omit bounds)

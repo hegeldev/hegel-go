@@ -1458,31 +1458,15 @@ func TestFilterOnNonBasicGenerators(t *testing.T) {
 	}
 }
 
-// TestBooleansSchema verifies that Booleans produces a schema with type=boolean and p field.
+// TestBooleansSchema verifies that Booleans produces a schema with type=boolean.
 func TestBooleansSchema(t *testing.T) {
-	g := Booleans(0.5)
+	g := Booleans()
 	bg, ok := g.(*basicGenerator[bool])
 	if !ok {
 		t.Fatalf("Booleans should return *basicGenerator[bool], got %T", g)
 	}
 	if bg.schema["type"] != "boolean" {
 		t.Errorf("type: expected 'boolean', got %v", bg.schema["type"])
-	}
-	p, ok := bg.schema["p"].(float64)
-	if !ok {
-		t.Fatalf("p field should be float64, got %T", bg.schema["p"])
-	}
-	if p != 0.5 {
-		t.Errorf("p: expected 0.5, got %v", p)
-	}
-}
-
-// TestBooleansP1Schema verifies that Booleans(1.0) stores p=1.0.
-func TestBooleansP1Schema(t *testing.T) {
-	g := Booleans(1.0)
-	bg := g.(*basicGenerator[bool])
-	if bg.schema["p"] != 1.0 {
-		t.Errorf("p: expected 1.0, got %v", bg.schema["p"])
 	}
 }
 
@@ -2322,9 +2306,9 @@ func TestRejectFinishedCollection(t *testing.T) {
 // =============================================================================
 
 func TestListsIdentityTransformFakeServer(t *testing.T) {
-	// Lists(Booleans(0.5)) on a basic generator with nil transform.
+	// Lists(Booleans()) on a basic generator with nil transform.
 	// This hits the identity transform path in Lists (lines 616-629).
-	gen := Lists(Booleans(0.5), ListsOptions{MinSize: 0, MaxSize: 3})
+	gen := Lists(Booleans(), ListsOptions{MinSize: 0, MaxSize: 3})
 
 	clientConn := fakeServerConn(t, func(serverConn *connection) {
 		ctrl := serverConn.ControlChannel()

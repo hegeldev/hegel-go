@@ -97,12 +97,11 @@ func Floats(minVal, maxVal *float64, allowNaN, allowInfinity *bool, excludeMin, 
 	}
 }
 
-// Booleans returns a Generator that produces boolean values with probability p of true.
-func Booleans(p float64) Generator[bool] {
+// Booleans returns a Generator that produces boolean values.
+func Booleans() Generator[bool] {
 	return &basicGenerator[bool]{
 		schema: map[string]any{
 			"type": "boolean",
-			"p":    p,
 		},
 	}
 }

@@ -49,7 +49,7 @@ func TestAbsoluteValueIsNonNegative(t *testing.T) {
 func TestDoubleNegationIsIdentity(t *testing.T) {
 	hegelBinPath(t)
 	if _err := runHegel(t.Name(), func(s *TestCase) {
-		b := Draw[bool](s, Booleans(0.5))
+		b := Draw[bool](s, Booleans())
 		notB := !b
 		notNotB := !notB
 		if notNotB != b {
@@ -199,20 +199,6 @@ func TestFloatsBoundedExcludesSpecials(t *testing.T) {
 	}
 }
 
-// TestBooleansWithHighP demonstrates that with p=1.0, booleans always generates true.
-// This is a fundamental property: p=1.0 means probability 1 of true.
-func TestBooleansWithHighP(t *testing.T) {
-	hegelBinPath(t)
-	if _err := runHegel(t.Name(), func(s *TestCase) {
-		b := Draw[bool](s, Booleans(1.0))
-		if !b {
-			panic("booleans(p=1.0): expected always true")
-		}
-	}, stderrNoteFn, []Option{WithTestCases(20)}); _err != nil {
-		panic(_err)
-	}
-}
-
 // TestMapDoubledIntegersAreEven demonstrates that mapping integers by doubling
 // always produces even numbers -- a fundamental arithmetic property.
 // Uses Map which preserves the schema (single server round-trip) for basicGenerators.
@@ -309,7 +295,7 @@ func TestDictsKeyValueTypes(t *testing.T) {
 func TestDictsSizeBoundsHold(t *testing.T) {
 	hegelBinPath(t)
 	if _err := runHegel(t.Name(), func(s *TestCase) {
-		gen := Dicts(Integers[int](0, 100), Booleans(0.5), DictOptions{MinSize: 2, MaxSize: 5, HasMaxSize: true})
+		gen := Dicts(Integers[int](0, 100), Booleans(), DictOptions{MinSize: 2, MaxSize: 5, HasMaxSize: true})
 		m := Draw[map[int]bool](s, gen)
 		if len(m) < 2 || len(m) > 5 {
 			panic(fmt.Sprintf("Dicts: expected size in [2,5], got %d", len(m)))
@@ -433,7 +419,7 @@ func TestIntBoolPairsViaIndividualDraws(t *testing.T) {
 	hegelBinPath(t)
 	if _err := runHegel(t.Name(), func(s *TestCase) {
 		n := Draw[int](s, Integers[int](0, 10))
-		b := Draw[bool](s, Booleans(0.5))
+		b := Draw[bool](s, Booleans())
 		if n < 0 || n > 10 {
 			panic(fmt.Sprintf("expected integer in [0,10], got %d", n))
 		}
@@ -499,7 +485,7 @@ func TestFlatMapListLengthMatchesInteger(t *testing.T) {
 	// matches the integer that controlled the generation.
 	gen := FlatMap[int, []bool](Integers[int](1, 6), func(n int) Generator[[]bool] {
 		sz := n
-		return Lists(Booleans(0.5), ListsOptions{MinSize: sz, MaxSize: sz})
+		return Lists(Booleans(), ListsOptions{MinSize: sz, MaxSize: sz})
 	})
 	if _err := runHegel(t.Name(), func(s *TestCase) {
 		bools := Draw[[]bool](s, gen)

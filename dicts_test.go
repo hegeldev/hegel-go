@@ -559,7 +559,7 @@ func TestDictsBasicE2E(t *testing.T) {
 func TestDictsBasicWithBoundsE2E(t *testing.T) {
 	hegelBinPath(t)
 	if _err := runHegel(t.Name(), func(s *TestCase) {
-		gen := Dicts(Integers[int](0, 10), Booleans(0.5), DictOptions{MinSize: 1, MaxSize: 3, HasMaxSize: true})
+		gen := Dicts(Integers[int](0, 10), Booleans(), DictOptions{MinSize: 1, MaxSize: 3, HasMaxSize: true})
 		m := gen.draw(s)
 		if len(m) < 1 || len(m) > 3 {
 			panic(fmt.Sprintf("Dicts bounded: expected 1-3 entries, got %d", len(m)))

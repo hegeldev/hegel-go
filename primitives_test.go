@@ -73,7 +73,7 @@ func TestFloatsE2E_OnlyMin(t *testing.T) {
 func TestBooleansE2E(t *testing.T) {
 	hegelBinPath(t)
 	if _err := runHegel("booleans_e2e", func(s *TestCase) {
-		b := Draw[bool](s, Booleans(0.5))
+		b := Draw[bool](s, Booleans())
 		// A valid assertion: b is either true or false.
 		if b != true && b != false {
 			panic("booleans: expected bool")

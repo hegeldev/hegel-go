@@ -104,7 +104,7 @@ func TestListsBasicElementWithTransformNonSlicePassthrough(t *testing.T) {
 // TestListsBasicElementNoTransformNonSlicePassthrough verifies that the list transform
 // for a basic element with no transform returns nil for non-slice values.
 func TestListsBasicElementNoTransformNonSlicePassthrough(t *testing.T) {
-	elem := Booleans(0.5)
+	elem := Booleans()
 	gen := Lists(elem, ListsOptions{MinSize: 0, MaxSize: 5})
 	bg, ok := gen.(*basicGenerator[[]bool])
 	if !ok {
@@ -325,7 +325,7 @@ func TestListsBasicIntegersE2E(t *testing.T) {
 func TestListsWithSizeBoundsE2E(t *testing.T) {
 	hegelBinPath(t)
 	if _err := runHegel("lists_with_bounds_e2e", func(s *TestCase) {
-		xs := Lists(Booleans(0.5), ListsOptions{MinSize: 3, MaxSize: 5}).draw(s)
+		xs := Lists(Booleans(), ListsOptions{MinSize: 3, MaxSize: 5}).draw(s)
 		if len(xs) < 3 || len(xs) > 5 {
 			panic(fmt.Sprintf("Lists: length %d out of [3, 5]", len(xs)))
 		}
@@ -361,7 +361,7 @@ func TestListsNonBasicElementE2E(t *testing.T) {
 func TestListsNestedE2E(t *testing.T) {
 	hegelBinPath(t)
 	if _err := runHegel("lists_nested_e2e", func(s *TestCase) {
-		outer := Lists(Lists(Booleans(0.5), ListsOptions{MinSize: 0, MaxSize: 3}), ListsOptions{MinSize: 0, MaxSize: 3}).draw(s)
+		outer := Lists(Lists(Booleans(), ListsOptions{MinSize: 0, MaxSize: 3}), ListsOptions{MinSize: 0, MaxSize: 3}).draw(s)
 		for i, inner := range outer {
 			for j, b := range inner {
 				// b is already bool due to typed generators; verify it is true or false.
