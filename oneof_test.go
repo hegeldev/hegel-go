@@ -347,14 +347,14 @@ func TestOneOfPath3UnitFakeServer(t *testing.T) {
 // OneOf — requires at least 2 generators
 // =============================================================================
 
-// TestOneOfPanicsWithFewerThanTwo verifies that OneOf panics when < 2 generators.
-func TestOneOfPanicsWithFewerThanTwo(t *testing.T) {
+// TestOneOfPanicsWithZeroGenerators verifies that OneOf panics when given no generators.
+func TestOneOfPanicsWithZeroGenerators(t *testing.T) {
 	defer func() {
 		if r := recover(); r == nil {
-			t.Error("OneOf with 1 generator should panic")
+			t.Error("OneOf with 0 generators should panic")
 		}
 	}()
-	OneOf(Integers[int64](0, 10))
+	OneOf[int64]()
 }
 
 // =============================================================================

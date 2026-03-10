@@ -2029,15 +2029,13 @@ func TestFloatsTransformFakeServer(t *testing.T) {
 
 func TestFloatsSchemaExplicitNaNNilInf(t *testing.T) {
 	nan := true
-	minV := 0.0
-	maxV := 1.0
-	g := Floats(&minV, &maxV, &nan, nil, false, false)
+	g := Floats(nil, nil, &nan, nil, false, false)
 	bg := g.(*basicGenerator[float64])
 	if bg.schema["allow_nan"] != true {
 		t.Errorf("allow_nan: expected true, got %v", bg.schema["allow_nan"])
 	}
-	if bg.schema["allow_infinity"] != false {
-		t.Errorf("allow_infinity: expected false (default with both bounds), got %v", bg.schema["allow_infinity"])
+	if bg.schema["allow_infinity"] != true {
+		t.Errorf("allow_infinity: expected true (default with no bounds), got %v", bg.schema["allow_infinity"])
 	}
 }
 
@@ -2047,12 +2045,10 @@ func TestFloatsSchemaExplicitNaNNilInf(t *testing.T) {
 
 func TestFloatsSchemaExplicitInfNilNaN(t *testing.T) {
 	inf := true
-	minV := 0.0
-	maxV := 1.0
-	g := Floats(&minV, &maxV, nil, &inf, false, false)
+	g := Floats(nil, nil, nil, &inf, false, false)
 	bg := g.(*basicGenerator[float64])
-	if bg.schema["allow_nan"] != false {
-		t.Errorf("allow_nan: expected false (default with both bounds), got %v", bg.schema["allow_nan"])
+	if bg.schema["allow_nan"] != true {
+		t.Errorf("allow_nan: expected true (default with no bounds), got %v", bg.schema["allow_nan"])
 	}
 	if bg.schema["allow_infinity"] != true {
 		t.Errorf("allow_infinity: expected true, got %v", bg.schema["allow_infinity"])

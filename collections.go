@@ -133,6 +133,12 @@ func Dicts[K comparable, V any](keys Generator[K], values Generator[V], opts ...
 	for _, o := range opts {
 		o(&cfg)
 	}
+	if cfg.minSize < 0 {
+		panic(fmt.Sprintf("hegel: min_size=%d must be non-negative", cfg.minSize))
+	}
+	if cfg.hasMax && cfg.minSize > cfg.maxSize {
+		panic(fmt.Sprintf("hegel: Cannot have max_size=%d < min_size=%d", cfg.maxSize, cfg.minSize))
+	}
 	keyBasic, keyIsBasic := keys.(*basicGenerator[K])
 	valBasic, valIsBasic := values.(*basicGenerator[V])
 	if keyIsBasic && valIsBasic {
