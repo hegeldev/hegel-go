@@ -36,8 +36,8 @@ func (g *compositeOneOfGenerator[T]) draw(s *TestCase) T {
 //
 // Requires at least 2 generators.
 func OneOf[T any](generators ...Generator[T]) Generator[T] {
-	if len(generators) < 2 {
-		panic("hegel: OneOf requires at least 2 generators")
+	if len(generators) == 0 {
+		panic("hegel: OneOf requires at least one generator")
 	}
 
 	// Check if all generators are basic.

@@ -1,5 +1,7 @@
 package hegel
 
+import "fmt"
+
 // --- Lists generator ---
 
 // ListOption configures optional behavior for the [Lists] generator.
@@ -28,6 +30,10 @@ func Lists[T any](elements Generator[T], opts ...ListOption) Generator[[]T] {
 	}
 
 	minSize := max(cfg.minSize, 0)
+	if cfg.maxSize >= 0 && minSize > cfg.maxSize {
+		panic(fmt.Sprintf("hegel: Cannot have max_size=%d < min_size=%d", cfg.maxSize, minSize))
+	}
+
 	if bg, ok := elements.(*basicGenerator[T]); ok {
 		rawSchema := map[string]any{
 			"type":     "list",
