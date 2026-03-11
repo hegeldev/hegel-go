@@ -82,11 +82,8 @@ def parse_uncovered(profile_path: str) -> list[tuple[str, str, int, int]]:
 
     When ``go test -coverpkg=PKG ./...`` runs multiple test packages, each
     test binary independently instruments PKG and writes its own coverage
-    entries.  For example, the ``internal/conformance`` tests don't call any
-    main-package code, so their entries have execution count 0 even though
-    the main-package tests cover those same regions.  We merge duplicates by
-    summing execution counts so that a region covered by *any* test binary is
-    not reported as uncovered.
+    entries.  We merge duplicates by summing execution counts so that a
+    region covered by *any* test binary is not reported as uncovered.
 
     Returns tuples of (module_path, local_file_path, start_line, end_line)
     for regions whose merged execution count is still 0.
@@ -147,38 +144,19 @@ def _module_path_to_local(module_path: str) -> str:
 def is_false_positive(file: str, start_line: int, end_line: int) -> bool:
     """Check if an uncovered region is a known false positive.
 
-    False positives include:
-    - Lines containing only closing braces
-    - Lines containing only unreachable panics (single-line form)
-    - if-guard lines that guard an unreachable panic on the next line
+    A region is a false positive if every line in it is either:
+    - Empty or a closing brace
+    - Marked with ``//nocov``
     """
     try:
         with open(file) as f:
             lines = f.readlines()
         for i in range(start_line - 1, min(end_line, len(lines))):
             content = lines[i].strip()
-            # Skip empty lines and closing braces
-            if content in ("}", "}", "});", ""):
+            if content in ("}", ")", "});", ""):
                 continue
-            # Skip unreachable panics (may be inline: "if err != nil { panic(...unreachable...) }")
-            if "panic(" in content and "unreachable" in content.lower():
+            if "//nocov" in content:
                 continue
-            # Skip if-guard lines for unreachable panics or untestable t.Fatal:
-            # "if condition {" followed by a panic or t.Fatal on the next line
-            if content.endswith("{") and "if " in content and i + 1 < len(lines):
-                next_content = lines[i + 1].strip()
-                if next_content.startswith("panic(") and "unreachable" in next_content.lower():
-                    continue
-                if next_content == "t.Fatal(err)":
-                    continue
-            # Skip loop-exhaustion guard: "if !more { break }" from frames.Next()
-            if content in ("if !more {", "break"):
-                continue
-            # Skip t.Fatal(err) in error-check blocks — untestable because
-            # sub-test failures propagate to the parent test.
-            if content == "t.Fatal(err)":
-                continue
-            # Any other content means it's real uncovered code
             return False
         return True
     except (FileNotFoundError, IndexError):

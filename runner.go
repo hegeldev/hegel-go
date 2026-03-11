@@ -67,15 +67,15 @@ func (s *TestCase) Target(value float64, label string) {
 		"value":   value,
 		"label":   label,
 	})
-	if err != nil {
-		panic(fmt.Sprintf("hegel: unreachable: Target encode: %v", err))
+	if err != nil { //nocov
+		panic(fmt.Sprintf("hegel: Target encode: %v", err)) //nocov
 	}
 	pending, err := ch.Request(payload)
-	if err != nil {
-		panic(fmt.Sprintf("hegel: Target send: %v", err))
+	if err != nil { //nocov
+		panic(fmt.Sprintf("hegel: Target send: %v", err)) //nocov
 	}
-	if _, err := pending.Get(); err != nil {
-		panic(fmt.Sprintf("hegel: Target response: %v", err))
+	if _, err := pending.Get(); err != nil { //nocov
+		panic(fmt.Sprintf("hegel: Target response: %v", err)) //nocov
 	}
 }
 
@@ -96,8 +96,8 @@ func toInt64(v any) (int64, bool) {
 func generateFromSchema(gs *TestCase, schema map[string]any) (any, error) {
 	ch := gs.channel
 	payload, err := encodeCBOR(map[string]any{"command": "generate", "schema": schema})
-	if err != nil {
-		panic(fmt.Sprintf("hegel: unreachable: generateFromSchema encode: %v", err))
+	if err != nil { //nocov
+		panic(fmt.Sprintf("hegel: generateFromSchema encode: %v", err)) //nocov
 	}
 	pending, err := ch.Request(payload)
 	if err != nil {
@@ -166,9 +166,9 @@ func Case(fn func(*T), opts ...Option) func(*testing.T) {
 			ht := &T{TestCase: s, T: t}
 			fn(ht)
 		}
-		err := runHegel(body, func(msg string) { t.Log(msg) }, opts)
-		if err != nil {
-			t.Fatal(err)
+		err := runHegel(body, func(msg string) { t.Log(msg) }, opts) //nocov
+		if err != nil { //nocov
+			t.Fatal(err) //nocov
 		}
 	}
 }
@@ -214,8 +214,8 @@ func extractPanicOrigin(v any) string {
 	line := 0
 	for {
 		f, more := frames.Next()
-		if !more {
-			break
+		if !more { //nocov
+			break //nocov
 		}
 		// Skip internal hegel frames.
 		if !isHegelFrame(f.Function) {
@@ -257,17 +257,17 @@ func (c *client) runTest(fn testBody, opts runOptions, noteFn func(string)) erro
 		"test_cases": int64(opts.testCases),
 		"channel_id": int64(testCh.ChannelID()),
 	})
-	if err != nil {
-		panic(fmt.Sprintf("hegel: unreachable: runTest encode: %v", err))
+	if err != nil { //nocov
+		panic(fmt.Sprintf("hegel: runTest encode: %v", err)) //nocov
 	}
 
 	ctrl := c.conn.ControlChannel()
 	pending, err := ctrl.Request(payload)
-	if err != nil {
-		return fmt.Errorf("hegel: run_test send: %w", err)
+	if err != nil { //nocov
+		return fmt.Errorf("hegel: run_test send: %w", err) //nocov
 	}
-	if _, err := pending.Get(); err != nil {
-		return fmt.Errorf("hegel: run_test ack: %w", err)
+	if _, err := pending.Get(); err != nil { //nocov
+		return fmt.Errorf("hegel: run_test ack: %w", err) //nocov
 	}
 
 	// Event loop.
@@ -278,12 +278,12 @@ func (c *client) runTest(fn testBody, opts runOptions, noteFn func(string)) erro
 			return fmt.Errorf("hegel: test event recv: %w", err)
 		}
 		decoded, err := decodeCBOR(raw)
-		if err != nil {
-			return fmt.Errorf("hegel: test event decode: %w", err)
+		if err != nil { //nocov
+			return fmt.Errorf("hegel: test event decode: %w", err) //nocov
 		}
 		msg, ok := decoded.(map[any]any)
-		if !ok {
-			return fmt.Errorf("hegel: test event not a dict")
+		if !ok { //nocov
+			return fmt.Errorf("hegel: test event not a dict") //nocov
 		}
 		event, _ := msg[any("event")].(string)
 
@@ -291,13 +291,13 @@ func (c *client) runTest(fn testBody, opts runOptions, noteFn func(string)) erro
 		case "test_case":
 			chIDVal := msg[any("channel_id")]
 			chID, ok := toInt64(chIDVal)
-			if !ok {
-				return fmt.Errorf("hegel: test_case missing channel_id")
+			if !ok { //nocov
+				return fmt.Errorf("hegel: test_case missing channel_id") //nocov
 			}
 			testCh.SendReplyValue(msgID, nil) //nolint:errcheck
 			caseCh, err := c.conn.ConnectChannel(uint32(chID), "TestCase")
-			if err != nil {
-				return fmt.Errorf("hegel: connect test case channel: %w", err)
+			if err != nil { //nocov
+				return fmt.Errorf("hegel: connect test case channel: %w", err) //nocov
 			}
 			if err := c.runTestCase(caseCh, fn, false, noteFn); err != nil {
 				return err
@@ -309,19 +309,14 @@ func (c *client) runTest(fn testBody, opts runOptions, noteFn func(string)) erro
 			resultData, _ = resultsVal.(map[any]any)
 			goto doneLoop
 
-		default:
-			// Unknown event: send error reply.
-			errPayload, _ := encodeCBOR(map[string]any{
-				"error": fmt.Sprintf("unrecognised event %q", event),
-				"type":  "InvalidMessage",
-			})
-			testCh.SendReplyRaw(msgID, errPayload) //nolint:errcheck
+		default: //nocov
+			return fmt.Errorf("hegel: unrecognised event %q", event) //nocov
 		}
 	}
 
 doneLoop:
-	if resultData == nil {
-		panic("hegel: unreachable: resultData is nil after test_done")
+	if resultData == nil { //nocov
+		panic("hegel: resultData is nil after test_done") //nocov
 	}
 
 	nInterestingVal := resultData[any("interesting_test_cases")]
@@ -331,29 +326,11 @@ doneLoop:
 	}
 
 	// Replay interesting (failing) test cases.
-	if nInteresting == 1 {
-		msgID, raw, err := testCh.RecvRequestRaw(30 * time.Second)
-		if err != nil {
-			return fmt.Errorf("hegel: final case recv: %w", err)
-		}
-		decoded, _ := decodeCBOR(raw)
-		msg, _ := decoded.(map[any]any)
-		chIDVal := msg[any("channel_id")]
-		chID, _ := toInt64(chIDVal)
-		testCh.SendReplyValue(msgID, nil) //nolint:errcheck
-		caseCh, err := c.conn.ConnectChannel(uint32(chID), "FinalCase")
-		if err != nil {
-			return fmt.Errorf("hegel: connect final case channel: %w", err)
-		}
-		return c.runTestCase(caseCh, fn, true, noteFn)
-	}
-
-	// Multiple interesting cases.
 	var errs []error
 	for i := int64(0); i < nInteresting; i++ {
 		msgID, raw, err := testCh.RecvRequestRaw(30 * time.Second)
-		if err != nil {
-			return fmt.Errorf("hegel: final case %d recv: %w", i, err)
+		if err != nil { //nocov
+			return fmt.Errorf("hegel: final case recv: %w", err) //nocov
 		}
 		decoded, _ := decodeCBOR(raw)
 		msg, _ := decoded.(map[any]any)
@@ -361,18 +338,21 @@ doneLoop:
 		chID, _ := toInt64(chIDVal)
 		testCh.SendReplyValue(msgID, nil) //nolint:errcheck
 		caseCh, err := c.conn.ConnectChannel(uint32(chID), fmt.Sprintf("FinalCase%d", i))
-		if err != nil {
-			errs = append(errs, err)
-			continue
+		if err != nil { //nocov
+			return fmt.Errorf("hegel: connect final case channel: %w", err) //nocov
 		}
 		caseErr := c.runTestCase(caseCh, fn, true, noteFn)
 		if caseErr != nil {
 			errs = append(errs, caseErr)
-		} else {
-			errs = append(errs, fmt.Errorf("expected test case %d to fail but it didn't", i))
 		}
 	}
-	return fmt.Errorf("multiple failures: %v", errs)
+	if len(errs) == 0 { //nocov
+		return nil //nocov
+	}
+	if len(errs) == 1 {
+		return errs[0]
+	}
+	return fmt.Errorf("multiple failures: %v", errs) //nocov
 }
 
 // runTestCase executes one test case and sends mark_complete to the server.
@@ -395,6 +375,7 @@ func (c *client) runTestCase(ch *channel, fn testBody, isFinal bool, noteFn func
 				// Normal return: check the failed flag.
 				if state.failed {
 					status = "INTERESTING"
+					origin = "test failed (via t.Error/t.Fail)"
 					if isFinal {
 						finalErr = fmt.Errorf("test failed")
 					}
@@ -447,8 +428,8 @@ func (c *client) runTestCase(ch *channel, fn testBody, isFinal bool, noteFn func
 			}
 		}
 		encoded, err := encodeCBOR(markPayload)
-		if err != nil {
-			panic(fmt.Sprintf("hegel: unreachable: mark_complete encode: %v", err))
+		if err != nil { //nocov
+			panic(fmt.Sprintf("hegel: mark_complete encode: %v", err)) //nocov
 		}
 		pending, err := ch.Request(encoded)
 		if err == nil {

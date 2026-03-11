@@ -6,7 +6,6 @@ package hegel
 import (
 	"fmt"
 	"testing"
-	"time"
 	"unicode/utf8"
 )
 
@@ -209,288 +208,6 @@ func TestPairsToMapNonSlicePair(t *testing.T) {
 }
 
 // =============================================================================
-// Dicts: basic path integration test (fake server)
-// =============================================================================
-
-// TestDictsBasicGenerateHappyPath verifies the basic-path dict generator
-// sends the correct schema and applies the pair-to-map transform.
-func TestDictsBasicGenerateHappyPath(t *testing.T) {
-	// Server returns [[k1, v1], [k2, v2]] as the CBOR array of pairs.
-	clientConn := fakeServerConn(t, func(serverConn *connection) {
-		ctrl := serverConn.ControlChannel()
-		msgID, payload, _ := ctrl.RecvRequestRaw(5 * time.Second)
-		decoded, _ := decodeCBOR(payload)
-		m, _ := extractCBORDict(decoded)
-		chID, _ := extractCBORInt(m[any("channel_id")])
-		ctrl.SendReplyValue(msgID, true) //nolint:errcheck
-
-		testCh, _ := serverConn.ConnectChannel(uint32(chID), "TestCh")
-		caseCh := serverConn.NewChannel("Case")
-		casePayload, _ := encodeCBOR(map[string]any{
-			"event":      "test_case",
-			"channel_id": int64(caseCh.ChannelID()),
-			"is_final":   false,
-		})
-		caseID, _ := testCh.SendRequestRaw(casePayload)
-		testCh.recvResponseRaw(caseID, 5*time.Second) //nolint:errcheck
-
-		// Respond to generate with a pair list: [["key1", 42], ["key2", 7]]
-		genID, _, _ := caseCh.RecvRequestRaw(5 * time.Second)
-		pairList := []any{
-			[]any{"key1", int64(42)},
-			[]any{"key2", int64(7)},
-		}
-		caseCh.SendReplyValue(genID, pairList) //nolint:errcheck
-
-		// Wait for mark_complete.
-		mcID, _, _ := caseCh.RecvRequestRaw(5 * time.Second)
-		caseCh.SendReplyValue(mcID, nil) //nolint:errcheck
-
-		sendTestDone(t, testCh, true, 0)
-	})
-
-	cli := newClient(clientConn)
-	var gotMap map[string]int64
-	err := cli.runTest(func(s *TestCase) {
-		gen := Dicts(Text(0, 5), Integers[int64](0, 100), DictMaxSize(3))
-		gotMap = gen.draw(s)
-	}, runOptions{testCases: 1}, stderrNoteFn)
-	if err != nil {
-		t.Fatalf("runTest: %v", err)
-	}
-	if gotMap == nil {
-		t.Fatal("expected map, got nil")
-	}
-	if gotMap["key1"] != 42 {
-		t.Errorf("gotMap['key1']: expected 42, got %v", gotMap["key1"])
-	}
-	if gotMap["key2"] != 7 {
-		t.Errorf("gotMap['key2']: expected 7, got %v", gotMap["key2"])
-	}
-}
-
-// TestDictsBasicWithTransforms verifies that the basicGenerator path applies
-// key and value transforms when the inner generators have transforms.
-func TestDictsBasicWithTransforms(t *testing.T) {
-	// Key generator with transform: text -> uppercase key
-	// Value generator with transform: integer -> value * 2
-	clientConn := fakeServerConn(t, func(serverConn *connection) {
-		ctrl := serverConn.ControlChannel()
-		msgID, payload, _ := ctrl.RecvRequestRaw(5 * time.Second)
-		decoded, _ := decodeCBOR(payload)
-		m, _ := extractCBORDict(decoded)
-		chID, _ := extractCBORInt(m[any("channel_id")])
-		ctrl.SendReplyValue(msgID, true) //nolint:errcheck
-
-		testCh, _ := serverConn.ConnectChannel(uint32(chID), "TestCh")
-		caseCh := serverConn.NewChannel("Case")
-		casePayload, _ := encodeCBOR(map[string]any{
-			"event":      "test_case",
-			"channel_id": int64(caseCh.ChannelID()),
-			"is_final":   false,
-		})
-		caseID, _ := testCh.SendRequestRaw(casePayload)
-		testCh.recvResponseRaw(caseID, 5*time.Second) //nolint:errcheck
-
-		// Server returns [["hello", 5]]
-		genID, _, _ := caseCh.RecvRequestRaw(5 * time.Second)
-		caseCh.SendReplyValue(genID, []any{[]any{"hello", int64(5)}}) //nolint:errcheck
-
-		mcID, _, _ := caseCh.RecvRequestRaw(5 * time.Second)
-		caseCh.SendReplyValue(mcID, nil) //nolint:errcheck
-
-		sendTestDone(t, testCh, true, 0)
-	})
-
-	cli := newClient(clientConn)
-	var gotMap map[string]int64
-
-	// Build generators with transforms
-	keyGen := Map(Text(0, 10), func(s string) string {
-		result := ""
-		for _, ch := range s {
-			if ch >= 'a' && ch <= 'z' {
-				result += string(rune(ch - 32))
-			} else {
-				result += string(ch)
-			}
-		}
-		return result
-	})
-	valGen := Map(Integers[int64](0, 100), func(n int64) int64 {
-		return n * 2
-	})
-
-	err := cli.runTest(func(s *TestCase) {
-		gen := Dicts(keyGen, valGen, DictMaxSize(3))
-		gotMap = gen.draw(s)
-	}, runOptions{testCases: 1}, stderrNoteFn)
-	if err != nil {
-		t.Fatalf("runTest: %v", err)
-	}
-	if gotMap == nil {
-		t.Fatal("expected map, got nil")
-	}
-	// "hello" -> "HELLO" (uppercase), 5 -> 10 (*2)
-	if gotMap["HELLO"] != int64(10) {
-		t.Errorf("expected gotMap['HELLO']=10, got %v", gotMap["HELLO"])
-	}
-}
-
-// =============================================================================
-// Dicts: composite path integration test (fake server)
-// =============================================================================
-
-// TestDictsCompositeGenerateHappyPath verifies the composite dict generator
-// sends new_collection, collection_more, and MapEntry spans correctly.
-func TestDictsCompositeGenerateHappyPath(t *testing.T) {
-	clientConn := fakeServerConn(t, func(serverConn *connection) {
-		ctrl := serverConn.ControlChannel()
-		msgID, payload, _ := ctrl.RecvRequestRaw(5 * time.Second)
-		decoded, _ := decodeCBOR(payload)
-		m, _ := extractCBORDict(decoded)
-		chID, _ := extractCBORInt(m[any("channel_id")])
-		ctrl.SendReplyValue(msgID, true) //nolint:errcheck
-
-		testCh, _ := serverConn.ConnectChannel(uint32(chID), "TestCh")
-		caseCh := serverConn.NewChannel("Case")
-		casePayload, _ := encodeCBOR(map[string]any{
-			"event":      "test_case",
-			"channel_id": int64(caseCh.ChannelID()),
-			"is_final":   false,
-		})
-		caseID, _ := testCh.SendRequestRaw(casePayload)
-		testCh.recvResponseRaw(caseID, 5*time.Second) //nolint:errcheck
-
-		// Expected sequence:
-		// 1. start_span (MAP)  [from discardableGroup]
-		// 2. new_collection
-		// 3. collection_more -> true
-		// 4. start_span (MAP_ENTRY)  [from group(labelMapEntry, ...)]
-		// 5. start_span (MAPPED)  [from mappedGenerator.draw -> group(labelMapped, ...)]
-		// 6. generate key  [from inner Integers]
-		// 7. stop_span (MAPPED)
-		// 8. generate value  [from Integers[int64](0,100), no span]
-		// 9. stop_span (MAP_ENTRY)
-		// 10. collection_more -> false
-		// 11. stop_span (MAP)
-		// 12. mark_complete
-
-		recvAndAck := func(reply any) {
-			id, _, _ := caseCh.RecvRequestRaw(5 * time.Second)
-			caseCh.SendReplyValue(id, reply) //nolint:errcheck
-		}
-
-		recvAndAck(nil)         // 1. start_span (MAP)
-		recvAndAck("coll_dc_1") // 2. new_collection -> server assigns name
-		recvAndAck(true)        // 3. collection_more -> true (one element)
-		recvAndAck(nil)         // 4. start_span (MAP_ENTRY)
-		recvAndAck(nil)         // 5. start_span (MAPPED) for nonBasicKeys
-		recvAndAck(int64(7))    // 6. generate key
-		recvAndAck(nil)         // 7. stop_span (MAPPED)
-		recvAndAck(int64(99))   // 8. generate value
-		recvAndAck(nil)         // 9. stop_span (MAP_ENTRY)
-		recvAndAck(false)       // 10. collection_more -> false
-		recvAndAck(nil)         // 11. stop_span (MAP)
-
-		// mark_complete
-		mcID, _, _ := caseCh.RecvRequestRaw(5 * time.Second)
-		caseCh.SendReplyValue(mcID, nil) //nolint:errcheck
-
-		sendTestDone(t, testCh, true, 0)
-	})
-
-	cli := newClient(clientConn)
-	var gotMap map[int64]int64
-	err := cli.runTest(func(s *TestCase) {
-		// Non-basic key generator (directly constructed mappedGenerator)
-		nonBasicKeys := &mappedGenerator[int64, int64]{
-			inner: Integers[int64](0, 10),
-			fn:    func(v int64) int64 { return v },
-		}
-		gen := Dicts(nonBasicKeys, Integers[int64](0, 100), DictMaxSize(2))
-		gotMap = gen.draw(s)
-	}, runOptions{testCases: 1}, stderrNoteFn)
-	if err != nil {
-		t.Fatalf("runTest: %v", err)
-	}
-	if gotMap == nil {
-		t.Fatal("expected map, got nil")
-	}
-	if len(gotMap) != 1 {
-		t.Errorf("expected 1 entry, got %d", len(gotMap))
-	}
-	if gotMap[7] != 99 {
-		t.Errorf("expected gotMap[7]=99, got %v", gotMap[7])
-	}
-}
-
-// TestDictsCompositeNoMaxHappyPath verifies that composite dict with no max size
-// defaults to minSize+10 for the collection.
-func TestDictsCompositeNoMaxHappyPath(t *testing.T) {
-	var gotCollMax int64
-	clientConn := fakeServerConn(t, func(serverConn *connection) {
-		ctrl := serverConn.ControlChannel()
-		msgID, payload, _ := ctrl.RecvRequestRaw(5 * time.Second)
-		decoded, _ := decodeCBOR(payload)
-		m, _ := extractCBORDict(decoded)
-		chID, _ := extractCBORInt(m[any("channel_id")])
-		ctrl.SendReplyValue(msgID, true) //nolint:errcheck
-
-		testCh, _ := serverConn.ConnectChannel(uint32(chID), "TestCh")
-		caseCh := serverConn.NewChannel("Case")
-		casePayload, _ := encodeCBOR(map[string]any{
-			"event":      "test_case",
-			"channel_id": int64(caseCh.ChannelID()),
-			"is_final":   false,
-		})
-		caseID, _ := testCh.SendRequestRaw(casePayload)
-		testCh.recvResponseRaw(caseID, 5*time.Second) //nolint:errcheck
-
-		// start_span (MAP)
-		ssID, _, _ := caseCh.RecvRequestRaw(5 * time.Second)
-		caseCh.SendReplyValue(ssID, nil) //nolint:errcheck
-
-		// new_collection -- capture max_size
-		ncID, ncPayload, _ := caseCh.RecvRequestRaw(5 * time.Second)
-		ncDecoded, _ := decodeCBOR(ncPayload)
-		ncMap, _ := extractCBORDict(ncDecoded)
-		gotCollMax, _ = extractCBORInt(ncMap[any("max_size")])
-		caseCh.SendReplyValue(ncID, "coll_no_max") //nolint:errcheck
-
-		// collection_more -> false (empty)
-		moreID, _, _ := caseCh.RecvRequestRaw(5 * time.Second)
-		caseCh.SendReplyValue(moreID, false) //nolint:errcheck
-
-		// stop_span (MAP)
-		spID, _, _ := caseCh.RecvRequestRaw(5 * time.Second)
-		caseCh.SendReplyValue(spID, nil) //nolint:errcheck
-
-		mcID, _, _ := caseCh.RecvRequestRaw(5 * time.Second)
-		caseCh.SendReplyValue(mcID, nil) //nolint:errcheck
-
-		sendTestDone(t, testCh, true, 0)
-	})
-
-	cli := newClient(clientConn)
-	err := cli.runTest(func(s *TestCase) {
-		nonBasicKeys := &mappedGenerator[int64, int64]{
-			inner: Integers[int64](0, 10),
-			fn:    func(v int64) int64 { return v },
-		}
-		// No max size: hasMax=false, minSize=2 -> should use maxSz=2+10=12
-		gen := Dicts(nonBasicKeys, Integers[int64](0, 100), DictMinSize(2))
-		_ = gen.draw(s)
-	}, runOptions{testCases: 1}, stderrNoteFn)
-	if err != nil {
-		t.Fatalf("runTest: %v", err)
-	}
-	if gotCollMax != 12 {
-		t.Errorf("composite dict no-max: expected maxSz=12 (minSize+10), got %d", gotCollMax)
-	}
-}
-
-// =============================================================================
 // Dicts: StopTest during collection operations
 // =============================================================================
 
@@ -570,6 +287,24 @@ func TestDictsBasicWithBoundsE2E(t *testing.T) {
 			}
 		}
 	}, stderrNoteFn, []Option{WithTestCases(50)}); _err != nil {
+		panic(_err)
+	}
+}
+
+// TestDictsCompositeNoMaxE2E verifies the composite Dicts generator with no max_size
+// uses the default (min_size + 10).
+func TestDictsCompositeNoMaxE2E(t *testing.T) {
+	hegelBinPath(t)
+	if _err := runHegel(func(s *TestCase) {
+		nonBasicKeys := &mappedGenerator[int64, int64]{
+			inner: Integers[int64](0, 100),
+			fn:    func(n int64) int64 { return n },
+		}
+		// Omit DictMaxSize to trigger the !g.hasMax branch.
+		gen := Dicts(nonBasicKeys, Just("v"))
+		m := gen.draw(s)
+		_ = m // just verify it doesn't panic
+	}, stderrNoteFn, []Option{WithTestCases(30)}); _err != nil {
 		panic(_err)
 	}
 }

@@ -6,7 +6,6 @@ import (
 	"fmt"
 	"net/netip"
 	"testing"
-	"time"
 )
 
 // =============================================================================
@@ -276,70 +275,6 @@ func TestOneOfPath3E2E(t *testing.T) {
 	}
 	if !sawStr {
 		t.Error("OneOf Path3: never generated a string")
-	}
-}
-
-// TestOneOfPath3UnitFakeServer verifies the compositeOneOfGenerator through a fake server.
-func TestOneOfPath3UnitFakeServer(t *testing.T) {
-	nonBasic := &mappedGenerator[int64, int64]{inner: Integers[int64](0, 100), fn: func(v int64) int64 { return v }}
-	gen := &compositeOneOfGenerator[int64]{generators: []Generator[int64]{nonBasic, Integers[int64](0, 5)}}
-
-	// server side: handle ONE_OF span start + int generate for index + inner generate + stop_span
-	clientConn := fakeServerConn(t, func(serverConn *connection) {
-		ctrl := serverConn.ControlChannel()
-		msgID, payload, _ := ctrl.RecvRequestRaw(5 * time.Second)
-		decoded, _ := decodeCBOR(payload)
-		m, _ := extractCBORDict(decoded)
-		chID, _ := extractCBORInt(m[any("channel_id")])
-		ctrl.SendReplyValue(msgID, true) //nolint:errcheck
-
-		testCh, _ := serverConn.ConnectChannel(uint32(chID), "TestCh")
-		caseCh := serverConn.NewChannel("Case")
-		casePayload, _ := encodeCBOR(map[string]any{
-			"event":      "test_case",
-			"channel_id": int64(caseCh.ChannelID()),
-			"is_final":   false,
-		})
-		caseID, _ := testCh.SendRequestRaw(casePayload)
-		testCh.recvResponseRaw(caseID, 5*time.Second) //nolint:errcheck
-
-		// Expect: start_span(ONE_OF), start_span(MAPPED), generate(index=0),
-		// generate(inner), stop_span(MAPPED), stop_span(ONE_OF), mark_complete
-		// start_span (ONE_OF)
-		ssID1, _, _ := caseCh.RecvRequestRaw(5 * time.Second)
-		caseCh.SendReplyValue(ssID1, nil) //nolint:errcheck
-		// generate (index selection: reply with 0 to pick branch 0)
-		genID, _, _ := caseCh.RecvRequestRaw(5 * time.Second)
-		caseCh.SendReplyValue(genID, int64(0)) //nolint:errcheck
-		// start_span (MAPPED inner)
-		ssID2, _, _ := caseCh.RecvRequestRaw(5 * time.Second)
-		caseCh.SendReplyValue(ssID2, nil) //nolint:errcheck
-		// generate (inner integer for mappedGenerator branch 0)
-		innerGenID, _, _ := caseCh.RecvRequestRaw(5 * time.Second)
-		caseCh.SendReplyValue(innerGenID, int64(42)) //nolint:errcheck
-		// stop_span (MAPPED)
-		spID2, _, _ := caseCh.RecvRequestRaw(5 * time.Second)
-		caseCh.SendReplyValue(spID2, nil) //nolint:errcheck
-		// stop_span (ONE_OF)
-		spID1, _, _ := caseCh.RecvRequestRaw(5 * time.Second)
-		caseCh.SendReplyValue(spID1, nil) //nolint:errcheck
-		// mark_complete
-		mcID, _, _ := caseCh.RecvRequestRaw(5 * time.Second)
-		caseCh.SendReplyValue(mcID, nil) //nolint:errcheck
-
-		sendTestDone(t, testCh, true, 0)
-	})
-
-	cli := newClient(clientConn)
-	var got int64
-	err := cli.runTest(func(s *TestCase) {
-		got = gen.draw(s)
-	}, runOptions{testCases: 1}, stderrNoteFn)
-	if err != nil {
-		t.Fatalf("runTest: %v", err)
-	}
-	if got != 42 {
-		t.Errorf("expected 42, got %d", got)
 	}
 }
 

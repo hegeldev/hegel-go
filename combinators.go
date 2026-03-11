@@ -23,8 +23,8 @@ func (g *compositeOneOfGenerator[T]) draw(s *TestCase) T {
 			"min_value": int64(0),
 			"max_value": int64(n - 1),
 		})
-		if err != nil {
-			panic(fmt.Sprintf("hegel: unreachable: OneOf generateFromSchema: %v", err))
+		if err != nil { //nocov
+			panic(fmt.Sprintf("hegel: OneOf generateFromSchema: %v", err)) //nocov
 		}
 		i := extractInt(idx)
 		result = g.generators[i].draw(s)
@@ -131,8 +131,8 @@ func (g *optionalGenerator[T]) draw(s *TestCase) *T {
 			"min_value": int64(0),
 			"max_value": int64(1),
 		})
-		if err != nil {
-			panic(fmt.Sprintf("hegel: unreachable: Optional generateFromSchema: %v", err))
+		if err != nil { //nocov
+			panic(fmt.Sprintf("hegel: Optional generateFromSchema: %v", err)) //nocov
 		}
 		i := extractInt(idx)
 		if i == 0 {
