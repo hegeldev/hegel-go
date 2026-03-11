@@ -167,7 +167,7 @@ func Case(fn func(*T), opts ...Option) func(*testing.T) {
 			fn(ht)
 		}
 		err := runHegel(body, func(msg string) { t.Log(msg) }, opts) //nocov
-		if err != nil { //nocov
+		if err != nil {                                              //nocov
 			t.Fatal(err) //nocov
 		}
 	}
