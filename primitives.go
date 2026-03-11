@@ -223,13 +223,6 @@ func Dates() Generator[time.Time] {
 	}
 }
 
-// Times returns a Generator that produces time strings (HH:MM:SS or similar).
-func Times() Generator[string] {
-	return &basicGenerator[string]{
-		schema: map[string]any{"type": "time"},
-	}
-}
-
 // Datetimes returns a Generator that produces time.Time values from ISO 8601 datetime strings.
 func Datetimes() Generator[time.Time] {
 	return &basicGenerator[time.Time]{

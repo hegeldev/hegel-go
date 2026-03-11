@@ -221,7 +221,6 @@ hegel.Emails()                  // email address strings
 hegel.URLs()                    // URL strings
 hegel.Domains(opts)             // domain name strings
 hegel.Dates()                   // ISO 8601 date strings (YYYY-MM-DD)
-hegel.Times()                   // time strings
 hegel.Datetimes()               // ISO 8601 datetime strings
 hegel.IPAddresses(opts)         // IPv4 or IPv6 address strings
 hegel.FromRegex(pattern, true)  // strings matching a regular expression
