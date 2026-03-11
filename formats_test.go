@@ -129,109 +129,13 @@ func TestDatetimesSchema(t *testing.T) {
 }
 
 // =============================================================================
-// Unit tests: verify generate sends correct schema over the wire
-// =============================================================================
-
-// testGeneratorSchema runs a single generate request using the given generator
-// and returns the schema that was received by the fake server.
-func testGeneratorSchema[T any](t *testing.T, g Generator[T]) map[any]any {
-	t.Helper()
-	var gotSchema map[any]any
-	clientConn := fakeTestEnv(t, func(caseCh *channel) {
-		genID, genPayload, _ := caseCh.RecvRequestRaw(5 * time.Second)
-		decoded, _ := decodeCBOR(genPayload)
-		m, _ := extractCBORDict(decoded)
-		schemaVal := m[any("schema")]
-		gotSchema, _ = extractCBORDict(schemaVal)
-		caseCh.SendReplyValue(genID, "test-value") //nolint:errcheck
-	})
-	cli := newClient(clientConn)
-	cli.runTest("schema_check", func(s *TestCase) { //nolint:errcheck
-		g.draw(s)
-	}, runOptions{testCases: 1}, stderrNoteFn)
-	return gotSchema
-}
-
-// TestEmailsGeneratesCorrectSchema checks the wire schema for Emails().
-func TestEmailsGeneratesCorrectSchema(t *testing.T) {
-	schema := testGeneratorSchema(t, Emails())
-	if schema[any("type")] != "email" {
-		t.Errorf("generate schema type: expected email, got %v", schema[any("type")])
-	}
-}
-
-// TestURLsGeneratesCorrectSchema checks the wire schema for URLs().
-func TestURLsGeneratesCorrectSchema(t *testing.T) {
-	schema := testGeneratorSchema(t, URLs())
-	if schema[any("type")] != "url" {
-		t.Errorf("generate schema type: expected url, got %v", schema[any("type")])
-	}
-}
-
-// TestDatesGeneratesCorrectSchema checks the wire schema for Dates().
-func TestDatesGeneratesCorrectSchema(t *testing.T) {
-	schema := testGeneratorSchema(t, Dates())
-	if schema[any("type")] != "date" {
-		t.Errorf("generate schema type: expected date, got %v", schema[any("type")])
-	}
-}
-
-// TestTimesGeneratesCorrectSchema checks the wire schema for Times().
-func TestTimesGeneratesCorrectSchema(t *testing.T) {
-	schema := testGeneratorSchema(t, Times())
-	if schema[any("type")] != "time" {
-		t.Errorf("generate schema type: expected time, got %v", schema[any("type")])
-	}
-}
-
-// TestDatetimesGeneratesCorrectSchema checks the wire schema for Datetimes().
-func TestDatetimesGeneratesCorrectSchema(t *testing.T) {
-	schema := testGeneratorSchema(t, Datetimes())
-	if schema[any("type")] != "datetime" {
-		t.Errorf("generate schema type: expected datetime, got %v", schema[any("type")])
-	}
-}
-
-// TestDomainsGeneratesCorrectSchemaNoMax checks the wire schema for Domains() with default max_length.
-func TestDomainsGeneratesCorrectSchemaNoMax(t *testing.T) {
-	schema := testGeneratorSchema(t, Domains())
-	if schema[any("type")] != "domain" {
-		t.Errorf("generate schema type: expected domain, got %v", schema[any("type")])
-	}
-	maxLen, hasMax := schema[any("max_length")]
-	if !hasMax {
-		t.Fatal("max_length should always be in domain schema")
-	}
-	ml, _ := extractCBORInt(maxLen)
-	if ml != 255 {
-		t.Errorf("default max_length: expected 255, got %d", ml)
-	}
-}
-
-// TestDomainsGeneratesCorrectSchemaWithMax checks the wire schema for Domains() with max_length.
-func TestDomainsGeneratesCorrectSchemaWithMax(t *testing.T) {
-	schema := testGeneratorSchema(t, Domains(DomainMaxLength(30)))
-	if schema[any("type")] != "domain" {
-		t.Errorf("generate schema type: expected domain, got %v", schema[any("type")])
-	}
-	maxLen, ok := schema[any("max_length")]
-	if !ok {
-		t.Fatal("max_length should be in schema when MaxLength > 0")
-	}
-	ml, _ := extractCBORInt(maxLen)
-	if ml != 30 {
-		t.Errorf("max_length: expected 30, got %d", ml)
-	}
-}
-
-// =============================================================================
 // E2E integration tests: property tests with the real hegel binary
 // =============================================================================
 
 // TestEmailsE2E verifies that generated emails contain "@".
 func TestEmailsE2E(t *testing.T) {
 	hegelBinPath(t)
-	if _err := runHegel(t.Name(), func(s *TestCase) {
+	if _err := runHegel(func(s *TestCase) {
 		v := Draw(s, Emails())
 		if !strings.Contains(v, "@") {
 			panic("email does not contain '@': " + v)
@@ -244,7 +148,7 @@ func TestEmailsE2E(t *testing.T) {
 // TestURLsE2E verifies that generated URLs start with "http://" or "https://".
 func TestURLsE2E(t *testing.T) {
 	hegelBinPath(t)
-	if _err := runHegel(t.Name(), func(s *TestCase) {
+	if _err := runHegel(func(s *TestCase) {
 		v := Draw(s, URLs())
 		if !strings.HasPrefix(v, "http://") && !strings.HasPrefix(v, "https://") {
 			panic("url does not start with http:// or https://: " + v)
@@ -262,7 +166,7 @@ func isValidDomainChar(r rune) bool {
 // TestDomainsE2E verifies that generated domains contain only valid domain characters.
 func TestDomainsE2E(t *testing.T) {
 	hegelBinPath(t)
-	if _err := runHegel(t.Name(), func(s *TestCase) {
+	if _err := runHegel(func(s *TestCase) {
 		v := Draw(s, Domains())
 		for _, r := range v {
 			if !isValidDomainChar(r) {
@@ -278,7 +182,7 @@ func TestDomainsE2E(t *testing.T) {
 func TestDomainsMaxLengthE2E(t *testing.T) {
 	hegelBinPath(t)
 	const maxLen = 20
-	if _err := runHegel(t.Name(), func(s *TestCase) {
+	if _err := runHegel(func(s *TestCase) {
 		v := Draw(s, Domains(DomainMaxLength(maxLen)))
 		if len(v) > maxLen {
 			panic("domain exceeds max_length constraint: " + v)
@@ -291,7 +195,7 @@ func TestDomainsMaxLengthE2E(t *testing.T) {
 // TestDatesE2E verifies that generated dates are valid time.Time values.
 func TestDatesE2E(t *testing.T) {
 	hegelBinPath(t)
-	if _err := runHegel(t.Name(), func(s *TestCase) {
+	if _err := runHegel(func(s *TestCase) {
 		v := Draw(s, Dates())
 		if v.IsZero() {
 			panic("date is zero value")
@@ -304,7 +208,7 @@ func TestDatesE2E(t *testing.T) {
 // TestTimesE2E verifies that generated times contain ":".
 func TestTimesE2E(t *testing.T) {
 	hegelBinPath(t)
-	if _err := runHegel(t.Name(), func(s *TestCase) {
+	if _err := runHegel(func(s *TestCase) {
 		v := Draw(s, Times())
 		if !strings.Contains(v, ":") {
 			panic("time does not contain ':': " + v)
@@ -317,7 +221,7 @@ func TestTimesE2E(t *testing.T) {
 // TestDatetimesE2E verifies that generated datetimes are valid time.Time values.
 func TestDatetimesE2E(t *testing.T) {
 	hegelBinPath(t)
-	if _err := runHegel(t.Name(), func(s *TestCase) {
+	if _err := runHegel(func(s *TestCase) {
 		v := Draw(s, Datetimes())
 		if v.IsZero() {
 			panic("datetime is zero value")

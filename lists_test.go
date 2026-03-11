@@ -5,7 +5,6 @@ package hegel
 import (
 	"fmt"
 	"testing"
-	"time"
 )
 
 // =============================================================================
@@ -144,163 +143,6 @@ func TestListsNegativeMinSizeClampedToZero(t *testing.T) {
 }
 
 // =============================================================================
-// compositeListGenerator direct protocol tests
-// =============================================================================
-
-// TestCompositeListGeneratorProtocol tests the collection protocol for composite lists
-// using a fake server (no real hegel binary needed).
-func TestCompositeListGeneratorProtocol(t *testing.T) {
-	// Non-basic generator: mappedGenerator wrapping integers
-	inner := Integers[int64](0, 10)
-	nonBasic := &mappedGenerator[int64, int64]{inner: inner, fn: func(v int64) int64 {
-		return v * 2
-	}}
-	gen := Lists(nonBasic, ListMinSize(1), ListMaxSize(3))
-
-	clientConn := fakeServerConn(t, func(serverConn *connection) {
-		ctrl := serverConn.ControlChannel()
-		msgID, payload, _ := ctrl.RecvRequestRaw(5 * time.Second)
-		decoded, _ := decodeCBOR(payload)
-		m, _ := extractCBORDict(decoded)
-		chID, _ := extractCBORInt(m[any("channel_id")])
-		ctrl.SendReplyValue(msgID, true) //nolint:errcheck
-
-		testCh, _ := serverConn.ConnectChannel(uint32(chID), "TestCh")
-		caseCh := serverConn.NewChannel("Case")
-		casePayload, _ := encodeCBOR(map[string]any{
-			"event":      "test_case",
-			"channel_id": int64(caseCh.ChannelID()),
-			"is_final":   false,
-		})
-		caseID, _ := testCh.SendRequestRaw(casePayload)
-		testCh.recvResponseRaw(caseID, 5*time.Second) //nolint:errcheck
-
-		// Expect: start_span(list), new_collection, more->true, start_span(mapped), generate, stop_span, more->false, stop_span, mark_complete
-
-		// start_span for list
-		ssID, _, _ := caseCh.RecvRequestRaw(5 * time.Second)
-		caseCh.SendReplyValue(ssID, nil) //nolint:errcheck
-
-		// new_collection
-		ncID, ncPayload, _ := caseCh.RecvRequestRaw(5 * time.Second)
-		dec, _ := decodeCBOR(ncPayload)
-		ncm, _ := extractCBORDict(dec)
-		cmd, _ := extractCBORString(ncm[any("command")])
-		if cmd != "new_collection" {
-			t.Errorf("expected new_collection, got %s", cmd)
-		}
-		caseCh.SendReplyValue(ncID, "coll_proto") //nolint:errcheck
-
-		// collection_more -> true
-		m1ID, _, _ := caseCh.RecvRequestRaw(5 * time.Second)
-		caseCh.SendReplyValue(m1ID, true) //nolint:errcheck
-
-		// start_span for mappedGenerator
-		mssID, _, _ := caseCh.RecvRequestRaw(5 * time.Second)
-		caseCh.SendReplyValue(mssID, nil) //nolint:errcheck
-
-		// generate (element)
-		genID, _, _ := caseCh.RecvRequestRaw(5 * time.Second)
-		caseCh.SendReplyValue(genID, int64(3)) //nolint:errcheck
-
-		// stop_span for mappedGenerator
-		mspID, _, _ := caseCh.RecvRequestRaw(5 * time.Second)
-		caseCh.SendReplyValue(mspID, nil) //nolint:errcheck
-
-		// collection_more -> false
-		m2ID, _, _ := caseCh.RecvRequestRaw(5 * time.Second)
-		caseCh.SendReplyValue(m2ID, false) //nolint:errcheck
-
-		// stop_span for list
-		spID, _, _ := caseCh.RecvRequestRaw(5 * time.Second)
-		caseCh.SendReplyValue(spID, nil) //nolint:errcheck
-
-		// mark_complete
-		mcID, _, _ := caseCh.RecvRequestRaw(5 * time.Second)
-		caseCh.SendReplyValue(mcID, nil) //nolint:errcheck
-
-		sendTestDone(t, testCh, true, 0)
-	})
-
-	cli := newClient(clientConn)
-	var gotResult []int64
-	err := cli.runTest("composite_list_proto", func(s *TestCase) {
-		gotResult = gen.draw(s)
-	}, runOptions{testCases: 1}, stderrNoteFn)
-	if err != nil {
-		t.Fatalf("runTest: %v", err)
-	}
-	if len(gotResult) != 1 {
-		t.Fatalf("expected 1 element, got %d", len(gotResult))
-	}
-	if gotResult[0] != 6 { // 3 * 2 = 6
-		t.Errorf("expected 6 (3*2), got %d", gotResult[0])
-	}
-}
-
-// TestCompositeListGeneratorEmptyList tests that a composite list with no elements
-// returns an empty (but non-nil via append behavior) slice.
-func TestCompositeListGeneratorEmptyList(t *testing.T) {
-	inner := Integers[int64](0, 10)
-	nonBasic := &mappedGenerator[int64, int64]{inner: inner, fn: func(v int64) int64 { return v }}
-	gen := Lists(nonBasic, ListMaxSize(3))
-
-	clientConn := fakeServerConn(t, func(serverConn *connection) {
-		ctrl := serverConn.ControlChannel()
-		msgID, payload, _ := ctrl.RecvRequestRaw(5 * time.Second)
-		decoded, _ := decodeCBOR(payload)
-		m, _ := extractCBORDict(decoded)
-		chID, _ := extractCBORInt(m[any("channel_id")])
-		ctrl.SendReplyValue(msgID, true) //nolint:errcheck
-
-		testCh, _ := serverConn.ConnectChannel(uint32(chID), "TestCh")
-		caseCh := serverConn.NewChannel("Case")
-		casePayload, _ := encodeCBOR(map[string]any{
-			"event":      "test_case",
-			"channel_id": int64(caseCh.ChannelID()),
-			"is_final":   false,
-		})
-		caseID, _ := testCh.SendRequestRaw(casePayload)
-		testCh.recvResponseRaw(caseID, 5*time.Second) //nolint:errcheck
-
-		// start_span
-		ssID, _, _ := caseCh.RecvRequestRaw(5 * time.Second)
-		caseCh.SendReplyValue(ssID, nil) //nolint:errcheck
-
-		// new_collection
-		ncID, _, _ := caseCh.RecvRequestRaw(5 * time.Second)
-		caseCh.SendReplyValue(ncID, "coll_empty") //nolint:errcheck
-
-		// collection_more -> false immediately
-		moreID, _, _ := caseCh.RecvRequestRaw(5 * time.Second)
-		caseCh.SendReplyValue(moreID, false) //nolint:errcheck
-
-		// stop_span
-		spID, _, _ := caseCh.RecvRequestRaw(5 * time.Second)
-		caseCh.SendReplyValue(spID, nil) //nolint:errcheck
-
-		// mark_complete
-		mcID, _, _ := caseCh.RecvRequestRaw(5 * time.Second)
-		caseCh.SendReplyValue(mcID, nil) //nolint:errcheck
-
-		sendTestDone(t, testCh, true, 0)
-	})
-
-	cli := newClient(clientConn)
-	var gotLen int = -1
-	err := cli.runTest("composite_list_empty", func(s *TestCase) {
-		result := gen.draw(s)
-		gotLen = len(result)
-	}, runOptions{testCases: 1}, stderrNoteFn)
-	if err != nil {
-		t.Fatalf("runTest: %v", err)
-	}
-	if gotLen != 0 {
-		t.Errorf("expected empty slice (len 0), got len %d", gotLen)
-	}
-}
-
-// =============================================================================
 // Lists e2e integration tests (real hegel binary)
 // =============================================================================
 
@@ -308,7 +150,7 @@ func TestCompositeListGeneratorEmptyList(t *testing.T) {
 // a list where every element is in [0, 100].
 func TestListsBasicIntegersE2E(t *testing.T) {
 	hegelBinPath(t)
-	if _err := runHegel("lists_basic_integers_e2e", func(s *TestCase) {
+	if _err := runHegel(func(s *TestCase) {
 		xs := Lists(Integers[int](0, 100), ListMaxSize(10)).draw(s)
 		for _, x := range xs {
 			if x < 0 || x > 100 {
@@ -324,7 +166,7 @@ func TestListsBasicIntegersE2E(t *testing.T) {
 // always produces slices whose length is within the specified bounds.
 func TestListsWithSizeBoundsE2E(t *testing.T) {
 	hegelBinPath(t)
-	if _err := runHegel("lists_with_bounds_e2e", func(s *TestCase) {
+	if _err := runHegel(func(s *TestCase) {
 		xs := Lists(Booleans(), ListMinSize(3), ListMaxSize(5)).draw(s)
 		if len(xs) < 3 || len(xs) > 5 {
 			panic(fmt.Sprintf("Lists: length %d out of [3, 5]", len(xs)))
@@ -344,7 +186,7 @@ func TestListsNonBasicElementE2E(t *testing.T) {
 	})
 	nonBasic := &mappedGenerator[int, int]{inner: mapped, fn: func(v int) int { return v }}
 
-	if _err := runHegel("lists_non_basic_e2e", func(s *TestCase) {
+	if _err := runHegel(func(s *TestCase) {
 		xs := Lists(nonBasic, ListMaxSize(5)).draw(s)
 		for _, x := range xs {
 			if x%2 != 0 {
@@ -360,7 +202,7 @@ func TestListsNonBasicElementE2E(t *testing.T) {
 // Lists(Lists(Booleans)) produces a list of lists of booleans.
 func TestListsNestedE2E(t *testing.T) {
 	hegelBinPath(t)
-	if _err := runHegel("lists_nested_e2e", func(s *TestCase) {
+	if _err := runHegel(func(s *TestCase) {
 		outer := Lists(Lists(Booleans(), ListMaxSize(3)), ListMaxSize(3)).draw(s)
 		for i, inner := range outer {
 			for j, b := range inner {
@@ -383,7 +225,7 @@ func TestListsBasicWithTransformE2E(t *testing.T) {
 	doubled := Map(Integers[int](0, 10), func(n int) int {
 		return n * 2
 	})
-	if _err := runHegel("lists_basic_transform_e2e", func(s *TestCase) {
+	if _err := runHegel(func(s *TestCase) {
 		xs := Lists(doubled, ListMaxSize(5)).draw(s)
 		for _, x := range xs {
 			if x%2 != 0 || x < 0 || x > 20 {

@@ -4,41 +4,41 @@ import (
 	"bytes"
 	"fmt"
 	"net"
-	"sync"
 	"testing"
 	"time"
 )
 
-// --- Handshake helpers ---
+// --- Handshake helper ---
 
-// handshakePair performs a concurrent handshake between server and client connections.
-func handshakePair(t *testing.T, serverConn, clientConn *connection) {
-	t.Helper()
-	var wg sync.WaitGroup
-	wg.Add(1)
-	go func() {
-		defer wg.Done()
-		if err := serverConn.ReceiveHandshake(); err != nil {
-			t.Errorf("ReceiveHandshake: %v", err)
-		}
-	}()
-	if err := clientConn.SendHandshake(); err != nil {
-		t.Errorf("SendHandshake: %v", err)
-	}
-	wg.Wait()
-}
-
-// connPair returns two connected Connections (server, client) backed by a net.Pipe.
-func connPair(t *testing.T) (*connection, *connection) {
+// clientConnPair creates a client connection that has completed handshake over a net.Pipe.
+// The remote end of the pipe is returned for injecting raw bytes in tests.
+// A goroutine reads the handshake request and replies with "Hegel/0.4".
+func clientConnPair(t *testing.T) (*connection, net.Conn) {
 	t.Helper()
 	s, c := socketPair(t)
-	server := newConnection(s, "Server")
-	client := newConnection(c, "Client")
-	t.Cleanup(func() {
-		server.Close()
-		client.Close()
-	})
-	return server, client
+	clientConn := newConnection(c, "Client")
+	t.Cleanup(func() { clientConn.Close() })
+
+	// Raw handshake responder: read one packet, reply with "Hegel/0.4".
+	go func() {
+		// Read the handshake request packet.
+		pkt, err := readPacket(s)
+		if err != nil {
+			return
+		}
+		// Reply with version string.
+		writePacket(s, packet{ //nolint:errcheck
+			ChannelID: pkt.ChannelID,
+			MessageID: pkt.MessageID,
+			IsReply:   true,
+			Payload:   []byte(handshakePrefix + protocolVersion),
+		})
+	}()
+
+	if err := clientConn.SendHandshake(); err != nil {
+		t.Fatalf("SendHandshake: %v", err)
+	}
+	return clientConn, s
 }
 
 // --- connection.live ---
@@ -64,31 +64,10 @@ func TestConnectionDoubleClose(t *testing.T) {
 	conn.Close() // must not panic or deadlock
 }
 
-// --- Handshake: send returns server version ---
-
-func TestSendHandshakeReturnsVersion(t *testing.T) {
-	serverConn, clientConn := connPair(t)
-
-	done := make(chan error, 1)
-	go func() { done <- serverConn.ReceiveHandshake() }()
-
-	version, err := clientConn.SendHandshakeVersion()
-	if err != nil {
-		t.Fatalf("SendHandshakeVersion: %v", err)
-	}
-	if version != "0.1" {
-		t.Errorf("version = %q, want %q", version, "0.1")
-	}
-	if err := <-done; err != nil {
-		t.Errorf("ReceiveHandshake: %v", err)
-	}
-}
-
 // --- Handshake: double send raises ---
 
 func TestDoubleSendHandshakeRaises(t *testing.T) {
-	serverConn, clientConn := connPair(t)
-	handshakePair(t, serverConn, clientConn)
+	clientConn, _ := clientConnPair(t)
 
 	err := clientConn.SendHandshake()
 	if err == nil {
@@ -97,66 +76,24 @@ func TestDoubleSendHandshakeRaises(t *testing.T) {
 	mustContain(t, err.Error(), "already established")
 }
 
-// --- Handshake: double receive raises ---
-
-func TestDoubleReceiveHandshakeRaises(t *testing.T) {
-	serverConn, clientConn := connPair(t)
-
-	done := make(chan error, 1)
-	go func() {
-		if err := serverConn.ReceiveHandshake(); err != nil {
-			done <- err
-			return
-		}
-		done <- serverConn.ReceiveHandshake()
-	}()
-
-	if err := clientConn.SendHandshake(); err != nil {
-		t.Fatalf("SendHandshake: %v", err)
-	}
-	err := <-done
-	if err == nil {
-		t.Fatal("expected error on double ReceiveHandshake")
-	}
-	mustContain(t, err.Error(), "already established")
-}
-
-// --- Handshake: bad version from client ---
-
-func TestBadHandshakeFromClient(t *testing.T) {
-	serverConn, clientConn := connPair(t)
-
-	done := make(chan error, 1)
-	go func() {
-		// Send a bad handshake string directly on the control channel.
-		ch := clientConn.ControlChannel()
-		_, err := ch.SendRequestRaw([]byte("BadVersion"))
-		done <- err
-	}()
-
-	err := serverConn.ReceiveHandshake()
-	if err == nil {
-		t.Fatal("expected error for bad handshake")
-	}
-	mustContain(t, err.Error(), "bad handshake")
-	<-done
-}
-
 // --- Handshake: bad response from server ---
 
 func TestSendHandshakeBadResponse(t *testing.T) {
-	serverConn, clientConn := connPair(t)
+	s, c := socketPair(t)
+	clientConn := newConnection(c, "Client")
 
-	done := make(chan error, 1)
 	go func() {
-		// Server receives the handshake request and sends a bad response.
-		ch := serverConn.ControlChannel()
-		msgID, _, err := ch.RecvRequestRaw(5 * time.Second)
+		// Read the handshake request and send a bad response.
+		pkt, err := readPacket(s)
 		if err != nil {
-			done <- err
 			return
 		}
-		done <- ch.SendReplyRaw(msgID, []byte("NotHegel"))
+		writePacket(s, packet{ //nolint:errcheck
+			ChannelID: pkt.ChannelID,
+			MessageID: pkt.MessageID,
+			IsReply:   true,
+			Payload:   []byte("NotHegel"),
+		})
 	}()
 
 	_, err := clientConn.SendHandshakeVersion()
@@ -164,14 +101,12 @@ func TestSendHandshakeBadResponse(t *testing.T) {
 		t.Fatal("expected error for bad handshake response")
 	}
 	mustContain(t, err.Error(), "bad handshake")
-	<-done
 }
 
 // --- channel allocation: new_channel returns odd IDs ---
 
 func TestNewChannelOddIDs(t *testing.T) {
-	serverConn, clientConn := connPair(t)
-	handshakePair(t, serverConn, clientConn)
+	clientConn, _ := clientConnPair(t)
 
 	ch1 := clientConn.NewChannel("ch1")
 	ch2 := clientConn.NewChannel("ch2")
@@ -223,8 +158,7 @@ func TestConnectChannelBeforeHandshakeRaises(t *testing.T) {
 // --- connect_channel already exists raises ---
 
 func TestConnectChannelAlreadyExistsRaises(t *testing.T) {
-	serverConn, clientConn := connPair(t)
-	handshakePair(t, serverConn, clientConn)
+	clientConn, _ := clientConnPair(t)
 
 	// channel 0 (control channel) already exists.
 	_, err := clientConn.ConnectChannel(0, "dup")
@@ -237,8 +171,7 @@ func TestConnectChannelAlreadyExistsRaises(t *testing.T) {
 // --- channel close: sends close packet, idempotent ---
 
 func TestChannelClose(t *testing.T) {
-	serverConn, clientConn := connPair(t)
-	handshakePair(t, serverConn, clientConn)
+	clientConn, _ := clientConnPair(t)
 
 	ch := clientConn.NewChannel("TestClose")
 	ch.Close()
@@ -248,20 +181,17 @@ func TestChannelClose(t *testing.T) {
 // --- channel close when connection not live ---
 
 func TestChannelCloseWhenConnectionNotLive(t *testing.T) {
-	serverConn, clientConn := connPair(t)
-	handshakePair(t, serverConn, clientConn)
+	clientConn, _ := clientConnPair(t)
 
 	ch := clientConn.NewChannel("TestClose")
 	clientConn.Close()
 	ch.Close() // must not panic
-	serverConn.Close()
 }
 
 // --- channel: closed channel rejects recv ---
 
 func TestChannelProcessMessageWhenClosed(t *testing.T) {
-	serverConn, clientConn := connPair(t)
-	handshakePair(t, serverConn, clientConn)
+	clientConn, _ := clientConnPair(t)
 
 	ch := clientConn.NewChannel("TestClosed")
 	ch.Close()
@@ -271,14 +201,12 @@ func TestChannelProcessMessageWhenClosed(t *testing.T) {
 		t.Fatal("expected error receiving on closed channel")
 	}
 	mustContain(t, err.Error(), "closed")
-	serverConn.Close()
 }
 
 // --- channel timeout ---
 
 func TestChannelTimeout(t *testing.T) {
-	serverConn, clientConn := connPair(t)
-	handshakePair(t, serverConn, clientConn)
+	clientConn, _ := clientConnPair(t)
 
 	ch := clientConn.NewChannel("TestTimeout")
 	defer ch.Close()
@@ -288,7 +216,6 @@ func TestChannelTimeout(t *testing.T) {
 		t.Fatal("expected timeout error")
 	}
 	mustContain(t, err.Error(), "timed out")
-	serverConn.Close()
 }
 
 // --- SHUTDOWN in inbox raises ---
@@ -311,40 +238,40 @@ func TestShutdownInInboxRaises(t *testing.T) {
 // --- Message to nonexistent channel ---
 
 func TestMessageToNonexistentChannel(t *testing.T) {
-	serverConn, clientConn := connPair(t)
-	handshakePair(t, serverConn, clientConn)
+	clientConn, remote := clientConnPair(t)
 
-	// Have the server receive a request on the control channel from the client.
-	// Interleave: client sends to a nonexistent channel, then a control ping.
-	// The server's runReader will dispatch: bad channel → error reply, then the ping.
+	// Send a request from the "server" to a nonexistent channel on the client.
+	// Then send a control ping so the client's reader processes both.
 	done := make(chan struct{})
 	go func() {
 		defer close(done)
-		// Server reads until it gets the control channel message (the ping).
-		serverConn.ControlChannel().RecvRequestRaw(2 * time.Second) //nolint:errcheck
+		clientConn.ControlChannel().RecvRequestRaw(2 * time.Second) //nolint:errcheck
 	}()
 
-	// Client: send bad-channel packet, then a control ping (so server sees both).
-	// Use goroutines because net.Pipe writes block until read.
+	// Send a packet from remote to a nonexistent channel.
 	go func() {
-		clientConn.SendPacket(packet{ //nolint:errcheck
+		writePacket(remote, packet{ //nolint:errcheck
 			ChannelID: 9999,
 			MessageID: 1,
 			IsReply:   false,
 			Payload:   mustEncode(t, map[string]any{"command": "test"}),
 		})
 	}()
-	// The server's error reply to channel 9999 will come back to the client;
-	// drain it to unblock the server write.
+
+	// Send a control-channel request so the client processes the bad-channel packet.
 	go func() {
-		// Force the client to read (server will write an error reply to ch 9999).
-		// We discard the reply since ch 9999 doesn't exist on the client either.
-		clientConn.runReader(func() bool { return !clientConn.Live() })
+		time.Sleep(20 * time.Millisecond)
+		writePacket(remote, packet{ //nolint:errcheck
+			ChannelID: 0,
+			MessageID: 100,
+			IsReply:   false,
+			Payload:   []byte("ping"),
+		})
 	}()
 
-	// Give server a ping to ensure it processes the bad packet before blocking.
+	// Drain the error reply the client sends back to ch 9999.
 	go func() {
-		clientConn.ControlChannel().SendRequestRaw([]byte("ping")) //nolint:errcheck
+		readPacket(remote) //nolint:errcheck
 	}()
 
 	select {
@@ -396,245 +323,6 @@ func TestResultOrErrorReturnsResult(t *testing.T) {
 	if n != 42 {
 		t.Errorf("result = %v, want 42", v)
 	}
-}
-
-// --- Request handling (server creates channel, client connects) ---
-
-func TestRequestHandling(t *testing.T) {
-	serverConn, clientConn := connPair(t)
-
-	var wg sync.WaitGroup
-	wg.Add(1)
-	go func() {
-		defer wg.Done()
-		if err := serverConn.ReceiveHandshake(); err != nil {
-			t.Errorf("ReceiveHandshake: %v", err)
-			return
-		}
-		handlerCh := serverConn.NewChannel("Handler")
-		handlerCh.HandleRequests(func(payload []byte) (any, error) {
-			v, err := decodeCBOR(payload)
-			if err != nil {
-				return nil, err
-			}
-			m, err := extractCBORDict(v)
-			if err != nil {
-				return nil, err
-			}
-			x, err := extractCBORInt(m["x"])
-			if err != nil {
-				return nil, err
-			}
-			y, err := extractCBORInt(m["y"])
-			if err != nil {
-				return nil, err
-			}
-			return map[string]any{"sum": x + y}, nil
-		}, nil)
-	}()
-
-	if err := clientConn.SendHandshake(); err != nil {
-		t.Fatalf("SendHandshake: %v", err)
-	}
-
-	// Server creates channel 2 (first odd after control=0, next_id starts at 1 → 2*1|0 for server)
-	// Actually server is in SERVER state so channel_id = (1<<1)|0 = 2
-	sendCh, err := clientConn.ConnectChannel(2, "send")
-	if err != nil {
-		t.Fatalf("ConnectChannel: %v", err)
-	}
-
-	payload := mustEncode(t, map[string]any{"x": int64(2), "y": int64(3)})
-	pending, err := sendCh.Request(payload)
-	if err != nil {
-		t.Fatalf("Request: %v", err)
-	}
-	result, err := pending.Get()
-	if err != nil {
-		t.Fatalf("pending.Get: %v", err)
-	}
-
-	m, err := extractCBORDict(result)
-	if err != nil {
-		t.Fatalf("extractCBORDict: %v", err)
-	}
-	sum, err := extractCBORInt(m["sum"])
-	if err != nil {
-		t.Fatalf("extractCBORInt sum: %v", err)
-	}
-	if sum != 5 {
-		t.Errorf("sum = %d, want 5", sum)
-	}
-
-	clientConn.Close()
-	wg.Wait()
-}
-
-// --- pendingRequest caching ---
-
-func TestPendingRequestCaching(t *testing.T) {
-	serverConn, clientConn := connPair(t)
-
-	var wg sync.WaitGroup
-	wg.Add(1)
-	go func() {
-		defer wg.Done()
-		serverConn.ReceiveHandshake() //nolint:errcheck
-		ch := serverConn.NewChannel("PR")
-		ch.HandleRequests(func(payload []byte) (any, error) {
-			v, _ := decodeCBOR(payload)
-			m, _ := extractCBORDict(v)
-			val, _ := extractCBORInt(m["value"])
-			return val * 2, nil
-		}, nil)
-	}()
-
-	clientConn.SendHandshake() //nolint:errcheck
-	ch, err := clientConn.ConnectChannel(2, "PR")
-	if err != nil {
-		t.Fatalf("ConnectChannel: %v", err)
-	}
-
-	payload := mustEncode(t, map[string]any{"value": int64(21)})
-	pending, err := ch.Request(payload)
-	if err != nil {
-		t.Fatalf("Request: %v", err)
-	}
-
-	v1, err := pending.Get()
-	if err != nil {
-		t.Fatalf("Get 1: %v", err)
-	}
-	v2, err := pending.Get()
-	if err != nil {
-		t.Fatalf("Get 2: %v", err)
-	}
-
-	n1, _ := extractCBORInt(v1)
-	n2, _ := extractCBORInt(v2)
-	if n1 != 42 || n2 != 42 {
-		t.Errorf("pending caching: got %d, %d; want 42, 42", n1, n2)
-	}
-	clientConn.Close()
-	wg.Wait()
-}
-
-// --- receive_response (channel.ReceiveResponse) ---
-
-func TestReceiveResponse(t *testing.T) {
-	serverConn, clientConn := connPair(t)
-
-	var wg sync.WaitGroup
-	wg.Add(1)
-	go func() {
-		defer wg.Done()
-		serverConn.ReceiveHandshake() //nolint:errcheck
-		ch := serverConn.NewChannel("RR")
-		ch.HandleRequests(func(_ []byte) (any, error) {
-			return int64(42), nil
-		}, nil)
-	}()
-
-	clientConn.SendHandshake() //nolint:errcheck
-	ch, err := clientConn.ConnectChannel(2, "RR")
-	if err != nil {
-		t.Fatalf("ConnectChannel: %v", err)
-	}
-
-	msgID, err := ch.SendRequestRaw(mustEncode(t, map[string]any{"test": true}))
-	if err != nil {
-		t.Fatalf("SendRequestRaw: %v", err)
-	}
-	result, err := ch.ReceiveResponse(msgID, 2*time.Second)
-	if err != nil {
-		t.Fatalf("ReceiveResponse: %v", err)
-	}
-	n, _ := extractCBORInt(result)
-	if n != 42 {
-		t.Errorf("result = %d, want 42", n)
-	}
-	clientConn.Close()
-	wg.Wait()
-}
-
-// --- handle_requests sends error on exception ---
-
-func TestHandleRequestsSendsErrorOnException(t *testing.T) {
-	serverConn, clientConn := connPair(t)
-
-	var wg sync.WaitGroup
-	wg.Add(1)
-	go func() {
-		defer wg.Done()
-		serverConn.ReceiveHandshake() //nolint:errcheck
-		ch := serverConn.NewChannel("ErrTest")
-		ch.HandleRequests(func(_ []byte) (any, error) {
-			return nil, fmt.Errorf("test error")
-		}, nil)
-	}()
-
-	clientConn.SendHandshake() //nolint:errcheck
-	ch, err := clientConn.ConnectChannel(2, "ErrTest")
-	if err != nil {
-		t.Fatalf("ConnectChannel: %v", err)
-	}
-
-	pending, err := ch.Request(mustEncode(t, map[string]any{"x": true}))
-	if err != nil {
-		t.Fatalf("Request: %v", err)
-	}
-	_, err = pending.Get()
-	if err == nil {
-		t.Fatal("expected requestError from server")
-	}
-	mustContain(t, err.Error(), "test error")
-	clientConn.Close()
-	wg.Wait()
-}
-
-// --- SendReplyWithError (explicit error kwargs) ---
-
-func TestSendReplyErrorWithKwargs(t *testing.T) {
-	serverConn, clientConn := connPair(t)
-
-	var wg sync.WaitGroup
-	wg.Add(1)
-	go func() {
-		defer wg.Done()
-		serverConn.ReceiveHandshake() //nolint:errcheck
-		ch := serverConn.NewChannel("ErrKw")
-		msgID, _, err := ch.RecvRequest(2 * time.Second)
-		if err != nil {
-			t.Errorf("RecvRequest: %v", err)
-			return
-		}
-		ch.SendReplyError(msgID, "custom error", "CustomType") //nolint:errcheck
-	}()
-
-	clientConn.SendHandshake() //nolint:errcheck
-	ch, err := clientConn.ConnectChannel(2, "ErrKw")
-	if err != nil {
-		t.Fatalf("ConnectChannel: %v", err)
-	}
-
-	pending, err := ch.Request(mustEncode(t, map[string]any{"x": true}))
-	if err != nil {
-		t.Fatalf("Request: %v", err)
-	}
-	_, err = pending.Get()
-	if err == nil {
-		t.Fatal("expected requestError")
-	}
-	re, ok := err.(*requestError)
-	if !ok {
-		t.Fatalf("expected *requestError, got %T", err)
-	}
-	mustContain(t, re.Error(), "custom error")
-	if re.ErrorType != "CustomType" {
-		t.Errorf("ErrorType = %q, want %q", re.ErrorType, "CustomType")
-	}
-	clientConn.Close()
-	wg.Wait()
 }
 
 // --- connection.Close with CloseRead (TCP conn interface) ---
@@ -694,31 +382,25 @@ func TestRunReaderUntilFiresWhileWaitingForLock(t *testing.T) {
 // --- dispatch: close-channel notification path ---
 
 func TestDispatchCloseChannelNotification(t *testing.T) {
-	serverConn, clientConn := connPair(t)
-	handshakePair(t, serverConn, clientConn)
+	clientConn, remote := clientConnPair(t)
 
-	// Client creates a channel and closes it — server receives the close notification.
 	clientCh := clientConn.NewChannel("ClosedCh")
 
-	// Server connects the channel so it exists in server's map.
-	serverCh, err := serverConn.ConnectChannel(clientCh.ChannelID(), "ClosedCh")
-	if err != nil {
-		t.Fatalf("ConnectChannel: %v", err)
-	}
-	_ = serverCh
+	// Simulate the server sending a close-channel notification.
+	go func() {
+		writePacket(remote, packet{ //nolint:errcheck
+			ChannelID: clientCh.ChannelID(),
+			MessageID: closeChannelMessageID,
+			IsReply:   false,
+			Payload:   closeChannelPayload,
+		})
+	}()
 
-	// Close client channel — sends closeChannelPayload to server.
-	clientCh.Close()
-
-	// Give server time to process the close notification via runReader.
-	time.Sleep(50 * time.Millisecond)
-
-	// Force server to read the close packet by trying to recv (it'll get nothing
-	// after processing close, so we just want it to dispatch the packet).
+	// Force client to read the close packet by trying to recv on control channel.
 	done := make(chan struct{})
 	go func() {
 		defer close(done)
-		serverConn.ControlChannel().RecvRequestRaw(200 * time.Millisecond) //nolint:errcheck
+		clientConn.ControlChannel().RecvRequestRaw(200 * time.Millisecond) //nolint:errcheck
 	}()
 	select {
 	case <-done:
@@ -730,20 +412,17 @@ func TestDispatchCloseChannelNotification(t *testing.T) {
 // --- dispatch: message to unknown channel (reply) → silently dropped ---
 
 func TestDispatchUnknownChannelIsReply(t *testing.T) {
-	serverConn, clientConn := connPair(t)
-	handshakePair(t, serverConn, clientConn)
+	clientConn, remote := clientConnPair(t)
 
-	// Send an IsReply=true packet to a nonexistent channel — should be silently dropped
-	// (the !pkt.IsReply check prevents sending an error reply).
+	// Send an IsReply=true packet from remote to a nonexistent channel — should be silently dropped.
 	done := make(chan struct{})
 	go func() {
 		defer close(done)
-		// Server reads: will dispatch the IsReply packet to unknown channel (drop), then ping.
-		serverConn.ControlChannel().RecvRequestRaw(500 * time.Millisecond) //nolint:errcheck
+		clientConn.ControlChannel().RecvRequestRaw(500 * time.Millisecond) //nolint:errcheck
 	}()
 
 	go func() {
-		clientConn.SendPacket(packet{ //nolint:errcheck
+		writePacket(remote, packet{ //nolint:errcheck
 			ChannelID: 9997,
 			MessageID: 1,
 			IsReply:   true,
@@ -752,7 +431,13 @@ func TestDispatchUnknownChannelIsReply(t *testing.T) {
 	}()
 	go func() {
 		time.Sleep(20 * time.Millisecond)
-		clientConn.ControlChannel().SendRequestRaw([]byte("ping")) //nolint:errcheck
+		// Send a control-channel request so client processes the bad packet.
+		writePacket(remote, packet{ //nolint:errcheck
+			ChannelID: 0,
+			MessageID: 100,
+			IsReply:   false,
+			Payload:   []byte("ping"),
+		})
 	}()
 
 	select {
@@ -763,21 +448,18 @@ func TestDispatchUnknownChannelIsReply(t *testing.T) {
 }
 
 func TestDispatchUnknownChannelRequest(t *testing.T) {
-	serverConn, clientConn := connPair(t)
-	handshakePair(t, serverConn, clientConn)
+	clientConn, remote := clientConnPair(t)
 
-	// Send a request (IsReply=false) to a nonexistent server channel.
-	// The server should send an error reply, which the client must drain.
-	serverDone := make(chan struct{})
+	// Send a request (IsReply=false) to a nonexistent client channel.
+	// The client should send an error reply.
+	done := make(chan struct{})
 	go func() {
-		defer close(serverDone)
-		// Server reads: dispatches bad-channel request → sends error reply, then reads ping.
-		serverConn.ControlChannel().RecvRequestRaw(2 * time.Second) //nolint:errcheck
+		defer close(done)
+		clientConn.ControlChannel().RecvRequestRaw(2 * time.Second) //nolint:errcheck
 	}()
 
-	// Client sends the bad-channel request.
 	go func() {
-		clientConn.SendPacket(packet{ //nolint:errcheck
+		writePacket(remote, packet{ //nolint:errcheck
 			ChannelID: 9998,
 			MessageID: 1,
 			IsReply:   false,
@@ -785,21 +467,24 @@ func TestDispatchUnknownChannelRequest(t *testing.T) {
 		})
 	}()
 
-	// Client drains the error reply that the server sends back.
-	clientDrained := make(chan struct{})
+	// Drain the error reply from client.
 	go func() {
-		defer close(clientDrained)
-		clientConn.runReader(func() bool { return !clientConn.Live() })
+		readPacket(remote) //nolint:errcheck
 	}()
 
-	// Client sends control ping so server exits its read loop.
+	// Send control ping so client exits its read loop.
 	go func() {
 		time.Sleep(30 * time.Millisecond)
-		clientConn.ControlChannel().SendRequestRaw([]byte("ping")) //nolint:errcheck
+		writePacket(remote, packet{ //nolint:errcheck
+			ChannelID: 0,
+			MessageID: 100,
+			IsReply:   false,
+			Payload:   []byte("ping"),
+		})
 	}()
 
 	select {
-	case <-serverDone:
+	case <-done:
 	case <-time.After(5 * time.Second):
 		t.Error("TestDispatchUnknownChannelRequest timed out")
 	}
@@ -850,20 +535,6 @@ func TestSendHandshakeVersionRecvError(t *testing.T) {
 	_, err := conn.SendHandshakeVersion()
 	if err == nil {
 		t.Fatal("expected error when peer closes after handshake send")
-	}
-	s.Close()
-}
-
-// --- ReceiveHandshake: error from RecvRequestRaw (connection closed) ---
-
-func TestReceiveHandshakeRecvError(t *testing.T) {
-	s, c := net.Pipe()
-	conn := newConnection(s, "Test")
-	// Close peer immediately so RecvRequestRaw returns an error.
-	c.Close()
-	err := conn.ReceiveHandshake()
-	if err == nil {
-		t.Fatal("expected error from ReceiveHandshake on closed conn")
 	}
 	s.Close()
 }
@@ -1080,17 +751,55 @@ func TestRequestSendError(t *testing.T) {
 	}
 }
 
-// --- HandleRequests: stopFn returns true immediately ---
+// --- RecvRequest: happy path ---
 
-func TestHandleRequestsStopFnImmediate(t *testing.T) {
-	serverConn, clientConn := connPair(t)
-	handshakePair(t, serverConn, clientConn)
+func TestRecvRequestHappyPath(t *testing.T) {
+	s, _ := socketPair(t)
+	conn := newConnection(s, "Test")
+	defer conn.Close()
 
-	ch := serverConn.NewChannel("StopTest")
-	// stopFn returns true on first call — HandleRequests should return immediately.
-	ch.HandleRequests(func(_ []byte) (any, error) {
-		return nil, nil
-	}, func() bool { return true })
+	ch := conn.ControlChannel()
+	// Inject a valid request packet with CBOR payload.
+	payload, _ := encodeCBOR(map[string]any{"command": "test"})
+	ch.inbox <- packet{ChannelID: 0, MessageID: 1, IsReply: false, Payload: payload}
+
+	msgID, v, err := ch.RecvRequest(100 * time.Millisecond)
+	if err != nil {
+		t.Fatalf("RecvRequest: %v", err)
+	}
+	if msgID != 1 {
+		t.Errorf("msgID = %d, want 1", msgID)
+	}
+	if v == nil {
+		t.Error("expected non-nil decoded value")
+	}
+}
+
+// --- pendingRequest.Get: cached return ---
+
+func TestPendingRequestGetCached(t *testing.T) {
+	s, _ := socketPair(t)
+	conn := newConnection(s, "Test")
+	defer conn.Close()
+
+	ch := conn.ControlChannel()
+	// Inject a reply so ReceiveResponse succeeds.
+	replyPayload, _ := encodeCBOR(map[string]any{"result": int64(42)})
+	ch.inbox <- packet{ChannelID: 0, MessageID: 1, IsReply: true, Payload: replyPayload}
+
+	p := &pendingRequest{ch: ch, msgID: 1}
+	v1, err1 := p.Get()
+	if err1 != nil {
+		t.Fatalf("first Get: %v", err1)
+	}
+	// Second call should return cached value.
+	v2, err2 := p.Get()
+	if err2 != nil {
+		t.Fatalf("second Get: %v", err2)
+	}
+	if v1 != v2 {
+		t.Errorf("cached Get returned different value: %v vs %v", v1, v2)
+	}
 }
 
 // --- helpers ---

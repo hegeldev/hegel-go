@@ -68,7 +68,7 @@ func main() {
 
 	n := conformance.GetTestCases()
 
-	hegel.MustRun("conformance_lists", func(s *hegel.TestCase) {
+	hegel.MustRun(func(s *hegel.TestCase) {
 		items := hegel.Draw(s, gen)
 		size := len(items)
 

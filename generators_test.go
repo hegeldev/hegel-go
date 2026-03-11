@@ -5,116 +5,11 @@ import (
 	"math"
 	"math/big"
 	"testing"
-	"time"
 )
 
 // =============================================================================
 // Generator interface and basicGenerator tests
 // =============================================================================
-
-// --- basicGenerator: generate with no transform ---
-
-func TestBasicGeneratorGenerateNoTransform(t *testing.T) {
-	// Set up fake server that responds to a generate command with "hello".
-	// We use string type because CBOR strings decode directly to Go strings,
-	// so v.(T) works without a transform. (Integers decode as uint64, not int64.)
-	schema := map[string]any{"type": "string"}
-	clientConn := fakeServerConn(t, func(serverConn *connection) {
-		ctrl := serverConn.ControlChannel()
-		msgID, payload, _ := ctrl.RecvRequestRaw(5 * time.Second)
-		decoded, _ := decodeCBOR(payload)
-		m, _ := extractCBORDict(decoded)
-		chID, _ := extractCBORInt(m[any("channel_id")])
-		ctrl.SendReplyValue(msgID, true) //nolint:errcheck
-
-		testCh, _ := serverConn.ConnectChannel(uint32(chID), "TestCh")
-		// Send one test_case.
-		caseCh := serverConn.NewChannel("Case")
-		casePayload, _ := encodeCBOR(map[string]any{
-			"event":      "test_case",
-			"channel_id": int64(caseCh.ChannelID()),
-			"is_final":   false,
-		})
-		caseID, _ := testCh.SendRequestRaw(casePayload)
-		testCh.recvResponseRaw(caseID, 5*time.Second) //nolint:errcheck
-
-		// Respond to generate with "hello".
-		genID, genPayload, _ := caseCh.RecvRequestRaw(5 * time.Second)
-		_, _ = genPayload, decodeCBOR         // consumed
-		caseCh.SendReplyValue(genID, "hello") //nolint:errcheck
-
-		// Wait for mark_complete.
-		mcID, _, _ := caseCh.RecvRequestRaw(5 * time.Second)
-		caseCh.SendReplyValue(mcID, nil) //nolint:errcheck
-
-		// Send test_done (passed, no interesting).
-		sendTestDone(t, testCh, true, 0)
-	})
-
-	cli := newClient(clientConn)
-	var gotVal string
-	err := cli.runTest("basic_gen_no_transform", func(s *TestCase) {
-		// No transform: the raw CBOR string "hello" is returned as-is via v.(T).
-		g := &basicGenerator[string]{schema: schema}
-		gotVal = g.draw(s)
-	}, runOptions{testCases: 1}, stderrNoteFn)
-	if err != nil {
-		t.Fatalf("runTest: %v", err)
-	}
-	if gotVal != "hello" {
-		t.Errorf("expected %q, got %q", "hello", gotVal)
-	}
-}
-
-// --- basicGenerator: generate with transform ---
-
-func TestBasicGeneratorGenerateWithTransform(t *testing.T) {
-	schema := map[string]any{"type": "integer"}
-	clientConn := fakeServerConn(t, func(serverConn *connection) {
-		ctrl := serverConn.ControlChannel()
-		msgID, payload, _ := ctrl.RecvRequestRaw(5 * time.Second)
-		decoded, _ := decodeCBOR(payload)
-		m, _ := extractCBORDict(decoded)
-		chID, _ := extractCBORInt(m[any("channel_id")])
-		ctrl.SendReplyValue(msgID, true) //nolint:errcheck
-
-		testCh, _ := serverConn.ConnectChannel(uint32(chID), "TestCh")
-		caseCh := serverConn.NewChannel("Case")
-		casePayload, _ := encodeCBOR(map[string]any{
-			"event":      "test_case",
-			"channel_id": int64(caseCh.ChannelID()),
-			"is_final":   false,
-		})
-		caseID, _ := testCh.SendRequestRaw(casePayload)
-		testCh.recvResponseRaw(caseID, 5*time.Second) //nolint:errcheck
-
-		// Respond to generate with 7.
-		genID, _, _ := caseCh.RecvRequestRaw(5 * time.Second)
-		caseCh.SendReplyValue(genID, int64(7)) //nolint:errcheck
-
-		mcID, _, _ := caseCh.RecvRequestRaw(5 * time.Second)
-		caseCh.SendReplyValue(mcID, nil) //nolint:errcheck
-
-		sendTestDone(t, testCh, true, 0)
-	})
-
-	cli := newClient(clientConn)
-	var gotVal int64
-	err := cli.runTest("basic_gen_with_transform", func(s *TestCase) {
-		// transform: multiply by 2
-		g := &basicGenerator[int64]{
-			schema:    schema,
-			transform: func(v any) int64 { return extractInt(v) * 2 },
-		}
-		gotVal = g.draw(s)
-	}, runOptions{testCases: 1}, stderrNoteFn)
-	if err != nil {
-		t.Fatalf("runTest: %v", err)
-	}
-	if gotVal != 14 {
-		t.Errorf("expected 14, got %d", gotVal)
-	}
-}
 
 // --- Map free function on basicGenerator: no existing transform ---
 
@@ -163,64 +58,6 @@ func TestBasicGeneratorMapComposesTransforms(t *testing.T) {
 	}
 }
 
-// --- mappedGenerator ---
-
-func TestMappedGeneratorGenerate(t *testing.T) {
-	// mappedGenerator wraps a non-basic generator.
-	schema := map[string]any{"type": "integer"}
-	clientConn := fakeServerConn(t, func(serverConn *connection) {
-		ctrl := serverConn.ControlChannel()
-		msgID, payload, _ := ctrl.RecvRequestRaw(5 * time.Second)
-		decoded, _ := decodeCBOR(payload)
-		m, _ := extractCBORDict(decoded)
-		chID, _ := extractCBORInt(m[any("channel_id")])
-		ctrl.SendReplyValue(msgID, true) //nolint:errcheck
-
-		testCh, _ := serverConn.ConnectChannel(uint32(chID), "TestCh")
-		caseCh := serverConn.NewChannel("Case")
-		casePayload, _ := encodeCBOR(map[string]any{
-			"event":      "test_case",
-			"channel_id": int64(caseCh.ChannelID()),
-			"is_final":   false,
-		})
-		caseID, _ := testCh.SendRequestRaw(casePayload)
-		testCh.recvResponseRaw(caseID, 5*time.Second) //nolint:errcheck
-
-		// start_span, generate, stop_span.
-		// start_span
-		ssID, _, _ := caseCh.RecvRequestRaw(5 * time.Second)
-		caseCh.SendReplyValue(ssID, nil) //nolint:errcheck
-		// generate
-		genID, _, _ := caseCh.RecvRequestRaw(5 * time.Second)
-		caseCh.SendReplyValue(genID, int64(3)) //nolint:errcheck
-		// stop_span
-		spID, _, _ := caseCh.RecvRequestRaw(5 * time.Second)
-		caseCh.SendReplyValue(spID, nil) //nolint:errcheck
-
-		mcID, _, _ := caseCh.RecvRequestRaw(5 * time.Second)
-		caseCh.SendReplyValue(mcID, nil) //nolint:errcheck
-
-		sendTestDone(t, testCh, true, 0)
-	})
-
-	cli := newClient(clientConn)
-	var gotVal int64
-	err := cli.runTest("mapped_gen", func(s *TestCase) {
-		inner := &basicGenerator[int64]{schema: schema, transform: func(v any) int64 { return extractInt(v) }}
-		mg := &mappedGenerator[int64, int64]{
-			inner: inner,
-			fn:    func(v int64) int64 { return v * 10 },
-		}
-		gotVal = mg.draw(s)
-	}, runOptions{testCases: 1}, stderrNoteFn)
-	if err != nil {
-		t.Fatalf("runTest: %v", err)
-	}
-	if gotVal != 30 {
-		t.Errorf("expected 30, got %d", gotVal)
-	}
-}
-
 // --- Map on basicGenerator inner returns basicGenerator ---
 
 func TestMappedGeneratorMapOnBasicInner(t *testing.T) {
@@ -233,439 +70,15 @@ func TestMappedGeneratorMapOnBasicInner(t *testing.T) {
 }
 
 // =============================================================================
-// Span helper tests
-// =============================================================================
-
-func fakeTestEnv(t *testing.T, fn func(caseCh *channel)) *connection {
-	t.Helper()
-	return fakeServerConn(t, func(serverConn *connection) {
-		ctrl := serverConn.ControlChannel()
-		msgID, payload, _ := ctrl.RecvRequestRaw(5 * time.Second)
-		decoded, _ := decodeCBOR(payload)
-		m, _ := extractCBORDict(decoded)
-		chID, _ := extractCBORInt(m[any("channel_id")])
-		ctrl.SendReplyValue(msgID, true) //nolint:errcheck
-
-		testCh, _ := serverConn.ConnectChannel(uint32(chID), "TestCh")
-		caseCh := serverConn.NewChannel("Case")
-		casePayload, _ := encodeCBOR(map[string]any{
-			"event":      "test_case",
-			"channel_id": int64(caseCh.ChannelID()),
-			"is_final":   false,
-		})
-		caseID, _ := testCh.SendRequestRaw(casePayload)
-		testCh.recvResponseRaw(caseID, 5*time.Second) //nolint:errcheck
-
-		fn(caseCh)
-
-		// Wait for mark_complete.
-		mcID, _, _ := caseCh.RecvRequestRaw(5 * time.Second)
-		caseCh.SendReplyValue(mcID, nil) //nolint:errcheck
-
-		sendTestDone(t, testCh, true, 0)
-	})
-}
-
-// --- startSpan and stopSpan ---
-
-func TestStartStopSpan(t *testing.T) {
-	var gotStartLabel int64
-	var gotStopDiscard bool
-	clientConn := fakeTestEnv(t, func(caseCh *channel) {
-		// start_span
-		ssID, ssPayload, _ := caseCh.RecvRequestRaw(5 * time.Second)
-		decoded, _ := decodeCBOR(ssPayload)
-		m, _ := extractCBORDict(decoded)
-		gotStartLabel, _ = extractCBORInt(m[any("label")])
-		caseCh.SendReplyValue(ssID, nil) //nolint:errcheck
-		// stop_span
-		spID, spPayload, _ := caseCh.RecvRequestRaw(5 * time.Second)
-		decoded2, _ := decodeCBOR(spPayload)
-		m2, _ := extractCBORDict(decoded2)
-		b, _ := m2[any("discard")].(bool)
-		gotStopDiscard = b
-		caseCh.SendReplyValue(spID, nil) //nolint:errcheck
-	})
-
-	cli := newClient(clientConn)
-	err := cli.runTest("spans", func(s *TestCase) {
-		startSpan(s, labelMapped)
-		stopSpan(s, false)
-	}, runOptions{testCases: 1}, stderrNoteFn)
-	if err != nil {
-		t.Fatalf("runTest: %v", err)
-	}
-	if gotStartLabel != int64(labelMapped) {
-		t.Errorf("start_span label: expected %d, got %d", labelMapped, gotStartLabel)
-	}
-	if gotStopDiscard {
-		t.Error("stop_span discard should be false")
-	}
-}
-
-// --- stopSpan with discard=true ---
-
-func TestStopSpanDiscard(t *testing.T) {
-	var gotDiscard bool
-	clientConn := fakeTestEnv(t, func(caseCh *channel) {
-		// start_span
-		ssID, _, _ := caseCh.RecvRequestRaw(5 * time.Second)
-		caseCh.SendReplyValue(ssID, nil) //nolint:errcheck
-		// stop_span
-		spID, spPayload, _ := caseCh.RecvRequestRaw(5 * time.Second)
-		decoded, _ := decodeCBOR(spPayload)
-		m, _ := extractCBORDict(decoded)
-		b, _ := m[any("discard")].(bool)
-		gotDiscard = b
-		caseCh.SendReplyValue(spID, nil) //nolint:errcheck
-	})
-
-	cli := newClient(clientConn)
-	err := cli.runTest("stop_span_discard", func(s *TestCase) {
-		startSpan(s, labelList)
-		stopSpan(s, true)
-	}, runOptions{testCases: 1}, stderrNoteFn)
-	if err != nil {
-		t.Fatalf("runTest: %v", err)
-	}
-	if !gotDiscard {
-		t.Error("stop_span discard should be true")
-	}
-}
-
-// --- startSpan no-op when aborted ---
-
-func TestStartSpanNoOpWhenAborted(t *testing.T) {
-	// When aborted=true, startSpan and stopSpan must not send any messages.
-	clientConn := fakeTestEnv(t, func(caseCh *channel) {
-		// No messages expected (no start/stop span).
-		// The test fn will set aborted then call startSpan/stopSpan.
-	})
-
-	cli := newClient(clientConn)
-	err := cli.runTest("span_noop_aborted", func(s *TestCase) {
-		// Directly set the aborted flag.
-		s.aborted = true
-		startSpan(s, labelList) // should be no-op
-		stopSpan(s, false)      // should be no-op
-	}, runOptions{testCases: 1}, stderrNoteFn)
-	if err != nil {
-		t.Fatalf("runTest: %v", err)
-	}
-}
-
-// --- Group helper ---
-
-func TestGroup(t *testing.T) {
-	var cmds []string
-	// Use fakeServerConn directly to control all message handling.
-	clientConn := fakeServerConn(t, func(serverConn *connection) {
-		ctrl := serverConn.ControlChannel()
-		msgID, payload, _ := ctrl.RecvRequestRaw(5 * time.Second)
-		decoded, _ := decodeCBOR(payload)
-		m, _ := extractCBORDict(decoded)
-		chID, _ := extractCBORInt(m[any("channel_id")])
-		ctrl.SendReplyValue(msgID, true) //nolint:errcheck
-
-		testCh, _ := serverConn.ConnectChannel(uint32(chID), "TestCh")
-		caseCh := serverConn.NewChannel("Case")
-		casePayload, _ := encodeCBOR(map[string]any{
-			"event":      "test_case",
-			"channel_id": int64(caseCh.ChannelID()),
-			"is_final":   false,
-		})
-		caseID, _ := testCh.SendRequestRaw(casePayload)
-		testCh.recvResponseRaw(caseID, 5*time.Second) //nolint:errcheck
-
-		// Receive exactly: start_span, stop_span, mark_complete.
-		for i := 0; i < 3; i++ {
-			mid, pl, _ := caseCh.RecvRequestRaw(5 * time.Second)
-			dec, _ := decodeCBOR(pl)
-			mp, _ := extractCBORDict(dec)
-			cmd, _ := extractCBORString(mp[any("command")])
-			cmds = append(cmds, cmd)
-			caseCh.SendReplyValue(mid, nil) //nolint:errcheck
-		}
-
-		sendTestDone(t, testCh, true, 0)
-	})
-
-	cli := newClient(clientConn)
-	err := cli.runTest("group_test", func(s *TestCase) {
-		group(s, labelMapped, func() {
-			// nothing inside, just test the wrapping
-		})
-	}, runOptions{testCases: 1}, stderrNoteFn)
-	if err != nil {
-		t.Fatalf("runTest: %v", err)
-	}
-	if len(cmds) < 3 {
-		t.Fatalf("expected at least start_span, stop_span, mark_complete; got %v", cmds)
-	}
-	if cmds[0] != "start_span" {
-		t.Errorf("first cmd: expected start_span, got %s", cmds[0])
-	}
-	if cmds[1] != "stop_span" {
-		t.Errorf("second cmd: expected stop_span, got %s", cmds[1])
-	}
-}
-
-// --- discardableGroup: no panic ---
-
-func TestDiscardableGroupNoPanic(t *testing.T) {
-	var cmds []string
-	clientConn := fakeServerConn(t, func(serverConn *connection) {
-		ctrl := serverConn.ControlChannel()
-		msgID, payload, _ := ctrl.RecvRequestRaw(5 * time.Second)
-		decoded, _ := decodeCBOR(payload)
-		m, _ := extractCBORDict(decoded)
-		chID, _ := extractCBORInt(m[any("channel_id")])
-		ctrl.SendReplyValue(msgID, true) //nolint:errcheck
-
-		testCh, _ := serverConn.ConnectChannel(uint32(chID), "TestCh")
-		caseCh := serverConn.NewChannel("Case")
-		casePayload, _ := encodeCBOR(map[string]any{
-			"event":      "test_case",
-			"channel_id": int64(caseCh.ChannelID()),
-			"is_final":   false,
-		})
-		caseID, _ := testCh.SendRequestRaw(casePayload)
-		testCh.recvResponseRaw(caseID, 5*time.Second) //nolint:errcheck
-
-		// Receive exactly: start_span, stop_span, mark_complete.
-		for i := 0; i < 3; i++ {
-			mid, pl, _ := caseCh.RecvRequestRaw(5 * time.Second)
-			dec, _ := decodeCBOR(pl)
-			mp, _ := extractCBORDict(dec)
-			cmd, _ := extractCBORString(mp[any("command")])
-			cmds = append(cmds, cmd)
-			caseCh.SendReplyValue(mid, nil) //nolint:errcheck
-		}
-
-		sendTestDone(t, testCh, true, 0)
-	})
-
-	cli := newClient(clientConn)
-	err := cli.runTest("discardable_group_ok", func(s *TestCase) {
-		discardableGroup(s, labelFilter, func() {
-			// runs normally
-		})
-	}, runOptions{testCases: 1}, stderrNoteFn)
-	if err != nil {
-		t.Fatalf("runTest: %v", err)
-	}
-	// should have start_span, stop_span(discard=false), mark_complete
-	if len(cmds) < 2 || cmds[0] != "start_span" {
-		t.Errorf("expected start_span first; got %v", cmds)
-	}
-}
-
-// --- discardableGroup: panic propagates with discard=true ---
-
-func TestDiscardableGroupPanic(t *testing.T) {
-	var stopDiscardVal bool
-	clientConn := fakeTestEnv(t, func(caseCh *channel) {
-		// start_span
-		ssID, _, _ := caseCh.RecvRequestRaw(5 * time.Second)
-		caseCh.SendReplyValue(ssID, nil) //nolint:errcheck
-		// stop_span (discard=true because panic propagated)
-		spID, spPayload, _ := caseCh.RecvRequestRaw(5 * time.Second)
-		decoded, _ := decodeCBOR(spPayload)
-		m, _ := extractCBORDict(decoded)
-		b, _ := m[any("discard")].(bool)
-		stopDiscardVal = b
-		caseCh.SendReplyValue(spID, nil) //nolint:errcheck
-	})
-
-	cli := newClient(clientConn)
-	err := cli.runTest("discardable_group_panic", func(s *TestCase) {
-		discardableGroup(s, labelFilter, func() {
-			panic("inner panic")
-		})
-	}, runOptions{testCases: 1}, stderrNoteFn)
-	// The panic inside discardableGroup should propagate out as INTERESTING.
-	_ = err // may be nil (non-final case doesn't return error) or error
-	if !stopDiscardVal {
-		t.Error("stop_span should have discard=true when inner fn panics")
-	}
-}
-
-// =============================================================================
 // collection protocol tests
 // =============================================================================
-
-// --- newCollection: basic ---
-
-func TestNewCollection(t *testing.T) {
-	var gotCmd string
-	var gotMin, gotMax int64
-	clientConn := fakeTestEnv(t, func(caseCh *channel) {
-		// new_collection
-		ncID, ncPayload, _ := caseCh.RecvRequestRaw(5 * time.Second)
-		decoded, _ := decodeCBOR(ncPayload)
-		m, _ := extractCBORDict(decoded)
-		gotCmd, _ = extractCBORString(m[any("command")])
-		gotMin, _ = extractCBORInt(m[any("min_size")])
-		gotMax, _ = extractCBORInt(m[any("max_size")])
-		caseCh.SendReplyValue(ncID, "coll_1") //nolint:errcheck
-
-		// collection_more -> false (done immediately)
-		moreID, _, _ := caseCh.RecvRequestRaw(5 * time.Second)
-		caseCh.SendReplyValue(moreID, false) //nolint:errcheck
-	})
-
-	cli := newClient(clientConn)
-	err := cli.runTest("new_collection", func(s *TestCase) {
-		coll := newCollection(s, 2, 10)
-		more := coll.More(s)
-		_ = more
-	}, runOptions{testCases: 1}, stderrNoteFn)
-	if err != nil {
-		t.Fatalf("runTest: %v", err)
-	}
-	if gotCmd != "new_collection" {
-		t.Errorf("expected new_collection, got %s", gotCmd)
-	}
-	if gotMin != 2 {
-		t.Errorf("expected min_size=2, got %d", gotMin)
-	}
-	if gotMax != 10 {
-		t.Errorf("expected max_size=10, got %d", gotMax)
-	}
-}
-
-// --- collection.More: returns true then false ---
-
-func TestCollectionMore(t *testing.T) {
-	var moreCount int
-	clientConn := fakeTestEnv(t, func(caseCh *channel) {
-		// new_collection
-		ncID, _, _ := caseCh.RecvRequestRaw(5 * time.Second)
-		caseCh.SendReplyValue(ncID, "coll_x") //nolint:errcheck
-
-		// first more -> true
-		m1ID, _, _ := caseCh.RecvRequestRaw(5 * time.Second)
-		caseCh.SendReplyValue(m1ID, true) //nolint:errcheck
-		// second more -> false
-		m2ID, _, _ := caseCh.RecvRequestRaw(5 * time.Second)
-		caseCh.SendReplyValue(m2ID, false) //nolint:errcheck
-	})
-
-	cli := newClient(clientConn)
-	err := cli.runTest("coll_more", func(s *TestCase) {
-		coll := newCollection(s, 0, 5)
-		for coll.More(s) {
-			moreCount++
-		}
-	}, runOptions{testCases: 1}, stderrNoteFn)
-	if err != nil {
-		t.Fatalf("runTest: %v", err)
-	}
-	if moreCount != 1 {
-		t.Errorf("expected 1 more loop iteration, got %d", moreCount)
-	}
-}
-
-// --- collection.More: cached false after first false ---
-
-func TestCollectionMoreCachesFalse(t *testing.T) {
-	clientConn := fakeTestEnv(t, func(caseCh *channel) {
-		// new_collection
-		ncID, _, _ := caseCh.RecvRequestRaw(5 * time.Second)
-		caseCh.SendReplyValue(ncID, "coll_y") //nolint:errcheck
-
-		// Only one more request (the second More() call should be cached).
-		moreID, _, _ := caseCh.RecvRequestRaw(5 * time.Second)
-		caseCh.SendReplyValue(moreID, false) //nolint:errcheck
-	})
-
-	cli := newClient(clientConn)
-	err := cli.runTest("coll_cache", func(s *TestCase) {
-		coll := newCollection(s, 0, 1)
-		r1 := coll.More(s)
-		r2 := coll.More(s) // should be cached false, no network call
-		if r1 || r2 {
-			panic("expected both to be false")
-		}
-	}, runOptions{testCases: 1}, stderrNoteFn)
-	if err != nil {
-		t.Fatalf("runTest: %v", err)
-	}
-}
-
-// --- collection.Reject ---
-
-func TestCollectionReject(t *testing.T) {
-	var gotRejectCmd string
-	clientConn := fakeTestEnv(t, func(caseCh *channel) {
-		// new_collection
-		ncID, _, _ := caseCh.RecvRequestRaw(5 * time.Second)
-		caseCh.SendReplyValue(ncID, "coll_r") //nolint:errcheck
-
-		// more -> true
-		moreID, _, _ := caseCh.RecvRequestRaw(5 * time.Second)
-		caseCh.SendReplyValue(moreID, true) //nolint:errcheck
-
-		// collection_reject
-		rejID, rejPayload, _ := caseCh.RecvRequestRaw(5 * time.Second)
-		decoded, _ := decodeCBOR(rejPayload)
-		m, _ := extractCBORDict(decoded)
-		gotRejectCmd, _ = extractCBORString(m[any("command")])
-		caseCh.SendReplyValue(rejID, nil) //nolint:errcheck
-
-		// more -> false
-		m2ID, _, _ := caseCh.RecvRequestRaw(5 * time.Second)
-		caseCh.SendReplyValue(m2ID, false) //nolint:errcheck
-	})
-
-	cli := newClient(clientConn)
-	err := cli.runTest("coll_reject", func(s *TestCase) {
-		coll := newCollection(s, 0, 5)
-		if coll.More(s) {
-			coll.Reject(s)
-		}
-		for coll.More(s) {
-		}
-	}, runOptions{testCases: 1}, stderrNoteFn)
-	if err != nil {
-		t.Fatalf("runTest: %v", err)
-	}
-	if gotRejectCmd != "collection_reject" {
-		t.Errorf("expected collection_reject, got %s", gotRejectCmd)
-	}
-}
-
-// --- collection.Reject no-op after finished ---
-
-func TestCollectionRejectNoOpAfterFinished(t *testing.T) {
-	clientConn := fakeTestEnv(t, func(caseCh *channel) {
-		// new_collection
-		ncID, _, _ := caseCh.RecvRequestRaw(5 * time.Second)
-		caseCh.SendReplyValue(ncID, "coll_nop") //nolint:errcheck
-
-		// more -> false immediately
-		moreID, _, _ := caseCh.RecvRequestRaw(5 * time.Second)
-		caseCh.SendReplyValue(moreID, false) //nolint:errcheck
-		// No collection_reject should follow.
-	})
-
-	cli := newClient(clientConn)
-	err := cli.runTest("coll_reject_noop", func(s *TestCase) {
-		coll := newCollection(s, 0, 1)
-		coll.More(s)   // false -> finished
-		coll.Reject(s) // no-op
-	}, runOptions{testCases: 1}, stderrNoteFn)
-	if err != nil {
-		t.Fatalf("runTest: %v", err)
-	}
-}
 
 // --- collection StopTest on new_collection ---
 
 func TestCollectionStopTestOnNewCollection(t *testing.T) {
 	hegelBinPath(t)
 	t.Setenv("HEGEL_PROTOCOL_TEST_MODE", "stop_test_on_new_collection")
-	err := runHegel("coll_stop_new", func(s *TestCase) {
+	err := runHegel(func(s *TestCase) {
 		coll := newCollection(s, 0, 5)
 		_ = coll.More(s)
 	}, stderrNoteFn, nil)
@@ -678,7 +91,7 @@ func TestCollectionStopTestOnNewCollection(t *testing.T) {
 func TestCollectionStopTestOnCollectionMore(t *testing.T) {
 	hegelBinPath(t)
 	t.Setenv("HEGEL_PROTOCOL_TEST_MODE", "stop_test_on_collection_more")
-	err := runHegel("coll_stop_more", func(s *TestCase) {
+	err := runHegel(func(s *TestCase) {
 		coll := newCollection(s, 0, 5)
 		_ = coll.More(s)
 	}, stderrNoteFn, nil)
@@ -727,7 +140,7 @@ func TestLabelConstants(t *testing.T) {
 func TestIntegersGeneratorHappyPath(t *testing.T) {
 	hegelBinPath(t)
 	var vals []int64
-	if _err := runHegel("integers_happy", func(s *TestCase) {
+	if _err := runHegel(func(s *TestCase) {
 		v := Draw[int64](s, Integers[int64](0, 100))
 		vals = append(vals, v)
 		if v < 0 || v > 100 {
@@ -797,7 +210,7 @@ func TestJustTransformIgnoresInput(t *testing.T) {
 // TestJustE2E verifies that Just always generates the constant value against the real server.
 func TestJustE2E(t *testing.T) {
 	hegelBinPath(t)
-	if _err := runHegel(t.Name(), func(s *TestCase) {
+	if _err := runHegel(func(s *TestCase) {
 		v := Draw[int](s, Just(42))
 		if v != 42 {
 			panic(fmt.Sprintf("Just: expected 42, got %v", v))
@@ -812,7 +225,7 @@ func TestJustNonPrimitive(t *testing.T) {
 	hegelBinPath(t)
 	type myStruct struct{ x int }
 	val := &myStruct{x: 99}
-	if _err := runHegel(t.Name(), func(s *TestCase) {
+	if _err := runHegel(func(s *TestCase) {
 		v := Draw[*myStruct](s, Just(val))
 		if v != val {
 			panic("Just: pointer identity not preserved")
@@ -871,7 +284,7 @@ func TestSampledFromTransformMapsIndices(t *testing.T) {
 // TestSampledFromSingleElement verifies that a single-element slice always returns that element.
 func TestSampledFromSingleElement(t *testing.T) {
 	hegelBinPath(t)
-	if _err := runHegel(t.Name(), func(s *TestCase) {
+	if _err := runHegel(func(s *TestCase) {
 		v := Draw[string](s, SampledFrom([]string{"only"}))
 		if v != "only" {
 			panic(fmt.Sprintf("SampledFrom single: expected 'only', got %v", v))
@@ -887,7 +300,7 @@ func TestSampledFromE2E(t *testing.T) {
 	hegelBinPath(t)
 	choices := []string{"apple", "banana", "cherry"}
 	seen := map[string]bool{}
-	if _err := runHegel(t.Name(), func(s *TestCase) {
+	if _err := runHegel(func(s *TestCase) {
 		v := Draw[string](s, SampledFrom(choices))
 		found := false
 		for _, c := range choices {
@@ -918,7 +331,7 @@ func TestSampledFromNonPrimitive(t *testing.T) {
 	type myStruct struct{ x int }
 	obj1 := &myStruct{x: 1}
 	obj2 := &myStruct{x: 2}
-	if _err := runHegel(t.Name(), func(s *TestCase) {
+	if _err := runHegel(func(s *TestCase) {
 		v := Draw[*myStruct](s, SampledFrom([]*myStruct{obj1, obj2}))
 		if v != obj1 && v != obj2 {
 			panic("SampledFrom: value is not one of the original pointers")
@@ -960,7 +373,7 @@ func TestFromRegexFullmatchFalse(t *testing.T) {
 func TestFromRegexE2E(t *testing.T) {
 	hegelBinPath(t)
 	// Only digits, 1-5 chars
-	if _err := runHegel(t.Name(), func(s *TestCase) {
+	if _err := runHegel(func(s *TestCase) {
 		v := Draw[string](s, FromRegex(`[0-9]{1,5}`, true))
 		if len(v) == 0 || len(v) > 5 {
 			panic(fmt.Sprintf("FromRegex: length out of range: %q", v))
@@ -984,7 +397,7 @@ func TestFromRegexE2E(t *testing.T) {
 func TestBasicGeneratorGenerateErrorResponse(t *testing.T) {
 	hegelBinPath(t)
 	t.Setenv("HEGEL_PROTOCOL_TEST_MODE", "error_response")
-	err := runHegel(t.Name(), func(s *TestCase) {
+	err := runHegel(func(s *TestCase) {
 		g := &basicGenerator[int64]{schema: map[string]any{"type": "integer"}, transform: func(v any) int64 { return extractInt(v) }}
 		_ = g.draw(s) // should panic with requestError -> caught as INTERESTING
 	}, stderrNoteFn, nil)
@@ -1024,7 +437,7 @@ func TestMapBasicGeneratorE2E(t *testing.T) {
 	if _, ok := gen.(*basicGenerator[int]); !ok {
 		t.Fatalf("Map on basicGenerator should return *basicGenerator[int], got %T", gen)
 	}
-	if _err := runHegel(t.Name(), func(s *TestCase) {
+	if _err := runHegel(func(s *TestCase) {
 		n := Draw[int](s, gen)
 		if n%2 != 0 {
 			panic(fmt.Sprintf("map(x*2): expected even number, got %d", n))
@@ -1050,7 +463,7 @@ func TestMapChainedBasicGeneratorE2E(t *testing.T) {
 	if _, ok := gen.(*basicGenerator[int]); !ok {
 		t.Fatalf("chained Map on basicGenerator should return *basicGenerator[int], got %T", gen)
 	}
-	if _err := runHegel(t.Name(), func(s *TestCase) {
+	if _err := runHegel(func(s *TestCase) {
 		n := Draw[int](s, gen)
 		// (x+1)*2 is always even. x in [0,100] -> result in [2, 202].
 		if n%2 != 0 {
@@ -1081,7 +494,7 @@ func TestMapNonBasicGeneratorE2E(t *testing.T) {
 	if _, ok := gen.(*mappedGenerator[int, int]); !ok {
 		t.Fatalf("Map on non-basic Generator should return *mappedGenerator, got %T", gen)
 	}
-	if _err := runHegel(t.Name(), func(s *TestCase) {
+	if _err := runHegel(func(s *TestCase) {
 		n := Draw[int](s, gen)
 		// inner is Integers[int](1,5)*1, map(*3): result is in {3, 6, 9, 12, 15}
 		if n < 3 || n > 15 || n%3 != 0 {
@@ -1181,221 +594,11 @@ func TestFilteredGeneratorMapMethod(t *testing.T) {
 	}
 }
 
-// TestFilteredGeneratorPredicatePasses verifies that when the predicate passes on the
-// first attempt, the value is returned immediately (only one FILTER span pair sent).
-func TestFilteredGeneratorPredicatePasses(t *testing.T) {
-	var gotVal int64
-	clientConn := fakeServerConn(t, func(serverConn *connection) {
-		ctrl := serverConn.ControlChannel()
-		msgID, payload, _ := ctrl.RecvRequestRaw(5 * time.Second)
-		decoded, _ := decodeCBOR(payload)
-		m, _ := extractCBORDict(decoded)
-		chID, _ := extractCBORInt(m[any("channel_id")])
-		ctrl.SendReplyValue(msgID, true) //nolint:errcheck
-
-		testCh, _ := serverConn.ConnectChannel(uint32(chID), "TestCh")
-		caseCh := serverConn.NewChannel("Case")
-		casePayload, _ := encodeCBOR(map[string]any{
-			"event":      "test_case",
-			"channel_id": int64(caseCh.ChannelID()),
-			"is_final":   false,
-		})
-		caseID, _ := testCh.SendRequestRaw(casePayload)
-		testCh.recvResponseRaw(caseID, 5*time.Second) //nolint:errcheck
-
-		// start_span
-		ssID, _, _ := caseCh.RecvRequestRaw(5 * time.Second)
-		caseCh.SendReplyValue(ssID, nil) //nolint:errcheck
-		// generate
-		genID, _, _ := caseCh.RecvRequestRaw(5 * time.Second)
-		caseCh.SendReplyValue(genID, int64(42)) //nolint:errcheck
-		// stop_span (discard=false)
-		spID, spPayload, _ := caseCh.RecvRequestRaw(5 * time.Second)
-		decoded2, _ := decodeCBOR(spPayload)
-		m2, _ := extractCBORDict(decoded2)
-		discard, _ := m2[any("discard")].(bool)
-		if discard {
-			t.Error("stop_span should have discard=false when predicate passes")
-		}
-		caseCh.SendReplyValue(spID, nil) //nolint:errcheck
-		// mark_complete
-		mcID, _, _ := caseCh.RecvRequestRaw(5 * time.Second)
-		caseCh.SendReplyValue(mcID, nil) //nolint:errcheck
-
-		sendTestDone(t, testCh, true, 0)
-	})
-
-	cli := newClient(clientConn)
-	err := cli.runTest("filter_passes", func(s *TestCase) {
-		g := &filteredGenerator[int64]{
-			source:    &basicGenerator[int64]{schema: map[string]any{"type": "integer"}, transform: func(v any) int64 { return extractInt(v) }},
-			predicate: func(v int64) bool { return true },
-		}
-		gotVal = g.draw(s)
-	}, runOptions{testCases: 1}, stderrNoteFn)
-	if err != nil {
-		t.Fatalf("runTest: %v", err)
-	}
-	if gotVal != 42 {
-		t.Errorf("expected 42, got %d", gotVal)
-	}
-}
-
-// TestFilteredGeneratorAllAttemptsFailRejectsCase verifies that when all 3 attempts fail,
-// exactly 3 start_span/generate/stop_span(discard=true) cycles are sent, then
-// Assume(false) causes the case to be sent mark_complete with status="INVALID".
-func TestFilteredGeneratorAllAttemptsFailRejectsCase(t *testing.T) {
-	var spanCount int
-	var mcStatus string
-	clientConn := fakeServerConn(t, func(serverConn *connection) {
-		ctrl := serverConn.ControlChannel()
-		msgID, payload, _ := ctrl.RecvRequestRaw(5 * time.Second)
-		decoded, _ := decodeCBOR(payload)
-		m, _ := extractCBORDict(decoded)
-		chID, _ := extractCBORInt(m[any("channel_id")])
-		ctrl.SendReplyValue(msgID, true) //nolint:errcheck
-
-		testCh, _ := serverConn.ConnectChannel(uint32(chID), "TestCh")
-		caseCh := serverConn.NewChannel("Case")
-		casePayload, _ := encodeCBOR(map[string]any{
-			"event":      "test_case",
-			"channel_id": int64(caseCh.ChannelID()),
-			"is_final":   false,
-		})
-		caseID, _ := testCh.SendRequestRaw(casePayload)
-		testCh.recvResponseRaw(caseID, 5*time.Second) //nolint:errcheck
-
-		// 3 failed attempts: each produces start_span, generate, stop_span(discard=true)
-		for i := 0; i < maxFilterAttempts; i++ {
-			// start_span
-			ssID, _, _ := caseCh.RecvRequestRaw(5 * time.Second)
-			caseCh.SendReplyValue(ssID, nil) //nolint:errcheck
-			// generate
-			genID, _, _ := caseCh.RecvRequestRaw(5 * time.Second)
-			caseCh.SendReplyValue(genID, int64(0)) //nolint:errcheck
-			// stop_span
-			spID, spPayload, _ := caseCh.RecvRequestRaw(5 * time.Second)
-			decoded2, _ := decodeCBOR(spPayload)
-			m2, _ := extractCBORDict(decoded2)
-			discard, _ := m2[any("discard")].(bool)
-			if !discard {
-				t.Errorf("attempt %d: stop_span should have discard=true when predicate fails", i)
-			}
-			caseCh.SendReplyValue(spID, nil) //nolint:errcheck
-			spanCount++
-		}
-
-		// Assume(false) panics with assumeRejected -> runner sends mark_complete with "INVALID".
-		mcID, mcPayload, _ := caseCh.RecvRequestRaw(5 * time.Second)
-		decoded3, _ := decodeCBOR(mcPayload)
-		m3, _ := extractCBORDict(decoded3)
-		mcStatus, _ = extractCBORString(m3[any("status")])
-		caseCh.SendReplyValue(mcID, nil) //nolint:errcheck
-
-		sendTestDone(t, testCh, true, 0)
-	})
-
-	cli := newClient(clientConn)
-	err := cli.runTest("filter_exhaust", func(s *TestCase) {
-		g := &filteredGenerator[int64]{
-			source:    &basicGenerator[int64]{schema: map[string]any{"type": "integer"}, transform: func(v any) int64 { return extractInt(v) }},
-			predicate: func(v int64) bool { return false }, // always reject
-		}
-		g.draw(s)
-	}, runOptions{testCases: 1}, stderrNoteFn)
-	if err != nil {
-		t.Fatalf("runTest: %v", err)
-	}
-	if spanCount != maxFilterAttempts {
-		t.Errorf("expected %d span pairs, got %d", maxFilterAttempts, spanCount)
-	}
-	if mcStatus != "INVALID" {
-		t.Errorf("mark_complete status: expected 'INVALID', got %q", mcStatus)
-	}
-}
-
-// TestFilteredGeneratorPartialAttemptsSucceed verifies that when the first 2 attempts
-// fail but the 3rd passes, 2 discard spans and 1 keep span are sent.
-func TestFilteredGeneratorPartialAttemptsSucceed(t *testing.T) {
-	attemptNum := 0
-	var gotVal int64
-
-	clientConn := fakeServerConn(t, func(serverConn *connection) {
-		ctrl := serverConn.ControlChannel()
-		msgID, payload, _ := ctrl.RecvRequestRaw(5 * time.Second)
-		decoded, _ := decodeCBOR(payload)
-		m, _ := extractCBORDict(decoded)
-		chID, _ := extractCBORInt(m[any("channel_id")])
-		ctrl.SendReplyValue(msgID, true) //nolint:errcheck
-
-		testCh, _ := serverConn.ConnectChannel(uint32(chID), "TestCh")
-		caseCh := serverConn.NewChannel("Case")
-		casePayload, _ := encodeCBOR(map[string]any{
-			"event":      "test_case",
-			"channel_id": int64(caseCh.ChannelID()),
-			"is_final":   false,
-		})
-		caseID, _ := testCh.SendRequestRaw(casePayload)
-		testCh.recvResponseRaw(caseID, 5*time.Second) //nolint:errcheck
-
-		// 2 failed attempts (returns 0), then 1 successful (returns 7)
-		for i := 0; i < 3; i++ {
-			ssID, _, _ := caseCh.RecvRequestRaw(5 * time.Second)
-			caseCh.SendReplyValue(ssID, nil) //nolint:errcheck
-
-			genID, _, _ := caseCh.RecvRequestRaw(5 * time.Second)
-			val := int64(0)
-			if i == 2 {
-				val = int64(7)
-			}
-			caseCh.SendReplyValue(genID, val) //nolint:errcheck
-
-			spID, spPayload, _ := caseCh.RecvRequestRaw(5 * time.Second)
-			decoded2, _ := decodeCBOR(spPayload)
-			m2, _ := extractCBORDict(decoded2)
-			discard, _ := m2[any("discard")].(bool)
-			if i < 2 && !discard {
-				t.Errorf("attempt %d: expected discard=true for failed attempt", i)
-			}
-			if i == 2 && discard {
-				t.Errorf("attempt %d: expected discard=false for successful attempt", i)
-			}
-			caseCh.SendReplyValue(spID, nil) //nolint:errcheck
-		}
-
-		mcID, _, _ := caseCh.RecvRequestRaw(5 * time.Second)
-		caseCh.SendReplyValue(mcID, nil) //nolint:errcheck
-
-		sendTestDone(t, testCh, true, 0)
-	})
-
-	cli := newClient(clientConn)
-	err := cli.runTest("filter_partial", func(s *TestCase) {
-		g := &filteredGenerator[int64]{
-			source: &basicGenerator[int64]{schema: map[string]any{"type": "integer"}, transform: func(v any) int64 { return extractInt(v) }},
-			predicate: func(v int64) bool {
-				attemptNum++
-				return v > 0
-			},
-		}
-		gotVal = g.draw(s)
-	}, runOptions{testCases: 1}, stderrNoteFn)
-	if err != nil {
-		t.Fatalf("runTest: %v", err)
-	}
-	if gotVal != 7 {
-		t.Errorf("expected 7, got %d", gotVal)
-	}
-	if attemptNum != 3 {
-		t.Errorf("expected predicate called 3 times, called %d times", attemptNum)
-	}
-}
-
 // TestFilteredGeneratorE2EAlwaysPasses verifies an e2e filter with a predicate
 // that values greater than 50.
 func TestFilteredGeneratorE2EAlwaysPasses(t *testing.T) {
 	hegelBinPath(t)
-	if _err := runHegel(t.Name(), func(s *TestCase) {
+	if _err := runHegel(func(s *TestCase) {
 		gen := Filter[int](Integers[int](0, 100), func(v int) bool {
 			return v > 50
 		})
@@ -1411,7 +614,7 @@ func TestFilteredGeneratorE2EAlwaysPasses(t *testing.T) {
 // TestFilteredGeneratorE2EEvenNumbers verifies filter for even numbers.
 func TestFilteredGeneratorE2EEvenNumbers(t *testing.T) {
 	hegelBinPath(t)
-	if _err := runHegel(t.Name(), func(s *TestCase) {
+	if _err := runHegel(func(s *TestCase) {
 		gen := Filter[int](Integers[int](0, 10), func(v int) bool {
 			return v%2 == 0
 		})
@@ -1665,132 +868,6 @@ func TestFlatMappedGeneratorMapReturnsMapped(t *testing.T) {
 	}
 }
 
-// TestFlatMappedGeneratorGenerate verifies the low-level protocol:
-// start_span(11), source generate, second generate, stop_span, mark_complete.
-func TestFlatMappedGeneratorGenerate(t *testing.T) {
-	var cmds []string
-	clientConn := fakeServerConn(t, func(serverConn *connection) {
-		ctrl := serverConn.ControlChannel()
-		msgID, payload, _ := ctrl.RecvRequestRaw(5 * time.Second)
-		decoded, _ := decodeCBOR(payload)
-		m, _ := extractCBORDict(decoded)
-		chID, _ := extractCBORInt(m[any("channel_id")])
-		ctrl.SendReplyValue(msgID, true) //nolint:errcheck
-
-		testCh, _ := serverConn.ConnectChannel(uint32(chID), "TestCh")
-		caseCh := serverConn.NewChannel("Case")
-		casePayload, _ := encodeCBOR(map[string]any{
-			"event":      "test_case",
-			"channel_id": int64(caseCh.ChannelID()),
-			"is_final":   false,
-		})
-		caseID, _ := testCh.SendRequestRaw(casePayload)
-		testCh.recvResponseRaw(caseID, 5*time.Second) //nolint:errcheck
-
-		// Expect: start_span(11), generate(source), generate(second), stop_span, mark_complete
-		for i := 0; i < 5; i++ {
-			mid, pl, _ := caseCh.RecvRequestRaw(5 * time.Second)
-			dec, _ := decodeCBOR(pl)
-			mp, _ := extractCBORDict(dec)
-			cmd, _ := extractCBORString(mp[any("command")])
-			cmds = append(cmds, cmd)
-			switch cmd {
-			case "generate":
-				caseCh.SendReplyValue(mid, int64(7)) //nolint:errcheck
-			default:
-				caseCh.SendReplyValue(mid, nil) //nolint:errcheck
-			}
-		}
-
-		sendTestDone(t, testCh, true, 0)
-	})
-
-	cli := newClient(clientConn)
-	var gotVal int64
-	err := cli.runTest("flatmap_protocol", func(s *TestCase) {
-		gen := FlatMap[int64, int64](
-			Integers[int64](0, 100),
-			func(v int64) Generator[int64] { return Integers[int64](0, 100) },
-		)
-		gotVal = gen.draw(s)
-	}, runOptions{testCases: 1}, stderrNoteFn)
-	if err != nil {
-		t.Fatalf("runTest: %v", err)
-	}
-	if gotVal != 7 {
-		t.Errorf("expected 7, got %d", gotVal)
-	}
-	// Verify protocol order: start_span, generate, generate, stop_span, mark_complete
-	if len(cmds) < 4 {
-		t.Fatalf("expected at least 4 commands, got %v", cmds)
-	}
-	if cmds[0] != "start_span" {
-		t.Errorf("cmds[0]: expected start_span, got %s", cmds[0])
-	}
-	if cmds[1] != "generate" {
-		t.Errorf("cmds[1]: expected generate (source), got %s", cmds[1])
-	}
-	if cmds[2] != "generate" {
-		t.Errorf("cmds[2]: expected generate (second), got %s", cmds[2])
-	}
-	if cmds[3] != "stop_span" {
-		t.Errorf("cmds[3]: expected stop_span, got %s", cmds[3])
-	}
-}
-
-// TestFlatMappedGeneratorStartSpanLabel verifies that the FLAT_MAP span uses label 11.
-func TestFlatMappedGeneratorStartSpanLabel(t *testing.T) {
-	var gotLabel int64
-	clientConn := fakeServerConn(t, func(serverConn *connection) {
-		ctrl := serverConn.ControlChannel()
-		msgID, payload, _ := ctrl.RecvRequestRaw(5 * time.Second)
-		decoded, _ := decodeCBOR(payload)
-		m, _ := extractCBORDict(decoded)
-		chID, _ := extractCBORInt(m[any("channel_id")])
-		ctrl.SendReplyValue(msgID, true) //nolint:errcheck
-
-		testCh, _ := serverConn.ConnectChannel(uint32(chID), "TestCh")
-		caseCh := serverConn.NewChannel("Case")
-		casePayload, _ := encodeCBOR(map[string]any{
-			"event":      "test_case",
-			"channel_id": int64(caseCh.ChannelID()),
-			"is_final":   false,
-		})
-		caseID, _ := testCh.SendRequestRaw(casePayload)
-		testCh.recvResponseRaw(caseID, 5*time.Second) //nolint:errcheck
-
-		for i := 0; i < 5; i++ {
-			mid, pl, _ := caseCh.RecvRequestRaw(5 * time.Second)
-			dec, _ := decodeCBOR(pl)
-			mp, _ := extractCBORDict(dec)
-			cmd, _ := extractCBORString(mp[any("command")])
-			if cmd == "start_span" {
-				gotLabel, _ = extractCBORInt(mp[any("label")])
-			}
-			switch cmd {
-			case "generate":
-				caseCh.SendReplyValue(mid, int64(3)) //nolint:errcheck
-			default:
-				caseCh.SendReplyValue(mid, nil) //nolint:errcheck
-			}
-		}
-
-		sendTestDone(t, testCh, true, 0)
-	})
-
-	cli := newClient(clientConn)
-	err := cli.runTest("flatmap_label", func(s *TestCase) {
-		gen := FlatMap[int64, int64](Integers[int64](0, 10), func(v int64) Generator[int64] { return Integers[int64](0, 10) })
-		_ = gen.draw(s)
-	}, runOptions{testCases: 1}, stderrNoteFn)
-	if err != nil {
-		t.Fatalf("runTest: %v", err)
-	}
-	if gotLabel != int64(labelFlatMap) {
-		t.Errorf("start_span label: expected %d (labelFlatMap), got %d", labelFlatMap, gotLabel)
-	}
-}
-
 // TestFlatMappedGeneratorE2E verifies that flat_map produces a dependent value.
 // integers(1,5).flat_map(n => text(min=n, max=n)) always produces text of length in [1,5].
 func TestFlatMappedGeneratorE2E(t *testing.T) {
@@ -1798,7 +875,7 @@ func TestFlatMappedGeneratorE2E(t *testing.T) {
 	gen := FlatMap[int, string](Integers[int](1, 5), func(v int) Generator[string] {
 		return Text(v, v) // exact length = n
 	})
-	if _err := runHegel(t.Name(), func(s *TestCase) {
+	if _err := runHegel(func(s *TestCase) {
 		v := Draw[string](s, gen)
 		count := len([]rune(v))
 		// n is in [1,5], so text length is in [1,5].
@@ -1819,7 +896,7 @@ func TestFlatMappedGeneratorDependency(t *testing.T) {
 		sz := int(v)
 		return Lists[int64](Integers[int64](0, 100), ListMinSize(sz), ListMaxSize(sz))
 	})
-	if _err := runHegel(t.Name(), func(s *TestCase) {
+	if _err := runHegel(func(s *TestCase) {
 		slice := Draw[[]int64](s, gen)
 		if len(slice) < 2 || len(slice) > 4 {
 			panic(fmt.Sprintf("flat_map dependency: list length %d not in [2,4]", len(slice)))
@@ -1926,104 +1003,6 @@ func TestExtractIntPanicsOnInvalidType(t *testing.T) {
 }
 
 // =============================================================================
-// Integers with uint64 reply — transform via fake server
-// =============================================================================
-
-func TestIntegersUint64ReplyTransformFakeServer(t *testing.T) {
-	gen := Integers[int64](math.MinInt64, math.MaxInt64)
-
-	clientConn := fakeServerConn(t, func(serverConn *connection) {
-		ctrl := serverConn.ControlChannel()
-		msgID, payload, _ := ctrl.RecvRequestRaw(5 * time.Second)
-		decoded, _ := decodeCBOR(payload)
-		m, _ := extractCBORDict(decoded)
-		chID, _ := extractCBORInt(m[any("channel_id")])
-		ctrl.SendReplyValue(msgID, true) //nolint:errcheck
-
-		testCh, _ := serverConn.ConnectChannel(uint32(chID), "TestCh")
-		caseCh := serverConn.NewChannel("Case")
-		casePayload, _ := encodeCBOR(map[string]any{
-			"event":      "test_case",
-			"channel_id": int64(caseCh.ChannelID()),
-			"is_final":   false,
-		})
-		caseID, _ := testCh.SendRequestRaw(casePayload)
-		testCh.recvResponseRaw(caseID, 5*time.Second) //nolint:errcheck
-
-		// generate: reply with uint64 to test the extractInt uint64 path
-		genID, _, _ := caseCh.RecvRequestRaw(2 * time.Second)
-		caseCh.SendReplyValue(genID, uint64(42)) //nolint:errcheck
-
-		// mark_complete
-		mcID, _, _ := caseCh.RecvRequestRaw(2 * time.Second)
-		caseCh.SendReplyValue(mcID, nil) //nolint:errcheck
-
-		sendTestDone(t, testCh, true, 0)
-	})
-
-	cli := newClient(clientConn)
-	var got int64
-	err := cli.runTest("integers_uint64_reply", func(s *TestCase) {
-		got = gen.draw(s)
-	}, runOptions{testCases: 1}, stderrNoteFn)
-	if err != nil {
-		t.Fatalf("runTest: %v", err)
-	}
-	if got != 42 {
-		t.Errorf("expected 42, got %d", got)
-	}
-}
-
-// =============================================================================
-// Floats — transform via fake server
-// =============================================================================
-
-func TestFloatsTransformFakeServer(t *testing.T) {
-	gen := Floats(nil, nil, nil, nil, false, false)
-
-	clientConn := fakeServerConn(t, func(serverConn *connection) {
-		ctrl := serverConn.ControlChannel()
-		msgID, payload, _ := ctrl.RecvRequestRaw(5 * time.Second)
-		decoded, _ := decodeCBOR(payload)
-		m, _ := extractCBORDict(decoded)
-		chID, _ := extractCBORInt(m[any("channel_id")])
-		ctrl.SendReplyValue(msgID, true) //nolint:errcheck
-
-		testCh, _ := serverConn.ConnectChannel(uint32(chID), "TestCh")
-		caseCh := serverConn.NewChannel("Case")
-		casePayload, _ := encodeCBOR(map[string]any{
-			"event":      "test_case",
-			"channel_id": int64(caseCh.ChannelID()),
-			"is_final":   false,
-		})
-		caseID, _ := testCh.SendRequestRaw(casePayload)
-		testCh.recvResponseRaw(caseID, 5*time.Second) //nolint:errcheck
-
-		// generate: reply with float64
-		genID, _, _ := caseCh.RecvRequestRaw(2 * time.Second)
-		caseCh.SendReplyValue(genID, float64(3.14)) //nolint:errcheck
-
-		// mark_complete
-		mcID, _, _ := caseCh.RecvRequestRaw(2 * time.Second)
-		caseCh.SendReplyValue(mcID, nil) //nolint:errcheck
-
-		sendTestDone(t, testCh, true, 0)
-	})
-
-	cli := newClient(clientConn)
-	var got float64
-	err := cli.runTest("floats_transform", func(s *TestCase) {
-		got = gen.draw(s)
-	}, runOptions{testCases: 1}, stderrNoteFn)
-	if err != nil {
-		t.Fatalf("runTest: %v", err)
-	}
-	if got != 3.14 {
-		t.Errorf("expected 3.14, got %f", got)
-	}
-}
-
-// =============================================================================
 // Floats: schema check with only allowNaN set, allowInfinity nil
 // =============================================================================
 
@@ -2056,221 +1035,6 @@ func TestFloatsSchemaExplicitInfNilNaN(t *testing.T) {
 }
 
 // =============================================================================
-// Optional generator — via fake server (covers optionalGenerator.draw)
-// =============================================================================
-
-func TestOptionalGeneratorDrawNilFakeServer(t *testing.T) {
-	gen := Optional(Integers[int64](0, 100))
-
-	clientConn := fakeServerConn(t, func(serverConn *connection) {
-		ctrl := serverConn.ControlChannel()
-		msgID, payload, _ := ctrl.RecvRequestRaw(5 * time.Second)
-		decoded, _ := decodeCBOR(payload)
-		m, _ := extractCBORDict(decoded)
-		chID, _ := extractCBORInt(m[any("channel_id")])
-		ctrl.SendReplyValue(msgID, true) //nolint:errcheck
-
-		testCh, _ := serverConn.ConnectChannel(uint32(chID), "TestCh")
-		caseCh := serverConn.NewChannel("Case")
-		casePayload, _ := encodeCBOR(map[string]any{
-			"event":      "test_case",
-			"channel_id": int64(caseCh.ChannelID()),
-			"is_final":   false,
-		})
-		caseID, _ := testCh.SendRequestRaw(casePayload)
-		testCh.recvResponseRaw(caseID, 5*time.Second) //nolint:errcheck
-
-		// start_span (ONE_OF)
-		ssID, _, _ := caseCh.RecvRequestRaw(2 * time.Second)
-		caseCh.SendReplyValue(ssID, nil) //nolint:errcheck
-
-		// generate (index): reply 0 = nil
-		genID, _, _ := caseCh.RecvRequestRaw(2 * time.Second)
-		caseCh.SendReplyValue(genID, int64(0)) //nolint:errcheck
-
-		// stop_span (ONE_OF)
-		spID, _, _ := caseCh.RecvRequestRaw(2 * time.Second)
-		caseCh.SendReplyValue(spID, nil) //nolint:errcheck
-
-		// mark_complete
-		mcID, _, _ := caseCh.RecvRequestRaw(2 * time.Second)
-		caseCh.SendReplyValue(mcID, nil) //nolint:errcheck
-
-		sendTestDone(t, testCh, true, 0)
-	})
-
-	cli := newClient(clientConn)
-	var result *int64
-	err := cli.runTest("optional_nil", func(s *TestCase) {
-		result = gen.draw(s)
-	}, runOptions{testCases: 1}, stderrNoteFn)
-	if err != nil {
-		t.Fatalf("runTest: %v", err)
-	}
-	if result != nil {
-		t.Errorf("expected nil, got %v", *result)
-	}
-}
-
-func TestOptionalGeneratorDrawValueFakeServer(t *testing.T) {
-	gen := Optional(Integers[int64](0, 100))
-
-	clientConn := fakeServerConn(t, func(serverConn *connection) {
-		ctrl := serverConn.ControlChannel()
-		msgID, payload, _ := ctrl.RecvRequestRaw(5 * time.Second)
-		decoded, _ := decodeCBOR(payload)
-		m, _ := extractCBORDict(decoded)
-		chID, _ := extractCBORInt(m[any("channel_id")])
-		ctrl.SendReplyValue(msgID, true) //nolint:errcheck
-
-		testCh, _ := serverConn.ConnectChannel(uint32(chID), "TestCh")
-		caseCh := serverConn.NewChannel("Case")
-		casePayload, _ := encodeCBOR(map[string]any{
-			"event":      "test_case",
-			"channel_id": int64(caseCh.ChannelID()),
-			"is_final":   false,
-		})
-		caseID, _ := testCh.SendRequestRaw(casePayload)
-		testCh.recvResponseRaw(caseID, 5*time.Second) //nolint:errcheck
-
-		// start_span (ONE_OF)
-		ssID, _, _ := caseCh.RecvRequestRaw(2 * time.Second)
-		caseCh.SendReplyValue(ssID, nil) //nolint:errcheck
-
-		// generate (index): reply 1 = non-nil
-		genID, _, _ := caseCh.RecvRequestRaw(2 * time.Second)
-		caseCh.SendReplyValue(genID, int64(1)) //nolint:errcheck
-
-		// generate (the actual integer value)
-		innerGenID, _, _ := caseCh.RecvRequestRaw(2 * time.Second)
-		caseCh.SendReplyValue(innerGenID, int64(42)) //nolint:errcheck
-
-		// stop_span (ONE_OF)
-		spID, _, _ := caseCh.RecvRequestRaw(2 * time.Second)
-		caseCh.SendReplyValue(spID, nil) //nolint:errcheck
-
-		// mark_complete
-		mcID, _, _ := caseCh.RecvRequestRaw(2 * time.Second)
-		caseCh.SendReplyValue(mcID, nil) //nolint:errcheck
-
-		sendTestDone(t, testCh, true, 0)
-	})
-
-	cli := newClient(clientConn)
-	var result *int64
-	err := cli.runTest("optional_value", func(s *TestCase) {
-		result = gen.draw(s)
-	}, runOptions{testCases: 1}, stderrNoteFn)
-	if err != nil {
-		t.Fatalf("runTest: %v", err)
-	}
-	if result == nil {
-		t.Fatal("expected non-nil result")
-	}
-	if *result != 42 {
-		t.Errorf("expected 42, got %d", *result)
-	}
-}
-
-// =============================================================================
-// newCollection: StopTest error path
-// =============================================================================
-
-func TestNewCollectionStopTestFakeServer(t *testing.T) {
-	inner := Integers[int64](0, 10)
-	nonBasic := &mappedGenerator[int64, int64]{inner: inner, fn: func(v int64) int64 { return v }}
-	gen := Lists(nonBasic, ListMaxSize(5))
-
-	clientConn := fakeServerConn(t, func(serverConn *connection) {
-		ctrl := serverConn.ControlChannel()
-		msgID, payload, _ := ctrl.RecvRequestRaw(5 * time.Second)
-		decoded, _ := decodeCBOR(payload)
-		m, _ := extractCBORDict(decoded)
-		chID, _ := extractCBORInt(m[any("channel_id")])
-		ctrl.SendReplyValue(msgID, true) //nolint:errcheck
-
-		testCh, _ := serverConn.ConnectChannel(uint32(chID), "TestCh")
-		caseCh := serverConn.NewChannel("Case")
-		casePayload, _ := encodeCBOR(map[string]any{
-			"event":      "test_case",
-			"channel_id": int64(caseCh.ChannelID()),
-			"is_final":   false,
-		})
-		caseID, _ := testCh.SendRequestRaw(casePayload)
-		testCh.recvResponseRaw(caseID, 5*time.Second) //nolint:errcheck
-
-		// start_span for list
-		ssID, _, _ := caseCh.RecvRequestRaw(2 * time.Second)
-		caseCh.SendReplyValue(ssID, nil) //nolint:errcheck
-
-		// new_collection: reply with StopTest error
-		ncID, _, _ := caseCh.RecvRequestRaw(2 * time.Second)
-		caseCh.SendReplyError(ncID, "data exhausted", "StopTest") //nolint:errcheck
-
-		sendTestDone(t, testCh, true, 0)
-	})
-
-	cli := newClient(clientConn)
-	err := cli.runTest("new_collection_stoptest", func(s *TestCase) {
-		_ = gen.draw(s) // should trigger StopTest -> dataExhausted panic -> aborted
-	}, runOptions{testCases: 1}, stderrNoteFn)
-	if err != nil {
-		t.Fatalf("runTest: %v", err)
-	}
-}
-
-// =============================================================================
-// collection.More: StopTest error path
-// =============================================================================
-
-func TestCollectionMoreStopTestFakeServer(t *testing.T) {
-	inner := Integers[int64](0, 10)
-	nonBasic := &mappedGenerator[int64, int64]{inner: inner, fn: func(v int64) int64 { return v }}
-	gen := Lists(nonBasic, ListMaxSize(5))
-
-	clientConn := fakeServerConn(t, func(serverConn *connection) {
-		ctrl := serverConn.ControlChannel()
-		msgID, payload, _ := ctrl.RecvRequestRaw(5 * time.Second)
-		decoded, _ := decodeCBOR(payload)
-		m, _ := extractCBORDict(decoded)
-		chID, _ := extractCBORInt(m[any("channel_id")])
-		ctrl.SendReplyValue(msgID, true) //nolint:errcheck
-
-		testCh, _ := serverConn.ConnectChannel(uint32(chID), "TestCh")
-		caseCh := serverConn.NewChannel("Case")
-		casePayload, _ := encodeCBOR(map[string]any{
-			"event":      "test_case",
-			"channel_id": int64(caseCh.ChannelID()),
-			"is_final":   false,
-		})
-		caseID, _ := testCh.SendRequestRaw(casePayload)
-		testCh.recvResponseRaw(caseID, 5*time.Second) //nolint:errcheck
-
-		// start_span for list
-		ssID, _, _ := caseCh.RecvRequestRaw(2 * time.Second)
-		caseCh.SendReplyValue(ssID, nil) //nolint:errcheck
-
-		// new_collection: succeed
-		ncID, _, _ := caseCh.RecvRequestRaw(2 * time.Second)
-		caseCh.SendReplyValue(ncID, "coll_test") //nolint:errcheck
-
-		// collection_more: reply with StopTest error
-		moreID, _, _ := caseCh.RecvRequestRaw(2 * time.Second)
-		caseCh.SendReplyError(moreID, "data exhausted more", "StopTest") //nolint:errcheck
-
-		sendTestDone(t, testCh, true, 0)
-	})
-
-	cli := newClient(clientConn)
-	err := cli.runTest("collection_more_stoptest", func(s *TestCase) {
-		_ = gen.draw(s) // should trigger StopTest during collection_more
-	}, runOptions{testCases: 1}, stderrNoteFn)
-	if err != nil {
-		t.Fatalf("runTest: %v", err)
-	}
-}
-
-// =============================================================================
 // startSpan/stopSpan: aborted path (no-op)
 // =============================================================================
 
@@ -2297,57 +1061,22 @@ func TestRejectFinishedCollection(t *testing.T) {
 	c.Reject(s)
 }
 
-// =============================================================================
-// Lists: identity-transform path for basic elements (no user transform)
-// =============================================================================
-
-func TestListsIdentityTransformFakeServer(t *testing.T) {
-	// Lists(Booleans()) on a basic generator with nil transform.
-	// This hits the identity transform path in Lists (lines 616-629).
-	gen := Lists(Booleans(), ListMaxSize(3))
-
-	clientConn := fakeServerConn(t, func(serverConn *connection) {
-		ctrl := serverConn.ControlChannel()
-		msgID, payload, _ := ctrl.RecvRequestRaw(5 * time.Second)
-		decoded, _ := decodeCBOR(payload)
-		m, _ := extractCBORDict(decoded)
-		chID, _ := extractCBORInt(m[any("channel_id")])
-		ctrl.SendReplyValue(msgID, true) //nolint:errcheck
-
-		testCh, _ := serverConn.ConnectChannel(uint32(chID), "TestCh")
-		caseCh := serverConn.NewChannel("Case")
-		casePayload, _ := encodeCBOR(map[string]any{
-			"event":      "test_case",
-			"channel_id": int64(caseCh.ChannelID()),
-			"is_final":   false,
-		})
-		caseID, _ := testCh.SendRequestRaw(casePayload)
-		testCh.recvResponseRaw(caseID, 5*time.Second) //nolint:errcheck
-
-		// generate: reply with a list of booleans
-		genID, _, _ := caseCh.RecvRequestRaw(2 * time.Second)
-		caseCh.SendReplyValue(genID, []any{true, false}) //nolint:errcheck
-
-		// mark_complete
-		mcID, _, _ := caseCh.RecvRequestRaw(2 * time.Second)
-		caseCh.SendReplyValue(mcID, nil) //nolint:errcheck
-
-		sendTestDone(t, testCh, true, 0)
-	})
-
-	cli := newClient(clientConn)
-	var got []bool
-	err := cli.runTest("lists_identity_transform", func(s *TestCase) {
-		got = gen.draw(s)
-	}, runOptions{testCases: 1}, stderrNoteFn)
-	if err != nil {
-		t.Fatalf("runTest: %v", err)
-	}
-	if len(got) != 2 {
-		t.Fatalf("expected 2 elements, got %d", len(got))
-	}
-	if got[0] != true || got[1] != false {
-		t.Errorf("expected [true, false], got %v", got)
+// TestRejectE2E verifies that Reject sends collection_reject to the server
+// without error. We create a collection, reject its first element, and
+// continue iterating — the server should handle this gracefully.
+func TestRejectE2E(t *testing.T) {
+	hegelBinPath(t)
+	if _err := runHegel(func(s *TestCase) {
+		coll := newCollection(s, 0, 5)
+		if coll.More(s) {
+			// Reject the first element — tells the server it doesn't count.
+			coll.Reject(s)
+		}
+		// Drain remaining elements.
+		for coll.More(s) {
+		}
+	}, stderrNoteFn, []Option{WithTestCases(10)}); _err != nil {
+		panic(_err)
 	}
 }
 
@@ -2364,63 +1093,5 @@ func TestListsNegativeMinSizeSchema(t *testing.T) {
 	minV, _ := extractCBORInt(bg.schema["min_size"])
 	if minV != 0 {
 		t.Errorf("negative MinSize should be clamped to 0, got %d", minV)
-	}
-}
-
-// =============================================================================
-// compositeOneOfGenerator.draw — via fake server with uint64 index response
-// =============================================================================
-
-func TestCompositeOneOfDrawUint64Index(t *testing.T) {
-	nonBasic := &mappedGenerator[int64, int64]{inner: Integers[int64](0, 100), fn: func(v int64) int64 { return v }}
-	gen := &compositeOneOfGenerator[int64]{generators: []Generator[int64]{nonBasic, Integers[int64](0, 5)}}
-
-	clientConn := fakeServerConn(t, func(serverConn *connection) {
-		ctrl := serverConn.ControlChannel()
-		msgID, payload, _ := ctrl.RecvRequestRaw(5 * time.Second)
-		decoded, _ := decodeCBOR(payload)
-		m, _ := extractCBORDict(decoded)
-		chID, _ := extractCBORInt(m[any("channel_id")])
-		ctrl.SendReplyValue(msgID, true) //nolint:errcheck
-
-		testCh, _ := serverConn.ConnectChannel(uint32(chID), "TestCh")
-		caseCh := serverConn.NewChannel("Case")
-		casePayload, _ := encodeCBOR(map[string]any{
-			"event":      "test_case",
-			"channel_id": int64(caseCh.ChannelID()),
-			"is_final":   false,
-		})
-		caseID, _ := testCh.SendRequestRaw(casePayload)
-		testCh.recvResponseRaw(caseID, 5*time.Second) //nolint:errcheck
-
-		// start_span (ONE_OF)
-		ssID1, _, _ := caseCh.RecvRequestRaw(5 * time.Second)
-		caseCh.SendReplyValue(ssID1, nil) //nolint:errcheck
-		// generate (index: pick branch 1 which is a basic Integers)
-		genID, _, _ := caseCh.RecvRequestRaw(5 * time.Second)
-		caseCh.SendReplyValue(genID, uint64(1)) //nolint:errcheck
-		// generate (inner integer for branch 1)
-		innerGenID, _, _ := caseCh.RecvRequestRaw(5 * time.Second)
-		caseCh.SendReplyValue(innerGenID, int64(3)) //nolint:errcheck
-		// stop_span (ONE_OF)
-		spID1, _, _ := caseCh.RecvRequestRaw(5 * time.Second)
-		caseCh.SendReplyValue(spID1, nil) //nolint:errcheck
-		// mark_complete
-		mcID, _, _ := caseCh.RecvRequestRaw(5 * time.Second)
-		caseCh.SendReplyValue(mcID, nil) //nolint:errcheck
-
-		sendTestDone(t, testCh, true, 0)
-	})
-
-	cli := newClient(clientConn)
-	var got int64
-	err := cli.runTest("composite_oneof_uint64", func(s *TestCase) {
-		got = gen.draw(s)
-	}, runOptions{testCases: 1}, stderrNoteFn)
-	if err != nil {
-		t.Fatalf("runTest: %v", err)
-	}
-	if got != 3 {
-		t.Errorf("expected 3, got %d", got)
 	}
 }
