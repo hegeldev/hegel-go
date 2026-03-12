@@ -61,24 +61,6 @@ def get_current_version() -> str:
         return "0.0.0"
 
 
-def pin_hegel_version(runner_go: Path) -> None:
-    """Pin hegelVersion to the latest hegel-core release tag."""
-    tag = subprocess.check_output(
-        ["gh", "api", "repos/antithesishq/hegel-core/releases/latest", "--jq", ".tag_name"],
-        text=True,
-    ).strip()
-
-    text = runner_go.read_text()
-    new_text = re.sub(
-        r'^const hegelVersion = ".*"',
-        f'const hegelVersion = "{tag}"',
-        text,
-        count=1,
-        flags=re.MULTILINE,
-    )
-    runner_go.write_text(new_text)
-
-
 def add_changelog(path: Path, *, version: str, content: str) -> None:
     date = datetime.now(timezone.utc).strftime("%Y-%m-%d")
     entry = f"## {version} - {date}\n\n{content}"
@@ -143,12 +125,9 @@ def release() -> None:
 
     add_changelog(ROOT / "CHANGELOG.md", version=new_version, content=content)
 
-    runner_go = ROOT / "runner.go"
-    pin_hegel_version(runner_go)
-
     git("config", "user.name", "hegel-release[bot]", cwd=ROOT)
     git("config", "user.email", "noreply@github.com", cwd=ROOT)
-    git("add", "CHANGELOG.md", "runner.go", cwd=ROOT)
+    git("add", "CHANGELOG.md", cwd=ROOT)
     git("rm", "RELEASE.md", cwd=ROOT)
     git(
         "commit",

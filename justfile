@@ -84,5 +84,15 @@ conformance: build-conformance
     uv pip install --python .hegel/venv/bin/python pytest pytest-subtests hypothesis > /dev/null 2>&1 || true
     .hegel/venv/bin/python -m pytest tests/conformance/ -v
 
+# Update the pinned hegel-core version to the latest release.
+update-hegel-core-version:
+    #!/usr/bin/env bash
+    set -euo pipefail
+    tag=$(gh api repos/antithesishq/hegel-core/releases/latest --jq '.tag_name')
+    sed -i '' "s/^const hegelVersion = \".*\"/const hegelVersion = \"${tag}\"/" runner.go
+    echo "Updated hegelVersion to ${tag}"
+    # Clear cached install so the next test run picks up the new version
+    rm -rf .hegel/venv
+
 # Run lint + docs + test (the full CI check).
 check: lint docs test

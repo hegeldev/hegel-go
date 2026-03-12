@@ -489,18 +489,30 @@ func (s *hegelSession) start() error {
 	sockPath := filepath.Join(tmp, "hegel.sock")
 	s.socketPath = sockPath
 
-	// Spawn hegel process.
+	// Spawn hegel process, logging output to .hegel/server.log.
 	cmd := exec.Command(hegelBin, sockPath)
-	cmd.Stdout = os.Stderr
+	if err := os.MkdirAll(hegelDir, 0o755); err != nil {
+		os.RemoveAll(tmp) //nolint:errcheck
+		return fmt.Errorf("hegel: mkdir %s: %w", hegelDir, err)
+	}
+	logFile, err := os.OpenFile(filepath.Join(hegelDir, "server.log"), os.O_WRONLY|os.O_CREATE|os.O_APPEND, 0o644)
+	if err != nil {
+		os.RemoveAll(tmp) //nolint:errcheck
+		return fmt.Errorf("hegel: open server.log: %w", err)
+	}
+	cmd.Stdout = logFile
 	if s.suppressStderr {
 		cmd.Stderr = io.Discard
 	} else {
-		cmd.Stderr = os.Stderr
+		cmd.Stderr = logFile
 	}
+	cmd.Env = append(os.Environ(), "PYTHONUNBUFFERED=1")
 	if err := cmd.Start(); err != nil {
+		logFile.Close() //nolint:errcheck
 		os.RemoveAll(tmp) //nolint:errcheck
 		return fmt.Errorf("hegel: spawn: %w", err)
 	}
+	logFile.Close() //nolint:errcheck
 	s.process = cmd
 
 	// Wait for socket to appear and connect.
