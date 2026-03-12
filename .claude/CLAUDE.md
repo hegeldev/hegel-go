@@ -13,7 +13,7 @@ just build-conformance  # Compile conformance binaries to bin/conformance/
 just conformance        # Build conformance binaries + run Python conformance test suite
 ```
 
-The SDK auto-installs hegel into `.hegel/venv`. Set `HEGEL_CMD` to override with a custom binary.
+The SDK auto-installs hegel into `.hegel/venv`. Set `HEGEL_SERVER_COMMAND` to override with a custom binary.
 Tests use `PATH="$(pwd)/.hegel/venv/bin:$PATH"` (absolute path) so the `hegel` binary is found.
 
 ## What This Is
@@ -115,7 +115,7 @@ Failing to handle StopTest correctly causes `FlakyStrategyDefinition` errors.
 - **Error handling**: Return `error` for failable operations; `panic()` for truly unreachable code paths
 - **Doc comments**: Every exported symbol must have a doc comment starting with the symbol name
 - **Coverage**: 100% enforced — `scripts/check-coverage.py` runs after tests; false positives (closing braces, unreachable panics) are filtered automatically
-- **Test execution**: The SDK auto-installs hegel into `.hegel/venv`; tests use `PATH="$(pwd)/.hegel/venv/bin:$PATH"` — set `HEGEL_CMD` to override
+- **Test execution**: The SDK auto-installs hegel into `.hegel/venv`; tests use `PATH="$(pwd)/.hegel/venv/bin:$PATH"` — set `HEGEL_SERVER_COMMAND` to override
 
 ## Developer Notes
 

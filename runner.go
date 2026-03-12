@@ -592,7 +592,7 @@ func (s *hegelSession) runTest(fn testBody, opts runOptions, noteFn func(string)
 // hegelVersion is the hegel-core commit this SDK is designed to work with.
 const hegelVersion = "v0.3.3"
 
-const hegelCmdEnv = "HEGEL_CMD"
+const hegelServerCommandEnv = "HEGEL_SERVER_COMMAND"
 
 // hegelDir is the directory where the hegel venv is created.
 const hegelDir = ".hegel"
@@ -649,7 +649,7 @@ func ensureHegelInstalled() (string, error) {
 		return "", fmt.Errorf(
 			"hegel: failed to install hegel (version: %s). "+
 				"Set %s to a hegel binary path to skip installation: %w",
-			hegelVersion, hegelCmdEnv, err)
+			hegelVersion, hegelServerCommandEnv, err)
 	}
 
 	// Verify binary exists.
@@ -666,10 +666,10 @@ func ensureHegelInstalled() (string, error) {
 }
 
 // findHegel locates the hegel binary.
-// If HEGEL_CMD is set, uses that path directly.
+// If HEGEL_SERVER_COMMAND is set, uses that path directly.
 // Otherwise, ensures hegel is installed in .hegel/venv.
 func findHegel() string {
-	if override := os.Getenv(hegelCmdEnv); override != "" {
+	if override := os.Getenv(hegelServerCommandEnv); override != "" {
 		return override
 	}
 	bin, err := ensureHegelInstalled()

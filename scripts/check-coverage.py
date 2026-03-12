@@ -157,8 +157,8 @@ def _find_enclosing_function(lines: list[str], line_num: int) -> str | None:
 
 
 # Functions whose error paths are inherently untestable in CI because they
-# require external tooling (e.g. ``uv``) that is only invoked when HEGEL_CMD
-# is *not* set — and CI always sets HEGEL_CMD.
+# require external tooling (e.g. ``uv``) that is only invoked when HEGEL_SERVER_COMMAND
+# is *not* set — and CI always sets HEGEL_SERVER_COMMAND.
 _UNTESTABLE_FUNCTIONS = {"ensureHegelInstalled"}
 
 

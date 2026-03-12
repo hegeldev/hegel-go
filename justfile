@@ -4,14 +4,14 @@
 export PATH := "/usr/local/go/bin:" + env("HOME") + "/go/bin:" + env("PATH")
 
 # Install dependencies and the hegel binary.
-# If HEGEL_BINARY is set, uses that path via HEGEL_CMD instead of auto-installing.
+# If HEGEL_BINARY is set, uses that path via HEGEL_SERVER_COMMAND instead of auto-installing.
 # Otherwise, installs hegel into .hegel/venv at the version pinned in runner.go.
 setup:
     #!/usr/bin/env bash
     set -euo pipefail
     if [ -n "${HEGEL_BINARY:-}" ]; then
-        export HEGEL_CMD="$HEGEL_BINARY"
-        echo "Using HEGEL_CMD=$HEGEL_CMD"
+        export HEGEL_SERVER_COMMAND="$HEGEL_BINARY"
+        echo "Using HEGEL_SERVER_COMMAND=$HEGEL_SERVER_COMMAND"
     else
         mkdir -p .hegel
         uv venv --clear .hegel/venv

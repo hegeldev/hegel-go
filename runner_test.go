@@ -223,13 +223,13 @@ func TestTargetOutsideContext(t *testing.T) {
 	s.Target(1.0, "x")
 }
 
-// --- findHegel: HEGEL_CMD override ---
+// --- findHegel: HEGEL_SERVER_COMMAND override ---
 
 func TestFindHegelCmdOverride(t *testing.T) {
-	t.Setenv("HEGEL_CMD", "/custom/hegel")
+	t.Setenv("HEGEL_SERVER_COMMAND", "/custom/hegel")
 	result := findHegel()
 	if result != "/custom/hegel" {
-		t.Errorf("findHegel with HEGEL_CMD: got %q, want /custom/hegel", result)
+		t.Errorf("findHegel with HEGEL_SERVER_COMMAND: got %q, want /custom/hegel", result)
 	}
 }
 
@@ -619,13 +619,13 @@ func TestNoteIsFinalTrue(t *testing.T) {
 	state.Note("test note on final")
 }
 
-// --- findHegel: HEGEL_CMD takes precedence ---
+// --- findHegel: HEGEL_SERVER_COMMAND takes precedence ---
 
 func TestFindHegelCmdEnvPrecedence(t *testing.T) {
-	t.Setenv("HEGEL_CMD", "/override/hegel")
+	t.Setenv("HEGEL_SERVER_COMMAND", "/override/hegel")
 	result := findHegel()
 	if result != "/override/hegel" {
-		t.Errorf("findHegel with HEGEL_CMD: got %q, want /override/hegel", result)
+		t.Errorf("findHegel with HEGEL_SERVER_COMMAND: got %q, want /override/hegel", result)
 	}
 }
 
@@ -730,10 +730,10 @@ func TestHegelSessionRunTest(t *testing.T) {
 	}
 }
 
-// --- findHegel: returns non-empty with HEGEL_CMD ---
+// --- findHegel: returns non-empty with HEGEL_SERVER_COMMAND ---
 
 func TestFindHegelReturnsPath(t *testing.T) {
-	t.Setenv("HEGEL_CMD", "/some/hegel")
+	t.Setenv("HEGEL_SERVER_COMMAND", "/some/hegel")
 	result := findHegel()
 	if result == "" {
 		t.Error("findHegel returned empty string")
@@ -812,10 +812,10 @@ func TestRunHegelTestEProtocolModeStartError(t *testing.T) {
 	// Set HEGEL_PROTOCOL_TEST_MODE so RunHegelTestE uses a temp session.
 	t.Setenv("HEGEL_PROTOCOL_TEST_MODE", "empty_test")
 
-	// Point HEGEL_CMD at a non-existent binary so findHegel() skips
+	// Point HEGEL_SERVER_COMMAND at a non-existent binary so findHegel() skips
 	// auto-install (which would panic if uv is not available) and
 	// session.start() fails gracefully when exec fails.
-	t.Setenv("HEGEL_CMD", "/nonexistent/hegel")
+	t.Setenv("HEGEL_SERVER_COMMAND", "/nonexistent/hegel")
 
 	err := runHegel(func(_ *TestCase) {}, stderrNoteFn, []Option{WithTestCases(1)})
 	if err == nil {
@@ -868,7 +868,7 @@ func TestHegelSessionStartHandshakeError(t *testing.T) {
 	mustContainStr(t, err.Error(), "handshake")
 }
 
-// --- findHegel: HEGEL_CMD override and hegelPipSpec ---
+// --- findHegel: HEGEL_SERVER_COMMAND override and hegelPipSpec ---
 
 func TestHegelPipSpec(t *testing.T) {
 	spec := hegelPipSpec()
@@ -881,8 +881,8 @@ func TestHegelPipSpec(t *testing.T) {
 }
 
 func TestFindHegelPanicsOnError(t *testing.T) {
-	// Without HEGEL_CMD and with a bad venv dir, findHegel panics.
-	t.Setenv("HEGEL_CMD", "")
+	// Without HEGEL_SERVER_COMMAND and with a bad venv dir, findHegel panics.
+	t.Setenv("HEGEL_SERVER_COMMAND", "")
 	oldVenvDir := hegelVenvDir
 	oldVersionFile := hegelVersionFile
 	defer func() {
@@ -1070,11 +1070,11 @@ func TestHegelSessionStartMkdirFail(t *testing.T) {
 }
 
 // =============================================================================
-// findHegel — basic non-empty check with HEGEL_CMD
+// findHegel — basic non-empty check with HEGEL_SERVER_COMMAND
 // =============================================================================
 
 func TestFindHegelReturnsNonEmpty(t *testing.T) {
-	t.Setenv("HEGEL_CMD", "/test/hegel")
+	t.Setenv("HEGEL_SERVER_COMMAND", "/test/hegel")
 	result := findHegel()
 	if result == "" {
 		t.Error("findHegel should return non-empty string")

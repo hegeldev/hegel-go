@@ -10,10 +10,10 @@ The SDK automatically manages the `hegel` server binary. On first use it
 installs the pinned version into a project-local `.hegel/venv` virtualenv.
 This requires [`uv`](https://docs.astral.sh/uv/) to be installed.
 
-To use a custom binary, set `HEGEL_CMD`:
+To use a custom binary, set `HEGEL_SERVER_COMMAND`:
 
 ```bash
-export HEGEL_CMD=/path/to/hegel
+export HEGEL_SERVER_COMMAND=/path/to/hegel
 ```
 
 ## Write your first test

@@ -19,10 +19,10 @@ version of [hegel-core](https://github.com/antithesishq/hegel-core) into it.
 Subsequent runs reuse the cached binary unless the pinned version changes.
 
 To use your own `hegel` binary instead (e.g. a local development build), set
-the `HEGEL_CMD` environment variable:
+the `HEGEL_SERVER_COMMAND` environment variable:
 
 ```bash
-export HEGEL_CMD=/path/to/hegel
+export HEGEL_SERVER_COMMAND=/path/to/hegel
 ```
 
 The SDK requires [`uv`](https://docs.astral.sh/uv/) to be installed for
