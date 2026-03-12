@@ -3,13 +3,13 @@
 ## Install Hegel
 
 ```bash
-go get github.com/antithesishq/hegel-go@latest
+go get github.com/hegeldev/hegel-go@latest
 ```
 
 The SDK requires the `hegel` CLI on your PATH:
 
 ```bash
-pip install "git+ssh://git@github.com/antithesishq/hegel-core.git"
+pip install "git+ssh://git@github.com/hegeldev/hegel-core.git"
 ```
 
 ## Write your first test
@@ -23,7 +23,7 @@ package example_test
 import (
 	"testing"
 
-	hegel "github.com/antithesishq/hegel-go"
+	hegel "github.com/hegeldev/hegel-go"
 )
 
 func TestIntegers(t *testing.T) {
@@ -267,4 +267,4 @@ may still explore other regions of the input space.
 ## Next steps
 
 - Browse the [`examples/`](../examples/) directory for runnable programs.
-- Read the full API reference: `go doc github.com/antithesishq/hegel-go`
+- Read the full API reference: `go doc github.com/hegeldev/hegel-go`

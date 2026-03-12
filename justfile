@@ -13,7 +13,7 @@ setup:
         mkdir -p .venv/bin
         ln -sf "$HEGEL_BINARY" .venv/bin/hegel
     else
-        uv pip install --python .venv/bin/python --reinstall-package hegel hegel@git+ssh://git@github.com/antithesishq/hegel-core.git
+        uv pip install --python .venv/bin/python --reinstall-package hegel hegel@git+https://github.com/hegeldev/hegel-core
     fi
     # Install Go tools
     go install honnef.co/go/tools/cmd/staticcheck@latest
@@ -25,7 +25,7 @@ test:
     set -euo pipefail
     export PATH="$(pwd)/.venv/bin:$PATH"
     go test -race -coverprofile=coverage.out -covermode=atomic \
-        -coverpkg=github.com/antithesishq/hegel-go \
+        -coverpkg=github.com/hegeldev/hegel-go \
         ./...
     python3 scripts/check-coverage.py
 

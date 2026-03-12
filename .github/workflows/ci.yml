@@ -130,7 +130,7 @@ jobs:
 
   release:
     name: release
-    if: github.event_name == 'push' && github.repository == 'antithesishq/hegel-go'
+    if: github.event_name == 'push' && github.repository == 'hegeldev/hegel-go'
     needs: [lint, test, docs, conformance]
     runs-on: ubuntu-latest
     permissions:

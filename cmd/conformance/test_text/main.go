@@ -7,8 +7,8 @@ import (
 	"os"
 	"unicode/utf8"
 
-	hegel "github.com/antithesishq/hegel-go"
-	"github.com/antithesishq/hegel-go/internal/conformance"
+	hegel "github.com/hegeldev/hegel-go"
+	"github.com/hegeldev/hegel-go/internal/conformance"
 )
 
 func main() {

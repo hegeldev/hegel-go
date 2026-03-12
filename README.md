@@ -1,6 +1,6 @@
 # hegel-go
 
-A Go SDK for [Hegel](https://github.com/antithesishq/hegel-core) — universal
+A Go SDK for [Hegel](https://github.com/hegeldev/hegel-core) — universal
 property-based testing powered by [Hypothesis](https://hypothesis.works/).
 
 Hegel generates random inputs for your tests, finds failures, and automatically
@@ -9,13 +9,13 @@ shrinks them to minimal counterexamples.
 ## Installation
 
 ```bash
-go get github.com/antithesishq/hegel-go@latest
+go get github.com/hegeldev/hegel-go@latest
 ```
 
 The SDK requires the `hegel` CLI on your PATH:
 
 ```bash
-pip install "hegel @ git+ssh://git@github.com/antithesishq/hegel-core.git"
+pip install "hegel @ git+https://github.com/hegeldev/hegel-core"
 ```
 
 ## Quick Start
@@ -26,7 +26,7 @@ package mypackage_test
 import (
     "testing"
 
-    hegel "github.com/antithesishq/hegel-go"
+    hegel "github.com/hegeldev/hegel-go"
 )
 
 func TestAddCommutative(t *testing.T) {

@@ -228,7 +228,7 @@ func extractPanicOrigin(v any) string {
 }
 
 func isHegelFrame(fn string) bool {
-	return strings.HasPrefix(fn, "github.com/antithesishq/hegel-go")
+	return strings.HasPrefix(fn, "github.com/hegeldev/hegel-go")
 }
 
 // --- Client: manages a single connection's test lifecycle ---
