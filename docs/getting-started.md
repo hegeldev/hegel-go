@@ -9,7 +9,7 @@ go get github.com/hegeldev/hegel-go@latest
 The SDK requires the `hegel` CLI on your PATH:
 
 ```bash
-pip install "git+ssh://git@github.com/hegeldev/hegel-core.git"
+pip install "hegel @ https://github.com/hegeldev/hegel-core"
 ```
 
 ## Write your first test
