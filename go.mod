@@ -1,4 +1,4 @@
-module github.com/antithesishq/hegel-go
+module github.com/hegeldev/hegel-go
 
 go 1.25.0
 
