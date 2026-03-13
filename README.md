@@ -1,10 +1,9 @@
 # hegel-go
 
-A Go SDK for [Hegel](https://github.com/hegeldev/hegel-core) — universal
-property-based testing powered by [Hypothesis](https://hypothesis.works/).
-
-Hegel generates random inputs for your tests, finds failures, and automatically
-shrinks them to minimal counterexamples.
+> [!IMPORTANT]
+> If you've found this repository, congratulations! You're getting a sneak peak at an upcoming property-based testing library from [Antithesis](https://antithesis.com/), built on [Hypothesis](https://hypothesis.works/).
+>
+> We are still making rapid changes and progress.  Feel free to experiment, but don't expect stability from Hegel just yet!
 
 ## Installation
 
@@ -12,11 +11,11 @@ shrinks them to minimal counterexamples.
 go get github.com/hegeldev/hegel-go@latest
 ```
 
-The SDK requires the `hegel` CLI on your PATH:
 
-```bash
-pip install "hegel @ git+https://github.com/hegeldev/hegel-core"
-```
+Hegel requires either:
+
+* [`uv`](https://docs.astral.sh/uv/) on your system,
+* or `HEGEL_SERVER_COMMAND` set to the path of a hegel-core binary.
 
 ## Quick Start
 
@@ -40,16 +39,12 @@ func TestAddCommutative(t *testing.T) {
 }
 ```
 
-Run with `go test` as normal. Hegel by default generates 100 random input pairs
-and reports the minimal counterexample if it finds one.
-
-For a full walkthrough, see [docs/getting-started.md](docs/getting-started.md).
+See [docs/getting-started.md](docs/getting-started.md) for more.
 
 ## Development
 
 ```bash
-just setup       # Install dependencies (hegel binary + Go tools)
-just check       # Full CI: lint + docs + tests with 100% coverage
-just test        # Run tests only
-just conformance # Run cross-language conformance tests
+just setup       # install dependencies
+just test        # run tests
+just check       # run PR checks: lint + tests + docs
 ```
