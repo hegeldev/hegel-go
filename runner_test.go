@@ -120,7 +120,7 @@ func TestTargetSendsCommand(t *testing.T) {
 func TestStopTestOnGenerate(t *testing.T) {
 	hegelBinPath(t)
 	t.Setenv("HEGEL_PROTOCOL_TEST_MODE", "stop_test_on_generate")
-	// Should complete without error: SDK handles StopTest cleanly.
+	// Should complete without error: client handles StopTest cleanly.
 	if _err := runHegel(func(s *TestCase) {
 		Draw[bool](s, Booleans())
 	}, stderrNoteFn, []Option{WithTestCases(5)}); _err != nil {

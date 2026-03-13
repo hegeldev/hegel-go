@@ -1,6 +1,6 @@
-"""Conformance tests for the Hegel Go SDK.
+"""Conformance tests for Hegel for Go.
 
-These tests validate that the Go SDK correctly implements the Hegel protocol
+These tests validate that Hegel for Go correctly implements the Hegel protocol
 by running compiled Go binaries against the real hegel server and checking
 that the generated values satisfy the expected constraints.
 """
@@ -58,5 +58,5 @@ def conformance_tests() -> list:
 
 
 def test_conformance(conformance_tests, subtests):
-    """Run all conformance tests for the Go SDK."""
+    """Run all conformance tests for Hegel for Go."""
     run_conformance_tests(conformance_tests, subtests)

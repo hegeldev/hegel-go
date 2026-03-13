@@ -1,4 +1,4 @@
-# Hegel SDK for go
+# Hegel for Go
 
 ## Build Commands
 
@@ -17,20 +17,20 @@ Tests must use `PATH="$(pwd)/.venv/bin:$PATH"` (absolute path) so the `hegel` bi
 
 ## What This Is
 
-A go implementation of the Hegel property-based testing SDK. Hegel is a
+A Go implementation of the Hegel property-based testing library. Hegel is a
 universal property-based testing framework powered by Hypothesis on the backend.
-SDKs communicate with the `hegel` binary (a Python server) via Unix sockets using
+Client libraries communicate with the `hegel` binary (a Python server) via Unix sockets using
 a custom binary protocol.
 
-## SDK Architecture
+## Architecture
 
-The SDK is structured in layers, each building on the previous:
+The library is structured in layers, each building on the previous:
 
 1. **Protocol Layer** — Binary wire protocol with 20-byte header, CBOR payload, CRC32
 2. **Connection & Channels** — Unix socket multiplexing with demand-driven reader
 3. **Test Runner** — Spawns `hegel` subprocess, manages test lifecycle
 4. **Generators** — Type-safe generator abstraction, span system, collection protocol
-5. **Conformance** — Test binaries that validate SDK correctness against the framework
+5. **Conformance** — Test binaries that validate library correctness against the framework
 
 ### Key Pattern: Demand-Driven Reader
 
@@ -58,7 +58,7 @@ or sessions manually — `run_hegel_test()` is a plain free function.
 - **Use the real `hegel` binary** for integration tests. Never write a mock server.
   The real binary runs as a subprocess, so there is zero threading contention.
   In-process mocks with threads cause deadlocks — they have wasted hundreds of
-  agent turns in previous SDK generations.
+  agent turns in previous library generations.
 - **Socket pairs** (`socketpair()`) for unit testing Connection/Channel in isolation.
 
 ### HEGEL_PROTOCOL_TEST_MODE — Error Injection
@@ -77,7 +77,7 @@ trigger server-side error injection:
 
 ## Critical: StopTest Handling
 
-When the server sends StopTest, the SDK MUST:
+When the server sends StopTest, the client MUST:
 1. Raise a language-specific exception (DataExhausted/StopTest) to unwind the test body
 2. NOT send `mark_complete` after receiving StopTest
 3. Track a per-test-case `test_aborted` flag to suppress further commands

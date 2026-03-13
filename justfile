@@ -1,4 +1,4 @@
-# Hegel SDK for go
+# Hegel for Go
 # This justfile provides the standard build recipes.
 
 export PATH := "/usr/local/go/bin:" + env("HOME") + "/go/bin:" + env("PATH")
