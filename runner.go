@@ -458,6 +458,14 @@ type hegelSession struct {
 // Overridable in tests to simulate failures.
 var mkdirTempFn = os.MkdirTemp
 
+// mkdirAllFn is the function used to create directories recursively.
+// Overridable in tests to simulate failures.
+var mkdirAllFn = os.MkdirAll
+
+// openFileFn is the function used to open files.
+// Overridable in tests to simulate failures.
+var openFileFn = os.OpenFile
+
 func newHegelSession() *hegelSession {
 	return &hegelSession{}
 }
@@ -491,11 +499,11 @@ func (s *hegelSession) start() error {
 
 	// Spawn hegel process, logging output to .hegel/server.log.
 	cmd := exec.Command(hegelBin, sockPath)
-	if err := os.MkdirAll(hegelDir, 0o755); err != nil {
+	if err := mkdirAllFn(hegelDir, 0o755); err != nil {
 		os.RemoveAll(tmp) //nolint:errcheck
 		return fmt.Errorf("hegel: mkdir %s: %w", hegelDir, err)
 	}
-	logFile, err := os.OpenFile(filepath.Join(hegelDir, "server.log"), os.O_WRONLY|os.O_CREATE|os.O_APPEND, 0o644)
+	logFile, err := openFileFn(filepath.Join(hegelDir, "server.log"), os.O_WRONLY|os.O_CREATE|os.O_APPEND, 0o644)
 	if err != nil {
 		os.RemoveAll(tmp) //nolint:errcheck
 		return fmt.Errorf("hegel: open server.log: %w", err)
@@ -508,7 +516,7 @@ func (s *hegelSession) start() error {
 	}
 	cmd.Env = append(os.Environ(), "PYTHONUNBUFFERED=1")
 	if err := cmd.Start(); err != nil {
-		logFile.Close() //nolint:errcheck
+		logFile.Close()   //nolint:errcheck
 		os.RemoveAll(tmp) //nolint:errcheck
 		return fmt.Errorf("hegel: spawn: %w", err)
 	}

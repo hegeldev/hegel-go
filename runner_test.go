@@ -1070,6 +1070,48 @@ func TestHegelSessionStartMkdirFail(t *testing.T) {
 }
 
 // =============================================================================
+// hegelSession.start — MkdirAll failure for .hegel directory
+// =============================================================================
+
+func TestHegelSessionStartMkdirAllError(t *testing.T) {
+	origMkdirAll := mkdirAllFn
+	defer func() { mkdirAllFn = origMkdirAll }()
+	mkdirAllFn = func(path string, perm os.FileMode) error {
+		return fmt.Errorf("simulated mkdir failure")
+	}
+
+	sess := newHegelSession()
+	sess.hegelCmd = "/nonexistent"
+	err := sess.start()
+	if err == nil {
+		sess.cleanup()
+		t.Fatal("expected error from start when MkdirAll fails")
+	}
+	mustContainStr(t, err.Error(), "mkdir .hegel")
+}
+
+// =============================================================================
+// hegelSession.start — OpenFile failure for server.log
+// =============================================================================
+
+func TestHegelSessionStartOpenFileError(t *testing.T) {
+	origOpenFile := openFileFn
+	defer func() { openFileFn = origOpenFile }()
+	openFileFn = func(name string, flag int, perm os.FileMode) (*os.File, error) {
+		return nil, fmt.Errorf("simulated open failure")
+	}
+
+	sess := newHegelSession()
+	sess.hegelCmd = "/nonexistent"
+	err := sess.start()
+	if err == nil {
+		sess.cleanup()
+		t.Fatal("expected error from start when OpenFile fails")
+	}
+	mustContainStr(t, err.Error(), "open server.log")
+}
+
+// =============================================================================
 // findHegel — basic non-empty check with HEGEL_SERVER_COMMAND
 // =============================================================================
 
