@@ -1,4 +1,4 @@
-name: Check Release
+name: CI
 
 on:
   pull_request:
