@@ -26,6 +26,6 @@ Rework the API to integrate better with testing.T
 
 ## 0.0.1 - 2026-02-27
 
-Complete rewrite of the Go SDK with full protocol implementation, generator
+Complete rewrite with full protocol implementation, generator
 combinators, type-directed derivation, conformance tests, and getting-started
 documentation. Adds release automation.

@@ -521,7 +521,7 @@ func (s *hegelSession) start() error {
 		return fmt.Errorf("hegel: timeout waiting for hegel to start")
 	}
 
-	conn := newConnection(sock, "SDK")
+	conn := newConnection(sock, "Client")
 	version, err := conn.SendHandshakeVersion()
 	if err != nil {
 		sock.Close()       //nolint:errcheck

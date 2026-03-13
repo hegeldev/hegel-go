@@ -1,7 +1,7 @@
-// Package hegel provides a Go SDK for the Hegel property-based testing framework.
+// Package hegel provides a Go library for the Hegel property-based testing framework.
 //
 // Hegel is a universal property-based testing framework backed by Hypothesis.
-// This SDK communicates with the hegel binary.
+// This library communicates with the hegel binary.
 //
 // # Quick Start
 //
