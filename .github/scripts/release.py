@@ -126,9 +126,17 @@ def release() -> None:
 
     add_changelog(ROOT / "CHANGELOG.md", version=new_version, content=content)
 
-    git("config", "user.name", "hegel-release[bot]", cwd=ROOT)
-    app_id = os.environ["HEGEL_RELEASE_APP_ID"]
-    git("config", "user.email", f"{app_id}+hegel-release[bot]@users.noreply.github.com", cwd=ROOT)
+    app_slug = os.environ["HEGEL_RELEASE_APP_SLUG"]
+    bot_user_id = subprocess.check_output(
+        ["gh", "api", f"/users/{app_slug}[bot]", "--jq", ".id"], text=True
+    ).strip()
+    git("config", "user.name", f"{app_slug}[bot]", cwd=ROOT)
+    git(
+        "config",
+        "user.email",
+        f"{bot_user_id}+{app_slug}[bot]@users.noreply.github.com",
+        cwd=ROOT,
+    )
     git("add", "CHANGELOG.md", cwd=ROOT)
     git("rm", "RELEASE.md", cwd=ROOT)
     git(
