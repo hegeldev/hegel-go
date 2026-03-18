@@ -166,7 +166,9 @@ func Emails() Generator[string] {
 	}
 }
 
-// URLs returns a Generator that produces URL strings.
+// URLs returns a Generator that produces URL strings according to RFC3986.
+//
+// The schema is either "http" or "https".
 func URLs() Generator[string] {
 	return &basicGenerator[string]{
 		schema: map[string]any{"type": "url"},
@@ -220,13 +222,6 @@ func Dates() Generator[time.Time] {
 			}
 			return t
 		},
-	}
-}
-
-// Times returns a Generator that produces time strings (HH:MM:SS or similar).
-func Times() Generator[string] {
-	return &basicGenerator[string]{
-		schema: map[string]any{"type": "time"},
 	}
 }
 

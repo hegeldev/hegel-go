@@ -103,22 +103,6 @@ func TestDatesSchema(t *testing.T) {
 	}
 }
 
-// TestTimesSchema verifies that Times() produces the correct schema.
-func TestTimesSchema(t *testing.T) {
-	t.Parallel()
-	g := Times()
-	bg, ok := g.(*basicGenerator[string])
-	if !ok {
-		t.Fatalf("Times() should return *basicGenerator[string], got %T", g)
-	}
-	if bg.schema["type"] != "time" {
-		t.Errorf("type: expected time, got %v", bg.schema["type"])
-	}
-	if len(bg.schema) != 1 {
-		t.Errorf("Times schema should have exactly 1 key, got %d: %v", len(bg.schema), bg.schema)
-	}
-}
-
 // TestDatetimesSchema verifies that Datetimes() produces the correct schema.
 func TestDatetimesSchema(t *testing.T) {
 	t.Parallel()
@@ -211,20 +195,6 @@ func TestDatesE2E(t *testing.T) {
 		v := Draw(s, Dates())
 		if v.IsZero() {
 			panic("date is zero value")
-		}
-	}, stderrNoteFn, []Option{WithTestCases(30)}); _err != nil {
-		panic(_err)
-	}
-}
-
-// TestTimesE2E verifies that generated times contain ":".
-func TestTimesE2E(t *testing.T) {
-	t.Parallel()
-	hegelBinPath(t)
-	if _err := runHegel(func(s *TestCase) {
-		v := Draw(s, Times())
-		if !strings.Contains(v, ":") {
-			panic("time does not contain ':': " + v)
 		}
 	}, stderrNoteFn, []Option{WithTestCases(30)}); _err != nil {
 		panic(_err)
