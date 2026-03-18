@@ -1,5 +1,9 @@
 # Changelog
 
+## 0.1.1 - 2026-03-18
+
+Improve docs on URLs() and remove Times()
+
 ## 0.1.0 - 2026-03-18
 
 Allow running test cases in parallel
