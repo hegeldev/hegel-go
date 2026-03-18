@@ -28,6 +28,7 @@ func TestIntegersFullRangeE2E(t *testing.T) {
 }
 
 func TestFloatsE2E_WithBounds(t *testing.T) {
+	t.Parallel()
 	hegelBinPath(t)
 	falseBool := false
 	if _err := runHegel(func(s *TestCase) {
@@ -47,6 +48,7 @@ func TestFloatsE2E_WithBounds(t *testing.T) {
 }
 
 func TestFloatsE2E_Unbounded(t *testing.T) {
+	t.Parallel()
 	hegelBinPath(t)
 	if _err := runHegel(func(s *TestCase) {
 		// Unbounded floats may produce NaN or Inf -- any float64 is valid.
@@ -57,6 +59,7 @@ func TestFloatsE2E_Unbounded(t *testing.T) {
 }
 
 func TestFloatsE2E_OnlyMin(t *testing.T) {
+	t.Parallel()
 	hegelBinPath(t)
 	if _err := runHegel(func(s *TestCase) {
 		fv := Draw[float64](s, Floats(floatPtr(0.0), nil, nil, nil, false, false))
@@ -71,6 +74,7 @@ func TestFloatsE2E_OnlyMin(t *testing.T) {
 }
 
 func TestBooleansE2E(t *testing.T) {
+	t.Parallel()
 	hegelBinPath(t)
 	if _err := runHegel(func(s *TestCase) {
 		b := Draw[bool](s, Booleans())
@@ -84,6 +88,7 @@ func TestBooleansE2E(t *testing.T) {
 }
 
 func TestTextE2E(t *testing.T) {
+	t.Parallel()
 	hegelBinPath(t)
 	if _err := runHegel(func(s *TestCase) {
 		sv := Draw[string](s, Text(2, 8))
@@ -97,6 +102,7 @@ func TestTextE2E(t *testing.T) {
 }
 
 func TestTextE2E_Unbounded(t *testing.T) {
+	t.Parallel()
 	hegelBinPath(t)
 	if _err := runHegel(func(s *TestCase) {
 		sv := Draw[string](s, Text(0, -1))
@@ -109,6 +115,7 @@ func TestTextE2E_Unbounded(t *testing.T) {
 }
 
 func TestBinaryE2E(t *testing.T) {
+	t.Parallel()
 	hegelBinPath(t)
 	if _err := runHegel(func(s *TestCase) {
 		bv := Draw[[]byte](s, Binary(1, 10))
@@ -121,6 +128,7 @@ func TestBinaryE2E(t *testing.T) {
 }
 
 func TestBinaryE2E_Unbounded(t *testing.T) {
+	t.Parallel()
 	hegelBinPath(t)
 	if _err := runHegel(func(s *TestCase) {
 		_ = Draw[[]byte](s, Binary(0, -1))

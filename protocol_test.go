@@ -86,6 +86,7 @@ func roundtrip(t *testing.T, pkt packet) packet {
 // --- Constants ---
 
 func TestConstants(t *testing.T) {
+	t.Parallel()
 	if magic != 0x4845474C {
 		t.Errorf("magic = 0x%08X, want 0x4845474C", magic)
 	}
@@ -106,6 +107,7 @@ func TestConstants(t *testing.T) {
 // --- packet round-trip tests ---
 
 func TestPacketRoundtripBasic(t *testing.T) {
+	t.Parallel()
 	pkt := packet{ChannelID: 0, MessageID: 1, IsReply: false, Payload: []byte("hello")}
 	got := roundtrip(t, pkt)
 	if !packetsEqual(got, pkt) {
@@ -114,6 +116,7 @@ func TestPacketRoundtripBasic(t *testing.T) {
 }
 
 func TestPacketRoundtripEmptyPayload(t *testing.T) {
+	t.Parallel()
 	pkt := packet{ChannelID: 0, MessageID: 1, IsReply: false, Payload: []byte{}}
 	got := roundtrip(t, pkt)
 	if got.ChannelID != pkt.ChannelID || got.MessageID != pkt.MessageID || got.IsReply != pkt.IsReply || len(got.Payload) != 0 {
@@ -122,6 +125,7 @@ func TestPacketRoundtripEmptyPayload(t *testing.T) {
 }
 
 func TestPacketRoundtripReply(t *testing.T) {
+	t.Parallel()
 	pkt := packet{ChannelID: 1, MessageID: 42, IsReply: true, Payload: []byte("response")}
 	got := roundtrip(t, pkt)
 	if !packetsEqual(got, pkt) {
@@ -130,6 +134,7 @@ func TestPacketRoundtripReply(t *testing.T) {
 }
 
 func TestPacketRoundtripLargeChannelID(t *testing.T) {
+	t.Parallel()
 	pkt := packet{ChannelID: 0xFFFFFFFF, MessageID: 1, IsReply: false, Payload: []byte("data")}
 	got := roundtrip(t, pkt)
 	if !packetsEqual(got, pkt) {
@@ -138,6 +143,7 @@ func TestPacketRoundtripLargeChannelID(t *testing.T) {
 }
 
 func TestPacketRoundtripLargeMessageID(t *testing.T) {
+	t.Parallel()
 	pkt := packet{ChannelID: 0, MessageID: (1 << 31) - 1, IsReply: false, Payload: []byte("data")}
 	got := roundtrip(t, pkt)
 	if !packetsEqual(got, pkt) {
@@ -146,6 +152,7 @@ func TestPacketRoundtripLargeMessageID(t *testing.T) {
 }
 
 func TestPacketRoundtripBinaryPayload(t *testing.T) {
+	t.Parallel()
 	payload := make([]byte, 256)
 	for i := range payload {
 		payload[i] = byte(i)
@@ -160,6 +167,7 @@ func TestPacketRoundtripBinaryPayload(t *testing.T) {
 // --- recvExact error tests ---
 
 func TestRecvExactConnectionClosedWithPartialData(t *testing.T) {
+	t.Parallel()
 	reader, writer := socketPair(t)
 	// Send 3 bytes then close — reader will block asking for 10.
 	go func() {
@@ -176,6 +184,7 @@ func TestRecvExactConnectionClosedWithPartialData(t *testing.T) {
 }
 
 func TestRecvExactConnectionClosedNoData(t *testing.T) {
+	t.Parallel()
 	reader, writer := socketPair(t)
 	go writer.Close()
 	_, err := recvExact(reader, 10)
@@ -189,6 +198,7 @@ func TestRecvExactConnectionClosedNoData(t *testing.T) {
 }
 
 func TestRecvExactZeroBytes(t *testing.T) {
+	t.Parallel()
 	reader, _ := socketPair(t)
 	data, err := recvExact(reader, 0)
 	if err != nil {
@@ -200,6 +210,7 @@ func TestRecvExactZeroBytes(t *testing.T) {
 }
 
 func TestReadPacketInvalidMagic(t *testing.T) {
+	t.Parallel()
 	reader, writer := socketPair(t)
 	raw := makeRawPacket(0xDEADBEEF, 0, 0, 1, []byte("payload"), terminator)
 	sendRaw(writer, raw)
@@ -213,6 +224,7 @@ func TestReadPacketInvalidMagic(t *testing.T) {
 }
 
 func TestReadPacketInvalidTerminator(t *testing.T) {
+	t.Parallel()
 	reader, writer := socketPair(t)
 	raw := makeRawPacket(magic, 0, 0, 1, []byte("payload"), 0xFF)
 	sendRaw(writer, raw)
@@ -226,6 +238,7 @@ func TestReadPacketInvalidTerminator(t *testing.T) {
 }
 
 func TestReadPacketBadChecksum(t *testing.T) {
+	t.Parallel()
 	reader, writer := socketPair(t)
 	// Build a packet with a deliberately wrong checksum.
 	var badChecksum uint32 = 0x12345678
@@ -251,6 +264,7 @@ func TestReadPacketBadChecksum(t *testing.T) {
 // --- partialPacketError ---
 
 func TestPartialPacketErrorMessage(t *testing.T) {
+	t.Parallel()
 	err := &partialPacketError{"test message"}
 	if err.Error() != "test message" {
 		t.Errorf("Error() = %q, want %q", err.Error(), "test message")
@@ -258,6 +272,7 @@ func TestPartialPacketErrorMessage(t *testing.T) {
 }
 
 func TestIsPartialPacketErrorNilTarget(t *testing.T) {
+	t.Parallel()
 	err := &partialPacketError{"msg"}
 	if !isPartialPacketError(err, nil) {
 		t.Error("isPartialPacketError with nil target should return true for partialPacketError")
@@ -265,6 +280,7 @@ func TestIsPartialPacketErrorNilTarget(t *testing.T) {
 }
 
 func TestIsPartialPacketErrorFalseForOther(t *testing.T) {
+	t.Parallel()
 	err := fmt.Errorf("some other error")
 	var ppe *partialPacketError
 	if isPartialPacketError(err, &ppe) {
@@ -287,6 +303,7 @@ func (c *errConn) SetWriteDeadline(time.Time) error { return nil }
 // --- recvExact non-EOF error ---
 
 func TestRecvExactNonEOFError(t *testing.T) {
+	t.Parallel()
 	// Use a fake conn that returns a non-EOF error to hit the unhandled error branch.
 	customErr := fmt.Errorf("custom network error")
 	conn := &errConn{err: customErr}
@@ -302,6 +319,7 @@ func TestRecvExactNonEOFError(t *testing.T) {
 // --- readPacket error paths ---
 
 func TestReadPacketConnectionClosedDuringHeader(t *testing.T) {
+	t.Parallel()
 	reader, writer := socketPair(t)
 	// Close writer immediately — no header bytes sent.
 	go writer.Close()
@@ -312,6 +330,7 @@ func TestReadPacketConnectionClosedDuringHeader(t *testing.T) {
 }
 
 func TestReadPacketConnectionClosedDuringPayload(t *testing.T) {
+	t.Parallel()
 	reader, writer := socketPair(t)
 	// Send a valid header claiming 10 bytes of payload, then close.
 	go func() {
@@ -331,6 +350,7 @@ func TestReadPacketConnectionClosedDuringPayload(t *testing.T) {
 }
 
 func TestReadPacketConnectionClosedDuringTerminator(t *testing.T) {
+	t.Parallel()
 	reader, writer := socketPair(t)
 	// Send a valid header + payload (0 bytes), then close without terminator.
 	go func() {
@@ -360,6 +380,7 @@ func TestReadPacketConnectionClosedDuringTerminator(t *testing.T) {
 // --- CRC32 verification ---
 
 func TestCRC32KnownVector(t *testing.T) {
+	t.Parallel()
 	// CRC32 IEEE of empty byte slice = 0
 	if c := crc32.ChecksumIEEE([]byte{}); c != 0 {
 		t.Errorf("CRC32('') = 0x%08X, want 0", c)
@@ -371,6 +392,7 @@ func TestCRC32KnownVector(t *testing.T) {
 }
 
 func TestWritePacketProducesValidCRC(t *testing.T) {
+	t.Parallel()
 	reader, writer := socketPair(t)
 	pkt := packet{ChannelID: 5, MessageID: 10, IsReply: false, Payload: []byte("test")}
 	go func() { writePacket(writer, pkt) }() //nolint:errcheck

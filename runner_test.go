@@ -74,6 +74,7 @@ func TestRunHegelTestAllInvalid(t *testing.T) {
 // --- RunHegelTest: assume(true) -> no effect ---
 
 func TestAssumeTrue(t *testing.T) {
+	t.Parallel()
 	hegelBinPath(t)
 	if _err := runHegel(func(s *TestCase) {
 		s.Assume(true)
@@ -90,6 +91,7 @@ func TestAssumeTrue(t *testing.T) {
 // --- note(): not printed when not final ---
 
 func TestNoteNotFinal(t *testing.T) {
+	t.Parallel()
 	hegelBinPath(t)
 	// note() should not panic or error when called outside final run
 	if _err := runHegel(func(s *TestCase) {
@@ -103,6 +105,7 @@ func TestNoteNotFinal(t *testing.T) {
 // --- target(): sends target command ---
 
 func TestTargetSendsCommand(t *testing.T) {
+	t.Parallel()
 	hegelBinPath(t)
 	if _err := runHegel(func(s *TestCase) {
 		x := Draw[int](s, Integers[int](0, 100))
@@ -178,6 +181,7 @@ func TestErrorResponse(t *testing.T) {
 // --- Draw outside context: calling Draw with nil-channel state panics ---
 
 func TestDrawWithNilChannelState(t *testing.T) {
+	t.Parallel()
 	defer func() {
 		r := recover()
 		if r == nil {
@@ -191,6 +195,7 @@ func TestDrawWithNilChannelState(t *testing.T) {
 // --- Assume outside context raises ---
 
 func TestAssumeOutsideContext(t *testing.T) {
+	t.Parallel()
 	// Assume(false) on a nil *TestCase should panic.
 	defer func() {
 		r := recover()
@@ -205,6 +210,7 @@ func TestAssumeOutsideContext(t *testing.T) {
 // --- Note outside context is no-op (isFinal defaults false) ---
 
 func TestNoteOutsideContext(t *testing.T) {
+	t.Parallel()
 	// Note() on a zero-value *TestCase should not panic (isFinal=false).
 	s := &TestCase{}
 	s.Note("outside context -- safe")
@@ -213,6 +219,7 @@ func TestNoteOutsideContext(t *testing.T) {
 // --- Target outside context raises ---
 
 func TestTargetOutsideContext(t *testing.T) {
+	t.Parallel()
 	defer func() {
 		r := recover()
 		if r == nil {
@@ -226,6 +233,7 @@ func TestTargetOutsideContext(t *testing.T) {
 // --- findHegel: venv path ---
 
 func TestFindHegelInVenv(t *testing.T) {
+	t.Parallel()
 	tmp := t.TempDir()
 	binDir := tmp + "/bin"
 	os.MkdirAll(binDir, 0o755) //nolint:errcheck
@@ -259,6 +267,7 @@ func TestFindHegelVenvViaCwd(t *testing.T) {
 // --- findHegel: not in dir returns empty ---
 
 func TestFindHegelInDirMissing(t *testing.T) {
+	t.Parallel()
 	tmp := t.TempDir()
 	result := findHegelInDir(tmp)
 	if result != "" {
@@ -269,6 +278,7 @@ func TestFindHegelInDirMissing(t *testing.T) {
 // --- hegelSession: start and cleanup ---
 
 func TestHegelSessionStartAndCleanup(t *testing.T) {
+	t.Parallel()
 	hegelBinPath(t)
 	s := newHegelSession()
 	if err := s.start(); err != nil {
@@ -286,6 +296,7 @@ func TestHegelSessionStartAndCleanup(t *testing.T) {
 // --- hegelSession: cleanup with nil fields is safe ---
 
 func TestHegelSessionCleanupEmpty(t *testing.T) {
+	t.Parallel()
 	s := newHegelSession()
 	s.cleanup() // Should not panic when nothing started.
 }
@@ -293,6 +304,7 @@ func TestHegelSessionCleanupEmpty(t *testing.T) {
 // --- hegelSession: timeout when hegel doesn't appear ---
 
 func TestHegelSessionStartTimeout(t *testing.T) {
+	t.Parallel()
 	// Use `false` (exits immediately) so the socket never appears.
 	falseBin, err := exec.LookPath("false")
 	if err != nil {
@@ -311,6 +323,7 @@ func TestHegelSessionStartTimeout(t *testing.T) {
 // --- hegelSession: concurrent starts (double-checked locking) ---
 
 func TestHegelSessionConcurrentStart(t *testing.T) {
+	t.Parallel()
 	hegelBinPath(t)
 	s := newHegelSession()
 	defer s.cleanup()
@@ -388,6 +401,7 @@ func TestRunHegelTestESuccess(t *testing.T) {
 // --- WithTestCases option ---
 
 func TestWithTestCasesOption(t *testing.T) {
+	t.Parallel()
 	hegelBinPath(t)
 	count := 0
 	if _err := runHegel(func(s *TestCase) {
@@ -431,6 +445,7 @@ func TestStopTestOnNewCollection(t *testing.T) {
 // We capture whether isFinal was true via the state in the closure.
 
 func TestNoteOnFinalRun(t *testing.T) {
+	t.Parallel()
 	hegelBinPath(t)
 	noted := false
 	noteFunc := func(s *TestCase) {
@@ -453,6 +468,7 @@ func TestNoteOnFinalRun(t *testing.T) {
 // --- runTest: connection error in test function is re-raised ---
 
 func TestConnectionErrorInTestFunction(t *testing.T) {
+	t.Parallel()
 	hegelBinPath(t)
 	err := runHegel(func(_ *TestCase) {
 		panic(&connectionError{msg: "test connection lost"})
@@ -468,6 +484,7 @@ func TestConnectionErrorInTestFunction(t *testing.T) {
 // --- assumeRejected.Error() ---
 
 func TestAssumeRejectedError(t *testing.T) {
+	t.Parallel()
 	e := assumeRejected{}
 	if e.Error() != "assume rejected" {
 		t.Errorf("assumeRejected.Error() = %q", e.Error())
@@ -477,6 +494,7 @@ func TestAssumeRejectedError(t *testing.T) {
 // --- dataExhausted.Error() ---
 
 func TestDataExhaustedError(t *testing.T) {
+	t.Parallel()
 	e := &dataExhausted{msg: "exhausted"}
 	if e.Error() != "exhausted" {
 		t.Errorf("dataExhausted.Error() = %q", e.Error())
@@ -486,6 +504,7 @@ func TestDataExhaustedError(t *testing.T) {
 // --- connectionError.Error() ---
 
 func TestConnectionErrorError(t *testing.T) {
+	t.Parallel()
 	e := &connectionError{msg: "conn lost"}
 	if e.Error() != "conn lost" {
 		t.Errorf("connectionError.Error() = %q", e.Error())
@@ -495,6 +514,7 @@ func TestConnectionErrorError(t *testing.T) {
 // --- aborted flag: set directly on state ---
 
 func TestAbortedFlagDirect(t *testing.T) {
+	t.Parallel()
 	state := &TestCase{}
 	state.aborted = true
 	if !state.aborted {
@@ -505,6 +525,7 @@ func TestAbortedFlagDirect(t *testing.T) {
 // --- generateFromSchema: connection error (Request fails) ---
 
 func TestGenerateFromSchemaConnectionError(t *testing.T) {
+	t.Parallel()
 	s, c := socketPair(t)
 	conn := newConnection(s, "C")
 	c.Close()
@@ -535,6 +556,7 @@ func TestGenerateFromSchemaConnectionError(t *testing.T) {
 // --- Target: error path when Request fails ---
 
 func TestTargetConnectionError(t *testing.T) {
+	t.Parallel()
 	s, _ := socketPair(t)
 	conn := newConnection(s, "C")
 	conn.state = stateClient
@@ -572,6 +594,7 @@ func TestIsHegelFrame(t *testing.T) {
 // --- extractPanicOrigin: non-error value ---
 
 func TestExtractPanicOriginNonError(t *testing.T) {
+	t.Parallel()
 	origin := extractPanicOrigin("just a string")
 	// Should include the type (string) and file info.
 	if origin == "" {
@@ -582,6 +605,7 @@ func TestExtractPanicOriginNonError(t *testing.T) {
 // --- extractPanicOrigin: error value ---
 
 func TestExtractPanicOriginError(t *testing.T) {
+	t.Parallel()
 	origin := extractPanicOrigin(errors.New("test"))
 	if origin == "" {
 		t.Error("expected non-empty origin from extractPanicOrigin with error")
@@ -591,6 +615,7 @@ func TestExtractPanicOriginError(t *testing.T) {
 // --- Note: isFinal=true prints to stderr ---
 
 func TestNoteIsFinalTrue(t *testing.T) {
+	t.Parallel()
 	state := &TestCase{isFinal: true, noteFn: stderrNoteFn}
 	// Should not panic.
 	state.Note("test note on final")
@@ -599,6 +624,7 @@ func TestNoteIsFinalTrue(t *testing.T) {
 // --- findHegel: fallback when not in venv or PATH ---
 
 func TestFindHegelFallback(t *testing.T) {
+	t.Parallel()
 	// findHegel should return "hegel" as fallback when nothing found.
 	// We can't easily test this without mocking, but we can test findHegelInDir.
 	result := findHegelInDir("/nonexistent/path")
@@ -610,6 +636,7 @@ func TestFindHegelFallback(t *testing.T) {
 // --- hegelSession: start with spawn error ---
 
 func TestHegelSessionSpawnError(t *testing.T) {
+	t.Parallel()
 	s := newHegelSession()
 	s.hegelCmd = "/nonexistent/binary/that/does/not/exist"
 	err := s.start()
@@ -622,6 +649,7 @@ func TestHegelSessionSpawnError(t *testing.T) {
 // --- hegelSession: cleanup with erroring close ---
 
 func TestHegelSessionCleanupWithErrors(t *testing.T) {
+	t.Parallel()
 	s := newHegelSession()
 	// Set conn to a closed connection so Close() might error.
 	sc, cc := socketPair(t)
@@ -694,6 +722,7 @@ func TestRunHegelTestECallsRunTest(t *testing.T) {
 // --- hegelSession.runTest: covered via integration ---
 
 func TestHegelSessionRunTest(t *testing.T) {
+	t.Parallel()
 	hegelBinPath(t)
 	s := newHegelSession()
 	defer s.cleanup()
@@ -711,6 +740,7 @@ func TestHegelSessionRunTest(t *testing.T) {
 // --- findHegel: uses cwd venv or PATH ---
 
 func TestFindHegel(t *testing.T) {
+	t.Parallel()
 	// Just verify it returns a non-empty string.
 	result := findHegel()
 	if result == "" {
@@ -721,6 +751,7 @@ func TestFindHegel(t *testing.T) {
 // --- hegelSession.start: double-checked locking (inner check) ---
 
 func TestHegelSessionStartInnerCheck(t *testing.T) {
+	t.Parallel()
 	hegelBinPath(t)
 	s := newHegelSession()
 	defer s.cleanup()
@@ -738,6 +769,7 @@ func TestHegelSessionStartInnerCheck(t *testing.T) {
 // --- hegelSession.start: hegelCmd field used ---
 
 func TestHegelSessionStartHegelCmd(t *testing.T) {
+	t.Parallel()
 	hegelBinPath(t)
 	path, _ := exec.LookPath("hegel")
 	s := newHegelSession()
@@ -751,6 +783,7 @@ func TestHegelSessionStartHegelCmd(t *testing.T) {
 // --- hegelSession.cleanup: conn/process/tempDir paths via integration ---
 
 func TestHegelSessionCleanupAllPaths(t *testing.T) {
+	t.Parallel()
 	hegelBinPath(t)
 	s := newHegelSession()
 	if err := s.start(); err != nil {
@@ -772,12 +805,14 @@ func TestHegelSessionCleanupAllPaths(t *testing.T) {
 // --- runTest: multi-interesting, single error (len(errs)==1 branch) ---
 
 func TestRunTestMultiInterestingSingleError(t *testing.T) {
+	t.Parallel()
 	t.Skip("len(errs)==1 in multi-interesting is unreachable when nInteresting>1")
 }
 
 // --- extractPanicOrigin: all frames are hegel frames ---
 
 func TestExtractPanicOriginAllHegelFrames(t *testing.T) {
+	t.Parallel()
 	origin := extractPanicOrigin("test panic")
 	if origin == "" {
 		t.Error("expected non-empty origin")
@@ -825,6 +860,7 @@ func TestHegelSessionStartMkdirTempError(t *testing.T) {
 // --- hegelSession.start: handshake error ---
 
 func TestHegelSessionStartHandshakeError(t *testing.T) {
+	t.Parallel()
 	// Write a fake hegel binary that creates the socket, accepts one connection,
 	// sends bad handshake data, then exits. This causes SendHandshakeVersion to fail.
 	tmp := t.TempDir()
@@ -879,6 +915,7 @@ func TestFindHegelLookPathAndFallback(t *testing.T) {
 // =============================================================================
 
 func TestFatalSentinelError(t *testing.T) {
+	t.Parallel()
 	f := fatalSentinel{msg: "test fatal"}
 	if f.Error() != "test fatal" {
 		t.Errorf("got %q", f.Error())
@@ -890,6 +927,7 @@ func TestFatalSentinelError(t *testing.T) {
 // =============================================================================
 
 func TestToInt64Int64(t *testing.T) {
+	t.Parallel()
 	v, ok := toInt64(int64(-7))
 	if !ok || v != -7 {
 		t.Errorf("got %d, %v", v, ok)
@@ -897,6 +935,7 @@ func TestToInt64Int64(t *testing.T) {
 }
 
 func TestToInt64Uint64(t *testing.T) {
+	t.Parallel()
 	v, ok := toInt64(uint64(42))
 	if !ok || v != 42 {
 		t.Errorf("got %d, %v", v, ok)
@@ -904,6 +943,7 @@ func TestToInt64Uint64(t *testing.T) {
 }
 
 func TestToInt64Invalid(t *testing.T) {
+	t.Parallel()
 	_, ok := toInt64("not a number")
 	if ok {
 		t.Error("expected false for invalid type")
@@ -1040,10 +1080,26 @@ func TestHegelSessionStartMkdirFail(t *testing.T) {
 // =============================================================================
 
 func TestFindHegelReturnsNonEmpty(t *testing.T) {
+	t.Parallel()
 	result := findHegel()
 	if result == "" {
 		t.Error("findHegel should return non-empty string")
 	}
+}
+
+// --- runTest: SendControlRequest error (closed connection) ---
+
+func TestRunTestSendControlRequestError(t *testing.T) {
+	t.Parallel()
+	conn, remote := clientConnPair(t)
+	remote.Close()
+
+	cl := newClient(conn)
+	err := cl.runTest(func(_ *TestCase) {}, runOptions{testCases: 1}, stderrNoteFn)
+	if err == nil {
+		t.Fatal("expected error from runTest on closed conn")
+	}
+	mustContainStr(t, err.Error(), "run_test send")
 }
 
 // --- helpers ---

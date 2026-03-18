@@ -234,9 +234,10 @@ func isHegelFrame(fn string) bool {
 // --- Client: manages a single connection's test lifecycle ---
 
 // client wraps a connection for running property tests.
+// Multiple goroutines may call runTest concurrently — each call creates its
+// own test channel and the underlying connection multiplexes via channels.
 type client struct {
 	conn *connection
-	mu   sync.Mutex // serializes runTest calls
 }
 
 func newClient(conn *connection) *client {
@@ -245,11 +246,6 @@ func newClient(conn *connection) *client {
 
 // runTest executes one property test against the server.
 func (c *client) runTest(fn testBody, opts runOptions, noteFn func(string)) error {
-	// Serialize the entire test run — the control channel and connection
-	// are not thread-safe for concurrent access across goroutines.
-	c.mu.Lock()
-	defer c.mu.Unlock()
-
 	testCh := c.conn.NewChannel("Test")
 
 	payload, err := encodeCBOR(map[string]any{
@@ -261,13 +257,8 @@ func (c *client) runTest(fn testBody, opts runOptions, noteFn func(string)) erro
 		panic(fmt.Sprintf("hegel: runTest encode: %v", err)) //nocov
 	}
 
-	ctrl := c.conn.ControlChannel()
-	pending, err := ctrl.Request(payload)
-	if err != nil { //nocov
-		return fmt.Errorf("hegel: run_test send: %w", err) //nocov
-	}
-	if _, err := pending.Get(); err != nil { //nocov
-		return fmt.Errorf("hegel: run_test ack: %w", err) //nocov
+	if _, err := c.conn.SendControlRequest(payload); err != nil {
+		return fmt.Errorf("hegel: run_test send: %w", err)
 	}
 
 	// Event loop.
@@ -443,6 +434,7 @@ func (c *client) runTestCase(ch *channel, fn testBody, isFinal bool, noteFn func
 // --- Session: manages the hegel subprocess ---
 
 // hegelSession manages a shared hegel subprocess for the entire test suite.
+// Concurrent Run() calls multiplex over a single connection via channels.
 type hegelSession struct {
 	mu             sync.Mutex
 	conn           *connection
@@ -462,15 +454,12 @@ func newHegelSession() *hegelSession {
 	return &hegelSession{}
 }
 
-func (s *hegelSession) hasWorkingClient() bool {
-	return s.cli != nil && s.conn != nil && s.conn.Live()
-}
-
 // start starts the hegel subprocess and connects to it (idempotent).
 func (s *hegelSession) start() error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	if s.hasWorkingClient() {
+
+	if s.conn != nil {
 		return nil
 	}
 
