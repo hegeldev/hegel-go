@@ -1,5 +1,9 @@
 # Changelog
 
+## 0.1.0 - 2026-03-18
+
+Allow running test cases in parallel
+
 ## 0.0.2 - 2026-03-12
 
 Remove requirement to pass test name in `runHegel`.
