@@ -1,4 +1,5 @@
 import argparse
+import os
 import re
 import subprocess
 from datetime import datetime, timezone
@@ -125,8 +126,17 @@ def release() -> None:
 
     add_changelog(ROOT / "CHANGELOG.md", version=new_version, content=content)
 
-    git("config", "user.name", "hegel-release[bot]", cwd=ROOT)
-    git("config", "user.email", "noreply@github.com", cwd=ROOT)
+    app_slug = os.environ["HEGEL_RELEASE_APP_SLUG"]
+    bot_user_id = subprocess.check_output(
+        ["gh", "api", f"/users/{app_slug}[bot]", "--jq", ".id"], text=True
+    ).strip()
+    git("config", "user.name", f"{app_slug}[bot]", cwd=ROOT)
+    git(
+        "config",
+        "user.email",
+        f"{bot_user_id}+{app_slug}[bot]@users.noreply.github.com",
+        cwd=ROOT,
+    )
     git("add", "CHANGELOG.md", cwd=ROOT)
     git("rm", "RELEASE.md", cwd=ROOT)
     git(
