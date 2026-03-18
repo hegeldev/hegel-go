@@ -13,7 +13,7 @@ setup:
         mkdir -p .venv/bin
         ln -sf "$HEGEL_BINARY" .venv/bin/hegel
     else
-        uv pip install --python .venv/bin/python --reinstall-package hegel-core
+        uv pip install --python .venv/bin/python --reinstall-package hegel-core hegel-core
     fi
     # Install Go tools
     go install honnef.co/go/tools/cmd/staticcheck@latest
