@@ -6,7 +6,6 @@ import (
 	"net"
 	"strings"
 	"sync"
-	"sync/atomic"
 	"time"
 )
 
@@ -19,7 +18,7 @@ const handshakePrefix = "Hegel/"
 // handshakeRequest is the fixed bytes sent by the client to initiate a handshake.
 var handshakeRequest = []byte("hegel_handshake_start")
 
-// shutdownSentinel is placed in a channel's inbox to signal connection close.
+// shutdownSentinel is placed in a channel's inbox to signal that it was closed.
 var shutdownSentinel = &struct{}{}
 
 // connectionState tracks whether the connection has performed a handshake.
@@ -30,21 +29,21 @@ const (
 	stateClient
 )
 
-// connection manages a multiplexed socket with a demand-driven reader.
+// connection manages a multiplexed socket with a dedicated reader goroutine.
 // It is safe to call Close from any goroutine; all other methods must be called
-// from a single goroutine per connection (the reader lock provides ordering).
+// from a single goroutine per connection.
 type connection struct {
-	name    string
-	conn    net.Conn
-	running atomic.Bool
+	name string
+	conn net.Conn
 
 	nextChannelID int
 	channels      map[uint32]*channel
 	state         connectionState
 
 	writerMu sync.Mutex
-	readerMu sync.Mutex
+	done     chan struct{}
 
+	controlMu sync.Mutex
 	controlCh *channel
 }
 
@@ -56,26 +55,30 @@ func newConnection(conn net.Conn, name string) *connection {
 		channels:      make(map[uint32]*channel),
 		state:         stateUnresolved,
 		nextChannelID: 1, // first real channel counter (matches Python's __next_channel_id = 1)
+		done:          make(chan struct{}),
 	}
-	c.running.Store(true)
 	// channel 0 is the control channel; it is pre-registered before any handshake.
-	c.controlCh = &channel{
-		conn:          c,
-		channelID:     0,
-		inbox:         make(chan any, 64),
-		nextMessageID: 1,
-	}
+	c.controlCh = newChannel(c, 0, name)
 	c.channels[0] = c.controlCh
+	go c.readLoop()
 	return c
-}
-
-// Live reports whether the connection is still open.
-func (c *connection) Live() bool {
-	return c.running.Load()
 }
 
 // ControlChannel returns the channel used for handshake and control messages.
 func (c *connection) ControlChannel() *channel { return c.controlCh }
+
+// SendControlRequest sends a request on the control channel and waits for the
+// response. Access is serialized so concurrent callers don't race on the
+// control channel's internal state.
+func (c *connection) SendControlRequest(payload []byte) (any, error) {
+	c.controlMu.Lock()
+	defer c.controlMu.Unlock()
+	pending, err := c.controlCh.Request(payload)
+	if err != nil {
+		return nil, err
+	}
+	return pending.Get()
+}
 
 // SendPacket sends a packet to the peer. It is safe to call concurrently.
 func (c *connection) SendPacket(pkt packet) error {
@@ -84,67 +87,26 @@ func (c *connection) SendPacket(pkt packet) error {
 	return writePacket(c.conn, pkt)
 }
 
-// Close shuts down the connection and signals all channels.
+// Close shuts down the connection. Closing the socket causes readLoop to exit,
+// which closes the done channel and wakes all waiters.
 func (c *connection) Close() {
-	c.writerMu.Lock()
-	if !c.running.Load() {
-		c.writerMu.Unlock()
-		return
-	}
-	c.running.Store(false)
-	channels := make([]*channel, 0, len(c.channels))
-	for _, ch := range c.channels {
-		channels = append(channels, ch)
-	}
-	c.writerMu.Unlock()
-
 	// Shut down the socket to unblock any pending reads.
 	if tc, ok := c.conn.(interface{ CloseRead() error }); ok {
 		tc.CloseRead() //nolint:errcheck
 	}
-	c.conn.Close() //nolint:errcheck
 
-	// Signal all channel inboxes so waiters unblock.
-	for _, ch := range channels {
-		ch.putInbox(shutdownSentinel)
-	}
+	_ = c.conn.Close()
+	<-c.done
 }
 
-// runReader is the demand-driven reader loop.
-// It reads packets from the socket and dispatches them to the correct channel's inbox
-// until the until() predicate returns true, the connection closes, or a short timeout elapses.
-func (c *connection) runReader(until func() bool) {
-	if until() {
-		return
-	}
-	acquired := false
-	defer func() {
-		if acquired {
-			c.readerMu.Unlock()
-		}
-	}()
-
+// readLoop continuously reads packets from the socket and dispatches them.
+// It exits when readPacket returns an error (e.g. the socket was closed).
+func (c *connection) readLoop() {
+	defer c.conn.Close()
+	defer close(c.done)
 	for {
-		acquired = c.readerMu.TryLock()
-		if acquired {
-			break
-		}
-		if until() {
-			return
-		}
-		time.Sleep(time.Millisecond)
-	}
-
-	for c.running.Load() && !until() {
-		// Set a short deadline so we can re-check until() periodically.
-		c.conn.SetReadDeadline(time.Now().Add(100 * time.Millisecond)) //nolint:errcheck
 		pkt, err := readPacket(c.conn)
-		c.conn.SetReadDeadline(time.Time{}) //nolint:errcheck
 		if err != nil {
-			if isTimeout(err) {
-				continue
-			}
-			// connection error — stop reading.
 			return
 		}
 		c.dispatch(pkt)
@@ -158,7 +120,9 @@ func (c *connection) dispatch(pkt packet) {
 	c.writerMu.Unlock()
 
 	if bytes.Equal(pkt.Payload, closeChannelPayload) && pkt.MessageID == closeChannelMessageID {
-		// channel close notification — remove the channel.
+		if ok && ch != nil {
+			ch.putInbox(shutdownSentinel)
+		}
 		c.writerMu.Lock()
 		delete(c.channels, pkt.ChannelID)
 		c.writerMu.Unlock()
@@ -183,17 +147,6 @@ func (c *connection) dispatch(pkt packet) {
 		return
 	}
 	ch.putInbox(pkt)
-}
-
-// isTimeout reports whether err is a network timeout.
-func isTimeout(err error) bool {
-	if err == nil {
-		return false
-	}
-	if ne, ok := err.(net.Error); ok {
-		return ne.Timeout()
-	}
-	return false
 }
 
 // SendHandshake performs the client side of the handshake and discards the version.
@@ -242,13 +195,7 @@ func (c *connection) NewChannel(name string) *channel {
 	channelID := uint32((c.nextChannelID << 1) | 1)
 	c.nextChannelID++
 
-	ch := &channel{
-		conn:          c,
-		channelID:     channelID,
-		inbox:         make(chan any, 64),
-		nextMessageID: 1,
-		name:          name,
-	}
+	ch := newChannel(c, channelID, name)
 	c.channels[channelID] = ch
 	return ch
 }
@@ -265,13 +212,7 @@ func (c *connection) ConnectChannel(id uint32, name string) (*channel, error) {
 		return nil, fmt.Errorf("channel already connected as channel %d", id)
 	}
 
-	ch := &channel{
-		conn:          c,
-		channelID:     id,
-		inbox:         make(chan any, 64),
-		nextMessageID: 1,
-		name:          name,
-	}
+	ch := newChannel(c, id, name)
 	c.channels[id] = ch
 	return ch, nil
 }
@@ -317,6 +258,8 @@ type channel struct {
 	conn          *connection
 	channelID     uint32
 	inbox         chan any
+	droppedOnce   sync.Once
+	dropped       chan struct{} // indicates that a message was dropped at some point
 	nextMessageID uint32
 	responses     map[uint32][]byte
 	requests      []packet
@@ -324,15 +267,34 @@ type channel struct {
 	name          string
 }
 
+func newChannel(c *connection, id uint32, name string) *channel {
+	return &channel{
+		conn:          c,
+		channelID:     id,
+		inbox:         make(chan any, 64),
+		dropped:       make(chan struct{}),
+		nextMessageID: 1,
+		name:          name,
+	}
+}
+
+func (ch *channel) String() string {
+	if ch.name != "" {
+		return fmt.Sprintf("channel %d (%s)", ch.channelID, ch.name)
+	}
+	return fmt.Sprintf("channel %d", ch.channelID)
+}
+
 // ChannelID returns the numeric ID of this channel.
 func (ch *channel) ChannelID() uint32 { return ch.channelID }
 
-// putInbox delivers a value (packet or shutdownSentinel) to the channel's inbox.
+// putInbox delivers a packet to the channel's inbox.
 func (ch *channel) putInbox(v any) {
 	select {
 	case ch.inbox <- v:
 	default:
-		// Drop if full — shouldn't happen with a generous buffer.
+		// Panic if full — shouldn't happen with a generous buffer.
+		ch.droppedOnce.Do(func() { close(ch.dropped) })
 	}
 }
 
@@ -341,14 +303,14 @@ func (ch *channel) Close() {
 	if ch.closed {
 		return
 	}
+	ch.closed = true
+
 	// Check if this channel is still registered (not already removed by the peer).
 	ch.conn.writerMu.Lock()
 	registered := ch.conn.channels[ch.channelID] == ch
-	live := ch.conn.running.Load()
 	ch.conn.writerMu.Unlock()
 
-	ch.closed = true
-	if registered && live {
+	if registered {
 		// Send asynchronously: write may block if the reader isn't consuming yet.
 		go ch.conn.SendPacket(packet{ //nolint:errcheck
 			ChannelID: ch.channelID,
@@ -464,50 +426,42 @@ func (ch *channel) ReceiveResponse(msgID uint32, timeout time.Duration) (any, er
 	return resultOrError(m)
 }
 
-// processOneMessage calls runReader until the channel's inbox has something,
-// then dequeues and routes it.
+// processOneMessage waits for a packet on the channel's inbox and routes it.
 func (ch *channel) processOneMessage(timeout time.Duration) error {
-	start := time.Now()
-	needsMessages := func() bool {
-		return ch.closed || len(ch.inbox) > 0 ||
-			(timeout > 0 && time.Since(start) > timeout)
-	}
-
-	ch.conn.runReader(needsMessages)
-
 	if ch.closed {
-		return fmt.Errorf("%s is closed", ch.channelName())
+		return fmt.Errorf("%s is closed", ch)
 	}
 
+	var timeoutCh <-chan time.Time
+	if timeout > 0 {
+		timeoutCh = time.After(timeout)
+	}
+
+	var pkt packet
 	select {
 	case item := <-ch.inbox:
 		if item == shutdownSentinel {
-			return fmt.Errorf("connection closed")
+			ch.closed = true
+			return fmt.Errorf("%s was closed", ch)
 		}
-		pkt := item.(packet)
-		if pkt.IsReply {
-			if ch.responses == nil {
-				ch.responses = make(map[uint32][]byte)
-			}
-			ch.responses[pkt.MessageID] = pkt.Payload
-		} else {
-			ch.requests = append(ch.requests, pkt)
-		}
-		return nil
-	default:
-		// Nothing arrived — must be timeout.
-		if timeout > 0 && time.Since(start) >= timeout {
-			return fmt.Errorf("timed out after %v waiting for a message on %s", timeout, ch.channelName())
-		}
-		return fmt.Errorf("timed out waiting for a message on %s", ch.channelName())
+		pkt = item.(packet)
+	case <-ch.dropped:
+		panic(fmt.Errorf("%s: dropped a message", ch))
+	case <-ch.conn.done:
+		return fmt.Errorf("connection closed")
+	case <-timeoutCh:
+		return fmt.Errorf("timed out after %v waiting for a message on %s", timeout, ch)
 	}
-}
 
-func (ch *channel) channelName() string {
-	if ch.name != "" {
-		return ch.name
+	if pkt.IsReply {
+		if ch.responses == nil {
+			ch.responses = make(map[uint32][]byte)
+		}
+		ch.responses[pkt.MessageID] = pkt.Payload
+	} else {
+		ch.requests = append(ch.requests, pkt)
 	}
-	return fmt.Sprintf("channel %d", ch.channelID)
+	return nil
 }
 
 // Request sends a request and returns a pendingRequest future.
@@ -533,7 +487,7 @@ func (p *pendingRequest) Get() (any, error) {
 	if p.done {
 		return p.value, p.err
 	}
-	v, err := p.ch.ReceiveResponse(p.msgID, 10*time.Second)
+	v, err := p.ch.ReceiveResponse(p.msgID, 100*time.Second)
 	p.value = v
 	p.err = err
 	p.done = true

@@ -16,6 +16,7 @@ import (
 // TestDictsBasicSchema verifies that Dicts with two basic generators produces
 // a basicGenerator with a dict schema containing the expected fields.
 func TestDictsBasicSchema(t *testing.T) {
+	t.Parallel()
 	keys := Text(0, 5)
 	vals := Integers[int64](0, 100)
 	gen := Dicts(keys, vals, DictMaxSize(3))
@@ -52,6 +53,7 @@ func TestDictsBasicSchema(t *testing.T) {
 
 // TestDictsBasicSchemaNoMaxSize verifies that when HasMaxSize=false, max_size is omitted.
 func TestDictsBasicSchemaNoMaxSize(t *testing.T) {
+	t.Parallel()
 	gen := Dicts(Text(0, 5), Integers[int64](0, 100), DictMinSize(1))
 	bg, ok := gen.(*basicGenerator[map[string]int64])
 	if !ok {
@@ -64,6 +66,7 @@ func TestDictsBasicSchemaNoMaxSize(t *testing.T) {
 
 // TestDictsBasicSchemaMinSize verifies that MinSize is propagated to the schema.
 func TestDictsBasicSchemaMinSize(t *testing.T) {
+	t.Parallel()
 	gen := Dicts(Text(0, 5), Integers[int64](0, 100), DictMinSize(2), DictMaxSize(5))
 	bg, ok := gen.(*basicGenerator[map[string]int64])
 	if !ok {
@@ -77,6 +80,7 @@ func TestDictsBasicSchemaMinSize(t *testing.T) {
 
 // TestDictsBasicIsBasicGenerator verifies basicGenerator path via type assertion.
 func TestDictsBasicIsBasicGenerator(t *testing.T) {
+	t.Parallel()
 	gen := Dicts(Text(0, 5), Integers[int64](0, 100))
 	if _, ok := gen.(*basicGenerator[map[string]int64]); !ok {
 		t.Errorf("Dicts(basic,basic) should be *basicGenerator[map[string]int64], got %T", gen)
@@ -85,6 +89,7 @@ func TestDictsBasicIsBasicGenerator(t *testing.T) {
 
 // TestDictsCompositeIsNotBasicGenerator verifies compositeDictGenerator is not a basicGenerator.
 func TestDictsCompositeIsNotBasicGenerator(t *testing.T) {
+	t.Parallel()
 	// Use a non-basic key generator (mappedGenerator wrapping a basic generator)
 	nonBasicKeys := &mappedGenerator[int64, int64]{
 		inner: Integers[int64](0, 10),
@@ -98,6 +103,7 @@ func TestDictsCompositeIsNotBasicGenerator(t *testing.T) {
 
 // TestDictsCompositeMap verifies that Map on a compositeDictGenerator returns a mappedGenerator.
 func TestDictsCompositeMap(t *testing.T) {
+	t.Parallel()
 	nonBasicKeys := &mappedGenerator[int64, int64]{
 		inner: Integers[int64](0, 10),
 		fn:    func(v int64) int64 { return v },
@@ -115,6 +121,7 @@ func TestDictsCompositeMap(t *testing.T) {
 
 // TestPairsToMapNoTransform verifies pairsToMap converts pairs to a map with no transforms.
 func TestPairsToMapNoTransform(t *testing.T) {
+	t.Parallel()
 	pairs := []any{
 		[]any{"a", int64(1)},
 		[]any{"b", int64(2)},
@@ -130,6 +137,7 @@ func TestPairsToMapNoTransform(t *testing.T) {
 
 // TestPairsToMapWithKeyTransform verifies that the key transform is applied.
 func TestPairsToMapWithKeyTransform(t *testing.T) {
+	t.Parallel()
 	pairs := []any{
 		[]any{"hello", int64(1)},
 	}
@@ -145,6 +153,7 @@ func TestPairsToMapWithKeyTransform(t *testing.T) {
 
 // TestPairsToMapWithValTransform verifies that the value transform is applied.
 func TestPairsToMapWithValTransform(t *testing.T) {
+	t.Parallel()
 	pairs := []any{
 		[]any{"x", int64(5)},
 	}
@@ -160,6 +169,7 @@ func TestPairsToMapWithValTransform(t *testing.T) {
 
 // TestPairsToMapBothTransforms verifies both key and value transforms are applied.
 func TestPairsToMapBothTransforms(t *testing.T) {
+	t.Parallel()
 	pairs := []any{
 		[]any{"k", int64(3)},
 	}
@@ -176,6 +186,7 @@ func TestPairsToMapBothTransforms(t *testing.T) {
 
 // TestPairsToMapNonSliceInput verifies pairsToMap handles non-slice input gracefully.
 func TestPairsToMapNonSliceInput(t *testing.T) {
+	t.Parallel()
 	// If the server sends something unexpected, return an empty map.
 	result := pairsToMap[string, int64]("not a slice", nil, nil)
 	if len(result) != 0 {
@@ -185,6 +196,7 @@ func TestPairsToMapNonSliceInput(t *testing.T) {
 
 // TestPairsToMapShortPair verifies that short pairs (len < 2) are skipped.
 func TestPairsToMapShortPair(t *testing.T) {
+	t.Parallel()
 	pairs := []any{
 		[]any{"only_key"}, // only one element -- skip
 		[]any{"a", int64(1)},
@@ -197,6 +209,7 @@ func TestPairsToMapShortPair(t *testing.T) {
 
 // TestPairsToMapNonSlicePair verifies that non-slice pair entries are skipped.
 func TestPairsToMapNonSlicePair(t *testing.T) {
+	t.Parallel()
 	pairs := []any{
 		"not a pair",
 		[]any{"a", int64(1)},
@@ -251,6 +264,7 @@ func TestDictsStopTestOnCollectionMore(t *testing.T) {
 // TestDictsBasicE2E verifies the basic Dicts generator produces maps with
 // string keys and integer values within bounds.
 func TestDictsBasicE2E(t *testing.T) {
+	t.Parallel()
 	hegelBinPath(t)
 	if _err := runHegel(func(s *TestCase) {
 		gen := Dicts(Text(0, 5), Integers[int](0, 100), DictMaxSize(3))
@@ -274,6 +288,7 @@ func TestDictsBasicE2E(t *testing.T) {
 // TestDictsBasicWithBoundsE2E verifies that Dicts with min_size/max_size constraints
 // produces maps with the right number of entries.
 func TestDictsBasicWithBoundsE2E(t *testing.T) {
+	t.Parallel()
 	hegelBinPath(t)
 	if _err := runHegel(func(s *TestCase) {
 		gen := Dicts(Integers[int](0, 10), Booleans(), DictMinSize(1), DictMaxSize(3))
@@ -312,6 +327,7 @@ func TestDictsCompositeNoMaxE2E(t *testing.T) {
 // TestDictsCompositeE2E verifies the composite Dicts generator (non-basic keys)
 // produces valid maps.
 func TestDictsCompositeE2E(t *testing.T) {
+	t.Parallel()
 	hegelBinPath(t)
 	if _err := runHegel(func(s *TestCase) {
 		// mappedGenerator makes this non-basic -> composite path

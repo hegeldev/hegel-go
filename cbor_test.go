@@ -30,6 +30,7 @@ func cborDecodeAny(t *testing.T, b []byte) any {
 // --- CBOR round-trip ---
 
 func TestCBORRoundtripInt(t *testing.T) {
+	t.Parallel()
 	for _, v := range []int64{0, 1, -1, 127, -128, 1<<31 - 1, -(1 << 31)} {
 		b := cborEncode(t, v)
 		var got int64
@@ -43,6 +44,7 @@ func TestCBORRoundtripInt(t *testing.T) {
 }
 
 func TestCBORRoundtripString(t *testing.T) {
+	t.Parallel()
 	for _, v := range []string{"", "hello", "unicode: \u00e9", "a longer string with spaces"} {
 		b := cborEncode(t, v)
 		var got string
@@ -56,6 +58,7 @@ func TestCBORRoundtripString(t *testing.T) {
 }
 
 func TestCBORRoundtripBool(t *testing.T) {
+	t.Parallel()
 	for _, v := range []bool{true, false} {
 		b := cborEncode(t, v)
 		var got bool
@@ -69,6 +72,7 @@ func TestCBORRoundtripBool(t *testing.T) {
 }
 
 func TestCBORRoundtripFloat(t *testing.T) {
+	t.Parallel()
 	for _, v := range []float64{0.0, 1.5, -3.14, 1e100} {
 		b := cborEncode(t, v)
 		var got float64
@@ -82,6 +86,7 @@ func TestCBORRoundtripFloat(t *testing.T) {
 }
 
 func TestCBORRoundtripBytes(t *testing.T) {
+	t.Parallel()
 	v := []byte{0x00, 0xFF, 0x42, 0xAB}
 	b := cborEncode(t, v)
 	var got []byte
@@ -99,6 +104,7 @@ func TestCBORRoundtripBytes(t *testing.T) {
 }
 
 func TestCBORRoundtripNull(t *testing.T) {
+	t.Parallel()
 	b := cborEncode(t, nil)
 	var got any
 	if err := cbor.Unmarshal(b, &got); err != nil {
@@ -110,6 +116,7 @@ func TestCBORRoundtripNull(t *testing.T) {
 }
 
 func TestCBORRoundtripList(t *testing.T) {
+	t.Parallel()
 	v := []any{int64(1), "two", true}
 	b := cborEncode(t, v)
 	var got []any
@@ -122,6 +129,7 @@ func TestCBORRoundtripList(t *testing.T) {
 }
 
 func TestCBORRoundtripDict(t *testing.T) {
+	t.Parallel()
 	v := map[string]any{"key": "value", "num": int64(42)}
 	b := cborEncode(t, v)
 	var got map[string]any
@@ -134,6 +142,7 @@ func TestCBORRoundtripDict(t *testing.T) {
 }
 
 func TestCBORRoundtripNested(t *testing.T) {
+	t.Parallel()
 	v := []any{map[string]any{"x": int64(1)}, map[string]any{"y": []any{int64(2), int64(3)}}}
 	b := cborEncode(t, v)
 	var got []any
@@ -148,6 +157,7 @@ func TestCBORRoundtripNested(t *testing.T) {
 // --- CBOR extractor helper tests ---
 
 func TestExtractCBORInt(t *testing.T) {
+	t.Parallel()
 	decoded := cborDecodeAny(t, cborEncode(t, int64(42)))
 	v, err := extractCBORInt(decoded)
 	if err != nil {
@@ -159,6 +169,7 @@ func TestExtractCBORInt(t *testing.T) {
 }
 
 func TestExtractCBORIntWrongType(t *testing.T) {
+	t.Parallel()
 	decoded := cborDecodeAny(t, cborEncode(t, "not an int"))
 	_, err := extractCBORInt(decoded)
 	if err == nil {
@@ -167,6 +178,7 @@ func TestExtractCBORIntWrongType(t *testing.T) {
 }
 
 func TestExtractCBORFloat(t *testing.T) {
+	t.Parallel()
 	decoded := cborDecodeAny(t, cborEncode(t, 3.14))
 	v, err := extractCBORFloat(decoded)
 	if err != nil {
@@ -178,6 +190,7 @@ func TestExtractCBORFloat(t *testing.T) {
 }
 
 func TestExtractCBORFloatFromInt(t *testing.T) {
+	t.Parallel()
 	// Integers should also be extractable as floats (common protocol pattern)
 	decoded := cborDecodeAny(t, cborEncode(t, int64(7)))
 	v, err := extractCBORFloat(decoded)
@@ -190,6 +203,7 @@ func TestExtractCBORFloatFromInt(t *testing.T) {
 }
 
 func TestExtractCBORFloatWrongType(t *testing.T) {
+	t.Parallel()
 	decoded := cborDecodeAny(t, cborEncode(t, "not a float"))
 	_, err := extractCBORFloat(decoded)
 	if err == nil {
@@ -198,6 +212,7 @@ func TestExtractCBORFloatWrongType(t *testing.T) {
 }
 
 func TestExtractCBORString(t *testing.T) {
+	t.Parallel()
 	decoded := cborDecodeAny(t, cborEncode(t, "hello"))
 	v, err := extractCBORString(decoded)
 	if err != nil {
@@ -209,6 +224,7 @@ func TestExtractCBORString(t *testing.T) {
 }
 
 func TestExtractCBORStringWrongType(t *testing.T) {
+	t.Parallel()
 	decoded := cborDecodeAny(t, cborEncode(t, int64(42)))
 	_, err := extractCBORString(decoded)
 	if err == nil {
@@ -217,6 +233,7 @@ func TestExtractCBORStringWrongType(t *testing.T) {
 }
 
 func TestExtractCBORBool(t *testing.T) {
+	t.Parallel()
 	decoded := cborDecodeAny(t, cborEncode(t, true))
 	v, err := extractCBORBool(decoded)
 	if err != nil {
@@ -228,6 +245,7 @@ func TestExtractCBORBool(t *testing.T) {
 }
 
 func TestExtractCBORBoolWrongType(t *testing.T) {
+	t.Parallel()
 	decoded := cborDecodeAny(t, cborEncode(t, int64(1)))
 	_, err := extractCBORBool(decoded)
 	if err == nil {
@@ -236,6 +254,7 @@ func TestExtractCBORBoolWrongType(t *testing.T) {
 }
 
 func TestExtractCBORBytes(t *testing.T) {
+	t.Parallel()
 	decoded := cborDecodeAny(t, cborEncode(t, []byte{0xDE, 0xAD}))
 	v, err := extractCBORBytes(decoded)
 	if err != nil {
@@ -247,6 +266,7 @@ func TestExtractCBORBytes(t *testing.T) {
 }
 
 func TestExtractCBORBytesWrongType(t *testing.T) {
+	t.Parallel()
 	decoded := cborDecodeAny(t, cborEncode(t, "not bytes"))
 	_, err := extractCBORBytes(decoded)
 	if err == nil {
@@ -255,6 +275,7 @@ func TestExtractCBORBytesWrongType(t *testing.T) {
 }
 
 func TestExtractCBORList(t *testing.T) {
+	t.Parallel()
 	decoded := cborDecodeAny(t, cborEncode(t, []any{int64(1), int64(2)}))
 	v, err := extractCBORList(decoded)
 	if err != nil {
@@ -266,6 +287,7 @@ func TestExtractCBORList(t *testing.T) {
 }
 
 func TestExtractCBORListWrongType(t *testing.T) {
+	t.Parallel()
 	decoded := cborDecodeAny(t, cborEncode(t, "not a list"))
 	_, err := extractCBORList(decoded)
 	if err == nil {
@@ -274,6 +296,7 @@ func TestExtractCBORListWrongType(t *testing.T) {
 }
 
 func TestExtractCBORDict(t *testing.T) {
+	t.Parallel()
 	decoded := cborDecodeAny(t, cborEncode(t, map[string]any{"k": "v"}))
 	v, err := extractCBORDict(decoded)
 	if err != nil {
@@ -285,6 +308,7 @@ func TestExtractCBORDict(t *testing.T) {
 }
 
 func TestExtractCBORDictWrongType(t *testing.T) {
+	t.Parallel()
 	decoded := cborDecodeAny(t, cborEncode(t, int64(42)))
 	_, err := extractCBORDict(decoded)
 	if err == nil {
@@ -293,6 +317,7 @@ func TestExtractCBORDictWrongType(t *testing.T) {
 }
 
 func TestExtractCBORNullInput(t *testing.T) {
+	t.Parallel()
 	// Each extractor with nil input should return an error
 	if _, err := extractCBORInt(nil); err == nil {
 		t.Error("extractCBORInt(nil): expected error")
@@ -320,6 +345,7 @@ func TestExtractCBORNullInput(t *testing.T) {
 // --- decodeCBOR / encodeCBOR ---
 
 func TestDecodeCBOR(t *testing.T) {
+	t.Parallel()
 	b := cborEncode(t, int64(99))
 	v, err := decodeCBOR(b)
 	if err != nil {
@@ -332,6 +358,7 @@ func TestDecodeCBOR(t *testing.T) {
 }
 
 func TestDecodeCBORError(t *testing.T) {
+	t.Parallel()
 	// 0xFF is not valid CBOR (break code without indefinite-length context)
 	_, err := decodeCBOR([]byte{0xFF})
 	if err == nil {
@@ -340,6 +367,7 @@ func TestDecodeCBORError(t *testing.T) {
 }
 
 func TestEncodeCBOR(t *testing.T) {
+	t.Parallel()
 	b, err := encodeCBOR("hello")
 	if err != nil {
 		t.Fatalf("encodeCBOR: %v", err)
@@ -352,6 +380,7 @@ func TestEncodeCBOR(t *testing.T) {
 // --- Additional extractor branches ---
 
 func TestExtractCBORIntUint64(t *testing.T) {
+	t.Parallel()
 	// Directly pass a uint64 (positive CBOR integers decode as uint64 in fxamacker).
 	v, err := extractCBORInt(uint64(42))
 	if err != nil {
@@ -363,6 +392,7 @@ func TestExtractCBORIntUint64(t *testing.T) {
 }
 
 func TestExtractCBORFloatFloat32(t *testing.T) {
+	t.Parallel()
 	v, err := extractCBORFloat(float32(1.5))
 	if err != nil {
 		t.Fatalf("extractCBORFloat(float32): %v", err)
@@ -373,6 +403,7 @@ func TestExtractCBORFloatFloat32(t *testing.T) {
 }
 
 func TestExtractCBORFloatUint64(t *testing.T) {
+	t.Parallel()
 	v, err := extractCBORFloat(uint64(10))
 	if err != nil {
 		t.Fatalf("extractCBORFloat(uint64): %v", err)
@@ -383,6 +414,7 @@ func TestExtractCBORFloatUint64(t *testing.T) {
 }
 
 func TestExtractCBORDictStringKeyed(t *testing.T) {
+	t.Parallel()
 	// Directly pass a map[string]any to test that branch.
 	input := map[string]any{"key": "value"}
 	m, err := extractCBORDict(input)
@@ -395,6 +427,7 @@ func TestExtractCBORDictStringKeyed(t *testing.T) {
 }
 
 func TestExtractCBORIntNegative(t *testing.T) {
+	t.Parallel()
 	// Negative CBOR integers decode as int64 in fxamacker/cbor.
 	// Pass int64 directly to ensure the case int64: branch is exercised.
 	v, err := extractCBORInt(int64(-42))
@@ -407,6 +440,7 @@ func TestExtractCBORIntNegative(t *testing.T) {
 }
 
 func TestExtractCBORFloatNegativeInt(t *testing.T) {
+	t.Parallel()
 	// Negative integers come as int64 from CBOR decode.
 	// Pass int64 directly to exercise the case int64: branch in extractCBORFloat.
 	v, err := extractCBORFloat(int64(-3))
@@ -419,6 +453,7 @@ func TestExtractCBORFloatNegativeInt(t *testing.T) {
 }
 
 func TestEncodeCBORError(t *testing.T) {
+	t.Parallel()
 	// Functions cannot be CBOR-encoded; this exercises the error return path.
 	_, err := encodeCBOR(func() {})
 	if err == nil {

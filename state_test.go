@@ -18,6 +18,7 @@ func makeFakeT(t *testing.T) *T {
 // =============================================================================
 
 func TestTFatalPanicsWithSentinel(t *testing.T) {
+	t.Parallel()
 	ht := makeFakeT(t)
 	defer func() {
 		r := recover()
@@ -36,6 +37,7 @@ func TestTFatalPanicsWithSentinel(t *testing.T) {
 }
 
 func TestTFatalfPanicsWithSentinel(t *testing.T) {
+	t.Parallel()
 	ht := makeFakeT(t)
 	defer func() {
 		r := recover()
@@ -54,6 +56,7 @@ func TestTFatalfPanicsWithSentinel(t *testing.T) {
 }
 
 func TestTFailNowPanicsWithSentinel(t *testing.T) {
+	t.Parallel()
 	ht := makeFakeT(t)
 	defer func() {
 		r := recover()
@@ -76,6 +79,7 @@ func TestTFailNowPanicsWithSentinel(t *testing.T) {
 // =============================================================================
 
 func TestTSkipPanicsWithAssumeRejected(t *testing.T) {
+	t.Parallel()
 	ht := makeFakeT(t)
 	defer func() {
 		r := recover()
@@ -90,6 +94,7 @@ func TestTSkipPanicsWithAssumeRejected(t *testing.T) {
 }
 
 func TestTSkipfPanicsWithAssumeRejected(t *testing.T) {
+	t.Parallel()
 	ht := makeFakeT(t)
 	defer func() {
 		r := recover()
@@ -104,6 +109,7 @@ func TestTSkipfPanicsWithAssumeRejected(t *testing.T) {
 }
 
 func TestTSkipNowPanicsWithAssumeRejected(t *testing.T) {
+	t.Parallel()
 	ht := makeFakeT(t)
 	defer func() {
 		r := recover()
@@ -122,6 +128,7 @@ func TestTSkipNowPanicsWithAssumeRejected(t *testing.T) {
 // =============================================================================
 
 func TestTErrorSetsFailedAndCallsNote(t *testing.T) {
+	t.Parallel()
 	ht := makeFakeT(t)
 	// Make state final so Note actually fires (verify no panic).
 	ht.TestCase.isFinal = true
@@ -137,6 +144,7 @@ func TestTErrorSetsFailedAndCallsNote(t *testing.T) {
 }
 
 func TestTErrorfSetsFailedAndCallsNote(t *testing.T) {
+	t.Parallel()
 	ht := makeFakeT(t)
 	ht.TestCase.isFinal = true
 	noted := false
@@ -155,6 +163,7 @@ func TestTErrorfSetsFailedAndCallsNote(t *testing.T) {
 // =============================================================================
 
 func TestTFailSetsFailed(t *testing.T) {
+	t.Parallel()
 	ht := makeFakeT(t)
 	if ht.Failed() {
 		t.Error("expected Failed() to be false initially")
@@ -170,6 +179,7 @@ func TestTFailSetsFailed(t *testing.T) {
 // =============================================================================
 
 func TestTLogCallsNote(t *testing.T) {
+	t.Parallel()
 	ht := makeFakeT(t)
 	ht.TestCase.isFinal = true
 	var gotMsg string
@@ -181,6 +191,7 @@ func TestTLogCallsNote(t *testing.T) {
 }
 
 func TestTLogfCallsNote(t *testing.T) {
+	t.Parallel()
 	ht := makeFakeT(t)
 	ht.TestCase.isFinal = true
 	var gotMsg string
@@ -196,6 +207,7 @@ func TestTLogfCallsNote(t *testing.T) {
 // =============================================================================
 
 func TestTRunPanics(t *testing.T) {
+	t.Parallel()
 	ht := makeFakeT(t)
 	defer func() {
 		r := recover()

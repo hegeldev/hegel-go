@@ -14,6 +14,7 @@ import (
 // --- Map free function on basicGenerator: no existing transform ---
 
 func TestBasicGeneratorMapNoTransform(t *testing.T) {
+	t.Parallel()
 	schema := map[string]any{"type": "boolean"}
 	g := &basicGenerator[bool]{schema: schema}
 	mapped := Map[bool, string](g, func(v bool) string {
@@ -38,6 +39,7 @@ func TestBasicGeneratorMapNoTransform(t *testing.T) {
 // --- Map free function on basicGenerator: compose transforms ---
 
 func TestBasicGeneratorMapComposesTransforms(t *testing.T) {
+	t.Parallel()
 	schema := map[string]any{"type": "integer"}
 	g := &basicGenerator[int64]{
 		schema:    schema,
@@ -61,6 +63,7 @@ func TestBasicGeneratorMapComposesTransforms(t *testing.T) {
 // --- Map on basicGenerator inner returns basicGenerator ---
 
 func TestMappedGeneratorMapOnBasicInner(t *testing.T) {
+	t.Parallel()
 	inner := &basicGenerator[int64]{schema: map[string]any{"type": "integer"}, transform: func(v any) int64 { return extractInt(v) }}
 	// Map on basicGenerator returns basicGenerator.
 	result := Map[int64, int64](inner, func(v int64) int64 { return v })
@@ -103,6 +106,7 @@ func TestCollectionStopTestOnCollectionMore(t *testing.T) {
 // =============================================================================
 
 func TestLabelConstants(t *testing.T) {
+	t.Parallel()
 	cases := []struct {
 		name string
 		val  spanLabel
@@ -138,6 +142,7 @@ func TestLabelConstants(t *testing.T) {
 // =============================================================================
 
 func TestIntegersGeneratorHappyPath(t *testing.T) {
+	t.Parallel()
 	hegelBinPath(t)
 	var vals []int64
 	if _err := runHegel(func(s *TestCase) {
@@ -157,6 +162,7 @@ func TestIntegersGeneratorHappyPath(t *testing.T) {
 // --- Integers: schema is correct ---
 
 func TestIntegersSchema(t *testing.T) {
+	t.Parallel()
 	g := Integers[int64](-5, 5)
 	bg, ok := g.(*basicGenerator[int64])
 	if !ok {
@@ -181,6 +187,7 @@ func TestIntegersSchema(t *testing.T) {
 
 // TestJustSchema verifies that Just produces a schema with "const" key.
 func TestJustSchema(t *testing.T) {
+	t.Parallel()
 	g := Just(42)
 	bg := g.(*basicGenerator[int])
 	if _, hasConst := bg.schema["const"]; !hasConst {
@@ -194,6 +201,7 @@ func TestJustSchema(t *testing.T) {
 
 // TestJustTransformIgnoresInput verifies that Just always returns the constant value.
 func TestJustTransformIgnoresInput(t *testing.T) {
+	t.Parallel()
 	g := Just("hello")
 	bg := g.(*basicGenerator[string])
 	// transform should ignore the server value and always return "hello"
@@ -209,6 +217,7 @@ func TestJustTransformIgnoresInput(t *testing.T) {
 
 // TestJustE2E verifies that Just always generates the constant value against the real server.
 func TestJustE2E(t *testing.T) {
+	t.Parallel()
 	hegelBinPath(t)
 	if _err := runHegel(func(s *TestCase) {
 		v := Draw[int](s, Just(42))
@@ -222,6 +231,7 @@ func TestJustE2E(t *testing.T) {
 
 // TestJustNonPrimitive verifies that Just works with non-primitive values (pointer identity).
 func TestJustNonPrimitive(t *testing.T) {
+	t.Parallel()
 	hegelBinPath(t)
 	type myStruct struct{ x int }
 	val := &myStruct{x: 99}
@@ -241,6 +251,7 @@ func TestJustNonPrimitive(t *testing.T) {
 
 // TestSampledFromEmptyPanics verifies that SampledFrom panics for empty slice.
 func TestSampledFromEmptyPanics(t *testing.T) {
+	t.Parallel()
 	defer func() {
 		if r := recover(); r == nil {
 			t.Error("SampledFrom([]) should panic")
@@ -251,6 +262,7 @@ func TestSampledFromEmptyPanics(t *testing.T) {
 
 // TestSampledFromSchema verifies that SampledFrom produces an integer schema with correct bounds.
 func TestSampledFromSchema(t *testing.T) {
+	t.Parallel()
 	g := SampledFrom([]string{"a", "b", "c"})
 	bg := g.(*basicGenerator[string])
 	if bg.schema["type"] != "integer" {
@@ -269,6 +281,7 @@ func TestSampledFromSchema(t *testing.T) {
 // TestSampledFromTransformMapsIndices verifies that the transform correctly maps
 // integer indices to the corresponding elements.
 func TestSampledFromTransformMapsIndices(t *testing.T) {
+	t.Parallel()
 	items := []string{"x", "y", "z"}
 	g := SampledFrom(items)
 	bg := g.(*basicGenerator[string])
@@ -283,6 +296,7 @@ func TestSampledFromTransformMapsIndices(t *testing.T) {
 
 // TestSampledFromSingleElement verifies that a single-element slice always returns that element.
 func TestSampledFromSingleElement(t *testing.T) {
+	t.Parallel()
 	hegelBinPath(t)
 	if _err := runHegel(func(s *TestCase) {
 		v := Draw[string](s, SampledFrom([]string{"only"}))
@@ -297,6 +311,7 @@ func TestSampledFromSingleElement(t *testing.T) {
 // TestSampledFromE2E verifies that SampledFrom only returns elements from the list
 // and that all elements appear (with enough test cases).
 func TestSampledFromE2E(t *testing.T) {
+	t.Parallel()
 	hegelBinPath(t)
 	choices := []string{"apple", "banana", "cherry"}
 	seen := map[string]bool{}
@@ -327,6 +342,7 @@ func TestSampledFromE2E(t *testing.T) {
 // TestSampledFromNonPrimitive verifies that SampledFrom preserves pointer identity
 // for non-primitive values.
 func TestSampledFromNonPrimitive(t *testing.T) {
+	t.Parallel()
 	hegelBinPath(t)
 	type myStruct struct{ x int }
 	obj1 := &myStruct{x: 1}
@@ -347,6 +363,7 @@ func TestSampledFromNonPrimitive(t *testing.T) {
 
 // TestFromRegexSchema verifies that FromRegex produces the correct schema.
 func TestFromRegexSchema(t *testing.T) {
+	t.Parallel()
 	g := FromRegex(`\d+`, true)
 	bg := g.(*basicGenerator[string])
 	if bg.schema["type"] != "regex" {
@@ -362,6 +379,7 @@ func TestFromRegexSchema(t *testing.T) {
 
 // TestFromRegexFullmatchFalse verifies that fullmatch=false is stored correctly.
 func TestFromRegexFullmatchFalse(t *testing.T) {
+	t.Parallel()
 	g := FromRegex(`abc`, false)
 	bg := g.(*basicGenerator[string])
 	if bg.schema["fullmatch"] != false {
@@ -371,6 +389,7 @@ func TestFromRegexFullmatchFalse(t *testing.T) {
 
 // TestFromRegexE2E verifies that FromRegex generates strings that match the pattern.
 func TestFromRegexE2E(t *testing.T) {
+	t.Parallel()
 	hegelBinPath(t)
 	// Only digits, 1-5 chars
 	if _err := runHegel(func(s *TestCase) {
@@ -410,6 +429,7 @@ func TestBasicGeneratorGenerateErrorResponse(t *testing.T) {
 // =============================================================================
 
 func TestGeneratorMapOnNonBasic(t *testing.T) {
+	t.Parallel()
 	// A custom generator that is not a basicGenerator.
 	schema := map[string]any{"type": "integer"}
 	inner := &basicGenerator[int64]{schema: schema, transform: func(v any) int64 { return extractInt(v) }}
@@ -429,6 +449,7 @@ func TestGeneratorMapOnNonBasic(t *testing.T) {
 // TestMapBasicGeneratorE2E verifies that mapping Integers[int](0,100) by doubling
 // always produces even values in [0, 200], and the result is still a basicGenerator.
 func TestMapBasicGeneratorE2E(t *testing.T) {
+	t.Parallel()
 	hegelBinPath(t)
 	gen := Map[int, int](Integers[int](0, 100), func(v int) int {
 		return v * 2
@@ -454,6 +475,7 @@ func TestMapBasicGeneratorE2E(t *testing.T) {
 // preserves the basicGenerator type and composes the transforms correctly.
 // Integers[int](0,100).Map(x+1).Map(x*2): result must be even, in [2, 202].
 func TestMapChainedBasicGeneratorE2E(t *testing.T) {
+	t.Parallel()
 	hegelBinPath(t)
 	gen := Map[int, int](
 		Map[int, int](Integers[int](0, 100), func(v int) int { return v + 1 }),
@@ -481,6 +503,7 @@ func TestMapChainedBasicGeneratorE2E(t *testing.T) {
 // wraps it in a MAPPED span and applies the transform correctly.
 // The result must be a mappedGenerator (not basicGenerator).
 func TestMapNonBasicGeneratorE2E(t *testing.T) {
+	t.Parallel()
 	hegelBinPath(t)
 	// Create a non-basic generator by wrapping a basicGenerator in mappedGenerator.
 	inner := Integers[int](1, 5)
@@ -507,6 +530,7 @@ func TestMapNonBasicGeneratorE2E(t *testing.T) {
 
 // TestMapSchemaPreservedUnit verifies unit-level schema properties of Map on basicGenerator.
 func TestMapSchemaPreservedUnit(t *testing.T) {
+	t.Parallel()
 	base := Integers[int64](0, 100)
 	mapped := Map[int64, int64](base, func(v int64) int64 { return v })
 	bg, ok := mapped.(*basicGenerator[int64])
@@ -566,6 +590,7 @@ func TestMapSchemaPreservedUnit(t *testing.T) {
 // TestFilteredGeneratorFromBasicIsNotBasic verifies that Filter on a basicGenerator
 // returns a filteredGenerator (not a basicGenerator).
 func TestFilteredGeneratorFromBasicIsNotBasic(t *testing.T) {
+	t.Parallel()
 	g := Filter[int64](Integers[int64](0, 100), func(v int64) bool { return true })
 	if _, ok := g.(*filteredGenerator[int64]); !ok {
 		t.Fatalf("Filter on basicGenerator should return *filteredGenerator[int64], got %T", g)
@@ -575,6 +600,7 @@ func TestFilteredGeneratorFromBasicIsNotBasic(t *testing.T) {
 // TestFilteredGeneratorFilterMethod verifies that calling Filter on a filteredGenerator
 // returns another filteredGenerator.
 func TestFilteredGeneratorFilterMethod(t *testing.T) {
+	t.Parallel()
 	g := Filter[int64](
 		Filter[int64](Integers[int64](0, 100), func(v int64) bool { return true }),
 		func(v int64) bool { return true },
@@ -587,6 +613,7 @@ func TestFilteredGeneratorFilterMethod(t *testing.T) {
 // TestFilteredGeneratorMapMethod verifies that calling Map on a filteredGenerator
 // returns a mappedGenerator.
 func TestFilteredGeneratorMapMethod(t *testing.T) {
+	t.Parallel()
 	g := Filter[int64](Integers[int64](0, 100), func(v int64) bool { return true })
 	mapped := Map[int64, int64](g, func(v int64) int64 { return v })
 	if _, ok := mapped.(*mappedGenerator[int64, int64]); !ok {
@@ -597,6 +624,7 @@ func TestFilteredGeneratorMapMethod(t *testing.T) {
 // TestFilteredGeneratorE2EAlwaysPasses verifies an e2e filter with a predicate
 // that values greater than 50.
 func TestFilteredGeneratorE2EAlwaysPasses(t *testing.T) {
+	t.Parallel()
 	hegelBinPath(t)
 	if _err := runHegel(func(s *TestCase) {
 		gen := Filter[int](Integers[int](0, 100), func(v int) bool {
@@ -613,6 +641,7 @@ func TestFilteredGeneratorE2EAlwaysPasses(t *testing.T) {
 
 // TestFilteredGeneratorE2EEvenNumbers verifies filter for even numbers.
 func TestFilteredGeneratorE2EEvenNumbers(t *testing.T) {
+	t.Parallel()
 	hegelBinPath(t)
 	if _err := runHegel(func(s *TestCase) {
 		gen := Filter[int](Integers[int](0, 10), func(v int) bool {
@@ -629,6 +658,7 @@ func TestFilteredGeneratorE2EEvenNumbers(t *testing.T) {
 
 // TestFilterOnNonBasicGenerators verifies that Filter works on non-basic generators.
 func TestFilterOnNonBasicGenerators(t *testing.T) {
+	t.Parallel()
 	// mappedGenerator.Filter
 	mg := &mappedGenerator[int64, int64]{inner: Integers[int64](0, 5), fn: func(v int64) int64 { return v }}
 	fg := Filter[int64](mg, func(v int64) bool { return true })
@@ -663,6 +693,7 @@ func TestFilterOnNonBasicGenerators(t *testing.T) {
 
 // TestBooleansSchema verifies that Booleans produces a schema with type=boolean.
 func TestBooleansSchema(t *testing.T) {
+	t.Parallel()
 	g := Booleans()
 	bg, ok := g.(*basicGenerator[bool])
 	if !ok {
@@ -675,6 +706,7 @@ func TestBooleansSchema(t *testing.T) {
 
 // TestTextSchema verifies that Text produces the correct schema structure.
 func TestTextSchema(t *testing.T) {
+	t.Parallel()
 	g := Text(3, 10)
 	bg, ok := g.(*basicGenerator[string])
 	if !ok {
@@ -699,6 +731,7 @@ func TestTextSchema(t *testing.T) {
 
 // TestTextSchemaNoMax verifies that Text with maxSize<0 omits max_size from schema.
 func TestTextSchemaNoMax(t *testing.T) {
+	t.Parallel()
 	g := Text(0, -1)
 	bg := g.(*basicGenerator[string])
 	if _, hasMax := bg.schema["max_size"]; hasMax {
@@ -712,6 +745,7 @@ func TestTextSchemaNoMax(t *testing.T) {
 
 // TestBinarySchema verifies that Binary produces the correct schema structure.
 func TestBinarySchema(t *testing.T) {
+	t.Parallel()
 	g := Binary(1, 20)
 	bg, ok := g.(*basicGenerator[[]byte])
 	if !ok {
@@ -736,6 +770,7 @@ func TestBinarySchema(t *testing.T) {
 
 // TestBinarySchemaNoMax verifies that Binary with maxSize<0 omits max_size from schema.
 func TestBinarySchemaNoMax(t *testing.T) {
+	t.Parallel()
 	g := Binary(0, -1)
 	bg := g.(*basicGenerator[[]byte])
 	if _, hasMax := bg.schema["max_size"]; hasMax {
@@ -745,6 +780,7 @@ func TestBinarySchemaNoMax(t *testing.T) {
 
 // TestFloatsSchemaWithBounds verifies that Floats with explicit bounds sets all schema fields.
 func TestFloatsSchemaWithBounds(t *testing.T) {
+	t.Parallel()
 	minV := 0.0
 	maxV := 1.0
 	falseV := false
@@ -780,6 +816,7 @@ func TestFloatsSchemaWithBounds(t *testing.T) {
 
 // TestFloatsSchemaUnbounded verifies that Floats with no bounds defaults allow_nan=true, allow_infinity=true.
 func TestFloatsSchemaUnbounded(t *testing.T) {
+	t.Parallel()
 	g := Floats(nil, nil, nil, nil, false, false)
 	bg := g.(*basicGenerator[float64])
 	if bg.schema["allow_nan"] != true {
@@ -798,6 +835,7 @@ func TestFloatsSchemaUnbounded(t *testing.T) {
 
 // TestFloatsSchemaOnlyMin verifies Floats with only min bound: allow_nan=false, allow_infinity=true.
 func TestFloatsSchemaOnlyMin(t *testing.T) {
+	t.Parallel()
 	minV := 0.0
 	g := Floats(&minV, nil, nil, nil, false, false)
 	bg := g.(*basicGenerator[float64])
@@ -812,6 +850,7 @@ func TestFloatsSchemaOnlyMin(t *testing.T) {
 
 // TestFloatsSchemaOnlyMax verifies Floats with only max bound: allow_nan=false, allow_infinity=true.
 func TestFloatsSchemaOnlyMax(t *testing.T) {
+	t.Parallel()
 	maxV := 1.0
 	g := Floats(nil, &maxV, nil, nil, false, false)
 	bg := g.(*basicGenerator[float64])
@@ -826,6 +865,7 @@ func TestFloatsSchemaOnlyMax(t *testing.T) {
 
 // TestFloatsSchemaExcludeBounds verifies that excludeMin/excludeMax are stored correctly.
 func TestFloatsSchemaExcludeBounds(t *testing.T) {
+	t.Parallel()
 	minV := 0.0
 	maxV := 1.0
 	falseV := false
@@ -845,6 +885,7 @@ func TestFloatsSchemaExcludeBounds(t *testing.T) {
 
 // TestFlatMappedGeneratorIsNotBasic verifies that FlatMap returns a *flatMappedGenerator (not basicGenerator).
 func TestFlatMappedGeneratorIsNotBasic(t *testing.T) {
+	t.Parallel()
 	gen := FlatMap[int64, int64](Integers[int64](math.MinInt64, math.MaxInt64), func(v int64) Generator[int64] {
 		return Integers[int64](math.MinInt64, math.MaxInt64)
 	})
@@ -859,6 +900,7 @@ func TestFlatMappedGeneratorIsNotBasic(t *testing.T) {
 
 // TestFlatMappedGeneratorMapReturnsMapped verifies that Map on flatMappedGenerator returns a mappedGenerator.
 func TestFlatMappedGeneratorMapReturnsMapped(t *testing.T) {
+	t.Parallel()
 	gen := FlatMap[int64, int64](Integers[int64](1, 5), func(v int64) Generator[int64] {
 		return Integers[int64](0, 10)
 	})
@@ -871,6 +913,7 @@ func TestFlatMappedGeneratorMapReturnsMapped(t *testing.T) {
 // TestFlatMappedGeneratorE2E verifies that flat_map produces a dependent value.
 // integers(1,5).flat_map(n => text(min=n, max=n)) always produces text of length in [1,5].
 func TestFlatMappedGeneratorE2E(t *testing.T) {
+	t.Parallel()
 	hegelBinPath(t)
 	gen := FlatMap[int, string](Integers[int](1, 5), func(v int) Generator[string] {
 		return Text(v, v) // exact length = n
@@ -891,6 +934,7 @@ func TestFlatMappedGeneratorE2E(t *testing.T) {
 // on the first generated value. We generate n in [2,4] and a list of exactly n elements.
 // Every list must have length in [2,4] and all elements must be in [0,100].
 func TestFlatMappedGeneratorDependency(t *testing.T) {
+	t.Parallel()
 	hegelBinPath(t)
 	gen := FlatMap[int64, []int64](Integers[int64](2, 4), func(v int64) Generator[[]int64] {
 		sz := int(v)
@@ -916,6 +960,7 @@ func TestFlatMappedGeneratorDependency(t *testing.T) {
 // =============================================================================
 
 func TestIsSchemaIdentityTrue(t *testing.T) {
+	t.Parallel()
 	bg := &basicGenerator[string]{schema: map[string]any{"type": "string"}}
 	if !bg.isSchemaIdentity() {
 		t.Error("expected identity when transform is nil")
@@ -923,6 +968,7 @@ func TestIsSchemaIdentityTrue(t *testing.T) {
 }
 
 func TestIsSchemaIdentityFalse(t *testing.T) {
+	t.Parallel()
 	bg := &basicGenerator[string]{
 		schema:    map[string]any{"type": "string"},
 		transform: func(v any) string { return v.(string) },
@@ -937,30 +983,35 @@ func TestIsSchemaIdentityFalse(t *testing.T) {
 // =============================================================================
 
 func TestExtractFloatFloat64(t *testing.T) {
+	t.Parallel()
 	if extractFloat(float64(1.5)) != 1.5 {
 		t.Error("float64 branch failed")
 	}
 }
 
 func TestExtractFloatFloat32(t *testing.T) {
+	t.Parallel()
 	if extractFloat(float32(1.5)) != float64(float32(1.5)) {
 		t.Error("float32 branch failed")
 	}
 }
 
 func TestExtractFloatInt64(t *testing.T) {
+	t.Parallel()
 	if extractFloat(int64(42)) != 42.0 {
 		t.Error("int64 branch failed")
 	}
 }
 
 func TestExtractFloatUint64(t *testing.T) {
+	t.Parallel()
 	if extractFloat(uint64(42)) != 42.0 {
 		t.Error("uint64 branch failed")
 	}
 }
 
 func TestExtractFloatPanicsOnInvalidType(t *testing.T) {
+	t.Parallel()
 	defer func() {
 		if r := recover(); r == nil {
 			t.Error("expected panic for invalid type")
@@ -974,12 +1025,14 @@ func TestExtractFloatPanicsOnInvalidType(t *testing.T) {
 // =============================================================================
 
 func TestExtractIntUint64(t *testing.T) {
+	t.Parallel()
 	if extractInt(uint64(99)) != 99 {
 		t.Error("uint64 branch failed")
 	}
 }
 
 func TestExtractIntBigIntValue(t *testing.T) {
+	t.Parallel()
 	v := *new(big.Int).SetInt64(456)
 	if extractInt(v) != 456 {
 		t.Error("big.Int value branch failed")
@@ -987,6 +1040,7 @@ func TestExtractIntBigIntValue(t *testing.T) {
 }
 
 func TestExtractIntBigIntPointer(t *testing.T) {
+	t.Parallel()
 	v := new(big.Int).SetInt64(123)
 	if extractInt(v) != 123 {
 		t.Error("*big.Int branch failed")
@@ -994,6 +1048,7 @@ func TestExtractIntBigIntPointer(t *testing.T) {
 }
 
 func TestExtractIntPanicsOnInvalidType(t *testing.T) {
+	t.Parallel()
 	defer func() {
 		if r := recover(); r == nil {
 			t.Error("expected panic for invalid type")
@@ -1007,6 +1062,7 @@ func TestExtractIntPanicsOnInvalidType(t *testing.T) {
 // =============================================================================
 
 func TestFloatsSchemaExplicitNaNNilInf(t *testing.T) {
+	t.Parallel()
 	nan := true
 	g := Floats(nil, nil, &nan, nil, false, false)
 	bg := g.(*basicGenerator[float64])
@@ -1023,6 +1079,7 @@ func TestFloatsSchemaExplicitNaNNilInf(t *testing.T) {
 // =============================================================================
 
 func TestFloatsSchemaExplicitInfNilNaN(t *testing.T) {
+	t.Parallel()
 	inf := true
 	g := Floats(nil, nil, nil, &inf, false, false)
 	bg := g.(*basicGenerator[float64])
@@ -1039,12 +1096,14 @@ func TestFloatsSchemaExplicitInfNilNaN(t *testing.T) {
 // =============================================================================
 
 func TestStartSpanAborted(t *testing.T) {
+	t.Parallel()
 	s := &TestCase{aborted: true}
 	// Should be a no-op, not panic.
 	startSpan(s, labelOneOf)
 }
 
 func TestStopSpanAborted(t *testing.T) {
+	t.Parallel()
 	s := &TestCase{aborted: true}
 	// Should be a no-op, not panic.
 	stopSpan(s, false)
@@ -1055,6 +1114,7 @@ func TestStopSpanAborted(t *testing.T) {
 // =============================================================================
 
 func TestRejectFinishedCollection(t *testing.T) {
+	t.Parallel()
 	c := &collection{finished: true}
 	s := &TestCase{}
 	// Should be a no-op since finished = true.
@@ -1085,6 +1145,7 @@ func TestRejectE2E(t *testing.T) {
 // =============================================================================
 
 func TestListsNegativeMinSizeSchema(t *testing.T) {
+	t.Parallel()
 	gen := Lists(Integers[int64](0, 10), ListMinSize(-5), ListMaxSize(10))
 	bg, ok := gen.(*basicGenerator[[]int64])
 	if !ok {

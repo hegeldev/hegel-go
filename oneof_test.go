@@ -15,6 +15,7 @@ import (
 // TestOneOfPath1Schema verifies that OneOf with all-identity-transform basic
 // generators produces a simple {"one_of": [...]} schema.
 func TestOneOfPath1Schema(t *testing.T) {
+	t.Parallel()
 	g1 := Booleans()
 	g2 := Booleans()
 	combined := OneOf(g1, g2)
@@ -53,6 +54,7 @@ func TestOneOfPath1Schema(t *testing.T) {
 
 // TestOneOfPath1E2E verifies that OneOf path 1 generates values from both branches.
 func TestOneOfPath1E2E(t *testing.T) {
+	t.Parallel()
 	hegelBinPath(t)
 	sawShort := false
 	sawLong := false
@@ -83,6 +85,7 @@ func TestOneOfPath1E2E(t *testing.T) {
 // TestOneOfPath2Schema verifies that OneOf with mapped basicGenerators produces
 // a tagged-tuple schema.
 func TestOneOfPath2Schema(t *testing.T) {
+	t.Parallel()
 	gen1 := Map(Just(int64(1)), func(v int64) int64 { return v * 2 })
 	gen2 := Map(Just(int64(2)), func(v int64) int64 { return v * 3 })
 	combined := OneOf(gen1, gen2)
@@ -131,6 +134,7 @@ func TestOneOfPath2Schema(t *testing.T) {
 
 // TestOneOfPath2Transform verifies the tagged transform dispatching logic.
 func TestOneOfPath2Transform(t *testing.T) {
+	t.Parallel()
 	// just(1).map(*2) -> always 2; just(2).map(*3) -> always 6
 	gen1 := Map(Just(int64(1)), func(v int64) int64 { return v * 2 })
 	gen2 := Map(Just(int64(2)), func(v int64) int64 { return v * 3 })
@@ -154,6 +158,7 @@ func TestOneOfPath2Transform(t *testing.T) {
 // TestOneOfPath2TransformNilBranch verifies that when one branch has a nil transform,
 // the tagged dispatcher returns the raw value for that branch.
 func TestOneOfPath2TransformNilBranch(t *testing.T) {
+	t.Parallel()
 	// Mix: one identity branch (no transform), one with transform.
 	// Booleans has no transform (identity), Just(true) has a transform.
 	gen1 := Booleans()                                       // nil transform
@@ -178,6 +183,7 @@ func TestOneOfPath2TransformNilBranch(t *testing.T) {
 
 // TestOneOfPath2TransformShortTuple verifies graceful handling of malformed tuple.
 func TestOneOfPath2TransformShortTuple(t *testing.T) {
+	t.Parallel()
 	gen1 := Map(Just(int64(1)), func(v int64) int64 { return v })
 	gen2 := Map(Just(int64(2)), func(v int64) int64 { return v })
 	combined := OneOf(gen1, gen2)
@@ -195,6 +201,7 @@ func TestOneOfPath2TransformShortTuple(t *testing.T) {
 
 // TestOneOfPath2E2E verifies that Path 2 generates correctly through the real server.
 func TestOneOfPath2E2E(t *testing.T) {
+	t.Parallel()
 	hegelBinPath(t)
 	gen1 := Map(Just(int(1)), func(v int) int { return v * 2 })
 	gen2 := Map(Just(int(2)), func(v int) int { return v * 3 })
@@ -217,6 +224,7 @@ func TestOneOfPath2E2E(t *testing.T) {
 // TestOneOfPath3IsComposite verifies that OneOf with a non-basic generator
 // returns a compositeOneOfGenerator.
 func TestOneOfPath3IsComposite(t *testing.T) {
+	t.Parallel()
 	// A mappedGenerator is not a basicGenerator.
 	nonBasic := &mappedGenerator[int64, int64]{
 		inner: Integers[int64](0, 10),
@@ -232,6 +240,7 @@ func TestOneOfPath3IsComposite(t *testing.T) {
 // TestOneOfPath3MapReturnsMapGen verifies that mapping a compositeOneOfGenerator
 // returns a mappedGenerator.
 func TestOneOfPath3MapReturnsMapGen(t *testing.T) {
+	t.Parallel()
 	nonBasic := &mappedGenerator[int64, int64]{inner: Integers[int64](0, 10), fn: func(v int64) int64 { return v }}
 	combined := OneOf[int64](nonBasic, Integers[int64](0, 5))
 	mapped := Map(combined, func(v int64) int64 { return v })
@@ -243,6 +252,7 @@ func TestOneOfPath3MapReturnsMapGen(t *testing.T) {
 // TestOneOfPath3E2E verifies that Path 3 generates values from both branches
 // using the real hegel binary.
 func TestOneOfPath3E2E(t *testing.T) {
+	t.Parallel()
 	hegelBinPath(t)
 	// nonBasic: a mappedGenerator (not a *basicGenerator)
 	nonBasic := &mappedGenerator[int, int]{
@@ -298,6 +308,7 @@ func TestOneOfPanicsWithZeroGenerators(t *testing.T) {
 
 // TestOptionalSchema verifies that Optional returns an optionalGenerator.
 func TestOptionalSchema(t *testing.T) {
+	t.Parallel()
 	g := Optional(Integers[int64](0, 10))
 	if _, ok := g.(*optionalGenerator[int64]); !ok {
 		t.Fatalf("Optional(Integers) should return *optionalGenerator[int64], got %T", g)
@@ -306,6 +317,7 @@ func TestOptionalSchema(t *testing.T) {
 
 // TestOptionalE2E verifies that Optional generates both nil and integer values.
 func TestOptionalE2E(t *testing.T) {
+	t.Parallel()
 	hegelBinPath(t)
 	sawNil := false
 	sawInt := false
@@ -334,6 +346,7 @@ func TestOptionalE2E(t *testing.T) {
 // TestOptionalNonBasicE2E verifies that Optional with a non-basic element
 // works correctly (optionalGenerator handles any inner generator).
 func TestOptionalNonBasicE2E(t *testing.T) {
+	t.Parallel()
 	hegelBinPath(t)
 	nonBasic := &mappedGenerator[int, int]{inner: Integers[int](0, 10), fn: func(v int) int { return v }}
 	g := Optional[int](nonBasic)
@@ -366,6 +379,7 @@ func TestOptionalNonBasicE2E(t *testing.T) {
 
 // TestIPAddressesV4Schema verifies that IPAddresses(v4) produces {"type":"ipv4"}.
 func TestIPAddressesV4Schema(t *testing.T) {
+	t.Parallel()
 	g := IPAddresses(IPv4())
 	bg, ok := g.(*basicGenerator[netip.Addr])
 	if !ok {
@@ -378,6 +392,7 @@ func TestIPAddressesV4Schema(t *testing.T) {
 
 // TestIPAddressesV6Schema verifies that IPAddresses(v6) produces {"type":"ipv6"}.
 func TestIPAddressesV6Schema(t *testing.T) {
+	t.Parallel()
 	g := IPAddresses(IPv6())
 	bg, ok := g.(*basicGenerator[netip.Addr])
 	if !ok {
@@ -390,6 +405,7 @@ func TestIPAddressesV6Schema(t *testing.T) {
 
 // TestIPAddressesDefaultIsOneOf verifies that IPAddresses(no version) returns a OneOf generator.
 func TestIPAddressesDefaultIsOneOf(t *testing.T) {
+	t.Parallel()
 	g := IPAddresses()
 	bg, ok := g.(*basicGenerator[netip.Addr])
 	if !ok {
@@ -408,6 +424,7 @@ func TestIPAddressesDefaultIsOneOf(t *testing.T) {
 
 // TestIPAddressesV4E2E verifies IPv4 addresses contain dots.
 func TestIPAddressesV4E2E(t *testing.T) {
+	t.Parallel()
 	hegelBinPath(t)
 	g := IPAddresses(IPv4())
 	if _err := runHegel(func(s *TestCase) {
@@ -422,6 +439,7 @@ func TestIPAddressesV4E2E(t *testing.T) {
 
 // TestIPAddressesV6E2E verifies IPv6 addresses contain colons.
 func TestIPAddressesV6E2E(t *testing.T) {
+	t.Parallel()
 	hegelBinPath(t)
 	g := IPAddresses(IPv6())
 	if _err := runHegel(func(s *TestCase) {
@@ -436,6 +454,7 @@ func TestIPAddressesV6E2E(t *testing.T) {
 
 // TestIPAddressesDefaultE2E verifies default produces both IPv4 and IPv6.
 func TestIPAddressesDefaultE2E(t *testing.T) {
+	t.Parallel()
 	hegelBinPath(t)
 	sawV4 := false
 	sawV6 := false
@@ -461,6 +480,7 @@ func TestIPAddressesDefaultE2E(t *testing.T) {
 // TestOneOfWithMapMixedTypesE2E verifies that OneOf combining mapped and identity
 // generators produces correct values.
 func TestOneOfWithMapMixedTypesE2E(t *testing.T) {
+	t.Parallel()
 	hegelBinPath(t)
 	// Integers[int](0,10).Map(*2): always even numbers; Just(int(0)): always 0
 	gen := OneOf(
@@ -483,6 +503,7 @@ func TestOneOfWithMapMixedTypesE2E(t *testing.T) {
 // TestOneOfAllBranchesAppear verifies that both branches of OneOf appear
 // across enough test cases.
 func TestOneOfAllBranchesAppear(t *testing.T) {
+	t.Parallel()
 	hegelBinPath(t)
 	sawA := false
 	sawB := false

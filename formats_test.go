@@ -15,6 +15,7 @@ import (
 
 // TestEmailsSchema verifies that Emails() produces the correct schema.
 func TestEmailsSchema(t *testing.T) {
+	t.Parallel()
 	g := Emails()
 	bg, ok := g.(*basicGenerator[string])
 	if !ok {
@@ -30,6 +31,7 @@ func TestEmailsSchema(t *testing.T) {
 
 // TestURLsSchema verifies that URLs() produces the correct schema.
 func TestURLsSchema(t *testing.T) {
+	t.Parallel()
 	g := URLs()
 	bg, ok := g.(*basicGenerator[string])
 	if !ok {
@@ -45,6 +47,7 @@ func TestURLsSchema(t *testing.T) {
 
 // TestDomainsSchemaNoMaxLength verifies that Domains() with no MaxLength uses the default (255).
 func TestDomainsSchemaNoMaxLength(t *testing.T) {
+	t.Parallel()
 	g := Domains()
 	bg, ok := g.(*basicGenerator[string])
 	if !ok {
@@ -65,6 +68,7 @@ func TestDomainsSchemaNoMaxLength(t *testing.T) {
 
 // TestDomainsSchemaWithMaxLength verifies that Domains() with MaxLength includes it.
 func TestDomainsSchemaWithMaxLength(t *testing.T) {
+	t.Parallel()
 	g := Domains(DomainMaxLength(63))
 	bg, ok := g.(*basicGenerator[string])
 	if !ok {
@@ -85,6 +89,7 @@ func TestDomainsSchemaWithMaxLength(t *testing.T) {
 
 // TestDatesSchema verifies that Dates() produces the correct schema.
 func TestDatesSchema(t *testing.T) {
+	t.Parallel()
 	g := Dates()
 	bg, ok := g.(*basicGenerator[time.Time])
 	if !ok {
@@ -100,6 +105,7 @@ func TestDatesSchema(t *testing.T) {
 
 // TestTimesSchema verifies that Times() produces the correct schema.
 func TestTimesSchema(t *testing.T) {
+	t.Parallel()
 	g := Times()
 	bg, ok := g.(*basicGenerator[string])
 	if !ok {
@@ -115,6 +121,7 @@ func TestTimesSchema(t *testing.T) {
 
 // TestDatetimesSchema verifies that Datetimes() produces the correct schema.
 func TestDatetimesSchema(t *testing.T) {
+	t.Parallel()
 	g := Datetimes()
 	bg, ok := g.(*basicGenerator[time.Time])
 	if !ok {
@@ -134,6 +141,7 @@ func TestDatetimesSchema(t *testing.T) {
 
 // TestEmailsE2E verifies that generated emails contain "@".
 func TestEmailsE2E(t *testing.T) {
+	t.Parallel()
 	hegelBinPath(t)
 	if _err := runHegel(func(s *TestCase) {
 		v := Draw(s, Emails())
@@ -147,6 +155,7 @@ func TestEmailsE2E(t *testing.T) {
 
 // TestURLsE2E verifies that generated URLs start with "http://" or "https://".
 func TestURLsE2E(t *testing.T) {
+	t.Parallel()
 	hegelBinPath(t)
 	if _err := runHegel(func(s *TestCase) {
 		v := Draw(s, URLs())
@@ -165,6 +174,7 @@ func isValidDomainChar(r rune) bool {
 
 // TestDomainsE2E verifies that generated domains contain only valid domain characters.
 func TestDomainsE2E(t *testing.T) {
+	t.Parallel()
 	hegelBinPath(t)
 	if _err := runHegel(func(s *TestCase) {
 		v := Draw(s, Domains())
@@ -180,6 +190,7 @@ func TestDomainsE2E(t *testing.T) {
 
 // TestDomainsMaxLengthE2E verifies that generated domains respect the max_length constraint.
 func TestDomainsMaxLengthE2E(t *testing.T) {
+	t.Parallel()
 	hegelBinPath(t)
 	const maxLen = 20
 	if _err := runHegel(func(s *TestCase) {
@@ -194,6 +205,7 @@ func TestDomainsMaxLengthE2E(t *testing.T) {
 
 // TestDatesE2E verifies that generated dates are valid time.Time values.
 func TestDatesE2E(t *testing.T) {
+	t.Parallel()
 	hegelBinPath(t)
 	if _err := runHegel(func(s *TestCase) {
 		v := Draw(s, Dates())
@@ -207,6 +219,7 @@ func TestDatesE2E(t *testing.T) {
 
 // TestTimesE2E verifies that generated times contain ":".
 func TestTimesE2E(t *testing.T) {
+	t.Parallel()
 	hegelBinPath(t)
 	if _err := runHegel(func(s *TestCase) {
 		v := Draw(s, Times())
@@ -220,6 +233,7 @@ func TestTimesE2E(t *testing.T) {
 
 // TestDatetimesE2E verifies that generated datetimes are valid time.Time values.
 func TestDatetimesE2E(t *testing.T) {
+	t.Parallel()
 	hegelBinPath(t)
 	if _err := runHegel(func(s *TestCase) {
 		v := Draw(s, Datetimes())
