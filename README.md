@@ -1,7 +1,7 @@
 # hegel-go
 
 > [!IMPORTANT]
-> If you've found this repository, congratulations! You're getting a sneak peak at an upcoming property-based testing library from [Antithesis](https://antithesis.com/), built on [Hypothesis](https://hypothesis.works/).
+> If you've found this repository, congratulations! You're getting a sneak peek at an upcoming property-based testing library from [Antithesis](https://antithesis.com/), built on [Hypothesis](https://hypothesis.works/).
 >
 > We are still making rapid changes and progress.  Feel free to experiment, but don't expect stability from Hegel just yet!
 
@@ -11,13 +11,14 @@
 go get hegel.dev/go/hegel@latest
 ```
 
-
 Hegel requires either:
 
 * [`uv`](https://docs.astral.sh/uv/) on your system,
 * or `HEGEL_SERVER_COMMAND` set to the path of a hegel-core binary.
 
-## Quick Start
+## Quickstart
+
+Here's a quick example of how to write a Hegel test:
 
 ```go
 package mypackage_test
@@ -39,4 +40,4 @@ func TestAddCommutative(t *testing.T) {
 }
 ```
 
-See [docs/getting-started.md](docs/getting-started.md) for more.
+See [docs/getting-started.md](docs/getting-started.md) for more on how to use Hegel.
