@@ -247,15 +247,17 @@ func TestFindHegelInVenv(t *testing.T) {
 }
 
 func TestFindHegelVenvViaCwd(t *testing.T) {
+	resetProjectRoot(t)
+
 	tmp, _ := filepath.EvalSymlinks(t.TempDir())
 	venvBin := filepath.Join(tmp, ".venv", "bin")
 	os.MkdirAll(venvBin, 0o755) //nolint:errcheck
 	hegelBin := filepath.Join(venvBin, "hegel")
 	os.WriteFile(hegelBin, []byte("#!/bin/sh\n"), 0o755) //nolint:errcheck
+	// Create a project root marker so findHegel uses this directory.
+	os.WriteFile(filepath.Join(tmp, "go.mod"), []byte("module test\n"), 0o644) //nolint:errcheck
 
-	origDir, _ := os.Getwd()
-	os.Chdir(tmp)           //nolint:errcheck
-	defer os.Chdir(origDir) //nolint:errcheck
+	t.Chdir(tmp)
 
 	result := findHegel()
 	expected := filepath.Join(tmp, ".venv", "bin", "hegel")
@@ -822,6 +824,7 @@ func TestExtractPanicOriginAllHegelFrames(t *testing.T) {
 // --- RunHegelTestE: HEGEL_PROTOCOL_TEST_MODE path, session start error ---
 
 func TestRunHegelTestEProtocolModeStartError(t *testing.T) {
+	resetProjectRoot(t)
 	// Set HEGEL_PROTOCOL_TEST_MODE so RunHegelTestE uses a temp session.
 	t.Setenv("HEGEL_PROTOCOL_TEST_MODE", "empty_test")
 
@@ -886,9 +889,17 @@ func TestHegelSessionStartHandshakeError(t *testing.T) {
 // --- findHegel: LookPath success and fallback ---
 
 func TestFindHegelLookPathAndFallback(t *testing.T) {
+	resetProjectRoot(t)
 	// Change to a temp dir without .venv so findHegelInDir returns "".
 	tmp := t.TempDir()
 	t.Chdir(tmp)
+
+	// Disable auto-installer so we test the PATH and fallback paths.
+	origUv := uvLookPathFn
+	uvLookPathFn = func() (string, error) {
+		return "", fmt.Errorf("uv not found")
+	}
+	defer func() { uvLookPathFn = origUv }()
 
 	// First: put hegel somewhere in PATH -> LookPath succeeds.
 	hegelBin := filepath.Join(tmp, "hegel")

@@ -478,8 +478,9 @@ func (s *hegelSession) start() error {
 	sockPath := filepath.Join(tmp, "hegel.sock")
 	s.socketPath = sockPath
 
-	// Spawn hegel process.
+	// Spawn hegel process in the project root so .hegel is created there.
 	cmd := exec.Command(hegelBin, sockPath)
+	cmd.Dir = getProjectRoot()
 	cmd.Stdout = os.Stderr
 	if s.suppressStderr {
 		cmd.Stderr = io.Discard
@@ -567,19 +568,26 @@ func (s *hegelSession) runTest(fn testBody, opts runOptions, noteFn func(string)
 }
 
 // findHegel locates the hegel binary.
+// Priority: HEGEL_SERVER_COMMAND env var > .venv in project root > auto-install > PATH > bare "hegel".
 func findHegel() string {
-	// Check venv in current working directory.
-	cwd, err := os.Getwd()
-	if err == nil {
-		if p := findHegelInDir(filepath.Join(cwd, ".venv")); p != "" {
-			return p
-		}
+	// 1. Environment variable override.
+	if override := os.Getenv(hegelServerCommandEnv); override != "" {
+		return override
 	}
-	// Check PATH.
+	// 2. Check .venv in project root (e.g. from `just setup`).
+	root := getProjectRoot()
+	if p := findHegelInDir(filepath.Join(root, ".venv")); p != "" {
+		return p
+	}
+	// 3. Auto-install into .hegel/venv.
+	if p, err := ensureHegelInstalled(); err == nil {
+		return p
+	}
+	// 4. Check PATH.
 	if p, err := exec.LookPath("hegel"); err == nil {
 		return p
 	}
-	// Fallback.
+	// 5. Fallback.
 	return "hegel"
 }
 
