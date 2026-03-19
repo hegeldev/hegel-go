@@ -10,9 +10,6 @@ import (
 	"unicode/utf8"
 )
 
-// floatPtr returns a pointer to f, for use with Floats().
-func floatPtr(f float64) *float64 { return &f }
-
 // =============================================================================
 // Integration / e2e tests (run against real hegel binary, 50 test cases each)
 // =============================================================================
@@ -30,9 +27,8 @@ func TestIntegersFullRangeE2E(t *testing.T) {
 func TestFloatsE2E_WithBounds(t *testing.T) {
 	t.Parallel()
 	hegelBinPath(t)
-	falseBool := false
 	if _err := runHegel(func(s *TestCase) {
-		fv := Draw[float64](s, Floats(floatPtr(0.0), floatPtr(1.0), &falseBool, &falseBool, false, false))
+		fv := Draw[float64](s, Floats[float64]().Min(0.0).Max(1.0).AllowNaN(false).AllowInfinity(false))
 		if math.IsNaN(fv) {
 			panic("floats: NaN not allowed when allow_nan=false")
 		}
@@ -52,7 +48,7 @@ func TestFloatsE2E_Unbounded(t *testing.T) {
 	hegelBinPath(t)
 	if _err := runHegel(func(s *TestCase) {
 		// Unbounded floats may produce NaN or Inf -- any float64 is valid.
-		_ = Draw[float64](s, Floats(nil, nil, nil, nil, false, false))
+		_ = Draw(s, Floats[float64]())
 	}, stderrNoteFn, []Option{WithTestCases(50)}); _err != nil {
 		panic(_err)
 	}
@@ -62,7 +58,7 @@ func TestFloatsE2E_OnlyMin(t *testing.T) {
 	t.Parallel()
 	hegelBinPath(t)
 	if _err := runHegel(func(s *TestCase) {
-		fv := Draw[float64](s, Floats(floatPtr(0.0), nil, nil, nil, false, false))
+		fv := Draw(s, Floats[float64]().Min(0.0))
 		// allow_nan is false (has min), allow_infinity is true (no max)
 		// Value should be >= 0.0 or Inf; NaN not allowed.
 		if math.IsNaN(fv) {
@@ -71,6 +67,28 @@ func TestFloatsE2E_OnlyMin(t *testing.T) {
 	}, stderrNoteFn, []Option{WithTestCases(50)}); _err != nil {
 		panic(_err)
 	}
+}
+
+func TestFloatsE2E_Float32(t *testing.T) {
+	t.Parallel()
+	hegelBinPath(t)
+	if _err := runHegel(func(s *TestCase) {
+		fv := Draw(s, Floats[float32]().Min(0.0).Max(1.0).AllowNaN(false).AllowInfinity(false))
+		if fv < 0.0 || fv > 1.0 {
+			panic("float32: out of range [0.0, 1.0]")
+		}
+	}, stderrNoteFn, []Option{WithTestCases(50)}); _err != nil {
+		panic(_err)
+	}
+}
+
+func TestFloatsGenerateErrorResponse(t *testing.T) {
+	hegelBinPath(t)
+	t.Setenv("HEGEL_PROTOCOL_TEST_MODE", "error_response")
+	err := runHegel(func(s *TestCase) {
+		_ = Floats[float64]().draw(s)
+	}, stderrNoteFn, nil)
+	_ = err
 }
 
 func TestBooleansE2E(t *testing.T) {
@@ -134,5 +152,39 @@ func TestBinaryE2E_Unbounded(t *testing.T) {
 		_ = Draw[[]byte](s, Binary(0, -1))
 	}, stderrNoteFn, []Option{WithTestCases(50)}); _err != nil {
 		panic(_err)
+	}
+}
+
+func TestFloatGeneratorBuildsBasicGenerator(t *testing.T) {
+	t.Parallel()
+	gen := Floats[float64]().Min(0).Max(1).AllowNaN(false).AllowInfinity(false)
+
+	bg, ok := gen.buildGenerator().(*basicGenerator[float64])
+	if !ok {
+		t.Fatalf("Floats should build *basicGenerator[float64], got %T", gen.buildGenerator())
+	}
+	if bg.transform == nil {
+		t.Fatal("Floats basic generator should set a transform")
+	}
+	if bg.schema["type"] != "float" {
+		t.Fatalf("schema type: expected 'float', got %v", bg.schema["type"])
+	}
+}
+
+func TestListsFloatBuilderUsesBasicPath(t *testing.T) {
+	t.Parallel()
+	gen := Lists(Floats[float64]().Min(0).Max(1).AllowNaN(false).AllowInfinity(false)).MaxSize(3)
+
+	bg, ok := gen.buildGenerator().(*basicGenerator[[]float64])
+	if !ok {
+		t.Fatalf("Lists(Floats(...)) should build *basicGenerator[[]float64], got %T", gen.buildGenerator())
+	}
+
+	elemSchema, ok := bg.schema["elements"].(map[string]any)
+	if !ok {
+		t.Fatalf("schema elements: expected map[string]any, got %T", bg.schema["elements"])
+	}
+	if elemSchema["type"] != "float" {
+		t.Fatalf("elements type: expected 'float', got %v", elemSchema["type"])
 	}
 }

@@ -54,6 +54,11 @@ type Generator[T any] interface {
 	draw(s *TestCase) T
 }
 
+type builderGenerator[T any] interface {
+	Generator[T]
+	buildGenerator() Generator[T]
+}
+
 // testCase is the test context for a Hegel property test.
 type testCase interface {
 	// Assume rejects the current test case if condition is false.
@@ -72,6 +77,13 @@ type testCase interface {
 // Draw produces a value from a Generator using the given State context.
 func Draw[T any](tc testCase, g Generator[T]) T {
 	return g.draw(tc.internal())
+}
+
+func unwrapGenerator[T any](g Generator[T]) Generator[T] {
+	if builder, ok := g.(builderGenerator[T]); ok {
+		return builder.buildGenerator()
+	}
+	return g
 }
 
 // --- basicGenerator ---
@@ -169,6 +181,7 @@ func (g *flatMappedGenerator[T, U]) draw(s *TestCase) U {
 
 // Map returns a new Generator that applies fn to each value from g.
 func Map[T, U any](g Generator[T], fn func(T) U) Generator[U] {
+	g = unwrapGenerator(g)
 	if bg, ok := g.(*basicGenerator[T]); ok {
 		if bg.transform != nil {
 			prev := bg.transform

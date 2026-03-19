@@ -6,8 +6,6 @@ import (
 	"testing"
 )
 
-func ptr[T any](v T) *T { return &v }
-
 func assertPanicsWithMessage(t *testing.T, substr string, f func()) {
 	t.Helper()
 	defer func() {
@@ -36,19 +34,19 @@ func TestIntegersFromMinGreaterThanMax(t *testing.T) {
 }
 
 func TestFloatsAllowNaNWithMin(t *testing.T) {
-	assertPanicsWithMessage(t, "allow_nan", func() { Floats(ptr(0.0), nil, ptr(true), nil, false, false) })
+	assertPanicsWithMessage(t, "allow_nan", func() { Floats[float64]().Min(0.0).AllowNaN(true).buildSchema() })
 }
 
 func TestFloatsAllowNaNWithMax(t *testing.T) {
-	assertPanicsWithMessage(t, "allow_nan", func() { Floats(nil, ptr(10.0), ptr(true), nil, false, false) })
+	assertPanicsWithMessage(t, "allow_nan", func() { Floats[float64]().Max(10.0).AllowNaN(true).buildSchema() })
 }
 
 func TestFloatsMinGreaterThanMax(t *testing.T) {
-	assertPanicsWithMessage(t, "max_value", func() { Floats(ptr(10.0), ptr(5.0), nil, nil, false, false) })
+	assertPanicsWithMessage(t, "max_value", func() { Floats[float64]().Min(10.0).Max(5.0).buildSchema() })
 }
 
 func TestFloatsAllowInfinityWithBothBounds(t *testing.T) {
-	assertPanicsWithMessage(t, "allow_infinity", func() { Floats(ptr(0.0), ptr(10.0), nil, ptr(true), false, false) })
+	assertPanicsWithMessage(t, "allow_infinity", func() { Floats[float64]().Min(0.0).Max(10.0).AllowInfinity(true).buildSchema() })
 }
 
 func TestTextMinSizeNegative(t *testing.T) {
@@ -68,26 +66,45 @@ func TestBinaryMinGreaterThanMax(t *testing.T) {
 }
 
 func TestListsMinGreaterThanMax(t *testing.T) {
-	assertPanicsWithMessage(t, "max_size", func() { Lists(Booleans(), ListMinSize(10), ListMaxSize(5)) })
+	assertPanicsWithMessage(t, "max_size", func() { Lists(Booleans()).MinSize(10).MaxSize(5).buildGenerator() })
+}
+
+func TestListsMinSizeNegative(t *testing.T) {
+	assertPanicsWithMessage(t, "min_size", func() { Lists(Booleans()).MinSize(-1).buildGenerator() })
+}
+
+func TestListsMaxSizeNegative(t *testing.T) {
+	assertPanicsWithMessage(t, "max_size", func() { Lists(Booleans()).MaxSize(-1).buildGenerator() })
 }
 
 func TestDictsMinSizeNegative(t *testing.T) {
-	assertPanicsWithMessage(t, "min_size", func() { Dicts(Integers(0, 100), Integers(0, 100), DictMinSize(-1)) })
+	assertPanicsWithMessage(t, "min_size", func() {
+		Dicts(Integers(0, 100), Integers(0, 100)).MinSize(-1).buildGenerator()
+	})
+}
+
+func TestDictsMaxSizeNegative(t *testing.T) {
+	assertPanicsWithMessage(t, "max_size", func() {
+		Dicts(Integers(0, 100), Integers(0, 100)).MaxSize(-1).buildGenerator()
+	})
 }
 
 func TestDictsMinGreaterThanMax(t *testing.T) {
 	assertPanicsWithMessage(t, "max_size", func() {
-		Dicts(Integers(0, 100), Integers(0, 100), DictMinSize(10), DictMaxSize(5))
+		Dicts(Integers(0, 100), Integers(0, 100)).MinSize(10).MaxSize(5).buildGenerator()
 	})
 }
 
 func TestDomainsTooSmallMaxLength(t *testing.T) {
-	// MaxLength <= 0 uses the default (255), so we need a value in [1, 3] to trigger the panic
-	assertPanicsWithMessage(t, "max_length", func() { Domains(DomainMaxLength(3)) })
+	assertPanicsWithMessage(t, "max_length", func() { Domains().MaxLength(3).buildSchema() })
+}
+
+func TestDomainsNonPositiveMaxLength(t *testing.T) {
+	assertPanicsWithMessage(t, "max_length", func() { Domains().MaxLength(0).buildSchema() })
 }
 
 func TestDomainsTooBigMaxLength(t *testing.T) {
-	assertPanicsWithMessage(t, "max_length", func() { Domains(DomainMaxLength(256)) })
+	assertPanicsWithMessage(t, "max_length", func() { Domains().MaxLength(256).buildSchema() })
 }
 
 func TestIPAddressesDefaultNoPanic(t *testing.T) {
@@ -96,11 +113,11 @@ func TestIPAddressesDefaultNoPanic(t *testing.T) {
 }
 
 func TestIPAddressesVersion4NoPanic(t *testing.T) {
-	IPAddresses(IPv4())
+	IPAddresses().IPv4()
 }
 
 func TestIPAddressesVersion6NoPanic(t *testing.T) {
-	IPAddresses(IPv6())
+	IPAddresses().IPv6()
 }
 
 func TestOneOfZeroGenerators(t *testing.T) {

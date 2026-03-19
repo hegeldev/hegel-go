@@ -146,8 +146,7 @@ t.Run("list_with_valid_index", hegel.Case(func(ht *hegel.T) {
 	n := hegel.Draw(ht, hegel.Integers(1, 10))
 	lst := hegel.Draw(ht, hegel.Lists(
 		hegel.Integers(math.MinInt, math.MaxInt),
-		hegel.ListMinSize(int(n)), hegel.ListMaxSize(int(n)),
-	))
+	).MinSize(int(n)).MaxSize(int(n)))
 	index := hegel.Draw(ht, hegel.Integers(0, n-1))
 
 	if index < 0 || index >= int64(len(lst)) {
@@ -166,8 +165,7 @@ t.Run("flatmap_example", hegel.Case(func(ht *hegel.T) {
 		func(n int64) hegel.Generator[[]int64] {
 			return hegel.Lists(
 				hegel.Integers(math.MinInt, math.MaxInt),
-				hegel.ListMinSize(int(n)), hegel.ListMaxSize(int(n)),
-			)
+			).MinSize(int(n)).MaxSize(int(n))
 		},
 	))
 
@@ -185,7 +183,7 @@ t.Run("flatmap_example", hegel.Case(func(ht *hegel.T) {
 hegel.Booleans()                             // bool
 hegel.Integers(-1000, 1000)                  // int64 in [min, max]
 hegel.Integers(math.MinInt, math.MaxInt)     // unbounded int
-hegel.Floats(min, max, nan, inf, eMin, eMax) // float64 (use nil to omit bounds)
+hegel.Floats[float64]().Min(0).Max(1)         // float64
 hegel.Text(0, 50)                            // Unicode string (pass maxSize < 0 for unbounded)
 hegel.Binary(0, 64)                          // []byte (pass maxSize < 0 for unbounded)
 ```
@@ -200,8 +198,8 @@ hegel.SampledFrom([]string{"a", "b", "c"})   // uniform random pick from a slice
 ### Collections
 
 ```go
-hegel.Lists(elemGen, hegel.ListMinSize(1), hegel.ListMaxSize(10)) // []any
-hegel.Dicts(keyGen, valGen, hegel.DictMaxSize(5))                 // map[any]any
+hegel.Lists(elemGen).MinSize(1).MaxSize(10) // []any
+hegel.Dicts(keyGen, valGen).MaxSize(5)      // map[any]any
 ```
 
 ### Combinators
@@ -219,10 +217,10 @@ hegel.FlatMap(gen, fn)          // dependent generation
 ```go
 hegel.Emails()                  // email address strings
 hegel.URLs()                    // URL strings
-hegel.Domains(opts)             // domain name strings
+hegel.Domains().MaxLength(63)   // domain name strings
 hegel.Dates()                   // ISO 8601 date strings (YYYY-MM-DD)
 hegel.Datetimes()               // ISO 8601 datetime strings
-hegel.IPAddresses(opts)         // IPv4 or IPv6 address strings
+hegel.IPAddresses().IPv4()      // IPv4 addresses
 hegel.FromRegex(pattern, true)  // strings matching a regular expression
 ```
 

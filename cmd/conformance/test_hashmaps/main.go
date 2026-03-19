@@ -69,12 +69,11 @@ func main() {
 	}
 
 	valsGen := hegel.Integers[int](minVal, maxVal)
-	opts := []hegel.DictOption{hegel.DictMinSize(minSize), hegel.DictMaxSize(maxSize)}
 	n := conformance.GetTestCases()
 
 	if keyType == "string" {
 		keysGen := hegel.Text(0, -1)
-		gen := hegel.Dicts(keysGen, valsGen, opts...)
+		gen := hegel.Dicts(keysGen, valsGen).MinSize(minSize).MaxSize(maxSize)
 
 		hegel.MustRun(func(s *hegel.TestCase) {
 			m := hegel.Draw(s, gen)
@@ -120,7 +119,7 @@ func main() {
 		}, hegel.WithTestCases(n))
 	} else {
 		keysGen := hegel.Integers[int](minKey, maxKey)
-		gen := hegel.Dicts(keysGen, valsGen, opts...)
+		gen := hegel.Dicts(keysGen, valsGen).MinSize(minSize).MaxSize(maxSize)
 
 		hegel.MustRun(func(s *hegel.TestCase) {
 			m := hegel.Draw(s, gen)

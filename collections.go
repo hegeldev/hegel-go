@@ -4,44 +4,54 @@ import "fmt"
 
 // --- Lists generator ---
 
-// ListOption configures optional behavior for the [Lists] generator.
-type ListOption func(*listConfig)
-
-type listConfig struct {
-	minSize int
-	maxSize int
-}
-
-// ListMinSize sets the minimum number of elements (inclusive). Defaults to 0.
-func ListMinSize(n int) ListOption {
-	return func(cfg *listConfig) { cfg.minSize = n }
-}
-
-// ListMaxSize sets the maximum number of elements (inclusive). Negative means unbounded.
-func ListMaxSize(n int) ListOption {
-	return func(cfg *listConfig) { cfg.maxSize = n }
+// ListGenerator configures and generates slices of values from an element generator.
+// Use [Lists] to create one, then chain builder methods to configure bounds.
+// Invalid configurations panic on the first [Draw] call.
+type ListGenerator[T any] struct {
+	elements Generator[T]
+	minSize  int
+	maxSize  int
+	hasMax   bool
 }
 
 // Lists returns a Generator that produces slices of values from the elements generator.
-func Lists[T any](elements Generator[T], opts ...ListOption) Generator[[]T] {
-	cfg := listConfig{maxSize: -1}
-	for _, o := range opts {
-		o(&cfg)
+func Lists[T any](elements Generator[T]) ListGenerator[T] {
+	return ListGenerator[T]{elements: elements}
+}
+
+// MinSize sets the minimum number of elements (inclusive). Default: 0.
+func (g ListGenerator[T]) MinSize(n int) ListGenerator[T] {
+	g.minSize = n
+	return g
+}
+
+// MaxSize sets the maximum number of elements (inclusive).
+func (g ListGenerator[T]) MaxSize(n int) ListGenerator[T] {
+	g.maxSize = n
+	g.hasMax = true
+	return g
+}
+
+func (g ListGenerator[T]) buildGenerator() Generator[[]T] {
+	if g.minSize < 0 {
+		panic(fmt.Sprintf("hegel: min_size=%d must be non-negative", g.minSize))
+	}
+	if g.hasMax && g.maxSize < 0 {
+		panic(fmt.Sprintf("hegel: max_size=%d must be non-negative", g.maxSize))
+	}
+	if g.hasMax && g.minSize > g.maxSize {
+		panic(fmt.Sprintf("hegel: Cannot have max_size=%d < min_size=%d", g.maxSize, g.minSize))
 	}
 
-	minSize := max(cfg.minSize, 0)
-	if cfg.maxSize >= 0 && minSize > cfg.maxSize {
-		panic(fmt.Sprintf("hegel: Cannot have max_size=%d < min_size=%d", cfg.maxSize, minSize))
-	}
-
+	elements := unwrapGenerator(g.elements)
 	if bg, ok := elements.(*basicGenerator[T]); ok {
 		rawSchema := map[string]any{
 			"type":     "list",
 			"elements": bg.schema,
-			"min_size": int64(minSize),
+			"min_size": int64(g.minSize),
 		}
-		if cfg.maxSize >= 0 {
-			rawSchema["max_size"] = int64(cfg.maxSize)
+		if g.hasMax {
+			rawSchema["max_size"] = int64(g.maxSize)
 		}
 		if bg.transform != nil {
 			t := bg.transform
@@ -76,11 +86,20 @@ func Lists[T any](elements Generator[T], opts ...ListOption) Generator[[]T] {
 		}
 	}
 
+	maxSize := -1
+	if g.hasMax {
+		maxSize = g.maxSize
+	}
 	return &compositeListGenerator[T]{
 		elements: elements,
-		minSize:  minSize,
-		maxSize:  cfg.maxSize,
+		minSize:  g.minSize,
+		maxSize:  maxSize,
 	}
+}
+
+// draw produces a list by delegating to the effective generator.
+func (g ListGenerator[T]) draw(s *TestCase) []T {
+	return g.buildGenerator().draw(s)
 }
 
 // compositeListGenerator generates a list using the collection protocol.
@@ -108,37 +127,48 @@ func (g *compositeListGenerator[T]) draw(s *TestCase) []T {
 
 // --- Dicts generator ---
 
-// DictOption configures optional behavior for the [Dicts] generator.
-type DictOption func(*dictConfig)
-
-type dictConfig struct {
+// DictGenerator configures and generates map[K]V values.
+// Use [Dicts] to create one, then chain builder methods to configure bounds.
+// Invalid configurations panic on the first [Draw] call.
+type DictGenerator[K comparable, V any] struct {
+	keys    Generator[K]
+	values  Generator[V]
 	minSize int
 	maxSize int
 	hasMax  bool
 }
 
-// DictMinSize sets the minimum number of key-value pairs. Defaults to 0.
-func DictMinSize(n int) DictOption {
-	return func(cfg *dictConfig) { cfg.minSize = n }
-}
-
-// DictMaxSize sets the maximum number of key-value pairs.
-func DictMaxSize(n int) DictOption {
-	return func(cfg *dictConfig) { cfg.maxSize = n; cfg.hasMax = true }
-}
-
 // Dicts returns a Generator that produces map[K]V values.
-func Dicts[K comparable, V any](keys Generator[K], values Generator[V], opts ...DictOption) Generator[map[K]V] {
-	var cfg dictConfig
-	for _, o := range opts {
-		o(&cfg)
+func Dicts[K comparable, V any](keys Generator[K], values Generator[V]) DictGenerator[K, V] {
+	return DictGenerator[K, V]{keys: keys, values: values}
+}
+
+// MinSize sets the minimum number of key-value pairs. Default: 0.
+func (g DictGenerator[K, V]) MinSize(n int) DictGenerator[K, V] {
+	g.minSize = n
+	return g
+}
+
+// MaxSize sets the maximum number of key-value pairs.
+func (g DictGenerator[K, V]) MaxSize(n int) DictGenerator[K, V] {
+	g.maxSize = n
+	g.hasMax = true
+	return g
+}
+
+func (g DictGenerator[K, V]) buildGenerator() Generator[map[K]V] {
+	if g.minSize < 0 {
+		panic(fmt.Sprintf("hegel: min_size=%d must be non-negative", g.minSize))
 	}
-	if cfg.minSize < 0 {
-		panic(fmt.Sprintf("hegel: min_size=%d must be non-negative", cfg.minSize))
+	if g.hasMax && g.maxSize < 0 {
+		panic(fmt.Sprintf("hegel: max_size=%d must be non-negative", g.maxSize))
 	}
-	if cfg.hasMax && cfg.minSize > cfg.maxSize {
-		panic(fmt.Sprintf("hegel: Cannot have max_size=%d < min_size=%d", cfg.maxSize, cfg.minSize))
+	if g.hasMax && g.minSize > g.maxSize {
+		panic(fmt.Sprintf("hegel: Cannot have max_size=%d < min_size=%d", g.maxSize, g.minSize))
 	}
+
+	keys := unwrapGenerator(g.keys)
+	values := unwrapGenerator(g.values)
 	keyBasic, keyIsBasic := keys.(*basicGenerator[K])
 	valBasic, valIsBasic := values.(*basicGenerator[V])
 	if keyIsBasic && valIsBasic {
@@ -146,10 +176,10 @@ func Dicts[K comparable, V any](keys Generator[K], values Generator[V], opts ...
 			"type":     "dict",
 			"keys":     keyBasic.schema,
 			"values":   valBasic.schema,
-			"min_size": int64(cfg.minSize),
+			"min_size": int64(g.minSize),
 		}
-		if cfg.hasMax {
-			rawSchema["max_size"] = int64(cfg.maxSize)
+		if g.hasMax {
+			rawSchema["max_size"] = int64(g.maxSize)
 		}
 		keyTransform := keyBasic.transform
 		valTransform := valBasic.transform
@@ -163,10 +193,15 @@ func Dicts[K comparable, V any](keys Generator[K], values Generator[V], opts ...
 	return &compositeDictGenerator[K, V]{
 		keys:    keys,
 		values:  values,
-		minSize: cfg.minSize,
-		maxSize: cfg.maxSize,
-		hasMax:  cfg.hasMax,
+		minSize: g.minSize,
+		maxSize: g.maxSize,
+		hasMax:  g.hasMax,
 	}
+}
+
+// draw produces a map by delegating to the effective generator.
+func (g DictGenerator[K, V]) draw(s *TestCase) map[K]V {
+	return g.buildGenerator().draw(s)
 }
 
 // pairsToMap converts a CBOR-decoded pair list [[k,v], ...] to a map[K]V.
