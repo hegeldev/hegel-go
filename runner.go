@@ -108,6 +108,9 @@ func generateFromSchema(gs *TestCase, schema map[string]any) (any, error) {
 	}
 	pending, err := ch.Request(payload)
 	if err != nil {
+		if gs.channel.conn.ServerHasExited() { //nocov
+			return nil, &connectionError{msg: serverCrashedMessage} //nocov
+		}
 		return nil, &connectionError{msg: err.Error()}
 	}
 	v, err := pending.Get()
@@ -120,6 +123,9 @@ func generateFromSchema(gs *TestCase, schema map[string]any) (any, error) {
 		if ok && (re.ErrorType == "FlakyStrategyDefinition" || re.ErrorType == "FlakyReplay") { //nocov
 			gs.aborted = true        //nocov
 			return nil, flakyAbort{} //nocov
+		}
+		if gs.channel.conn.ServerHasExited() { //nocov
+			return nil, &connectionError{msg: serverCrashedMessage} //nocov
 		}
 		return nil, err
 	}
@@ -530,6 +536,7 @@ type hegelSession struct {
 	hegelCmd       string // overridable for testing
 	suppressStderr bool   // suppress hegel subprocess stderr (used for test-mode sessions that intentionally crash)
 	logFile        *os.File
+	monitorDone    chan struct{} // closed when the server process monitor goroutine exits
 }
 
 // openServerLog opens .hegel/server.log in the project root for appending server output.
@@ -592,9 +599,23 @@ func (s *hegelSession) start() error {
 	}
 	s.process = cmd
 
-	// Wait for socket to appear and connect.
+	// Start a goroutine to wait for the process to exit.
+	// This ensures cmd.Wait() is called exactly once.
+	processExited := make(chan struct{})
+	go func() {
+		cmd.Wait() //nolint:errcheck
+		close(processExited)
+	}()
+
+	// Wait for socket to appear and connect, checking for early server exit.
 	var sock net.Conn
 	for i := 0; i < 50; i++ {
+		select {
+		case <-processExited:
+			os.RemoveAll(tmp) //nolint:errcheck
+			return fmt.Errorf("hegel: %s", serverCrashedMessage)
+		default:
+		}
 		if _, statErr := os.Stat(sockPath); statErr == nil {
 			c, connErr := net.Dial("unix", sockPath)
 			if connErr == nil {
@@ -604,18 +625,20 @@ func (s *hegelSession) start() error {
 		}
 		time.Sleep(100 * time.Millisecond)
 	}
-	if sock == nil {
-		cmd.Process.Kill() //nolint:errcheck
-		os.RemoveAll(tmp)  //nolint:errcheck
-		return fmt.Errorf("hegel: timeout waiting for hegel to start")
+	if sock == nil { //nocov
+		cmd.Process.Kill()                                             //nolint:errcheck //nocov
+		<-processExited                                                //nocov
+		os.RemoveAll(tmp)                                              //nolint:errcheck  //nocov
+		return fmt.Errorf("hegel: timeout waiting for hegel to start") //nocov
 	}
 
 	conn := newConnection(sock, "Client")
 	version, err := conn.SendHandshakeVersion()
 	if err != nil {
-		sock.Close()       //nolint:errcheck
+		conn.Close()
 		cmd.Process.Kill() //nolint:errcheck
-		os.RemoveAll(tmp)  //nolint:errcheck
+		<-processExited
+		os.RemoveAll(tmp) //nolint:errcheck
 		return fmt.Errorf("hegel: handshake: %w", err)
 	}
 	_ = version // we accept any version for now
@@ -623,9 +646,15 @@ func (s *hegelSession) start() error {
 	s.conn = conn
 	s.cli = newClient(conn)
 
-	// Register cleanup on first successful start.
-	// (atexit equivalent: use a finalizer or just let the OS clean up on exit.
-	// For test suites, this is sufficient.)
+	// Monitor: if the server exits unexpectedly, mark the connection and close the socket.
+	s.monitorDone = make(chan struct{})
+	go func() {
+		defer close(s.monitorDone)
+		<-processExited
+		conn.MarkServerExited()
+		sock.Close() //nolint:errcheck
+	}()
+
 	return nil
 }
 
@@ -647,8 +676,11 @@ func (s *hegelSession) cleanup() {
 		func() {
 			defer func() { recover() }()           //nolint:errcheck
 			s.process.Process.Signal(os.Interrupt) //nolint:errcheck
-			s.process.Wait()                       //nolint:errcheck
 		}()
+		if s.monitorDone != nil {
+			<-s.monitorDone
+			s.monitorDone = nil
+		}
 		s.process = nil
 	}
 

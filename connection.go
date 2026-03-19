@@ -6,11 +6,15 @@ import (
 	"net"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"time"
 )
 
 // protocolVersion is the version string used in handshakes.
 const protocolVersion = "0.6"
+
+// serverCrashedMessage is the error message when the hegel server process exits unexpectedly.
+const serverCrashedMessage = "The hegel server process exited unexpectedly. See .hegel/server.log for diagnostic information."
 
 // handshakePrefix is the prefix expected at the start of a valid handshake response.
 const handshakePrefix = "Hegel/"
@@ -45,6 +49,18 @@ type connection struct {
 
 	controlMu sync.Mutex
 	controlCh *channel
+
+	serverExited atomic.Bool
+}
+
+// MarkServerExited marks that the server process has exited unexpectedly.
+func (c *connection) MarkServerExited() {
+	c.serverExited.Store(true)
+}
+
+// ServerHasExited returns whether the server process has exited unexpectedly.
+func (c *connection) ServerHasExited() bool {
+	return c.serverExited.Load()
 }
 
 // newConnection wraps conn in a new connection and registers the control channel (ID 0).
@@ -448,6 +464,9 @@ func (ch *channel) processOneMessage(timeout time.Duration) error {
 	case <-ch.dropped:
 		panic(fmt.Errorf("%s: dropped a message", ch))
 	case <-ch.conn.done:
+		if ch.conn.ServerHasExited() { //nocov
+			return fmt.Errorf("%s", serverCrashedMessage) //nocov
+		}
 		return fmt.Errorf("connection closed")
 	case <-timeoutCh:
 		return fmt.Errorf("timed out after %v waiting for a message on %s", timeout, ch)

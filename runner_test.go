@@ -303,11 +303,13 @@ func TestHegelSessionCleanupEmpty(t *testing.T) {
 	s.cleanup() // Should not panic when nothing started.
 }
 
-// --- hegelSession: timeout when hegel doesn't appear ---
+// --- hegelSession: server exits immediately (early crash detection) ---
 
-func TestHegelSessionStartTimeout(t *testing.T) {
+func TestHegelSessionStartServerExitsImmediately(t *testing.T) {
 	t.Parallel()
-	// Use `false` (exits immediately) so the socket never appears.
+	// Use `false` (exits immediately) so the process exit is detected before
+	// the socket appears. With the server crash monitor, this triggers
+	// the early exit error rather than a timeout.
 	falseBin, err := exec.LookPath("false")
 	if err != nil {
 		t.Skip("false binary not available")
@@ -317,9 +319,9 @@ func TestHegelSessionStartTimeout(t *testing.T) {
 	startErr := s.start()
 	if startErr == nil {
 		s.cleanup()
-		t.Fatal("expected timeout error")
+		t.Fatal("expected error")
 	}
-	mustContainStr(t, startErr.Error(), "timeout")
+	mustContainStr(t, startErr.Error(), "server process exited unexpectedly")
 }
 
 // --- hegelSession: concurrent starts (double-checked locking) ---
@@ -1213,6 +1215,26 @@ func TestSuppressAllHealthChecksIntegration(t *testing.T) {
 	}, stderrNoteFn, []Option{SuppressHealthCheck(AllHealthChecks()...), WithTestCases(5)})
 	if err != nil {
 		t.Errorf("expected test to pass with all health checks suppressed: %v", err)
+	}
+}
+
+// =============================================================================
+// Server crash detection: MarkServerExited / ServerHasExited
+// =============================================================================
+
+func TestServerExitedFlag(t *testing.T) {
+	t.Parallel()
+	s, c := socketPair(t)
+	conn := newConnection(s, "C")
+	defer conn.Close()
+	c.Close()
+
+	if conn.ServerHasExited() {
+		t.Error("expected ServerHasExited() == false initially")
+	}
+	conn.MarkServerExited()
+	if !conn.ServerHasExited() {
+		t.Error("expected ServerHasExited() == true after MarkServerExited()")
 	}
 }
 
