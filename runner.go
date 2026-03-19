@@ -444,6 +444,18 @@ type hegelSession struct {
 	socketPath     string
 	hegelCmd       string // overridable for testing
 	suppressStderr bool   // suppress hegel subprocess stderr (used for test-mode sessions that intentionally crash)
+	logFile        *os.File
+}
+
+// openServerLog opens .hegel/server.log in the project root for appending server output.
+func openServerLog() *os.File {
+	hegelDir := filepath.Join(getProjectRoot(), ".hegel")
+	os.MkdirAll(hegelDir, 0o755) //nolint:errcheck
+	f, err := os.OpenFile(filepath.Join(hegelDir, "server.log"), os.O_CREATE|os.O_APPEND|os.O_WRONLY, 0o644)
+	if err != nil { //nocov
+		panic(fmt.Sprintf("hegel: unreachable: failed to open server log: %v", err)) //nocov
+	}
+	return f
 }
 
 // mkdirTempFn is the function used to create temp directories.
@@ -481,12 +493,14 @@ func (s *hegelSession) start() error {
 	// Spawn hegel process in the project root so .hegel is created there.
 	cmd := exec.Command(hegelBin, sockPath)
 	cmd.Dir = getProjectRoot()
-	cmd.Stdout = os.Stderr
+	logFile := openServerLog()
+	cmd.Stdout = logFile
 	if s.suppressStderr {
 		cmd.Stderr = io.Discard
 	} else {
-		cmd.Stderr = os.Stderr
+		cmd.Stderr = logFile
 	}
+	s.logFile = logFile
 	if err := cmd.Start(); err != nil {
 		os.RemoveAll(tmp) //nolint:errcheck
 		return fmt.Errorf("hegel: spawn: %w", err)
@@ -551,6 +565,14 @@ func (s *hegelSession) cleanup() {
 			s.process.Wait()                       //nolint:errcheck
 		}()
 		s.process = nil
+	}
+
+	if s.logFile != nil {
+		func() {
+			defer func() { recover() }() //nolint:errcheck
+			s.logFile.Close()            //nolint:errcheck
+		}()
+		s.logFile = nil
 	}
 
 	if s.tempDir != "" {
