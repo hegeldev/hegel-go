@@ -40,11 +40,3 @@ func TestAddCommutative(t *testing.T) {
 ```
 
 See [docs/getting-started.md](docs/getting-started.md) for more.
-
-## Development
-
-```bash
-just setup       # install dependencies
-just test        # run tests
-just check       # run PR checks: lint + tests + docs
-```
