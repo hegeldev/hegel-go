@@ -40,3 +40,5 @@ vendor/
 .vscode/
 *.iml
 .DS_Store
+
+.claude/claude-reliability.yml
