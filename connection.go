@@ -464,8 +464,8 @@ func (ch *channel) processOneMessage(timeout time.Duration) error {
 	case <-ch.dropped:
 		panic(fmt.Errorf("%s: dropped a message", ch))
 	case <-ch.conn.done:
-		if ch.conn.ServerHasExited() { //nocov
-			return fmt.Errorf("%s", serverCrashedMessage) //nocov
+		if ch.conn.ServerHasExited() {
+			return fmt.Errorf("%s", serverCrashedMessage)
 		}
 		return fmt.Errorf("connection closed")
 	case <-timeoutCh:

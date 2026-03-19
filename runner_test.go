@@ -8,7 +8,9 @@ import (
 	"path/filepath"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"testing"
+	"time"
 )
 
 // --- Helper: check hegel binary is available ---
@@ -467,22 +469,6 @@ func TestNoteOnFinalRun(t *testing.T) {
 	if !noted {
 		t.Error("expected isFinal to be true during final replay")
 	}
-}
-
-// --- runTestCase: flakyAbort skips mark_complete ---
-
-func TestFlakyAbortSkipsMarkComplete(t *testing.T) {
-	t.Parallel()
-	hegelBinPath(t)
-	// flakyAbort should be treated like dataExhausted: abort the test case
-	// without sending mark_complete. The test should complete without error
-	// because the server doesn't see the test case as interesting.
-	err := runHegel(func(_ *TestCase) {
-		panic(flakyAbort{})
-	}, stderrNoteFn, []Option{WithTestCases(1)})
-	// The test may or may not error depending on server behavior,
-	// but it should not hang or panic with an unhandled type.
-	_ = err
 }
 
 // --- runTest: connection error in test function is re-raised ---
@@ -1236,6 +1222,157 @@ func TestServerExitedFlag(t *testing.T) {
 	if !conn.ServerHasExited() {
 		t.Error("expected ServerHasExited() == true after MarkServerExited()")
 	}
+}
+
+// =============================================================================
+// Session start timeout: process alive but no socket
+// =============================================================================
+
+func TestHegelSessionStartTimeout(t *testing.T) {
+	t.Parallel()
+	tmp := t.TempDir()
+	script := filepath.Join(tmp, "fake_hegel.sh")
+	os.WriteFile(script, []byte("#!/bin/sh\nsleep 60\n"), 0o755) //nolint:errcheck
+	s := newHegelSession()
+	s.hegelCmd = script
+	startErr := s.start()
+	s.cleanup()
+	if startErr == nil {
+		t.Fatal("expected timeout error")
+	}
+	mustContainStr(t, startErr.Error(), "timeout")
+}
+
+// =============================================================================
+// Health check failure: filter too aggressively without suppressing
+// =============================================================================
+
+func TestHealthCheckFailureFilterTooMuch(t *testing.T) {
+	hegelBinPath(t)
+	// Filtering based on a tiny range triggers FilterTooMuch: the server sees
+	// almost all test cases rejected and raises a health check failure.
+	err := runHegel(func(s *TestCase) {
+		n := Draw[int](s, Integers[int](0, 1000))
+		s.Assume(n == 0) // reject ~99.9% of test cases
+	}, stderrNoteFn, []Option{WithTestCases(200)})
+	if err == nil {
+		t.Fatal("expected health check failure")
+	}
+	mustContainStr(t, err.Error(), "health check failure")
+}
+
+// =============================================================================
+// Flaky global state detection
+// =============================================================================
+
+var flakyCounter atomic.Int64
+
+func TestFlakyGlobalState(t *testing.T) {
+	hegelBinPath(t)
+	flakyCounter.Store(0)
+	err := runHegel(func(s *TestCase) {
+		min := int(flakyCounter.Load())
+		_ = Draw[int](s, Integers[int](min, min+100))
+		flakyCounter.Add(1)
+	}, stderrNoteFn, []Option{WithTestCases(100)})
+	if err == nil {
+		t.Fatal("expected error for flaky test")
+	}
+	mustContainStr(t, err.Error(), "flaky")
+}
+
+// =============================================================================
+// Server crash on Request error (closed socket + ServerHasExited)
+// =============================================================================
+
+func TestGenerateServerCrashOnRequest(t *testing.T) {
+	t.Parallel()
+	s, c := socketPair(t)
+	conn := newConnection(s, "C")
+	c.Close()
+	conn.state = stateClient
+	ch := &channel{conn: conn, channelID: 1, inbox: make(chan any, 1), dropped: make(chan struct{}), nextMessageID: 1}
+	conn.writerMu.Lock()
+	conn.channels[1] = ch
+	conn.writerMu.Unlock()
+	s.Close()
+	conn.MarkServerExited()
+
+	state := &TestCase{channel: ch}
+	var caught any
+	func() {
+		defer func() { caught = recover() }()
+		Draw[bool](state, Booleans())
+	}()
+	if caught == nil {
+		t.Fatal("expected panic from Draw on server crash")
+	}
+	connErr, ok := caught.(*connectionError)
+	if !ok {
+		t.Fatalf("expected *connectionError, got %T: %v", caught, caught)
+	}
+	mustContainStr(t, connErr.msg, "server process exited unexpectedly")
+}
+
+// =============================================================================
+// Server crash on Get error (socket closed mid-request + ServerHasExited)
+// =============================================================================
+
+func TestGenerateServerCrashOnGet(t *testing.T) {
+	t.Parallel()
+	s, c := socketPair(t)
+	conn := newConnection(s, "C")
+	conn.state = stateClient
+	ch := &channel{conn: conn, channelID: 1, inbox: make(chan any, 1), dropped: make(chan struct{}), nextMessageID: 1}
+	conn.writerMu.Lock()
+	conn.channels[1] = ch
+	conn.writerMu.Unlock()
+
+	// Read the request on peer side, then simulate crash
+	go func() {
+		readPacket(c) //nolint:errcheck
+		conn.MarkServerExited()
+		c.Close()
+	}()
+
+	state := &TestCase{channel: ch}
+	var caught any
+	func() {
+		defer func() { caught = recover() }()
+		Draw[bool](state, Booleans())
+	}()
+	if caught == nil {
+		t.Fatal("expected panic from Draw on server crash")
+	}
+	connErr, ok := caught.(*connectionError)
+	if !ok {
+		t.Fatalf("expected *connectionError, got %T: %v", caught, caught)
+	}
+	mustContainStr(t, connErr.msg, "server process exited unexpectedly")
+}
+
+// =============================================================================
+// ServerHasExited in processOneMessage
+// =============================================================================
+
+func TestProcessOneMessageServerCrash(t *testing.T) {
+	t.Parallel()
+	s, c := socketPair(t)
+	conn := newConnection(s, "C")
+	conn.state = stateClient
+	ch := conn.NewChannel("Test")
+
+	conn.MarkServerExited()
+	c.Close()
+
+	// Wait for readLoop to notice the close
+	<-conn.done
+
+	_, _, err := ch.RecvRequestRaw(1 * time.Second)
+	if err == nil {
+		t.Fatal("expected error")
+	}
+	mustContainStr(t, err.Error(), "server process exited unexpectedly")
 }
 
 // --- helpers ---

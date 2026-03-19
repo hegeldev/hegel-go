@@ -108,8 +108,8 @@ func generateFromSchema(gs *TestCase, schema map[string]any) (any, error) {
 	}
 	pending, err := ch.Request(payload)
 	if err != nil {
-		if gs.channel.conn.ServerHasExited() { //nocov
-			return nil, &connectionError{msg: serverCrashedMessage} //nocov
+		if gs.channel.conn.ServerHasExited() {
+			return nil, &connectionError{msg: serverCrashedMessage}
 		}
 		return nil, &connectionError{msg: err.Error()}
 	}
@@ -120,12 +120,12 @@ func generateFromSchema(gs *TestCase, schema map[string]any) (any, error) {
 			gs.aborted = true
 			return nil, &dataExhausted{msg: "server ran out of data"}
 		}
-		if ok && (re.ErrorType == "FlakyStrategyDefinition" || re.ErrorType == "FlakyReplay") { //nocov
-			gs.aborted = true        //nocov
-			return nil, flakyAbort{} //nocov
+		if ok && (re.ErrorType == "FlakyStrategyDefinition" || re.ErrorType == "FlakyReplay") {
+			gs.aborted = true
+			return nil, flakyAbort{}
 		}
-		if gs.channel.conn.ServerHasExited() { //nocov
-			return nil, &connectionError{msg: serverCrashedMessage} //nocov
+		if gs.channel.conn.ServerHasExited() {
+			return nil, &connectionError{msg: serverCrashedMessage}
 		}
 		return nil, err
 	}
@@ -390,13 +390,13 @@ doneLoop:
 	}
 
 	// Check for health check failure.
-	if hcMsg, ok := resultData[any("health_check_failure")].(string); ok && hcMsg != "" { //nocov
-		return fmt.Errorf("hegel: health check failure:\n%s", hcMsg) //nocov
+	if hcMsg, ok := resultData[any("health_check_failure")].(string); ok && hcMsg != "" {
+		return fmt.Errorf("hegel: health check failure:\n%s", hcMsg)
 	}
 
 	// Check for flaky test detection.
-	if flakyMsg, ok := resultData[any("flaky")].(string); ok && flakyMsg != "" { //nocov
-		return fmt.Errorf("hegel: flaky test detected: %s", flakyMsg) //nocov
+	if flakyMsg, ok := resultData[any("flaky")].(string); ok && flakyMsg != "" {
+		return fmt.Errorf("hegel: flaky test detected: %s", flakyMsg)
 	}
 
 	nInterestingVal := resultData[any("interesting_test_cases")]
@@ -625,11 +625,11 @@ func (s *hegelSession) start() error {
 		}
 		time.Sleep(100 * time.Millisecond)
 	}
-	if sock == nil { //nocov
-		cmd.Process.Kill()                                             //nolint:errcheck //nocov
-		<-processExited                                                //nocov
-		os.RemoveAll(tmp)                                              //nolint:errcheck  //nocov
-		return fmt.Errorf("hegel: timeout waiting for hegel to start") //nocov
+	if sock == nil {
+		cmd.Process.Kill() //nolint:errcheck
+		<-processExited
+		os.RemoveAll(tmp) //nolint:errcheck
+		return fmt.Errorf("hegel: timeout waiting for hegel to start")
 	}
 
 	conn := newConnection(sock, "Client")
