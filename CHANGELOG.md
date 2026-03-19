@@ -1,5 +1,9 @@
 # Changelog
 
+## 0.1.2 - 2026-03-19
+
+This release changes the way the go library automatically manages its hegel binary to match the rust library.
+
 ## 0.1.1 - 2026-03-18
 
 Improve docs on URLs() and remove Times()
