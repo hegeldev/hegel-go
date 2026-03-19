@@ -2,14 +2,10 @@
 
 ## Install Hegel
 
+Install the `hegel-go` library:
+
 ```bash
 go get hegel.dev/go/hegel@latest
-```
-
-The library requires the `hegel` CLI on your PATH:
-
-```bash
-pip install hegel-core
 ```
 
 ## Write your first test

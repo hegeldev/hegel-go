@@ -7,6 +7,8 @@
 
 ## Installation
 
+Install the `hegel-go` library:
+
 ```bash
 go get hegel.dev/go/hegel@latest
 ```
