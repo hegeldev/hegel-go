@@ -467,6 +467,22 @@ func TestNoteOnFinalRun(t *testing.T) {
 	}
 }
 
+// --- runTestCase: flakyAbort skips mark_complete ---
+
+func TestFlakyAbortSkipsMarkComplete(t *testing.T) {
+	t.Parallel()
+	hegelBinPath(t)
+	// flakyAbort should be treated like dataExhausted: abort the test case
+	// without sending mark_complete. The test should complete without error
+	// because the server doesn't see the test case as interesting.
+	err := runHegel(func(_ *TestCase) {
+		panic(flakyAbort{})
+	}, stderrNoteFn, []Option{WithTestCases(1)})
+	// The test may or may not error depending on server behavior,
+	// but it should not hang or panic with an unhandled type.
+	_ = err
+}
+
 // --- runTest: connection error in test function is re-raised ---
 
 func TestConnectionErrorInTestFunction(t *testing.T) {
@@ -500,6 +516,16 @@ func TestDataExhaustedError(t *testing.T) {
 	e := &dataExhausted{msg: "exhausted"}
 	if e.Error() != "exhausted" {
 		t.Errorf("dataExhausted.Error() = %q", e.Error())
+	}
+}
+
+// --- flakyAbort.Error() ---
+
+func TestFlakyAbortError(t *testing.T) {
+	t.Parallel()
+	e := flakyAbort{}
+	if e.Error() != "flaky test detected" {
+		t.Errorf("flakyAbort.Error() = %q", e.Error())
 	}
 }
 

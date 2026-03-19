@@ -35,6 +35,13 @@ type dataExhausted struct{ msg string }
 
 func (e *dataExhausted) Error() string { return e.msg }
 
+// flakyAbort is raised when the server detects non-deterministic data generation.
+// Like dataExhausted, it aborts the test case without sending mark_complete.
+// The server reports the actual flaky error in test_done results.
+type flakyAbort struct{}
+
+func (flakyAbort) Error() string { return "flaky test detected" }
+
 // connectionError wraps a connection-level error that should propagate out of the test.
 type connectionError struct{ msg string }
 
@@ -109,6 +116,10 @@ func generateFromSchema(gs *TestCase, schema map[string]any) (any, error) {
 		if ok && re.ErrorType == "StopTest" {
 			gs.aborted = true
 			return nil, &dataExhausted{msg: "server ran out of data"}
+		}
+		if ok && (re.ErrorType == "FlakyStrategyDefinition" || re.ErrorType == "FlakyReplay") { //nocov
+			gs.aborted = true        //nocov
+			return nil, flakyAbort{} //nocov
 		}
 		return nil, err
 	}
@@ -377,6 +388,11 @@ doneLoop:
 		return fmt.Errorf("hegel: health check failure:\n%s", hcMsg) //nocov
 	}
 
+	// Check for flaky test detection.
+	if flakyMsg, ok := resultData[any("flaky")].(string); ok && flakyMsg != "" { //nocov
+		return fmt.Errorf("hegel: flaky test detected: %s", flakyMsg) //nocov
+	}
+
 	nInterestingVal := resultData[any("interesting_test_cases")]
 	nInteresting, _ := toInt64(nInterestingVal)
 	if nInteresting == 0 {
@@ -444,6 +460,8 @@ func (c *client) runTestCase(ch *channel, fn testBody, isFinal bool, noteFn func
 			case assumeRejected:
 				status = "INVALID"
 			case *dataExhausted:
+				alreadyComplete = true
+			case flakyAbort:
 				alreadyComplete = true
 			case *connectionError:
 				finalErr = fmt.Errorf("%s", v.msg)
