@@ -1113,6 +1113,83 @@ func TestRunTestSendControlRequestError(t *testing.T) {
 	mustContainStr(t, err.Error(), "run_test send")
 }
 
+// =============================================================================
+// HealthCheck.String()
+// =============================================================================
+
+func TestHealthCheckString(t *testing.T) {
+	t.Parallel()
+	tests := []struct {
+		hc   HealthCheck
+		want string
+	}{
+		{FilterTooMuch, "filter_too_much"},
+		{TooSlow, "too_slow"},
+		{TestCasesTooLarge, "test_cases_too_large"},
+		{LargeInitialTestCase, "large_initial_test_case"},
+	}
+	for _, tt := range tests {
+		if got := tt.hc.String(); got != tt.want {
+			t.Errorf("HealthCheck(%d).String() = %q, want %q", tt.hc, got, tt.want)
+		}
+	}
+}
+
+// =============================================================================
+// AllHealthChecks()
+// =============================================================================
+
+func TestAllHealthChecks(t *testing.T) {
+	t.Parallel()
+	all := AllHealthChecks()
+	if len(all) != 4 {
+		t.Errorf("AllHealthChecks() has %d elements, want 4", len(all))
+	}
+}
+
+// =============================================================================
+// SuppressHealthCheck option
+// =============================================================================
+
+func TestSuppressHealthCheckOption(t *testing.T) {
+	t.Parallel()
+	o := runOptions{testCases: 100}
+	SuppressHealthCheck(FilterTooMuch, TooSlow)(&o)
+	if len(o.suppressHealthCheck) != 2 {
+		t.Errorf("suppressHealthCheck has %d elements, want 2", len(o.suppressHealthCheck))
+	}
+	if o.suppressHealthCheck[0] != FilterTooMuch {
+		t.Errorf("suppressHealthCheck[0] = %v, want FilterTooMuch", o.suppressHealthCheck[0])
+	}
+}
+
+// =============================================================================
+// SuppressHealthCheck: integration test with real server
+// =============================================================================
+
+func TestSuppressHealthCheckIntegration(t *testing.T) {
+	hegelBinPath(t)
+	// Exercise the suppress_health_check protocol path.
+	err := runHegel(func(s *TestCase) {
+		n := Draw[int](s, Integers[int](0, 100))
+		s.Assume(n < 90)
+	}, stderrNoteFn, []Option{SuppressHealthCheck(FilterTooMuch, TooSlow), WithTestCases(5)})
+	if err != nil {
+		t.Errorf("expected test to pass with suppressed health check: %v", err)
+	}
+}
+
+func TestSuppressAllHealthChecksIntegration(t *testing.T) {
+	hegelBinPath(t)
+	err := runHegel(func(s *TestCase) {
+		n := Draw[int](s, Integers[int](0, 100))
+		s.Assume(n < 90)
+	}, stderrNoteFn, []Option{SuppressHealthCheck(AllHealthChecks()...), WithTestCases(5)})
+	if err != nil {
+		t.Errorf("expected test to pass with all health checks suppressed: %v", err)
+	}
+}
+
 // --- helpers ---
 
 func mustContainStr(t *testing.T, s, sub string) {

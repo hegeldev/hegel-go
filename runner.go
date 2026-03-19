@@ -124,11 +124,52 @@ func (f fatalSentinel) Error() string { return f.msg }
 // It receives the TestCase for the current test case.
 type testBody func(s *TestCase)
 
+// --- Health checks ---
+
+// HealthCheck represents a health check that can be suppressed during test execution.
+//
+// Health checks detect common issues with test configuration that would
+// otherwise cause tests to run inefficiently or not at all.
+type HealthCheck int
+
+const (
+	// FilterTooMuch indicates too many test cases are being filtered out via [TestCase.Assume].
+	FilterTooMuch HealthCheck = iota
+	// TooSlow indicates test execution is too slow.
+	TooSlow
+	// TestCasesTooLarge indicates generated test cases are too large.
+	TestCasesTooLarge
+	// LargeInitialTestCase indicates the smallest natural input is very large.
+	LargeInitialTestCase
+)
+
+// AllHealthChecks returns all health check variants.
+func AllHealthChecks() []HealthCheck {
+	return []HealthCheck{FilterTooMuch, TooSlow, TestCasesTooLarge, LargeInitialTestCase}
+}
+
+// String returns the wire protocol name for this health check.
+func (h HealthCheck) String() string {
+	switch h {
+	case FilterTooMuch:
+		return "filter_too_much"
+	case TooSlow:
+		return "too_slow"
+	case TestCasesTooLarge:
+		return "test_cases_too_large"
+	case LargeInitialTestCase:
+		return "large_initial_test_case"
+	default: //nocov
+		panic("hegel: unreachable: unknown health check") //nocov
+	}
+}
+
 // --- Test runner options ---
 
 // runOptions holds options for property tests.
 type runOptions struct {
-	testCases int
+	testCases           int
+	suppressHealthCheck []HealthCheck
 }
 
 // Option is a functional option for Case and Run.
@@ -137,6 +178,14 @@ type Option func(*runOptions)
 // WithTestCases sets the number of test cases to run.
 func WithTestCases(n int) Option {
 	return func(o *runOptions) { o.testCases = n }
+}
+
+// SuppressHealthCheck suppresses the given health checks so they do not cause test failure.
+//
+// Health checks detect common issues like excessive filtering or slow tests.
+// Use this to suppress specific checks when they are expected.
+func SuppressHealthCheck(checks ...HealthCheck) Option {
+	return func(o *runOptions) { o.suppressHealthCheck = append(o.suppressHealthCheck, checks...) }
 }
 
 // --- Public API ---
@@ -248,11 +297,19 @@ func newClient(conn *connection) *client {
 func (c *client) runTest(fn testBody, opts runOptions, noteFn func(string)) error {
 	testCh := c.conn.NewChannel("Test")
 
-	payload, err := encodeCBOR(map[string]any{
+	runTestMsg := map[string]any{
 		"command":    "run_test",
 		"test_cases": int64(opts.testCases),
 		"channel_id": int64(testCh.ChannelID()),
-	})
+	}
+	if len(opts.suppressHealthCheck) > 0 {
+		names := make([]any, len(opts.suppressHealthCheck))
+		for i, hc := range opts.suppressHealthCheck {
+			names[i] = hc.String()
+		}
+		runTestMsg["suppress_health_check"] = names
+	}
+	payload, err := encodeCBOR(runTestMsg)
 	if err != nil { //nocov
 		panic(fmt.Sprintf("hegel: runTest encode: %v", err)) //nocov
 	}
@@ -308,6 +365,16 @@ func (c *client) runTest(fn testBody, opts runOptions, noteFn func(string)) erro
 doneLoop:
 	if resultData == nil { //nocov
 		panic("hegel: resultData is nil after test_done") //nocov
+	}
+
+	// Check for server-side error.
+	if errMsg, ok := resultData[any("error")].(string); ok && errMsg != "" { //nocov
+		return fmt.Errorf("hegel: server error: %s", errMsg) //nocov
+	}
+
+	// Check for health check failure.
+	if hcMsg, ok := resultData[any("health_check_failure")].(string); ok && hcMsg != "" { //nocov
+		return fmt.Errorf("hegel: health check failure:\n%s", hcMsg) //nocov
 	}
 
 	nInterestingVal := resultData[any("interesting_test_cases")]
