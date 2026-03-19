@@ -15,7 +15,6 @@ var projectRootMarkers = []string{
 	"Makefile",
 	"justfile",
 	"Justfile",
-	".hegel",
 }
 
 // getwdFn is the function used to get the current working directory.
