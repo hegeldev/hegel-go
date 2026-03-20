@@ -61,9 +61,17 @@ func main() {
 	var gen hegel.Generator[[]int]
 	if strings.Contains(testMode, "collection") {
 		filtered := hegel.Filter(elemGen, func(v int) bool { return true })
-		gen = hegel.Lists(filtered, hegel.ListMinSize(minSize), hegel.ListMaxSize(maxSize))
+		builder := hegel.Lists(filtered).MinSize(minSize)
+		if maxSize >= 0 {
+			builder = builder.MaxSize(maxSize)
+		}
+		gen = builder
 	} else {
-		gen = hegel.Lists(elemGen, hegel.ListMinSize(minSize), hegel.ListMaxSize(maxSize))
+		builder := hegel.Lists(elemGen).MinSize(minSize)
+		if maxSize >= 0 {
+			builder = builder.MaxSize(maxSize)
+		}
+		gen = builder
 	}
 
 	n := conformance.GetTestCases()

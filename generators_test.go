@@ -781,31 +781,24 @@ func TestBinarySchemaNoMax(t *testing.T) {
 // TestFloatsSchemaWithBounds verifies that Floats with explicit bounds sets all schema fields.
 func TestFloatsSchemaWithBounds(t *testing.T) {
 	t.Parallel()
-	minV := 0.0
-	maxV := 1.0
-	falseV := false
-	g := Floats(&minV, &maxV, &falseV, &falseV, false, false)
-	bg, ok := g.(*basicGenerator[float64])
-	if !ok {
-		t.Fatalf("Floats should return *basicGenerator[float64], got %T", g)
+	schema := Floats[float64]().Min(0.0).Max(1.0).AllowNaN(false).AllowInfinity(false).buildSchema()
+	if schema["type"] != "float" {
+		t.Errorf("type: expected 'float', got %v", schema["type"])
 	}
-	if bg.schema["type"] != "float" {
-		t.Errorf("type: expected 'float', got %v", bg.schema["type"])
+	if schema["allow_nan"] != false {
+		t.Errorf("allow_nan: expected false, got %v", schema["allow_nan"])
 	}
-	if bg.schema["allow_nan"] != false {
-		t.Errorf("allow_nan: expected false, got %v", bg.schema["allow_nan"])
+	if schema["allow_infinity"] != false {
+		t.Errorf("allow_infinity: expected false, got %v", schema["allow_infinity"])
 	}
-	if bg.schema["allow_infinity"] != false {
-		t.Errorf("allow_infinity: expected false, got %v", bg.schema["allow_infinity"])
+	if schema["exclude_min"] != false {
+		t.Errorf("exclude_min: expected false, got %v", schema["exclude_min"])
 	}
-	if bg.schema["exclude_min"] != false {
-		t.Errorf("exclude_min: expected false, got %v", bg.schema["exclude_min"])
+	if schema["exclude_max"] != false {
+		t.Errorf("exclude_max: expected false, got %v", schema["exclude_max"])
 	}
-	if bg.schema["exclude_max"] != false {
-		t.Errorf("exclude_max: expected false, got %v", bg.schema["exclude_max"])
-	}
-	minVal, _ := bg.schema["min_value"].(float64)
-	maxVal, _ := bg.schema["max_value"].(float64)
+	minVal, _ := schema["min_value"].(float64)
+	maxVal, _ := schema["max_value"].(float64)
 	if minVal != 0.0 {
 		t.Errorf("min_value: expected 0.0, got %v", minVal)
 	}
@@ -817,18 +810,17 @@ func TestFloatsSchemaWithBounds(t *testing.T) {
 // TestFloatsSchemaUnbounded verifies that Floats with no bounds defaults allow_nan=true, allow_infinity=true.
 func TestFloatsSchemaUnbounded(t *testing.T) {
 	t.Parallel()
-	g := Floats(nil, nil, nil, nil, false, false)
-	bg := g.(*basicGenerator[float64])
-	if bg.schema["allow_nan"] != true {
-		t.Errorf("allow_nan: expected true (no bounds), got %v", bg.schema["allow_nan"])
+	schema := Floats[float64]().buildSchema()
+	if schema["allow_nan"] != true {
+		t.Errorf("allow_nan: expected true (no bounds), got %v", schema["allow_nan"])
 	}
-	if bg.schema["allow_infinity"] != true {
-		t.Errorf("allow_infinity: expected true (no bounds), got %v", bg.schema["allow_infinity"])
+	if schema["allow_infinity"] != true {
+		t.Errorf("allow_infinity: expected true (no bounds), got %v", schema["allow_infinity"])
 	}
-	if _, hasMin := bg.schema["min_value"]; hasMin {
+	if _, hasMin := schema["min_value"]; hasMin {
 		t.Error("min_value should not be present when minVal is nil")
 	}
-	if _, hasMax := bg.schema["max_value"]; hasMax {
+	if _, hasMax := schema["max_value"]; hasMax {
 		t.Error("max_value should not be present when maxVal is nil")
 	}
 }
@@ -836,46 +828,38 @@ func TestFloatsSchemaUnbounded(t *testing.T) {
 // TestFloatsSchemaOnlyMin verifies Floats with only min bound: allow_nan=false, allow_infinity=true.
 func TestFloatsSchemaOnlyMin(t *testing.T) {
 	t.Parallel()
-	minV := 0.0
-	g := Floats(&minV, nil, nil, nil, false, false)
-	bg := g.(*basicGenerator[float64])
+	schema := Floats[float64]().Min(0.0).buildSchema()
 	// has_min=true, has_max=false -> allow_nan=false, allow_infinity=true
-	if bg.schema["allow_nan"] != false {
-		t.Errorf("allow_nan: expected false when min set, got %v", bg.schema["allow_nan"])
+	if schema["allow_nan"] != false {
+		t.Errorf("allow_nan: expected false when min set, got %v", schema["allow_nan"])
 	}
-	if bg.schema["allow_infinity"] != true {
-		t.Errorf("allow_infinity: expected true when only min set, got %v", bg.schema["allow_infinity"])
+	if schema["allow_infinity"] != true {
+		t.Errorf("allow_infinity: expected true when only min set, got %v", schema["allow_infinity"])
 	}
 }
 
 // TestFloatsSchemaOnlyMax verifies Floats with only max bound: allow_nan=false, allow_infinity=true.
 func TestFloatsSchemaOnlyMax(t *testing.T) {
 	t.Parallel()
-	maxV := 1.0
-	g := Floats(nil, &maxV, nil, nil, false, false)
-	bg := g.(*basicGenerator[float64])
+	schema := Floats[float64]().Max(1.0).buildSchema()
 	// has_min=false, has_max=true -> allow_nan=false, allow_infinity=true
-	if bg.schema["allow_nan"] != false {
-		t.Errorf("allow_nan: expected false when max set, got %v", bg.schema["allow_nan"])
+	if schema["allow_nan"] != false {
+		t.Errorf("allow_nan: expected false when max set, got %v", schema["allow_nan"])
 	}
-	if bg.schema["allow_infinity"] != true {
-		t.Errorf("allow_infinity: expected true when only max set, got %v", bg.schema["allow_infinity"])
+	if schema["allow_infinity"] != true {
+		t.Errorf("allow_infinity: expected true when only max set, got %v", schema["allow_infinity"])
 	}
 }
 
 // TestFloatsSchemaExcludeBounds verifies that excludeMin/excludeMax are stored correctly.
 func TestFloatsSchemaExcludeBounds(t *testing.T) {
 	t.Parallel()
-	minV := 0.0
-	maxV := 1.0
-	falseV := false
-	g := Floats(&minV, &maxV, &falseV, &falseV, true, true)
-	bg := g.(*basicGenerator[float64])
-	if bg.schema["exclude_min"] != true {
-		t.Errorf("exclude_min: expected true, got %v", bg.schema["exclude_min"])
+	schema := Floats[float64]().Min(0.0).Max(1.0).AllowNaN(false).AllowInfinity(false).ExcludeMin().ExcludeMax().buildSchema()
+	if schema["exclude_min"] != true {
+		t.Errorf("exclude_min: expected true, got %v", schema["exclude_min"])
 	}
-	if bg.schema["exclude_max"] != true {
-		t.Errorf("exclude_max: expected true, got %v", bg.schema["exclude_max"])
+	if schema["exclude_max"] != true {
+		t.Errorf("exclude_max: expected true, got %v", schema["exclude_max"])
 	}
 }
 
@@ -938,7 +922,7 @@ func TestFlatMappedGeneratorDependency(t *testing.T) {
 	hegelBinPath(t)
 	gen := FlatMap[int64, []int64](Integers[int64](2, 4), func(v int64) Generator[[]int64] {
 		sz := int(v)
-		return Lists[int64](Integers[int64](0, 100), ListMinSize(sz), ListMaxSize(sz))
+		return Lists[int64](Integers[int64](0, 100)).MinSize(sz).MaxSize(sz)
 	})
 	if _err := runHegel(func(s *TestCase) {
 		slice := Draw[[]int64](s, gen)
@@ -1063,14 +1047,12 @@ func TestExtractIntPanicsOnInvalidType(t *testing.T) {
 
 func TestFloatsSchemaExplicitNaNNilInf(t *testing.T) {
 	t.Parallel()
-	nan := true
-	g := Floats(nil, nil, &nan, nil, false, false)
-	bg := g.(*basicGenerator[float64])
-	if bg.schema["allow_nan"] != true {
-		t.Errorf("allow_nan: expected true, got %v", bg.schema["allow_nan"])
+	schema := Floats[float64]().AllowNaN(true).buildSchema()
+	if schema["allow_nan"] != true {
+		t.Errorf("allow_nan: expected true, got %v", schema["allow_nan"])
 	}
-	if bg.schema["allow_infinity"] != true {
-		t.Errorf("allow_infinity: expected true (default with no bounds), got %v", bg.schema["allow_infinity"])
+	if schema["allow_infinity"] != true {
+		t.Errorf("allow_infinity: expected true (default with no bounds), got %v", schema["allow_infinity"])
 	}
 }
 
@@ -1080,14 +1062,40 @@ func TestFloatsSchemaExplicitNaNNilInf(t *testing.T) {
 
 func TestFloatsSchemaExplicitInfNilNaN(t *testing.T) {
 	t.Parallel()
-	inf := true
-	g := Floats(nil, nil, nil, &inf, false, false)
-	bg := g.(*basicGenerator[float64])
-	if bg.schema["allow_nan"] != true {
-		t.Errorf("allow_nan: expected true (default with no bounds), got %v", bg.schema["allow_nan"])
+	schema := Floats[float64]().AllowInfinity(true).buildSchema()
+	if schema["allow_nan"] != true {
+		t.Errorf("allow_nan: expected true (default with no bounds), got %v", schema["allow_nan"])
 	}
-	if bg.schema["allow_infinity"] != true {
-		t.Errorf("allow_infinity: expected true, got %v", bg.schema["allow_infinity"])
+	if schema["allow_infinity"] != true {
+		t.Errorf("allow_infinity: expected true, got %v", schema["allow_infinity"])
+	}
+}
+
+// TestFloatsFloat32SchemaWidth verifies that Floats[float32]() has "width": int64(32).
+func TestFloatsFloat32SchemaWidth(t *testing.T) {
+	t.Parallel()
+	schema := Floats[float32]().buildSchema()
+	w := schema["width"].(int64)
+	if w != 32 {
+		t.Errorf("width: expected 32, got %d", w)
+	}
+}
+
+// TestExtractFloatAsFloat32 verifies extractFloatAs[float32].
+func TestExtractFloatAsFloat32(t *testing.T) {
+	t.Parallel()
+	v := extractFloatAs[float32](float64(1.5))
+	if v != float32(1.5) {
+		t.Errorf("extractFloatAs[float32]: expected 1.5, got %v", v)
+	}
+}
+
+// TestExtractFloatAsFloat64 verifies extractFloatAs[float64].
+func TestExtractFloatAsFloat64(t *testing.T) {
+	t.Parallel()
+	v := extractFloatAs[float64](float64(2.5))
+	if v != 2.5 {
+		t.Errorf("extractFloatAs[float64]: expected 2.5, got %v", v)
 	}
 }
 
@@ -1146,13 +1154,7 @@ func TestRejectE2E(t *testing.T) {
 
 func TestListsNegativeMinSizeSchema(t *testing.T) {
 	t.Parallel()
-	gen := Lists(Integers[int64](0, 10), ListMinSize(-5), ListMaxSize(10))
-	bg, ok := gen.(*basicGenerator[[]int64])
-	if !ok {
-		t.Fatalf("expected *basicGenerator[[]int64], got %T", gen)
-	}
-	minV, _ := extractCBORInt(bg.schema["min_size"])
-	if minV != 0 {
-		t.Errorf("negative MinSize should be clamped to 0, got %d", minV)
-	}
+	assertPanicsWithMessage(t, "min_size", func() {
+		Lists(Integers[int64](0, 10)).MinSize(-5).MaxSize(10).buildGenerator()
+	})
 }

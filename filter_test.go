@@ -69,7 +69,7 @@ func TestCompositeListGeneratorFilterReturnsfilteredGenerator(t *testing.T) {
 	// compositeListGenerator is produced when elements are non-basic.
 	// Filter produces a filteredGenerator (non-basic), forcing Lists into composite path.
 	nonBasic := Filter(Integers[int](0, 10), func(v int) bool { return true })
-	listGen := Lists(nonBasic, ListMaxSize(5))
+	listGen := Lists(nonBasic).MaxSize(5)
 	filtered := Filter(listGen, func(v []int) bool { return true })
 	if _, ok := filtered.(*filteredGenerator[[]int]); !ok {
 		t.Fatalf("Filter(compositeListGenerator) should return *filteredGenerator, got %T", filtered)

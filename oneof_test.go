@@ -380,11 +380,8 @@ func TestOptionalNonBasicE2E(t *testing.T) {
 // TestIPAddressesV4Schema verifies that IPAddresses(v4) produces {"type":"ipv4"}.
 func TestIPAddressesV4Schema(t *testing.T) {
 	t.Parallel()
-	g := IPAddresses(IPv4())
-	bg, ok := g.(*basicGenerator[netip.Addr])
-	if !ok {
-		t.Fatalf("IPAddresses(v4) should return *basicGenerator[netip.Addr], got %T", g)
-	}
+	g := IPAddresses().IPv4()
+	bg := g.buildGenerator().(*basicGenerator[netip.Addr])
 	if bg.schema["type"] != "ipv4" {
 		t.Errorf("IPAddresses(v4) type: expected ipv4, got %v", bg.schema["type"])
 	}
@@ -393,11 +390,8 @@ func TestIPAddressesV4Schema(t *testing.T) {
 // TestIPAddressesV6Schema verifies that IPAddresses(v6) produces {"type":"ipv6"}.
 func TestIPAddressesV6Schema(t *testing.T) {
 	t.Parallel()
-	g := IPAddresses(IPv6())
-	bg, ok := g.(*basicGenerator[netip.Addr])
-	if !ok {
-		t.Fatalf("IPAddresses(v6) should return *basicGenerator[netip.Addr], got %T", g)
-	}
+	g := IPAddresses().IPv6()
+	bg := g.buildGenerator().(*basicGenerator[netip.Addr])
 	if bg.schema["type"] != "ipv6" {
 		t.Errorf("IPAddresses(v6) type: expected ipv6, got %v", bg.schema["type"])
 	}
@@ -407,10 +401,7 @@ func TestIPAddressesV6Schema(t *testing.T) {
 func TestIPAddressesDefaultIsOneOf(t *testing.T) {
 	t.Parallel()
 	g := IPAddresses()
-	bg, ok := g.(*basicGenerator[netip.Addr])
-	if !ok {
-		t.Fatalf("IPAddresses(default) should return *basicGenerator[netip.Addr], got %T", g)
-	}
+	bg := g.buildGenerator().(*basicGenerator[netip.Addr])
 	// Should be a one_of of ipv4 and ipv6
 	oneOf, hasOneOf := bg.schema["one_of"]
 	if !hasOneOf {
@@ -426,7 +417,7 @@ func TestIPAddressesDefaultIsOneOf(t *testing.T) {
 func TestIPAddressesV4E2E(t *testing.T) {
 	t.Parallel()
 	hegelBinPath(t)
-	g := IPAddresses(IPv4())
+	g := IPAddresses().IPv4()
 	if _err := runHegel(func(s *TestCase) {
 		v := g.draw(s)
 		if !v.Is4() {
@@ -441,7 +432,7 @@ func TestIPAddressesV4E2E(t *testing.T) {
 func TestIPAddressesV6E2E(t *testing.T) {
 	t.Parallel()
 	hegelBinPath(t)
-	g := IPAddresses(IPv6())
+	g := IPAddresses().IPv6()
 	if _err := runHegel(func(s *TestCase) {
 		v := g.draw(s)
 		if !v.Is6() {

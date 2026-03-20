@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"math/big"
 	"time"
+	"unsafe"
 
 	"golang.org/x/exp/constraints"
 )
@@ -48,6 +49,11 @@ func extractIntAs[T constraints.Integer](v any) T {
 	return T(extractInt(v))
 }
 
+// extractFloatAs extracts a float from a CBOR-decoded value and converts it to T.
+func extractFloatAs[T constraints.Float](v any) T {
+	return T(extractFloat(v))
+}
+
 // Integers returns a Generator that produces integer values in [minVal, maxVal].
 // For unbounded generation, use the full range of the type:
 //
@@ -66,48 +72,121 @@ func Integers[T constraints.Integer](minVal, maxVal T) Generator[T] {
 	}
 }
 
-// Floats returns a Generator that produces float64 values.
-func Floats(minVal, maxVal *float64, allowNaN, allowInfinity *bool, excludeMin, excludeMax bool) Generator[float64] {
-	hasMin := minVal != nil
-	hasMax := maxVal != nil
+// FloatGenerator configures and generates floating-point values of type T.
+// Use [Floats] to create one, then chain builder methods to configure bounds
+// and behavior. Invalid configurations panic on the first [Draw] call.
+type FloatGenerator[T constraints.Float] struct {
+	minVal     *float64
+	maxVal     *float64
+	allowNaN   *bool
+	allowInf   *bool
+	excludeMin bool
+	excludeMax bool
+}
+
+// Floats returns a FloatGenerator that produces floating-point values of type T.
+// Configure bounds and behavior by chaining builder methods.
+//
+//	hegel.Floats[float64]()                         // any float64 including NaN and Inf
+//	hegel.Floats[float64]().Min(0).Max(1)           // bounded [0, 1]
+//	hegel.Floats[float32]().Min(0).ExcludeMin()     // (0, +Inf)
+func Floats[T constraints.Float]() FloatGenerator[T] {
+	return FloatGenerator[T]{}
+}
+
+// Min sets the minimum value for the float generator.
+func (g FloatGenerator[T]) Min(v T) FloatGenerator[T] {
+	f := float64(v)
+	g.minVal = &f
+	return g
+}
+
+// Max sets the maximum value for the float generator.
+func (g FloatGenerator[T]) Max(v T) FloatGenerator[T] {
+	f := float64(v)
+	g.maxVal = &f
+	return g
+}
+
+// AllowNaN sets whether the generator may produce NaN values.
+// Default: true when no bounds are set, false otherwise.
+func (g FloatGenerator[T]) AllowNaN(v bool) FloatGenerator[T] {
+	g.allowNaN = &v
+	return g
+}
+
+// AllowInfinity sets whether the generator may produce infinite values.
+// Default: true unless both bounds are set.
+func (g FloatGenerator[T]) AllowInfinity(v bool) FloatGenerator[T] {
+	g.allowInf = &v
+	return g
+}
+
+// ExcludeMin excludes the lower bound from the generated range.
+func (g FloatGenerator[T]) ExcludeMin() FloatGenerator[T] {
+	g.excludeMin = true
+	return g
+}
+
+// ExcludeMax excludes the upper bound from the generated range.
+func (g FloatGenerator[T]) ExcludeMax() FloatGenerator[T] {
+	g.excludeMax = true
+	return g
+}
+
+// buildSchema validates the configuration and returns the wire schema.
+// Panics on invalid combinations of settings.
+func (g FloatGenerator[T]) buildSchema() map[string]any {
+	hasMin := g.minVal != nil
+	hasMax := g.maxVal != nil
 
 	nan := !hasMin && !hasMax
-	if allowNaN != nil {
-		nan = *allowNaN
+	if g.allowNaN != nil {
+		nan = *g.allowNaN
 	}
 	inf := !hasMin || !hasMax
-	if allowInfinity != nil {
-		inf = *allowInfinity
+	if g.allowInf != nil {
+		inf = *g.allowInf
 	}
 
 	if nan && (hasMin || hasMax) {
 		panic("hegel: Cannot have allow_nan=true with min_value or max_value")
 	}
-	if hasMin && hasMax && *minVal > *maxVal {
-		panic(fmt.Sprintf("hegel: Cannot have max_value=%v < min_value=%v", *maxVal, *minVal))
+	if hasMin && hasMax && *g.minVal > *g.maxVal {
+		panic(fmt.Sprintf("hegel: Cannot have max_value=%v < min_value=%v", *g.maxVal, *g.minVal))
 	}
 	if inf && hasMin && hasMax {
 		panic("hegel: Cannot have allow_infinity=true with both min_value and max_value")
 	}
 
+	width := int64(unsafe.Sizeof(T(1.0)) * 8)
 	schema := map[string]any{
 		"type":           "float",
 		"allow_nan":      nan,
 		"allow_infinity": inf,
-		"exclude_min":    excludeMin,
-		"exclude_max":    excludeMax,
-		"width":          int64(64),
+		"exclude_min":    g.excludeMin,
+		"exclude_max":    g.excludeMax,
+		"width":          width,
 	}
 	if hasMin {
-		schema["min_value"] = *minVal
+		schema["min_value"] = *g.minVal
 	}
 	if hasMax {
-		schema["max_value"] = *maxVal
+		schema["max_value"] = *g.maxVal
 	}
-	return &basicGenerator[float64]{
-		schema:    schema,
-		transform: func(v any) float64 { return extractFloat(v) },
+	return schema
+}
+
+func (g FloatGenerator[T]) buildGenerator() Generator[T] {
+	return &basicGenerator[T]{
+		schema:    g.buildSchema(),
+		transform: extractFloatAs[T],
 	}
+}
+
+// draw produces a floating-point value from the Hegel server.
+func (g FloatGenerator[T]) draw(s *TestCase) T {
+	return g.buildGenerator().draw(s)
 }
 
 // Booleans returns a Generator that produces boolean values.
@@ -175,40 +254,50 @@ func URLs() Generator[string] {
 	}
 }
 
-// DomainOption configures optional behavior for the [Domains] generator.
-type DomainOption func(*domainConfig)
-
-type domainConfig struct {
-	maxLength int
-}
-
-// DomainMaxLength sets the maximum length of the domain name.
-// Defaults to 255 (matching RFC 1035).
-func DomainMaxLength(n int) DomainOption {
-	return func(cfg *domainConfig) { cfg.maxLength = n }
-}
-
 const defaultDomainMaxLength = 255
 
+// DomainGenerator configures and generates domain name strings.
+// Use [Domains] to create one, then chain builder methods to configure it.
+// Invalid configurations panic on the first [Draw] call.
+type DomainGenerator struct {
+	maxLength int
+	hasMax    bool
+}
+
 // Domains returns a Generator that produces domain name strings.
-func Domains(opts ...DomainOption) Generator[string] {
-	var cfg domainConfig
-	for _, o := range opts {
-		o(&cfg)
-	}
-	maxLen := cfg.maxLength
-	if maxLen <= 0 {
-		maxLen = defaultDomainMaxLength
+func Domains() DomainGenerator {
+	return DomainGenerator{}
+}
+
+// MaxLength sets the maximum domain length.
+func (g DomainGenerator) MaxLength(n int) DomainGenerator {
+	g.maxLength = n
+	g.hasMax = true
+	return g
+}
+
+func (g DomainGenerator) buildSchema() map[string]any {
+	maxLen := defaultDomainMaxLength
+	if g.hasMax {
+		maxLen = g.maxLength
 	}
 	if maxLen < 4 || maxLen > 255 {
 		panic(fmt.Sprintf("hegel: max_length=%d must be between 4 and 255", maxLen))
 	}
-	return &basicGenerator[string]{
-		schema: map[string]any{
-			"type":       "domain",
-			"max_length": int64(maxLen),
-		},
+	return map[string]any{
+		"type":       "domain",
+		"max_length": int64(maxLen),
 	}
+}
+
+func (g DomainGenerator) buildGenerator() Generator[string] {
+	return &basicGenerator[string]{
+		schema: g.buildSchema(),
+	}
+}
+
+func (g DomainGenerator) draw(s *TestCase) string {
+	return g.buildGenerator().draw(s)
 }
 
 // Dates returns a Generator that produces time.Time values from ISO 8601 date strings (YYYY-MM-DD).

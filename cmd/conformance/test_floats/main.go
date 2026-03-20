@@ -19,44 +19,40 @@ func main() {
 		}
 	}
 
-	var minPtr, maxPtr *float64
-	var allowNaN, allowInfinity *bool
+	g := hegel.Floats[float64]()
 
 	if v, ok := params["min_value"]; ok && v != nil {
 		if x, ok := v.(float64); ok {
-			minPtr = &x
+			g = g.Min(x)
 		}
 	}
 	if v, ok := params["max_value"]; ok && v != nil {
 		if x, ok := v.(float64); ok {
-			maxPtr = &x
+			g = g.Max(x)
 		}
 	}
 	if v, ok := params["allow_nan"]; ok && v != nil {
 		if x, ok := v.(bool); ok {
-			allowNaN = &x
+			g = g.AllowNaN(x)
 		}
 	}
 	if v, ok := params["allow_infinity"]; ok && v != nil {
 		if x, ok := v.(bool); ok {
-			allowInfinity = &x
+			g = g.AllowInfinity(x)
 		}
 	}
-
-	excludeMin := false
-	excludeMax := false
 	if v, ok := params["exclude_min"]; ok {
-		if x, ok := v.(bool); ok {
-			excludeMin = x
+		if x, ok := v.(bool); ok && x {
+			g = g.ExcludeMin()
 		}
 	}
 	if v, ok := params["exclude_max"]; ok {
-		if x, ok := v.(bool); ok {
-			excludeMax = x
+		if x, ok := v.(bool); ok && x {
+			g = g.ExcludeMax()
 		}
 	}
 
-	gen := hegel.Floats(minPtr, maxPtr, allowNaN, allowInfinity, excludeMin, excludeMax)
+	gen := g
 	n := conformance.GetTestCases()
 	hegel.MustRun(func(s *hegel.TestCase) {
 		val := hegel.Draw(s, gen)

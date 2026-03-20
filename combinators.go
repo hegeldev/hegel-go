@@ -40,9 +40,14 @@ func OneOf[T any](generators ...Generator[T]) Generator[T] {
 		panic("hegel: OneOf requires at least one generator")
 	}
 
+	resolved := make([]Generator[T], len(generators))
+	for i, g := range generators {
+		resolved[i] = unwrapGenerator(g)
+	}
+
 	// Check if all generators are basic.
 	allBasic := true
-	for _, g := range generators {
+	for _, g := range resolved {
 		if _, ok := g.(*basicGenerator[T]); !ok {
 			allBasic = false
 			break
@@ -50,13 +55,13 @@ func OneOf[T any](generators ...Generator[T]) Generator[T] {
 	}
 
 	if !allBasic {
-		gens := make([]Generator[T], len(generators))
-		copy(gens, generators)
+		gens := make([]Generator[T], len(resolved))
+		copy(gens, resolved)
 		return &compositeOneOfGenerator[T]{generators: gens}
 	}
 
-	basics := make([]*basicGenerator[T], len(generators))
-	for i, g := range generators {
+	basics := make([]*basicGenerator[T], len(resolved))
+	for i, g := range resolved {
 		basics[i] = g.(*basicGenerator[T])
 	}
 
@@ -147,47 +152,51 @@ func (g *optionalGenerator[T]) draw(s *TestCase) *T {
 
 // --- IPAddresses generator ---
 
-// IPAddressOption configures optional behavior for the [IPAddresses] generator.
-type IPAddressOption func(*ipAddressConfig)
-
-type ipAddressConfig struct {
+// IPAddressGenerator configures and generates IP addresses.
+// Use [IPAddresses] to create one, then chain builder methods to configure it.
+type IPAddressGenerator struct {
 	version string
 }
 
+// IPAddresses returns a Generator that produces IP addresses.
+func IPAddresses() IPAddressGenerator {
+	return IPAddressGenerator{}
+}
+
 // IPv4 restricts the generator to IPv4 addresses only.
-func IPv4() IPAddressOption {
-	return func(cfg *ipAddressConfig) { cfg.version = "ipv4" }
+func (g IPAddressGenerator) IPv4() IPAddressGenerator {
+	g.version = "ipv4"
+	return g
 }
 
 // IPv6 restricts the generator to IPv6 addresses only.
-func IPv6() IPAddressOption {
-	return func(cfg *ipAddressConfig) { cfg.version = "ipv6" }
+func (g IPAddressGenerator) IPv6() IPAddressGenerator {
+	g.version = "ipv6"
+	return g
 }
 
-// IPAddresses returns a Generator that produces IP address strings.
-func IPAddresses(opts ...IPAddressOption) Generator[netip.Addr] {
-	var cfg ipAddressConfig
-	for _, o := range opts {
-		o(&cfg)
-	}
+func (g IPAddressGenerator) buildGenerator() Generator[netip.Addr] {
 	addrTransform := func(a any) netip.Addr {
 		return netip.MustParseAddr(a.(string))
 	}
-	if cfg.version != "" {
+	if g.version != "" {
 		return &basicGenerator[netip.Addr]{
-			schema:    map[string]any{"type": cfg.version},
+			schema:    map[string]any{"type": g.version},
 			transform: addrTransform,
 		}
-	} else {
-		return OneOf(
-			&basicGenerator[netip.Addr]{
-				schema:    map[string]any{"type": "ipv4"},
-				transform: addrTransform,
-			},
-			&basicGenerator[netip.Addr]{
-				schema:    map[string]any{"type": "ipv6"},
-				transform: addrTransform,
-			},
-		)
 	}
+	return OneOf(
+		&basicGenerator[netip.Addr]{
+			schema:    map[string]any{"type": "ipv4"},
+			transform: addrTransform,
+		},
+		&basicGenerator[netip.Addr]{
+			schema:    map[string]any{"type": "ipv6"},
+			transform: addrTransform,
+		},
+	)
+}
+
+func (g IPAddressGenerator) draw(s *TestCase) netip.Addr {
+	return g.buildGenerator().draw(s)
 }

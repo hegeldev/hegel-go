@@ -49,14 +49,11 @@ func TestURLsSchema(t *testing.T) {
 func TestDomainsSchemaNoMaxLength(t *testing.T) {
 	t.Parallel()
 	g := Domains()
-	bg, ok := g.(*basicGenerator[string])
-	if !ok {
-		t.Fatalf("Domains() should return *basicGenerator[string], got %T", g)
+	schema := g.buildSchema()
+	if schema["type"] != "domain" {
+		t.Errorf("type: expected domain, got %v", schema["type"])
 	}
-	if bg.schema["type"] != "domain" {
-		t.Errorf("type: expected domain, got %v", bg.schema["type"])
-	}
-	maxLen, hasMax := bg.schema["max_length"]
+	maxLen, hasMax := schema["max_length"]
 	if !hasMax {
 		t.Fatal("max_length should always be present in domain schema")
 	}
@@ -69,15 +66,12 @@ func TestDomainsSchemaNoMaxLength(t *testing.T) {
 // TestDomainsSchemaWithMaxLength verifies that Domains() with MaxLength includes it.
 func TestDomainsSchemaWithMaxLength(t *testing.T) {
 	t.Parallel()
-	g := Domains(DomainMaxLength(63))
-	bg, ok := g.(*basicGenerator[string])
-	if !ok {
-		t.Fatalf("Domains() should return *basicGenerator[string], got %T", g)
+	g := Domains().MaxLength(63)
+	schema := g.buildSchema()
+	if schema["type"] != "domain" {
+		t.Errorf("type: expected domain, got %v", schema["type"])
 	}
-	if bg.schema["type"] != "domain" {
-		t.Errorf("type: expected domain, got %v", bg.schema["type"])
-	}
-	maxLen, ok := bg.schema["max_length"]
+	maxLen, ok := schema["max_length"]
 	if !ok {
 		t.Fatal("max_length should be present when MaxLength > 0")
 	}
@@ -178,7 +172,7 @@ func TestDomainsMaxLengthE2E(t *testing.T) {
 	hegelBinPath(t)
 	const maxLen = 20
 	if _err := runHegel(func(s *TestCase) {
-		v := Draw(s, Domains(DomainMaxLength(maxLen)))
+		v := Draw(s, Domains().MaxLength(maxLen))
 		if len(v) > maxLen {
 			panic("domain exceeds max_length constraint: " + v)
 		}

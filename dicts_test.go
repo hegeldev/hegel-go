@@ -13,17 +13,14 @@ import (
 // Dicts: schema unit tests (no server)
 // =============================================================================
 
-// TestDictsBasicSchema verifies that Dicts with two basic generators produces
-// a basicGenerator with a dict schema containing the expected fields.
+// TestDictsBasicSchema verifies that Dicts with two basic generators builds
+// a dict schema containing the expected fields.
 func TestDictsBasicSchema(t *testing.T) {
 	t.Parallel()
 	keys := Text(0, 5)
 	vals := Integers[int64](0, 100)
-	gen := Dicts(keys, vals, DictMaxSize(3))
-	bg, ok := gen.(*basicGenerator[map[string]int64])
-	if !ok {
-		t.Fatalf("Dicts(basic, basic) should return *basicGenerator[map[string]int64], got %T", gen)
-	}
+	gen := Dicts(keys, vals).MaxSize(3)
+	bg := gen.buildGenerator().(*basicGenerator[map[string]int64])
 	if bg.schema["type"] != "dict" {
 		t.Errorf("schema type: expected 'dict', got %v", bg.schema["type"])
 	}
@@ -54,11 +51,8 @@ func TestDictsBasicSchema(t *testing.T) {
 // TestDictsBasicSchemaNoMaxSize verifies that when HasMaxSize=false, max_size is omitted.
 func TestDictsBasicSchemaNoMaxSize(t *testing.T) {
 	t.Parallel()
-	gen := Dicts(Text(0, 5), Integers[int64](0, 100), DictMinSize(1))
-	bg, ok := gen.(*basicGenerator[map[string]int64])
-	if !ok {
-		t.Fatalf("expected *basicGenerator[map[string]int64], got %T", gen)
-	}
+	gen := Dicts(Text(0, 5), Integers[int64](0, 100)).MinSize(1)
+	bg := gen.buildGenerator().(*basicGenerator[map[string]int64])
 	if _, has := bg.schema["max_size"]; has {
 		t.Error("max_size should not be present when HasMaxSize=false")
 	}
@@ -67,28 +61,25 @@ func TestDictsBasicSchemaNoMaxSize(t *testing.T) {
 // TestDictsBasicSchemaMinSize verifies that MinSize is propagated to the schema.
 func TestDictsBasicSchemaMinSize(t *testing.T) {
 	t.Parallel()
-	gen := Dicts(Text(0, 5), Integers[int64](0, 100), DictMinSize(2), DictMaxSize(5))
-	bg, ok := gen.(*basicGenerator[map[string]int64])
-	if !ok {
-		t.Fatalf("expected *basicGenerator[map[string]int64], got %T", gen)
-	}
+	gen := Dicts(Text(0, 5), Integers[int64](0, 100)).MinSize(2).MaxSize(5)
+	bg := gen.buildGenerator().(*basicGenerator[map[string]int64])
 	minSz, _ := extractCBORInt(bg.schema["min_size"])
 	if minSz != 2 {
 		t.Errorf("min_size: expected 2, got %d", minSz)
 	}
 }
 
-// TestDictsBasicIsBasicGenerator verifies basicGenerator path via type assertion.
-func TestDictsBasicIsBasicGenerator(t *testing.T) {
+// TestDictsBasicBuildsBasicGenerator verifies the direct schema path.
+func TestDictsBasicBuildsBasicGenerator(t *testing.T) {
 	t.Parallel()
 	gen := Dicts(Text(0, 5), Integers[int64](0, 100))
-	if _, ok := gen.(*basicGenerator[map[string]int64]); !ok {
-		t.Errorf("Dicts(basic,basic) should be *basicGenerator[map[string]int64], got %T", gen)
+	if _, ok := gen.buildGenerator().(*basicGenerator[map[string]int64]); !ok {
+		t.Errorf("Dicts(basic,basic) should build *basicGenerator[map[string]int64], got %T", gen.buildGenerator())
 	}
 }
 
-// TestDictsCompositeIsNotBasicGenerator verifies compositeDictGenerator is not a basicGenerator.
-func TestDictsCompositeIsNotBasicGenerator(t *testing.T) {
+// TestDictsCompositeBuildsComposite verifies non-basic input uses the collection protocol.
+func TestDictsCompositeBuildsComposite(t *testing.T) {
 	t.Parallel()
 	// Use a non-basic key generator (mappedGenerator wrapping a basic generator)
 	nonBasicKeys := &mappedGenerator[int64, int64]{
@@ -96,8 +87,8 @@ func TestDictsCompositeIsNotBasicGenerator(t *testing.T) {
 		fn:    func(v int64) int64 { return v },
 	}
 	gen := Dicts(nonBasicKeys, Integers[int64](0, 10))
-	if _, ok := gen.(*basicGenerator[map[int64]int64]); ok {
-		t.Error("Dicts(non-basic, basic) should not be *basicGenerator")
+	if _, ok := gen.buildGenerator().(*basicGenerator[map[int64]int64]); ok {
+		t.Error("Dicts(non-basic, basic) should not build *basicGenerator")
 	}
 }
 
@@ -234,7 +225,7 @@ func TestDictsStopTestOnNewCollection(t *testing.T) {
 			inner: Integers[int64](0, 10),
 			fn:    func(v int64) int64 { return v },
 		}
-		gen := Dicts(nonBasicKeys, Integers[int64](0, 100), DictMaxSize(3))
+		gen := Dicts(nonBasicKeys, Integers[int64](0, 100)).MaxSize(3)
 		_ = gen.draw(s)
 	}, stderrNoteFn, nil)
 	// StopTest causes test to be skipped or aborted, not fail
@@ -251,7 +242,7 @@ func TestDictsStopTestOnCollectionMore(t *testing.T) {
 			inner: Integers[int64](0, 10),
 			fn:    func(v int64) int64 { return v },
 		}
-		gen := Dicts(nonBasicKeys, Integers[int64](0, 100), DictMaxSize(3))
+		gen := Dicts(nonBasicKeys, Integers[int64](0, 100)).MaxSize(3)
 		_ = gen.draw(s)
 	}, stderrNoteFn, nil)
 	_ = err
@@ -267,7 +258,7 @@ func TestDictsBasicE2E(t *testing.T) {
 	t.Parallel()
 	hegelBinPath(t)
 	if _err := runHegel(func(s *TestCase) {
-		gen := Dicts(Text(0, 5), Integers[int](0, 100), DictMaxSize(3))
+		gen := Dicts(Text(0, 5), Integers[int](0, 100)).MaxSize(3)
 		m := gen.draw(s)
 		if len(m) > 3 {
 			panic(fmt.Sprintf("Dicts: expected at most 3 entries, got %d", len(m)))
@@ -291,7 +282,7 @@ func TestDictsBasicWithBoundsE2E(t *testing.T) {
 	t.Parallel()
 	hegelBinPath(t)
 	if _err := runHegel(func(s *TestCase) {
-		gen := Dicts(Integers[int](0, 10), Booleans(), DictMinSize(1), DictMaxSize(3))
+		gen := Dicts(Integers[int](0, 10), Booleans()).MinSize(1).MaxSize(3)
 		m := gen.draw(s)
 		if len(m) < 1 || len(m) > 3 {
 			panic(fmt.Sprintf("Dicts bounded: expected 1-3 entries, got %d", len(m)))
@@ -315,7 +306,7 @@ func TestDictsCompositeNoMaxE2E(t *testing.T) {
 			inner: Integers[int64](0, 100),
 			fn:    func(n int64) int64 { return n },
 		}
-		// Omit DictMaxSize to trigger the !g.hasMax branch.
+		// Omit MaxSize to trigger the !g.hasMax branch.
 		gen := Dicts(nonBasicKeys, Just("v"))
 		m := gen.draw(s)
 		_ = m // just verify it doesn't panic
@@ -340,7 +331,7 @@ func TestDictsCompositeE2E(t *testing.T) {
 				return int64(6) // clamp to > 5
 			},
 		}
-		gen := Dicts(nonBasicKeys, Just("val"), DictMaxSize(3))
+		gen := Dicts(nonBasicKeys, Just("val")).MaxSize(3)
 		m := gen.draw(s)
 		// All values must be "val"
 		for k, val := range m {
