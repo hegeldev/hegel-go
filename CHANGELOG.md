@@ -1,5 +1,9 @@
 # Changelog
 
+## 0.1.3 - 2026-03-20
+
+Migrate generators to builder style options instead of functional options.
+
 ## 0.1.2 - 2026-03-19
 
 This release changes the way the go library automatically manages its hegel binary to match the rust library.
