@@ -105,8 +105,8 @@ Failing to handle StopTest correctly causes `FlakyStrategyDefinition` errors.
 
 ## Project Conventions
 
-- **Module path**: `github.com/hegeldev/hegel-go`
-- **Package name**: `hegel` — single package for the library, users import `github.com/hegeldev/hegel-go`
+- **Module path**: `hegel.dev/go/hegel`
+- **Package name**: `hegel` — single package for the library, users import `hegel.dev/go/hegel`
 - **File naming**: lowercase, multi-word files use underscores (e.g., `test_runner.go`)
 - **Test files**: `*_test.go` in the same package (white-box testing for coverage)
 - **Exported symbols**: PascalCase per Go convention
@@ -133,7 +133,7 @@ Failing to handle StopTest correctly causes `FlakyStrategyDefinition` errors.
 - 100% coverage is mandatory. `scripts/check-coverage.py` filters false positives automatically.
 - Use `panic("hegel: unreachable: ...")` for truly unreachable code paths — the false-positive filter recognizes the "unreachable" keyword.
 - The `if err != nil {` line must be immediately followed by the `panic(` line (no comments between them) for the filter to detect it.
-- Use `-coverpkg=github.com/hegeldev/hegel-go` to restrict coverage to the library package (excludes `cmd/` and `examples/`).
+- Use `-coverpkg=hegel.dev/go/hegel` to restrict coverage to the library package (excludes `cmd/` and `examples/`).
 
 ### Test isolation with HEGEL_PROTOCOL_TEST_MODE
 

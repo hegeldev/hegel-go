@@ -3,7 +3,7 @@
 ## Install Hegel
 
 ```bash
-go get github.com/hegeldev/hegel-go@latest
+go get hegel.dev/go/hegel@latest
 ```
 
 The library requires the `hegel` CLI on your PATH:
@@ -23,7 +23,7 @@ package example_test
 import (
 	"testing"
 
-	hegel "github.com/hegeldev/hegel-go"
+	"hegel.dev/go/hegel"
 )
 
 func TestIntegers(t *testing.T) {
@@ -264,4 +264,4 @@ may still explore other regions of the input space.
 ## Next steps
 
 - Browse the [`examples/`](../examples/) directory for runnable programs.
-- Read the full API reference: `go doc github.com/hegeldev/hegel-go`
+- Read the full API reference: `go doc hegel.dev/go/hegel`

@@ -12,8 +12,8 @@ import (
 	"os"
 	"strings"
 
-	hegel "github.com/hegeldev/hegel-go"
-	"github.com/hegeldev/hegel-go/internal/conformance"
+	hegel "hegel.dev/go/hegel"
+	"hegel.dev/go/hegel/internal/conformance"
 )
 
 func main() {
