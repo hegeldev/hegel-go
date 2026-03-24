@@ -8,7 +8,7 @@
 ## Installation
 
 ```bash
-go get github.com/hegeldev/hegel-go@latest
+go get hegel.dev/go/hegel@latest
 ```
 
 
@@ -25,7 +25,7 @@ package mypackage_test
 import (
     "testing"
 
-    hegel "github.com/hegeldev/hegel-go"
+    "hegel.dev/go/hegel"
 )
 
 func TestAddCommutative(t *testing.T) {

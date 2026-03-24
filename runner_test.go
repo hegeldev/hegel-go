@@ -581,7 +581,7 @@ func TestTargetConnectionError(t *testing.T) {
 // --- isHegelFrame ---
 
 func TestIsHegelFrame(t *testing.T) {
-	if !isHegelFrame("github.com/hegeldev/hegel-go.someFunc") {
+	if !isHegelFrame("hegel.dev/go/hegel.someFunc") {
 		t.Error("expected isHegelFrame to return true for hegel frame")
 	}
 	if isHegelFrame("testing.tRunner") {
