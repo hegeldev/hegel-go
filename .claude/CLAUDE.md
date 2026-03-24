@@ -18,7 +18,7 @@ Tests must use `PATH="$(pwd)/.venv/bin:$PATH"` (absolute path) so the `hegel` bi
 ## What This Is
 
 A Go implementation of the Hegel property-based testing library. Hegel is a
-universal property-based testing framework powered by Hypothesis on the backend.
+universal property-based testing protocol powered by Hypothesis on the backend.
 Client libraries communicate with the `hegel` binary (a Python server) via Unix sockets using
 a custom binary protocol.
 
