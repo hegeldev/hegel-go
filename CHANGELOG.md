@@ -1,5 +1,9 @@
 # Changelog
 
+## 0.1.4 - 2026-03-24
+
+Rename the module to hegel.dev/go/hegel
+
 ## 0.1.3 - 2026-03-20
 
 Migrate generators to builder style options instead of functional options.
