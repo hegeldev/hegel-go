@@ -537,7 +537,7 @@ func TestReleaseFileLockIdempotent(t *testing.T) {
 
 // TestAcquireFileLockTimeout verifies the lock times out when held by another party.
 func TestAcquireFileLockTimeout(t *testing.T) {
-	t.Parallel()
+	// Not parallel: mutates package-level fileLockTimeoutVal/fileLockPollIntervalVal.
 	tmp := t.TempDir()
 	lockDir := filepath.Join(tmp, "test-lock")
 
@@ -566,7 +566,7 @@ func TestAcquireFileLockTimeout(t *testing.T) {
 // TestAcquireFileLockWaitsAndSucceeds verifies the lock retries and succeeds
 // when the holder releases.
 func TestAcquireFileLockWaitsAndSucceeds(t *testing.T) {
-	t.Parallel()
+	// Not parallel: mutates package-level fileLockPollIntervalVal.
 	tmp := t.TempDir()
 	lockDir := filepath.Join(tmp, "test-lock")
 
