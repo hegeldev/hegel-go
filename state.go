@@ -5,6 +5,9 @@ import (
 	"testing"
 )
 
+// Compile-time check that T satisfies testing.TB.
+var _ testing.TB = (*T)(nil)
+
 // T is the test context for property tests run via [Case].
 //
 // It embeds *[testing.T] and overrides methods like Fatal and Skip so they
