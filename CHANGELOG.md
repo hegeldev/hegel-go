@@ -1,5 +1,9 @@
 # Changelog
 
+## 0.1.5 - 2026-03-25
+
+Fix a race condition in installer tests.
+
 ## 0.1.4 - 2026-03-24
 
 Rename the module to hegel.dev/go/hegel
