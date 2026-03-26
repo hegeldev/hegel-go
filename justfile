@@ -15,8 +15,6 @@ setup:
     else
         uv pip install --python .venv/bin/python --reinstall-package hegel-core hegel-core
     fi
-    # Install Go tools
-    go install honnef.co/go/tools/cmd/staticcheck@latest
 
 # Run tests with coverage, fail if below 100%.
 # We measure coverage only on the library package (not cmd/ binaries).
@@ -49,7 +47,7 @@ lint:
     go vet ./...
     echo "✅ go vet passed"
     # Run staticcheck
-    staticcheck ./...
+    go tool staticcheck ./...
     echo "✅ staticcheck passed"
 
 # Build API documentation from source. Must succeed with zero warnings.
