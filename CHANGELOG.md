@@ -1,5 +1,9 @@
 # Changelog
 
+## 0.1.7 - 2026-03-26
+
+Move conformance binaries and improve staticcheck linting
+
 ## 0.1.6 - 2026-03-25
 
 This release removes an internal implementation detail (`runtime.Goexit`) from public documentation and adds a compile-time check that `T` satisfies `testing.TB`.
