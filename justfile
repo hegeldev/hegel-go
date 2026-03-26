@@ -60,15 +60,12 @@ docs:
     go doc -all . > /dev/null 2>&1
     echo "✅ Documentation generated successfully"
 
-# Build conformance test binaries into bin/conformance/.
+# Build internal conformance test binaries into bin/conformance/.
 build-conformance:
     #!/usr/bin/env bash
     set -euo pipefail
     mkdir -p bin/conformance
-    for pkg in cmd/conformance/*/; do
-        name=$(basename "$pkg")
-        go build -o "bin/conformance/$name" "./$pkg"
-    done
+    go build -o bin/conformance ./internal/conformance/cmd/...
     echo "✅ Conformance binaries built to bin/conformance/"
 
 # Run conformance tests against the real hegel server.
