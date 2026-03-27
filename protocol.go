@@ -6,7 +6,6 @@ import (
 	"fmt"
 	"hash/crc32"
 	"io"
-	"net"
 )
 
 // Wire protocol constants.
@@ -64,17 +63,17 @@ func isEOFLike(err error) bool {
 	return errors.Is(err, io.EOF) || errors.Is(err, io.ErrUnexpectedEOF) || errors.Is(err, io.ErrClosedPipe)
 }
 
-// recvExact reads exactly n bytes from conn.
+// recvExact reads exactly n bytes from r.
 // It returns a *partialPacketError if the connection closes before the first byte,
 // and a plain error if it closes partway through.
-func recvExact(conn net.Conn, n int) ([]byte, error) {
+func recvExact(r io.Reader, n int) ([]byte, error) {
 	if n == 0 {
 		return []byte{}, nil
 	}
 	buf := make([]byte, n)
 	read := 0
 	for read < n {
-		nr, err := conn.Read(buf[read:])
+		nr, err := r.Read(buf[read:])
 		read += nr
 		if err != nil {
 			if isEOFLike(err) {
@@ -89,11 +88,11 @@ func recvExact(conn net.Conn, n int) ([]byte, error) {
 	return buf, nil
 }
 
-// readPacket reads and deserializes a single packet from conn.
+// readPacket reads and deserializes a single packet from r.
 // It validates the magic number, checksum, and terminator byte.
-func readPacket(conn net.Conn) (packet, error) {
+func readPacket(r io.Reader) (packet, error) {
 	// Read the fixed 20-byte header.
-	header, err := recvExact(conn, headerSize)
+	header, err := recvExact(r, headerSize)
 	if err != nil {
 		return packet{}, err
 	}
@@ -114,13 +113,13 @@ func readPacket(conn net.Conn) (packet, error) {
 	}
 
 	// Read payload.
-	payload, err := recvExact(conn, int(payloadLen))
+	payload, err := recvExact(r, int(payloadLen))
 	if err != nil {
 		return packet{}, err
 	}
 
 	// Read terminator.
-	term, err := recvExact(conn, 1)
+	term, err := recvExact(r, 1)
 	if err != nil {
 		return packet{}, err
 	}
@@ -145,9 +144,9 @@ func readPacket(conn net.Conn) (packet, error) {
 	}, nil
 }
 
-// writePacket serializes and writes a packet to conn.
+// writePacket serializes and writes a packet to w.
 // It computes the CRC32 checksum and appends the terminator byte.
-func writePacket(conn net.Conn, pkt packet) error {
+func writePacket(w io.Writer, pkt packet) error {
 	messageID := pkt.MessageID
 	if pkt.IsReply {
 		messageID |= replyBit
@@ -170,6 +169,6 @@ func writePacket(conn net.Conn, pkt packet) error {
 	frame = append(frame, pkt.Payload...)
 	frame = append(frame, terminator)
 
-	_, err := conn.Write(frame)
+	_, err := w.Write(frame)
 	return err
 }
