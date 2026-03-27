@@ -539,10 +539,13 @@ type hegelSession struct {
 	processExited  <-chan struct{} // closed when the server process exits
 }
 
-// openServerLog creates a temporary file for capturing server output.
-// Each session gets its own file to avoid interleaved writes from concurrent processes.
+// openServerLog opens .hegel/server.{pid}.log in the project root for appending server output.
+// Each process gets its own file to avoid interleaved writes from concurrent processes.
 func openServerLog() *os.File {
-	f, err := os.CreateTemp("", fmt.Sprintf("hegel-server-%d-*.log", os.Getpid()))
+	hegelDir := filepath.Join(getProjectRoot(), ".hegel")
+	os.MkdirAll(hegelDir, 0o755) //nolint:errcheck
+	logPath := filepath.Join(hegelDir, fmt.Sprintf("server.%d.log", os.Getpid()))
+	f, err := os.OpenFile(logPath, os.O_CREATE|os.O_APPEND|os.O_WRONLY, 0o644)
 	if err != nil { //nocov
 		panic(fmt.Sprintf("hegel: unreachable: failed to open server log: %v", err)) //nocov
 	}
