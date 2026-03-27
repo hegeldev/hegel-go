@@ -527,6 +527,15 @@ func TestConnectionErrorError(t *testing.T) {
 	}
 }
 
+// --- serverCrashMessage: fallback when logFile is nil ---
+
+func TestServerCrashMessageNoLogFile(t *testing.T) {
+	t.Parallel()
+	s := newHegelSession()
+	msg := s.serverCrashMessage()
+	mustContainStr(t, msg, "server process exited unexpectedly")
+}
+
 // --- aborted flag: set directly on state ---
 
 func TestAbortedFlagDirect(t *testing.T) {
@@ -1205,22 +1214,32 @@ func TestSuppressAllHealthChecksIntegration(t *testing.T) {
 }
 
 // =============================================================================
-// Server crash detection: MarkServerExited / ServerHasExited
+// Server crash detection: processExited channel
 // =============================================================================
 
-func TestServerExitedFlag(t *testing.T) {
+func TestProcessExitedChannel(t *testing.T) {
 	t.Parallel()
 	s, c := socketPair(t)
 	conn := newConnection(s, "C")
 	defer conn.Close()
 	c.Close()
 
-	if conn.ServerHasExited() {
-		t.Error("expected ServerHasExited() == false initially")
+	exited := make(chan struct{})
+	conn.processExited = exited
+
+	// Not exited yet.
+	select {
+	case <-conn.processExited:
+		t.Error("processExited should not be closed initially")
+	default:
 	}
-	conn.MarkServerExited()
-	if !conn.ServerHasExited() {
-		t.Error("expected ServerHasExited() == true after MarkServerExited()")
+
+	// Mark exited.
+	close(exited)
+	select {
+	case <-conn.processExited:
+	default:
+		t.Error("processExited should be closed after close()")
 	}
 }
 
@@ -1295,8 +1314,12 @@ func TestGenerateServerCrashOnRequest(t *testing.T) {
 	conn.writerMu.Lock()
 	conn.channels[1] = ch
 	conn.writerMu.Unlock()
+
+	exited := make(chan struct{})
+	close(exited)
+	conn.processExited = exited
+
 	s.Close()
-	conn.MarkServerExited()
 
 	state := &TestCase{channel: ch}
 	var caught any
@@ -1328,10 +1351,13 @@ func TestGenerateServerCrashOnGet(t *testing.T) {
 	conn.channels[1] = ch
 	conn.writerMu.Unlock()
 
+	exited := make(chan struct{})
+	conn.processExited = exited
+
 	// Read the request on peer side, then simulate crash
 	go func() {
 		readPacket(c) //nolint:errcheck
-		conn.MarkServerExited()
+		close(exited)
 		c.Close()
 	}()
 
@@ -1362,7 +1388,9 @@ func TestProcessOneMessageServerCrash(t *testing.T) {
 	conn.state = stateClient
 	ch := conn.NewChannel("Test")
 
-	conn.MarkServerExited()
+	exited := make(chan struct{})
+	close(exited)
+	conn.processExited = exited
 	c.Close()
 
 	// Wait for readLoop to notice the close

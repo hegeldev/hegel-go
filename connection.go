@@ -6,15 +6,11 @@ import (
 	"net"
 	"strings"
 	"sync"
-	"sync/atomic"
 	"time"
 )
 
 // protocolVersion is the version string used in handshakes.
 const protocolVersion = "0.6"
-
-// serverCrashedMessage is the error message when the hegel server process exits unexpectedly.
-const serverCrashedMessage = "The hegel server process exited unexpectedly. See .hegel/server.log for diagnostic information."
 
 // handshakePrefix is the prefix expected at the start of a valid handshake response.
 const handshakePrefix = "Hegel/"
@@ -50,17 +46,23 @@ type connection struct {
 	controlMu sync.Mutex
 	controlCh *channel
 
-	serverExited atomic.Bool
+	processExited <-chan struct{}
+	crashMessage  string
 }
 
-// MarkServerExited marks that the server process has exited unexpectedly.
-func (c *connection) MarkServerExited() {
-	c.serverExited.Store(true)
-}
+// connectionError wraps a connection-level error that should propagate out of the test.
+type connectionError struct{ msg string }
 
-// ServerHasExited returns whether the server process has exited unexpectedly.
-func (c *connection) ServerHasExited() bool {
-	return c.serverExited.Load()
+// Error implements the error interface.
+func (e *connectionError) Error() string { return e.msg }
+
+// serverCrashError returns an error indicating the server process exited unexpectedly.
+func (c *connection) serverCrashError() *connectionError {
+	msg := c.crashMessage
+	if msg == "" {
+		msg = "The hegel server process exited unexpectedly."
+	}
+	return &connectionError{msg: msg}
 }
 
 // newConnection wraps conn in a new connection and registers the control channel (ID 0).
@@ -464,8 +466,10 @@ func (ch *channel) processOneMessage(timeout time.Duration) error {
 	case <-ch.dropped:
 		panic(fmt.Errorf("%s: dropped a message", ch))
 	case <-ch.conn.done:
-		if ch.conn.ServerHasExited() {
-			return fmt.Errorf("%s", serverCrashedMessage)
+		select {
+		case <-ch.conn.processExited:
+			return ch.conn.serverCrashError()
+		default:
 		}
 		return fmt.Errorf("connection closed")
 	case <-timeoutCh:
@@ -484,9 +488,15 @@ func (ch *channel) processOneMessage(timeout time.Duration) error {
 }
 
 // Request sends a request and returns a pendingRequest future.
+// If the write fails because the server process exited, a *connectionError is returned.
 func (ch *channel) Request(payload []byte) (*pendingRequest, error) {
 	msgID, err := ch.SendRequestRaw(payload)
 	if err != nil {
+		select {
+		case <-ch.conn.processExited:
+			return nil, ch.conn.serverCrashError()
+		default:
+		}
 		return nil, err
 	}
 	return &pendingRequest{ch: ch, msgID: msgID}, nil

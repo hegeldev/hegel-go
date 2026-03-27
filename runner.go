@@ -42,10 +42,11 @@ type flakyAbort struct{}
 
 func (flakyAbort) Error() string { return "flaky test detected" }
 
-// connectionError wraps a connection-level error that should propagate out of the test.
-type connectionError struct{ msg string }
-
-func (e *connectionError) Error() string { return e.msg }
+// Wire protocol error types for flaky test detection.
+const (
+	flakyStrategyDefinition = "FlakyStrategyDefinition"
+	flakyReplay             = "FlakyReplay"
+)
 
 // internal returns the underlying TestCase, satisfying the State interface.
 func (s *TestCase) internal() *TestCase { return s }
@@ -108,8 +109,10 @@ func generateFromSchema(gs *TestCase, schema map[string]any) (any, error) {
 	}
 	pending, err := ch.Request(payload)
 	if err != nil {
-		if gs.channel.conn.ServerHasExited() {
-			return nil, &connectionError{msg: serverCrashedMessage}
+		// Request returns *connectionError for server crashes.
+		// Other write errors are also connection-level.
+		if _, ok := err.(*connectionError); ok {
+			return nil, err
 		}
 		return nil, &connectionError{msg: err.Error()}
 	}
@@ -120,12 +123,9 @@ func generateFromSchema(gs *TestCase, schema map[string]any) (any, error) {
 			gs.aborted = true
 			return nil, &dataExhausted{msg: "server ran out of data"}
 		}
-		if ok && (re.ErrorType == "FlakyStrategyDefinition" || re.ErrorType == "FlakyReplay") {
+		if ok && (re.ErrorType == flakyStrategyDefinition || re.ErrorType == flakyReplay) {
 			gs.aborted = true
 			return nil, flakyAbort{}
-		}
-		if gs.channel.conn.ServerHasExited() {
-			return nil, &connectionError{msg: serverCrashedMessage}
 		}
 		return nil, err
 	}
@@ -320,7 +320,7 @@ func (c *client) runTest(fn testBody, opts runOptions, noteFn func(string)) erro
 		"channel_id": int64(testCh.ChannelID()),
 	}
 	if len(opts.suppressHealthCheck) > 0 {
-		names := make([]any, len(opts.suppressHealthCheck))
+		names := make([]string, len(opts.suppressHealthCheck))
 		for i, hc := range opts.suppressHealthCheck {
 			names[i] = hc.String()
 		}
@@ -536,18 +536,25 @@ type hegelSession struct {
 	hegelCmd       string // overridable for testing
 	suppressStderr bool   // suppress hegel subprocess stderr (used for test-mode sessions that intentionally crash)
 	logFile        *os.File
-	monitorDone    chan struct{} // closed when the server process monitor goroutine exits
+	processExited  <-chan struct{} // closed when the server process exits
 }
 
-// openServerLog opens .hegel/server.log in the project root for appending server output.
+// openServerLog creates a temporary file for capturing server output.
+// Each session gets its own file to avoid interleaved writes from concurrent processes.
 func openServerLog() *os.File {
-	hegelDir := filepath.Join(getProjectRoot(), ".hegel")
-	os.MkdirAll(hegelDir, 0o755) //nolint:errcheck
-	f, err := os.OpenFile(filepath.Join(hegelDir, "server.log"), os.O_CREATE|os.O_APPEND|os.O_WRONLY, 0o644)
+	f, err := os.CreateTemp("", fmt.Sprintf("hegel-server-%d-*.log", os.Getpid()))
 	if err != nil { //nocov
 		panic(fmt.Sprintf("hegel: unreachable: failed to open server log: %v", err)) //nocov
 	}
 	return f
+}
+
+// serverCrashMessage returns the error message for an unexpected server exit.
+func (s *hegelSession) serverCrashMessage() string {
+	if s.logFile != nil {
+		return fmt.Sprintf("The hegel server process exited unexpectedly. See %s for diagnostic information.", s.logFile.Name())
+	}
+	return "The hegel server process exited unexpectedly."
 }
 
 // mkdirTempFn is the function used to create temp directories.
@@ -613,7 +620,7 @@ func (s *hegelSession) start() error {
 		select {
 		case <-processExited:
 			os.RemoveAll(tmp) //nolint:errcheck
-			return fmt.Errorf("hegel: %s", serverCrashedMessage)
+			return fmt.Errorf("hegel: %s", s.serverCrashMessage())
 		default:
 		}
 		if _, statErr := os.Stat(sockPath); statErr == nil {
@@ -633,6 +640,8 @@ func (s *hegelSession) start() error {
 	}
 
 	conn := newConnection(sock, "Client")
+	conn.processExited = processExited
+	conn.crashMessage = s.serverCrashMessage()
 	version, err := conn.SendHandshakeVersion()
 	if err != nil {
 		conn.Close()
@@ -645,15 +654,7 @@ func (s *hegelSession) start() error {
 
 	s.conn = conn
 	s.cli = newClient(conn)
-
-	// Monitor: if the server exits unexpectedly, mark the connection and close the socket.
-	s.monitorDone = make(chan struct{})
-	go func() {
-		defer close(s.monitorDone)
-		<-processExited
-		conn.MarkServerExited()
-		sock.Close() //nolint:errcheck
-	}()
+	s.processExited = processExited
 
 	return nil
 }
@@ -664,39 +665,27 @@ func (s *hegelSession) cleanup() {
 	defer s.mu.Unlock()
 
 	if s.conn != nil {
-		func() {
-			defer func() { recover() }() //nolint:errcheck
-			s.conn.Close()
-		}()
+		s.conn.Close()
 		s.conn = nil
 		s.cli = nil
 	}
 
 	if s.process != nil {
-		func() {
-			defer func() { recover() }()           //nolint:errcheck
-			s.process.Process.Signal(os.Interrupt) //nolint:errcheck
-		}()
-		if s.monitorDone != nil {
-			<-s.monitorDone
-			s.monitorDone = nil
+		s.process.Process.Signal(os.Interrupt) //nolint:errcheck
+		if s.processExited != nil {
+			<-s.processExited
 		}
 		s.process = nil
+		s.processExited = nil
 	}
 
 	if s.logFile != nil {
-		func() {
-			defer func() { recover() }() //nolint:errcheck
-			s.logFile.Close()            //nolint:errcheck
-		}()
+		s.logFile.Close() //nolint:errcheck
 		s.logFile = nil
 	}
 
 	if s.tempDir != "" {
-		func() {
-			defer func() { recover() }() //nolint:errcheck
-			os.RemoveAll(s.tempDir)      //nolint:errcheck
-		}()
+		os.RemoveAll(s.tempDir) //nolint:errcheck
 		s.tempDir = ""
 	}
 }
