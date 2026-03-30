@@ -42,3 +42,5 @@ vendor/
 .DS_Store
 
 .claude/claude-reliability.yml
+.claude/reliability-config.yaml
+.claude-reliability/
