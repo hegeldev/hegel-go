@@ -1,5 +1,14 @@
 # Changelog
 
+## 0.1.8 - 2026-03-30
+
+This release brings in various robustness features already implemented in hegel-rust:
+
+* Write server output to .hegel/server.log
+* Better handling of server crashes
+* Health check support
+* Flaky test detection
+
 ## 0.1.7 - 2026-03-26
 
 Move conformance binaries and improve staticcheck linting
