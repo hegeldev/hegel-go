@@ -305,25 +305,23 @@ func TestHegelSessionCleanupEmpty(t *testing.T) {
 	s.cleanup() // Should not panic when nothing started.
 }
 
-// --- hegelSession: server exits immediately (early crash detection) ---
+// --- hegelSession: start fails when hegel exits immediately ---
 
-func TestHegelSessionStartServerExitsImmediately(t *testing.T) {
+func TestHegelSessionStartExitsImmediately(t *testing.T) {
 	t.Parallel()
-	// Use `false` (exits immediately) so the process exit is detected before
-	// the socket appears. With the server crash monitor, this triggers
-	// the early exit error rather than a timeout.
+	// Use `false` (exits immediately) so stdio pipes close immediately.
 	falseBin, err := exec.LookPath("false")
 	if err != nil {
 		t.Skip("false binary not available")
 	}
 	s := newHegelSession()
-	s.hegelCmd = falseBin // exits immediately without creating socket
+	s.hegelCmd = falseBin // exits immediately, pipes close
 	startErr := s.start()
 	if startErr == nil {
 		s.cleanup()
-		t.Fatal("expected error")
+		t.Fatal("expected handshake error")
 	}
-	mustContainStr(t, startErr.Error(), "server process exited unexpectedly")
+	mustContainStr(t, startErr.Error(), "handshake")
 }
 
 // --- hegelSession: concurrent starts (double-checked locking) ---
@@ -552,7 +550,7 @@ func TestAbortedFlagDirect(t *testing.T) {
 func TestGenerateFromSchemaConnectionError(t *testing.T) {
 	t.Parallel()
 	s, c := socketPair(t)
-	conn := newConnection(s, "C")
+	conn := newConnection(s, s, "C")
 	c.Close()
 	// We need state=client so NewChannel works.
 	conn.state = stateClient
@@ -583,7 +581,7 @@ func TestGenerateFromSchemaConnectionError(t *testing.T) {
 func TestTargetConnectionError(t *testing.T) {
 	t.Parallel()
 	s, _ := socketPair(t)
-	conn := newConnection(s, "C")
+	conn := newConnection(s, s, "C")
 	conn.state = stateClient
 	ch := &channel{conn: conn, channelID: 1, inbox: make(chan any, 1), nextMessageID: 1}
 	conn.channels[1] = ch
@@ -680,7 +678,7 @@ func TestHegelSessionCleanupWithErrors(t *testing.T) {
 	sc, cc := socketPair(t)
 	sc.Close()
 	cc.Close()
-	s.conn = newConnection(sc, "closed")
+	s.conn = newConnection(sc, sc, "closed")
 	s.conn.Close() // pre-close
 
 	// This should not panic.
@@ -796,9 +794,8 @@ func TestHegelSessionStartInnerCheck(t *testing.T) {
 func TestHegelSessionStartHegelCmd(t *testing.T) {
 	t.Parallel()
 	hegelBinPath(t)
-	path, _ := exec.LookPath("hegel")
 	s := newHegelSession()
-	s.hegelCmd = path
+	s.hegelCmd = findHegel()
 	defer s.cleanup()
 	if err := s.start(); err != nil {
 		t.Fatalf("start with hegelCmd: %v", err)
@@ -814,16 +811,13 @@ func TestHegelSessionCleanupAllPaths(t *testing.T) {
 	if err := s.start(); err != nil {
 		t.Fatalf("start: %v", err)
 	}
-	// Cleanup should close conn, kill process, remove tempdir.
+	// Cleanup should close conn and kill process.
 	s.cleanup()
 	if s.conn != nil {
 		t.Error("conn should be nil after cleanup")
 	}
 	if s.process != nil {
 		t.Error("process should be nil after cleanup")
-	}
-	if s.tempDir != "" {
-		t.Error("tempDir should be empty after cleanup")
 	}
 }
 
@@ -864,37 +858,15 @@ func TestRunHegelTestEProtocolModeStartError(t *testing.T) {
 	mustContainStr(t, err.Error(), "session start")
 }
 
-// --- hegelSession.start: MkdirTemp error ---
-
-func TestHegelSessionStartMkdirTempError(t *testing.T) {
-	orig := mkdirTempFn
-	mkdirTempFn = func(dir, pattern string) (string, error) {
-		return "", fmt.Errorf("simulated mktemp failure")
-	}
-	defer func() { mkdirTempFn = orig }()
-
-	s := newHegelSession()
-	s.hegelCmd = "hegel" // doesn't matter, mktemp fails first
-	err := s.start()
-	if err == nil {
-		s.cleanup()
-		t.Fatal("expected error from start when mkdirTemp fails")
-	}
-	mustContainStr(t, err.Error(), "mktemp")
-}
-
 // --- hegelSession.start: handshake error ---
 
 func TestHegelSessionStartHandshakeError(t *testing.T) {
 	t.Parallel()
-	// Write a fake hegel binary that creates the socket, accepts one connection,
-	// sends bad handshake data, then exits. This causes SendHandshakeVersion to fail.
+	// Write a fake hegel binary that writes garbage to stdout and exits.
+	// This causes SendHandshakeVersion to fail because the data isn't a valid packet.
 	tmp := t.TempDir()
 	scriptPath := filepath.Join(tmp, "fake_hegel.sh")
-	// The Python one-liner: bind, listen, accept, send garbage, close.
-	script := "#!/bin/sh\n" +
-		`python3 -c "import socket,sys; s=socket.socket(socket.AF_UNIX); s.bind(sys.argv[1]); s.listen(1); c,_=s.accept(); c.send(b'bad_data\n'); c.close()" "$1"` +
-		"\n"
+	script := "#!/bin/sh\nprintf 'bad_data\\n'\n"
 	if err := os.WriteFile(scriptPath, []byte(script), 0o755); err != nil {
 		t.Fatalf("write script: %v", err)
 	}
@@ -1090,26 +1062,6 @@ func TestCaseNoteFnOnFinal(t *testing.T) {
 }
 
 // =============================================================================
-// hegelSession.start — mkdirTemp failure
-// =============================================================================
-
-func TestHegelSessionStartMkdirFail(t *testing.T) {
-	oldFn := mkdirTempFn
-	defer func() { mkdirTempFn = oldFn }()
-	mkdirTempFn = func(dir, pattern string) (string, error) {
-		return "", fmt.Errorf("simulated mktemp failure")
-	}
-
-	sess := newHegelSession()
-	sess.hegelCmd = "/nonexistent" // Won't actually be called since mkdirTemp fails first
-	err := sess.start()
-	if err == nil {
-		t.Error("expected start to fail with mkdirTemp error")
-	}
-	mustContainStr(t, err.Error(), "mktemp")
-}
-
-// =============================================================================
 // findHegel — basic non-empty check (different from TestFindHegelFallback above)
 // =============================================================================
 
@@ -1220,7 +1172,7 @@ func TestSuppressAllHealthChecksIntegration(t *testing.T) {
 func TestProcessExitedChannel(t *testing.T) {
 	t.Parallel()
 	s, c := socketPair(t)
-	conn := newConnection(s, "C")
+	conn := newConnection(s, s, "C")
 	defer conn.Close()
 	c.Close()
 
@@ -1259,7 +1211,7 @@ func TestHegelSessionStartTimeout(t *testing.T) {
 	if startErr == nil {
 		t.Fatal("expected timeout error")
 	}
-	mustContainStr(t, startErr.Error(), "timeout")
+	mustContainStr(t, startErr.Error(), "timed out")
 }
 
 // =============================================================================
@@ -1307,7 +1259,7 @@ func TestFlakyGlobalState(t *testing.T) {
 func TestGenerateServerCrashOnRequest(t *testing.T) {
 	t.Parallel()
 	s, c := socketPair(t)
-	conn := newConnection(s, "C")
+	conn := newConnection(s, s, "C")
 	c.Close()
 	conn.state = stateClient
 	ch := &channel{conn: conn, channelID: 1, inbox: make(chan any, 1), dropped: make(chan struct{}), nextMessageID: 1}
@@ -1344,7 +1296,7 @@ func TestGenerateServerCrashOnRequest(t *testing.T) {
 func TestGenerateServerCrashOnGet(t *testing.T) {
 	t.Parallel()
 	s, c := socketPair(t)
-	conn := newConnection(s, "C")
+	conn := newConnection(s, s, "C")
 	conn.state = stateClient
 	ch := &channel{conn: conn, channelID: 1, inbox: make(chan any, 1), dropped: make(chan struct{}), nextMessageID: 1}
 	conn.writerMu.Lock()
@@ -1384,7 +1336,7 @@ func TestGenerateServerCrashOnGet(t *testing.T) {
 func TestProcessOneMessageServerCrash(t *testing.T) {
 	t.Parallel()
 	s, c := socketPair(t)
-	conn := newConnection(s, "C")
+	conn := newConnection(s, s, "C")
 	conn.state = stateClient
 	ch := conn.NewChannel("Test")
 

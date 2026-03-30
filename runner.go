@@ -3,7 +3,6 @@ package hegel
 import (
 	"fmt"
 	"io"
-	"net"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -457,7 +456,7 @@ func (c *client) runTestCase(ch *channel, fn testBody, isFinal bool, noteFn func
 					status = "INTERESTING"
 					origin = "test failed (via t.Error/t.Fail)"
 					if isFinal {
-						finalErr = fmt.Errorf("test failed")
+						finalErr = fmt.Errorf("property test failed: test failed")
 					}
 				}
 				return
@@ -475,13 +474,13 @@ func (c *client) runTestCase(ch *channel, fn testBody, isFinal bool, noteFn func
 				status = "INTERESTING"
 				origin = extractPanicOrigin(v)
 				if isFinal {
-					finalErr = fmt.Errorf("%s", v.msg)
+					finalErr = fmt.Errorf("property test failed: %s", v.msg)
 				}
 			default:
 				status = "INTERESTING"
 				origin = extractPanicOrigin(v)
 				if isFinal {
-					finalErr = fmt.Errorf("%v", v)
+					finalErr = fmt.Errorf("property test failed: %v", v)
 				}
 			}
 		}()
@@ -531,8 +530,6 @@ type hegelSession struct {
 	conn           *connection
 	cli            *client
 	process        *exec.Cmd
-	tempDir        string
-	socketPath     string
 	hegelCmd       string // overridable for testing
 	suppressStderr bool   // suppress hegel subprocess stderr (used for test-mode sessions that intentionally crash)
 	logFile        *os.File
@@ -560,15 +557,11 @@ func (s *hegelSession) serverCrashMessage() string {
 	return "The hegel server process exited unexpectedly."
 }
 
-// mkdirTempFn is the function used to create temp directories.
-// Overridable in tests to simulate failures.
-var mkdirTempFn = os.MkdirTemp
-
 func newHegelSession() *hegelSession {
 	return &hegelSession{}
 }
 
-// start starts the hegel subprocess and connects to it (idempotent).
+// start starts the hegel subprocess and connects via stdio (idempotent).
 func (s *hegelSession) start() error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
@@ -583,28 +576,34 @@ func (s *hegelSession) start() error {
 		hegelBin = findHegel()
 	}
 
-	// Create temp dir for socket.
-	tmp, err := mkdirTempFn("", "hegel-")
-	if err != nil {
-		return fmt.Errorf("hegel: mktemp: %w", err)
-	}
-	s.tempDir = tmp
-	sockPath := filepath.Join(tmp, "hegel.sock")
-	s.socketPath = sockPath
-
-	// Spawn hegel process in the project root so .hegel is created there.
-	cmd := exec.Command(hegelBin, sockPath)
+	// Spawn hegel process with stdio transport.
+	cmd := exec.Command(hegelBin, "--stdio", "--verbosity", "normal")
 	cmd.Dir = getProjectRoot()
+	cmd.Env = append(os.Environ(), "PYTHONUNBUFFERED=1")
 	logFile := openServerLog()
-	cmd.Stdout = logFile
 	if s.suppressStderr {
 		cmd.Stderr = io.Discard
 	} else {
 		cmd.Stderr = logFile
 	}
 	s.logFile = logFile
+
+	stdinPipe, err := cmd.StdinPipe()
+	if err != nil { //nocov
+		panic(fmt.Sprintf("hegel: unreachable: stdin pipe: %v", err)) //nocov
+	}
+	stdoutPipe, err := cmd.StdoutPipe()
+	if err != nil { //nocov
+		panic(fmt.Sprintf("hegel: unreachable: stdout pipe: %v", err)) //nocov
+	}
+
 	if err := cmd.Start(); err != nil {
-		os.RemoveAll(tmp) //nolint:errcheck
+		stdinPipe.Close()
+		stdoutPipe.Close()
+		if logFile != nil {
+			logFile.Close()
+		}
+		s.logFile = nil
 		return fmt.Errorf("hegel: spawn: %w", err)
 	}
 	s.process = cmd
@@ -617,32 +616,7 @@ func (s *hegelSession) start() error {
 		close(processExited)
 	}()
 
-	// Wait for socket to appear and connect, checking for early server exit.
-	var sock net.Conn
-	for i := 0; i < 50; i++ {
-		select {
-		case <-processExited:
-			os.RemoveAll(tmp) //nolint:errcheck
-			return fmt.Errorf("hegel: %s", s.serverCrashMessage())
-		default:
-		}
-		if _, statErr := os.Stat(sockPath); statErr == nil {
-			c, connErr := net.Dial("unix", sockPath)
-			if connErr == nil {
-				sock = c
-				break
-			}
-		}
-		time.Sleep(100 * time.Millisecond)
-	}
-	if sock == nil {
-		cmd.Process.Kill() //nolint:errcheck
-		<-processExited
-		os.RemoveAll(tmp) //nolint:errcheck
-		return fmt.Errorf("hegel: timeout waiting for hegel to start")
-	}
-
-	conn := newConnection(sock, "Client")
+	conn := newConnection(stdoutPipe, stdinPipe, "Client")
 	conn.processExited = processExited
 	conn.crashMessage = s.serverCrashMessage()
 	version, err := conn.SendHandshakeVersion()
@@ -650,7 +624,11 @@ func (s *hegelSession) start() error {
 		conn.Close()
 		cmd.Process.Kill() //nolint:errcheck
 		<-processExited
-		os.RemoveAll(tmp) //nolint:errcheck
+		s.process = nil
+		if s.logFile != nil {
+			s.logFile.Close()
+			s.logFile = nil
+		}
 		return fmt.Errorf("hegel: handshake: %w", err)
 	}
 	_ = version // we accept any version for now
@@ -685,11 +663,6 @@ func (s *hegelSession) cleanup() {
 	if s.logFile != nil {
 		s.logFile.Close() //nolint:errcheck
 		s.logFile = nil
-	}
-
-	if s.tempDir != "" {
-		os.RemoveAll(s.tempDir) //nolint:errcheck
-		s.tempDir = ""
 	}
 }
 

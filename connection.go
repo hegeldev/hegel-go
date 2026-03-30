@@ -3,7 +3,7 @@ package hegel
 import (
 	"bytes"
 	"fmt"
-	"net"
+	"io"
 	"strings"
 	"sync"
 	"time"
@@ -29,12 +29,13 @@ const (
 	stateClient
 )
 
-// connection manages a multiplexed socket with a dedicated reader goroutine.
+// connection manages a multiplexed stream with a dedicated reader goroutine.
 // It is safe to call Close from any goroutine; all other methods must be called
 // from a single goroutine per connection.
 type connection struct {
-	name string
-	conn net.Conn
+	name   string
+	reader io.ReadCloser
+	writer io.WriteCloser
 
 	nextChannelID int
 	channels      map[uint32]*channel
@@ -65,11 +66,13 @@ func (c *connection) serverCrashError() *connectionError {
 	return &connectionError{msg: msg}
 }
 
-// newConnection wraps conn in a new connection and registers the control channel (ID 0).
-func newConnection(conn net.Conn, name string) *connection {
+// newConnection creates a new multiplexed connection from separate reader and writer
+// streams and registers the control channel (ID 0).
+func newConnection(reader io.ReadCloser, writer io.WriteCloser, name string) *connection {
 	c := &connection{
 		name:          name,
-		conn:          conn,
+		reader:        reader,
+		writer:        writer,
 		channels:      make(map[uint32]*channel),
 		state:         stateUnresolved,
 		nextChannelID: 1, // first real channel counter (matches Python's __next_channel_id = 1)
@@ -102,28 +105,23 @@ func (c *connection) SendControlRequest(payload []byte) (any, error) {
 func (c *connection) SendPacket(pkt packet) error {
 	c.writerMu.Lock()
 	defer c.writerMu.Unlock()
-	return writePacket(c.conn, pkt)
+	return writePacket(c.writer, pkt)
 }
 
-// Close shuts down the connection. Closing the socket causes readLoop to exit,
+// Close shuts down the connection. Closing the reader causes readLoop to exit,
 // which closes the done channel and wakes all waiters.
 func (c *connection) Close() {
-	// Shut down the socket to unblock any pending reads.
-	if tc, ok := c.conn.(interface{ CloseRead() error }); ok {
-		tc.CloseRead() //nolint:errcheck
-	}
-
-	_ = c.conn.Close()
+	c.reader.Close() //nolint:errcheck
 	<-c.done
+	c.writer.Close() //nolint:errcheck
 }
 
-// readLoop continuously reads packets from the socket and dispatches them.
-// It exits when readPacket returns an error (e.g. the socket was closed).
+// readLoop continuously reads packets from the reader and dispatches them.
+// It exits when readPacket returns an error (e.g. the stream was closed).
 func (c *connection) readLoop() {
-	defer c.conn.Close()
 	defer close(c.done)
 	for {
-		pkt, err := readPacket(c.conn)
+		pkt, err := readPacket(c.reader)
 		if err != nil {
 			return
 		}
