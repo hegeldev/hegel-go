@@ -1,5 +1,9 @@
 # Changelog
 
+## 0.2.0 - 2026-03-30
+
+Switch from Unix socket transport to stdio-based communication with the hegel-core binary.
+
 ## 0.1.8 - 2026-03-30
 
 This release brings in various robustness features already implemented in hegel-rust:
