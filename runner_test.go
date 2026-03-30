@@ -1172,7 +1172,7 @@ func TestSuppressAllHealthChecksIntegration(t *testing.T) {
 func TestProcessExitedChannel(t *testing.T) {
 	t.Parallel()
 	s, c := socketPair(t)
-	conn := newConnection(s, "C")
+	conn := newConnection(s, s, "C")
 	defer conn.Close()
 	c.Close()
 
@@ -1211,7 +1211,7 @@ func TestHegelSessionStartTimeout(t *testing.T) {
 	if startErr == nil {
 		t.Fatal("expected timeout error")
 	}
-	mustContainStr(t, startErr.Error(), "timeout")
+	mustContainStr(t, startErr.Error(), "timed out")
 }
 
 // =============================================================================
@@ -1259,7 +1259,7 @@ func TestFlakyGlobalState(t *testing.T) {
 func TestGenerateServerCrashOnRequest(t *testing.T) {
 	t.Parallel()
 	s, c := socketPair(t)
-	conn := newConnection(s, "C")
+	conn := newConnection(s, s, "C")
 	c.Close()
 	conn.state = stateClient
 	ch := &channel{conn: conn, channelID: 1, inbox: make(chan any, 1), dropped: make(chan struct{}), nextMessageID: 1}
@@ -1296,7 +1296,7 @@ func TestGenerateServerCrashOnRequest(t *testing.T) {
 func TestGenerateServerCrashOnGet(t *testing.T) {
 	t.Parallel()
 	s, c := socketPair(t)
-	conn := newConnection(s, "C")
+	conn := newConnection(s, s, "C")
 	conn.state = stateClient
 	ch := &channel{conn: conn, channelID: 1, inbox: make(chan any, 1), dropped: make(chan struct{}), nextMessageID: 1}
 	conn.writerMu.Lock()
@@ -1336,7 +1336,7 @@ func TestGenerateServerCrashOnGet(t *testing.T) {
 func TestProcessOneMessageServerCrash(t *testing.T) {
 	t.Parallel()
 	s, c := socketPair(t)
-	conn := newConnection(s, "C")
+	conn := newConnection(s, s, "C")
 	conn.state = stateClient
 	ch := conn.NewChannel("Test")
 

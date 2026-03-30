@@ -598,6 +598,12 @@ func (s *hegelSession) start() error {
 	}
 
 	if err := cmd.Start(); err != nil {
+		stdinPipe.Close()
+		stdoutPipe.Close()
+		if logFile != nil {
+			logFile.Close()
+		}
+		s.logFile = nil
 		return fmt.Errorf("hegel: spawn: %w", err)
 	}
 	s.process = cmd
@@ -618,6 +624,11 @@ func (s *hegelSession) start() error {
 		conn.Close()
 		cmd.Process.Kill() //nolint:errcheck
 		<-processExited
+		s.process = nil
+		if s.logFile != nil {
+			s.logFile.Close()
+			s.logFile = nil
+		}
 		return fmt.Errorf("hegel: handshake: %w", err)
 	}
 	_ = version // we accept any version for now
