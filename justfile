@@ -15,8 +15,6 @@ setup:
     else
         uv pip install --python .venv/bin/python --reinstall-package hegel-core hegel-core
     fi
-    # Install Go tools
-    go install honnef.co/go/tools/cmd/staticcheck@latest
 
 # Run tests with coverage, fail if below 100%.
 # We measure coverage only on the library package (not cmd/ binaries).
@@ -49,7 +47,7 @@ lint:
     go vet ./...
     echo "✅ go vet passed"
     # Run staticcheck
-    staticcheck ./...
+    go tool staticcheck ./...
     echo "✅ staticcheck passed"
 
 # Build API documentation from source. Must succeed with zero warnings.
@@ -60,15 +58,12 @@ docs:
     go doc -all . > /dev/null 2>&1
     echo "✅ Documentation generated successfully"
 
-# Build conformance test binaries into bin/conformance/.
+# Build internal conformance test binaries into bin/conformance/.
 build-conformance:
     #!/usr/bin/env bash
     set -euo pipefail
     mkdir -p bin/conformance
-    for pkg in cmd/conformance/*/; do
-        name=$(basename "$pkg")
-        go build -o "bin/conformance/$name" "./$pkg"
-    done
+    go build -o bin/conformance ./internal/conformance/cmd/...
     echo "✅ Conformance binaries built to bin/conformance/"
 
 # Run conformance tests against the real hegel server.

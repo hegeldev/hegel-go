@@ -1,5 +1,30 @@
 # Changelog
 
+## 0.2.0 - 2026-03-30
+
+Switch from Unix socket transport to stdio-based communication with the hegel-core binary.
+
+## 0.1.8 - 2026-03-30
+
+This release brings in various robustness features already implemented in hegel-rust:
+
+* Write server output to .hegel/server.log
+* Better handling of server crashes
+* Health check support
+* Flaky test detection
+
+## 0.1.7 - 2026-03-26
+
+Move conformance binaries and improve staticcheck linting
+
+## 0.1.6 - 2026-03-25
+
+This release removes an internal implementation detail (`runtime.Goexit`) from public documentation and adds a compile-time check that `T` satisfies `testing.TB`.
+
+## 0.1.5 - 2026-03-25
+
+Fix a race condition in installer tests.
+
 ## 0.1.4 - 2026-03-24
 
 Rename the module to hegel.dev/go/hegel

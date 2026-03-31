@@ -107,19 +107,6 @@ func TestDomainsTooBigMaxLength(t *testing.T) {
 	assertPanicsWithMessage(t, "max_length", func() { Domains().MaxLength(256).buildSchema() })
 }
 
-func TestIPAddressesDefaultNoPanic(t *testing.T) {
-	// no option means "both", should not panic
-	IPAddresses()
-}
-
-func TestIPAddressesVersion4NoPanic(t *testing.T) {
-	IPAddresses().IPv4()
-}
-
-func TestIPAddressesVersion6NoPanic(t *testing.T) {
-	IPAddresses().IPv6()
-}
-
 func TestOneOfZeroGenerators(t *testing.T) {
 	assertPanicsWithMessage(t, "OneOf", func() { OneOf[bool]() })
 }

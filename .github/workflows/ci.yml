@@ -27,10 +27,11 @@ jobs:
         with:
           go-version: '1.23'
 
-      - name: Check formatting
-        run: |
-          gofmt -l .
-          test -z "$(gofmt -l .)"
+      - name: Install just
+        run: sudo apt-get update && sudo apt-get install -y just
+
+      - name: Lint
+        run: just lint
       - name: Install zizmor
         run: pip install zizmor
       - name: Run zizmor

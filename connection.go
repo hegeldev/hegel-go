@@ -3,14 +3,14 @@ package hegel
 import (
 	"bytes"
 	"fmt"
-	"net"
+	"io"
 	"strings"
 	"sync"
 	"time"
 )
 
 // protocolVersion is the version string used in handshakes.
-const protocolVersion = "0.4"
+const protocolVersion = "0.6"
 
 // handshakePrefix is the prefix expected at the start of a valid handshake response.
 const handshakePrefix = "Hegel/"
@@ -29,12 +29,13 @@ const (
 	stateClient
 )
 
-// connection manages a multiplexed socket with a dedicated reader goroutine.
+// connection manages a multiplexed stream with a dedicated reader goroutine.
 // It is safe to call Close from any goroutine; all other methods must be called
 // from a single goroutine per connection.
 type connection struct {
-	name string
-	conn net.Conn
+	name   string
+	reader io.ReadCloser
+	writer io.WriteCloser
 
 	nextChannelID int
 	channels      map[uint32]*channel
@@ -45,13 +46,33 @@ type connection struct {
 
 	controlMu sync.Mutex
 	controlCh *channel
+
+	processExited <-chan struct{}
+	crashMessage  string
 }
 
-// newConnection wraps conn in a new connection and registers the control channel (ID 0).
-func newConnection(conn net.Conn, name string) *connection {
+// connectionError wraps a connection-level error that should propagate out of the test.
+type connectionError struct{ msg string }
+
+// Error implements the error interface.
+func (e *connectionError) Error() string { return e.msg }
+
+// serverCrashError returns an error indicating the server process exited unexpectedly.
+func (c *connection) serverCrashError() *connectionError {
+	msg := c.crashMessage
+	if msg == "" {
+		msg = "The hegel server process exited unexpectedly."
+	}
+	return &connectionError{msg: msg}
+}
+
+// newConnection creates a new multiplexed connection from separate reader and writer
+// streams and registers the control channel (ID 0).
+func newConnection(reader io.ReadCloser, writer io.WriteCloser, name string) *connection {
 	c := &connection{
 		name:          name,
-		conn:          conn,
+		reader:        reader,
+		writer:        writer,
 		channels:      make(map[uint32]*channel),
 		state:         stateUnresolved,
 		nextChannelID: 1, // first real channel counter (matches Python's __next_channel_id = 1)
@@ -84,28 +105,23 @@ func (c *connection) SendControlRequest(payload []byte) (any, error) {
 func (c *connection) SendPacket(pkt packet) error {
 	c.writerMu.Lock()
 	defer c.writerMu.Unlock()
-	return writePacket(c.conn, pkt)
+	return writePacket(c.writer, pkt)
 }
 
-// Close shuts down the connection. Closing the socket causes readLoop to exit,
+// Close shuts down the connection. Closing the reader causes readLoop to exit,
 // which closes the done channel and wakes all waiters.
 func (c *connection) Close() {
-	// Shut down the socket to unblock any pending reads.
-	if tc, ok := c.conn.(interface{ CloseRead() error }); ok {
-		tc.CloseRead() //nolint:errcheck
-	}
-
-	_ = c.conn.Close()
+	c.reader.Close() //nolint:errcheck
 	<-c.done
+	c.writer.Close() //nolint:errcheck
 }
 
-// readLoop continuously reads packets from the socket and dispatches them.
-// It exits when readPacket returns an error (e.g. the socket was closed).
+// readLoop continuously reads packets from the reader and dispatches them.
+// It exits when readPacket returns an error (e.g. the stream was closed).
 func (c *connection) readLoop() {
-	defer c.conn.Close()
 	defer close(c.done)
 	for {
-		pkt, err := readPacket(c.conn)
+		pkt, err := readPacket(c.reader)
 		if err != nil {
 			return
 		}
@@ -448,6 +464,11 @@ func (ch *channel) processOneMessage(timeout time.Duration) error {
 	case <-ch.dropped:
 		panic(fmt.Errorf("%s: dropped a message", ch))
 	case <-ch.conn.done:
+		select {
+		case <-ch.conn.processExited:
+			return ch.conn.serverCrashError()
+		default:
+		}
 		return fmt.Errorf("connection closed")
 	case <-timeoutCh:
 		return fmt.Errorf("timed out after %v waiting for a message on %s", timeout, ch)
@@ -465,9 +486,15 @@ func (ch *channel) processOneMessage(timeout time.Duration) error {
 }
 
 // Request sends a request and returns a pendingRequest future.
+// If the write fails because the server process exited, a *connectionError is returned.
 func (ch *channel) Request(payload []byte) (*pendingRequest, error) {
 	msgID, err := ch.SendRequestRaw(payload)
 	if err != nil {
+		select {
+		case <-ch.conn.processExited:
+			return nil, ch.conn.serverCrashError()
+		default:
+		}
 		return nil, err
 	}
 	return &pendingRequest{ch: ch, msgID: msgID}, nil

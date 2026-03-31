@@ -8,7 +8,9 @@ import (
 	"path/filepath"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"testing"
+	"time"
 )
 
 // --- Helper: check hegel binary is available ---
@@ -303,23 +305,23 @@ func TestHegelSessionCleanupEmpty(t *testing.T) {
 	s.cleanup() // Should not panic when nothing started.
 }
 
-// --- hegelSession: timeout when hegel doesn't appear ---
+// --- hegelSession: start fails when hegel exits immediately ---
 
-func TestHegelSessionStartTimeout(t *testing.T) {
+func TestHegelSessionStartExitsImmediately(t *testing.T) {
 	t.Parallel()
-	// Use `false` (exits immediately) so the socket never appears.
+	// Use `false` (exits immediately) so stdio pipes close immediately.
 	falseBin, err := exec.LookPath("false")
 	if err != nil {
 		t.Skip("false binary not available")
 	}
 	s := newHegelSession()
-	s.hegelCmd = falseBin // exits immediately without creating socket
+	s.hegelCmd = falseBin // exits immediately, pipes close
 	startErr := s.start()
 	if startErr == nil {
 		s.cleanup()
-		t.Fatal("expected timeout error")
+		t.Fatal("expected handshake error")
 	}
-	mustContainStr(t, startErr.Error(), "timeout")
+	mustContainStr(t, startErr.Error(), "handshake")
 }
 
 // --- hegelSession: concurrent starts (double-checked locking) ---
@@ -503,6 +505,16 @@ func TestDataExhaustedError(t *testing.T) {
 	}
 }
 
+// --- flakyAbort.Error() ---
+
+func TestFlakyAbortError(t *testing.T) {
+	t.Parallel()
+	e := flakyAbort{}
+	if e.Error() != "flaky test detected" {
+		t.Errorf("flakyAbort.Error() = %q", e.Error())
+	}
+}
+
 // --- connectionError.Error() ---
 
 func TestConnectionErrorError(t *testing.T) {
@@ -511,6 +523,15 @@ func TestConnectionErrorError(t *testing.T) {
 	if e.Error() != "conn lost" {
 		t.Errorf("connectionError.Error() = %q", e.Error())
 	}
+}
+
+// --- serverCrashMessage: fallback when logFile is nil ---
+
+func TestServerCrashMessageNoLogFile(t *testing.T) {
+	t.Parallel()
+	s := newHegelSession()
+	msg := s.serverCrashMessage()
+	mustContainStr(t, msg, "server process exited unexpectedly")
 }
 
 // --- aborted flag: set directly on state ---
@@ -529,7 +550,7 @@ func TestAbortedFlagDirect(t *testing.T) {
 func TestGenerateFromSchemaConnectionError(t *testing.T) {
 	t.Parallel()
 	s, c := socketPair(t)
-	conn := newConnection(s, "C")
+	conn := newConnection(s, s, "C")
 	c.Close()
 	// We need state=client so NewChannel works.
 	conn.state = stateClient
@@ -560,7 +581,7 @@ func TestGenerateFromSchemaConnectionError(t *testing.T) {
 func TestTargetConnectionError(t *testing.T) {
 	t.Parallel()
 	s, _ := socketPair(t)
-	conn := newConnection(s, "C")
+	conn := newConnection(s, s, "C")
 	conn.state = stateClient
 	ch := &channel{conn: conn, channelID: 1, inbox: make(chan any, 1), nextMessageID: 1}
 	conn.channels[1] = ch
@@ -657,7 +678,7 @@ func TestHegelSessionCleanupWithErrors(t *testing.T) {
 	sc, cc := socketPair(t)
 	sc.Close()
 	cc.Close()
-	s.conn = newConnection(sc, "closed")
+	s.conn = newConnection(sc, sc, "closed")
 	s.conn.Close() // pre-close
 
 	// This should not panic.
@@ -773,9 +794,8 @@ func TestHegelSessionStartInnerCheck(t *testing.T) {
 func TestHegelSessionStartHegelCmd(t *testing.T) {
 	t.Parallel()
 	hegelBinPath(t)
-	path, _ := exec.LookPath("hegel")
 	s := newHegelSession()
-	s.hegelCmd = path
+	s.hegelCmd = findHegel()
 	defer s.cleanup()
 	if err := s.start(); err != nil {
 		t.Fatalf("start with hegelCmd: %v", err)
@@ -791,16 +811,13 @@ func TestHegelSessionCleanupAllPaths(t *testing.T) {
 	if err := s.start(); err != nil {
 		t.Fatalf("start: %v", err)
 	}
-	// Cleanup should close conn, kill process, remove tempdir.
+	// Cleanup should close conn and kill process.
 	s.cleanup()
 	if s.conn != nil {
 		t.Error("conn should be nil after cleanup")
 	}
 	if s.process != nil {
 		t.Error("process should be nil after cleanup")
-	}
-	if s.tempDir != "" {
-		t.Error("tempDir should be empty after cleanup")
 	}
 }
 
@@ -841,37 +858,15 @@ func TestRunHegelTestEProtocolModeStartError(t *testing.T) {
 	mustContainStr(t, err.Error(), "session start")
 }
 
-// --- hegelSession.start: MkdirTemp error ---
-
-func TestHegelSessionStartMkdirTempError(t *testing.T) {
-	orig := mkdirTempFn
-	mkdirTempFn = func(dir, pattern string) (string, error) {
-		return "", fmt.Errorf("simulated mktemp failure")
-	}
-	defer func() { mkdirTempFn = orig }()
-
-	s := newHegelSession()
-	s.hegelCmd = "hegel" // doesn't matter, mktemp fails first
-	err := s.start()
-	if err == nil {
-		s.cleanup()
-		t.Fatal("expected error from start when mkdirTemp fails")
-	}
-	mustContainStr(t, err.Error(), "mktemp")
-}
-
 // --- hegelSession.start: handshake error ---
 
 func TestHegelSessionStartHandshakeError(t *testing.T) {
 	t.Parallel()
-	// Write a fake hegel binary that creates the socket, accepts one connection,
-	// sends bad handshake data, then exits. This causes SendHandshakeVersion to fail.
+	// Write a fake hegel binary that writes garbage to stdout and exits.
+	// This causes SendHandshakeVersion to fail because the data isn't a valid packet.
 	tmp := t.TempDir()
 	scriptPath := filepath.Join(tmp, "fake_hegel.sh")
-	// The Python one-liner: bind, listen, accept, send garbage, close.
-	script := "#!/bin/sh\n" +
-		`python3 -c "import socket,sys; s=socket.socket(socket.AF_UNIX); s.bind(sys.argv[1]); s.listen(1); c,_=s.accept(); c.send(b'bad_data\n'); c.close()" "$1"` +
-		"\n"
+	script := "#!/bin/sh\nprintf 'bad_data\\n'\n"
 	if err := os.WriteFile(scriptPath, []byte(script), 0o755); err != nil {
 		t.Fatalf("write script: %v", err)
 	}
@@ -1067,26 +1062,6 @@ func TestCaseNoteFnOnFinal(t *testing.T) {
 }
 
 // =============================================================================
-// hegelSession.start — mkdirTemp failure
-// =============================================================================
-
-func TestHegelSessionStartMkdirFail(t *testing.T) {
-	oldFn := mkdirTempFn
-	defer func() { mkdirTempFn = oldFn }()
-	mkdirTempFn = func(dir, pattern string) (string, error) {
-		return "", fmt.Errorf("simulated mktemp failure")
-	}
-
-	sess := newHegelSession()
-	sess.hegelCmd = "/nonexistent" // Won't actually be called since mkdirTemp fails first
-	err := sess.start()
-	if err == nil {
-		t.Error("expected start to fail with mkdirTemp error")
-	}
-	mustContainStr(t, err.Error(), "mktemp")
-}
-
-// =============================================================================
 // findHegel — basic non-empty check (different from TestFindHegelFallback above)
 // =============================================================================
 
@@ -1111,6 +1086,273 @@ func TestRunTestSendControlRequestError(t *testing.T) {
 		t.Fatal("expected error from runTest on closed conn")
 	}
 	mustContainStr(t, err.Error(), "run_test send")
+}
+
+// =============================================================================
+// HealthCheck.String()
+// =============================================================================
+
+func TestHealthCheckString(t *testing.T) {
+	t.Parallel()
+	tests := []struct {
+		hc   HealthCheck
+		want string
+	}{
+		{FilterTooMuch, "filter_too_much"},
+		{TooSlow, "too_slow"},
+		{TestCasesTooLarge, "test_cases_too_large"},
+		{LargeInitialTestCase, "large_initial_test_case"},
+	}
+	for _, tt := range tests {
+		if got := tt.hc.String(); got != tt.want {
+			t.Errorf("HealthCheck(%d).String() = %q, want %q", tt.hc, got, tt.want)
+		}
+	}
+}
+
+// =============================================================================
+// AllHealthChecks()
+// =============================================================================
+
+func TestAllHealthChecks(t *testing.T) {
+	t.Parallel()
+	all := AllHealthChecks()
+	if len(all) != 4 {
+		t.Errorf("AllHealthChecks() has %d elements, want 4", len(all))
+	}
+}
+
+// =============================================================================
+// SuppressHealthCheck option
+// =============================================================================
+
+func TestSuppressHealthCheckOption(t *testing.T) {
+	t.Parallel()
+	o := runOptions{testCases: 100}
+	SuppressHealthCheck(FilterTooMuch, TooSlow)(&o)
+	if len(o.suppressHealthCheck) != 2 {
+		t.Errorf("suppressHealthCheck has %d elements, want 2", len(o.suppressHealthCheck))
+	}
+	if o.suppressHealthCheck[0] != FilterTooMuch {
+		t.Errorf("suppressHealthCheck[0] = %v, want FilterTooMuch", o.suppressHealthCheck[0])
+	}
+}
+
+// =============================================================================
+// SuppressHealthCheck: integration test with real server
+// =============================================================================
+
+func TestSuppressHealthCheckIntegration(t *testing.T) {
+	hegelBinPath(t)
+	// Exercise the suppress_health_check protocol path.
+	err := runHegel(func(s *TestCase) {
+		n := Draw[int](s, Integers[int](0, 100))
+		s.Assume(n < 90)
+	}, stderrNoteFn, []Option{SuppressHealthCheck(FilterTooMuch, TooSlow), WithTestCases(5)})
+	if err != nil {
+		t.Errorf("expected test to pass with suppressed health check: %v", err)
+	}
+}
+
+func TestSuppressAllHealthChecksIntegration(t *testing.T) {
+	hegelBinPath(t)
+	err := runHegel(func(s *TestCase) {
+		n := Draw[int](s, Integers[int](0, 100))
+		s.Assume(n < 90)
+	}, stderrNoteFn, []Option{SuppressHealthCheck(AllHealthChecks()...), WithTestCases(5)})
+	if err != nil {
+		t.Errorf("expected test to pass with all health checks suppressed: %v", err)
+	}
+}
+
+// =============================================================================
+// Server crash detection: processExited channel
+// =============================================================================
+
+func TestProcessExitedChannel(t *testing.T) {
+	t.Parallel()
+	s, c := socketPair(t)
+	conn := newConnection(s, s, "C")
+	defer conn.Close()
+	c.Close()
+
+	exited := make(chan struct{})
+	conn.processExited = exited
+
+	// Not exited yet.
+	select {
+	case <-conn.processExited:
+		t.Error("processExited should not be closed initially")
+	default:
+	}
+
+	// Mark exited.
+	close(exited)
+	select {
+	case <-conn.processExited:
+	default:
+		t.Error("processExited should be closed after close()")
+	}
+}
+
+// =============================================================================
+// Session start timeout: process alive but no socket
+// =============================================================================
+
+func TestHegelSessionStartTimeout(t *testing.T) {
+	t.Parallel()
+	tmp := t.TempDir()
+	script := filepath.Join(tmp, "fake_hegel.sh")
+	os.WriteFile(script, []byte("#!/bin/sh\nsleep 60\n"), 0o755) //nolint:errcheck
+	s := newHegelSession()
+	s.hegelCmd = script
+	startErr := s.start()
+	s.cleanup()
+	if startErr == nil {
+		t.Fatal("expected timeout error")
+	}
+	mustContainStr(t, startErr.Error(), "timed out")
+}
+
+// =============================================================================
+// Health check failure: filter too aggressively without suppressing
+// =============================================================================
+
+func TestHealthCheckFailureFilterTooMuch(t *testing.T) {
+	hegelBinPath(t)
+	// Filtering based on a tiny range triggers FilterTooMuch: the server sees
+	// almost all test cases rejected and raises a health check failure.
+	err := runHegel(func(s *TestCase) {
+		n := Draw[int](s, Integers[int](0, 1000))
+		s.Assume(n == 0) // reject ~99.9% of test cases
+	}, stderrNoteFn, []Option{WithTestCases(200)})
+	if err == nil {
+		t.Fatal("expected health check failure")
+	}
+	mustContainStr(t, err.Error(), "health check failure")
+}
+
+// =============================================================================
+// Flaky global state detection
+// =============================================================================
+
+var flakyCounter atomic.Int64
+
+func TestFlakyGlobalState(t *testing.T) {
+	hegelBinPath(t)
+	flakyCounter.Store(0)
+	err := runHegel(func(s *TestCase) {
+		min := int(flakyCounter.Load())
+		_ = Draw[int](s, Integers[int](min, min+100))
+		flakyCounter.Add(1)
+	}, stderrNoteFn, []Option{WithTestCases(100)})
+	if err == nil {
+		t.Fatal("expected error for flaky test")
+	}
+	mustContainStr(t, err.Error(), "flaky")
+}
+
+// =============================================================================
+// Server crash on Request error (closed socket + ServerHasExited)
+// =============================================================================
+
+func TestGenerateServerCrashOnRequest(t *testing.T) {
+	t.Parallel()
+	s, c := socketPair(t)
+	conn := newConnection(s, s, "C")
+	c.Close()
+	conn.state = stateClient
+	ch := &channel{conn: conn, channelID: 1, inbox: make(chan any, 1), dropped: make(chan struct{}), nextMessageID: 1}
+	conn.writerMu.Lock()
+	conn.channels[1] = ch
+	conn.writerMu.Unlock()
+
+	exited := make(chan struct{})
+	close(exited)
+	conn.processExited = exited
+
+	s.Close()
+
+	state := &TestCase{channel: ch}
+	var caught any
+	func() {
+		defer func() { caught = recover() }()
+		Draw[bool](state, Booleans())
+	}()
+	if caught == nil {
+		t.Fatal("expected panic from Draw on server crash")
+	}
+	connErr, ok := caught.(*connectionError)
+	if !ok {
+		t.Fatalf("expected *connectionError, got %T: %v", caught, caught)
+	}
+	mustContainStr(t, connErr.msg, "server process exited unexpectedly")
+}
+
+// =============================================================================
+// Server crash on Get error (socket closed mid-request + ServerHasExited)
+// =============================================================================
+
+func TestGenerateServerCrashOnGet(t *testing.T) {
+	t.Parallel()
+	s, c := socketPair(t)
+	conn := newConnection(s, s, "C")
+	conn.state = stateClient
+	ch := &channel{conn: conn, channelID: 1, inbox: make(chan any, 1), dropped: make(chan struct{}), nextMessageID: 1}
+	conn.writerMu.Lock()
+	conn.channels[1] = ch
+	conn.writerMu.Unlock()
+
+	exited := make(chan struct{})
+	conn.processExited = exited
+
+	// Read the request on peer side, then simulate crash
+	go func() {
+		readPacket(c) //nolint:errcheck
+		close(exited)
+		c.Close()
+	}()
+
+	state := &TestCase{channel: ch}
+	var caught any
+	func() {
+		defer func() { caught = recover() }()
+		Draw[bool](state, Booleans())
+	}()
+	if caught == nil {
+		t.Fatal("expected panic from Draw on server crash")
+	}
+	connErr, ok := caught.(*connectionError)
+	if !ok {
+		t.Fatalf("expected *connectionError, got %T: %v", caught, caught)
+	}
+	mustContainStr(t, connErr.msg, "server process exited unexpectedly")
+}
+
+// =============================================================================
+// ServerHasExited in processOneMessage
+// =============================================================================
+
+func TestProcessOneMessageServerCrash(t *testing.T) {
+	t.Parallel()
+	s, c := socketPair(t)
+	conn := newConnection(s, s, "C")
+	conn.state = stateClient
+	ch := conn.NewChannel("Test")
+
+	exited := make(chan struct{})
+	close(exited)
+	conn.processExited = exited
+	c.Close()
+
+	// Wait for readLoop to notice the close
+	<-conn.done
+
+	_, _, err := ch.RecvRequestRaw(1 * time.Second)
+	if err == nil {
+		t.Fatal("expected error")
+	}
+	mustContainStr(t, err.Error(), "server process exited unexpectedly")
 }
 
 // --- helpers ---

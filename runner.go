@@ -3,7 +3,6 @@ package hegel
 import (
 	"fmt"
 	"io"
-	"net"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -35,10 +34,18 @@ type dataExhausted struct{ msg string }
 
 func (e *dataExhausted) Error() string { return e.msg }
 
-// connectionError wraps a connection-level error that should propagate out of the test.
-type connectionError struct{ msg string }
+// flakyAbort is raised when the server detects non-deterministic data generation.
+// Like dataExhausted, it aborts the test case without sending mark_complete.
+// The server reports the actual flaky error in test_done results.
+type flakyAbort struct{}
 
-func (e *connectionError) Error() string { return e.msg }
+func (flakyAbort) Error() string { return "flaky test detected" }
+
+// Wire protocol error types for flaky test detection.
+const (
+	flakyStrategyDefinition = "FlakyStrategyDefinition"
+	flakyReplay             = "FlakyReplay"
+)
 
 // internal returns the underlying TestCase, satisfying the State interface.
 func (s *TestCase) internal() *TestCase { return s }
@@ -101,6 +108,11 @@ func generateFromSchema(gs *TestCase, schema map[string]any) (any, error) {
 	}
 	pending, err := ch.Request(payload)
 	if err != nil {
+		// Request returns *connectionError for server crashes.
+		// Other write errors are also connection-level.
+		if _, ok := err.(*connectionError); ok {
+			return nil, err
+		}
 		return nil, &connectionError{msg: err.Error()}
 	}
 	v, err := pending.Get()
@@ -109,6 +121,10 @@ func generateFromSchema(gs *TestCase, schema map[string]any) (any, error) {
 		if ok && re.ErrorType == "StopTest" {
 			gs.aborted = true
 			return nil, &dataExhausted{msg: "server ran out of data"}
+		}
+		if ok && (re.ErrorType == flakyStrategyDefinition || re.ErrorType == flakyReplay) {
+			gs.aborted = true
+			return nil, flakyAbort{}
 		}
 		return nil, err
 	}
@@ -124,11 +140,52 @@ func (f fatalSentinel) Error() string { return f.msg }
 // It receives the TestCase for the current test case.
 type testBody func(s *TestCase)
 
+// --- Health checks ---
+
+// HealthCheck represents a health check that can be suppressed during test execution.
+//
+// Health checks detect common issues with test configuration that would
+// otherwise cause tests to run inefficiently or not at all.
+type HealthCheck int
+
+const (
+	// FilterTooMuch indicates too many test cases are being filtered out via [TestCase.Assume].
+	FilterTooMuch HealthCheck = iota
+	// TooSlow indicates test execution is too slow.
+	TooSlow
+	// TestCasesTooLarge indicates generated test cases are too large.
+	TestCasesTooLarge
+	// LargeInitialTestCase indicates the smallest natural input is very large.
+	LargeInitialTestCase
+)
+
+// AllHealthChecks returns all health check variants.
+func AllHealthChecks() []HealthCheck {
+	return []HealthCheck{FilterTooMuch, TooSlow, TestCasesTooLarge, LargeInitialTestCase}
+}
+
+// String returns the wire protocol name for this health check.
+func (h HealthCheck) String() string {
+	switch h {
+	case FilterTooMuch:
+		return "filter_too_much"
+	case TooSlow:
+		return "too_slow"
+	case TestCasesTooLarge:
+		return "test_cases_too_large"
+	case LargeInitialTestCase:
+		return "large_initial_test_case"
+	default: //nocov
+		panic("hegel: unreachable: unknown health check") //nocov
+	}
+}
+
 // --- Test runner options ---
 
 // runOptions holds options for property tests.
 type runOptions struct {
-	testCases int
+	testCases           int
+	suppressHealthCheck []HealthCheck
 }
 
 // Option is a functional option for Case and Run.
@@ -137,6 +194,14 @@ type Option func(*runOptions)
 // WithTestCases sets the number of test cases to run.
 func WithTestCases(n int) Option {
 	return func(o *runOptions) { o.testCases = n }
+}
+
+// SuppressHealthCheck suppresses the given health checks so they do not cause test failure.
+//
+// Health checks detect common issues like excessive filtering or slow tests.
+// Use this to suppress specific checks when they are expected.
+func SuppressHealthCheck(checks ...HealthCheck) Option {
+	return func(o *runOptions) { o.suppressHealthCheck = append(o.suppressHealthCheck, checks...) }
 }
 
 // --- Public API ---
@@ -248,11 +313,19 @@ func newClient(conn *connection) *client {
 func (c *client) runTest(fn testBody, opts runOptions, noteFn func(string)) error {
 	testCh := c.conn.NewChannel("Test")
 
-	payload, err := encodeCBOR(map[string]any{
+	runTestMsg := map[string]any{
 		"command":    "run_test",
 		"test_cases": int64(opts.testCases),
 		"channel_id": int64(testCh.ChannelID()),
-	})
+	}
+	if len(opts.suppressHealthCheck) > 0 {
+		names := make([]string, len(opts.suppressHealthCheck))
+		for i, hc := range opts.suppressHealthCheck {
+			names[i] = hc.String()
+		}
+		runTestMsg["suppress_health_check"] = names
+	}
+	payload, err := encodeCBOR(runTestMsg)
 	if err != nil { //nocov
 		panic(fmt.Sprintf("hegel: runTest encode: %v", err)) //nocov
 	}
@@ -308,6 +381,21 @@ func (c *client) runTest(fn testBody, opts runOptions, noteFn func(string)) erro
 doneLoop:
 	if resultData == nil { //nocov
 		panic("hegel: resultData is nil after test_done") //nocov
+	}
+
+	// Check for server-side error.
+	if errMsg, ok := resultData[any("error")].(string); ok && errMsg != "" { //nocov
+		return fmt.Errorf("hegel: server error: %s", errMsg) //nocov
+	}
+
+	// Check for health check failure.
+	if hcMsg, ok := resultData[any("health_check_failure")].(string); ok && hcMsg != "" {
+		return fmt.Errorf("hegel: health check failure:\n%s", hcMsg)
+	}
+
+	// Check for flaky test detection.
+	if flakyMsg, ok := resultData[any("flaky")].(string); ok && flakyMsg != "" {
+		return fmt.Errorf("hegel: flaky test detected: %s", flakyMsg)
 	}
 
 	nInterestingVal := resultData[any("interesting_test_cases")]
@@ -368,7 +456,7 @@ func (c *client) runTestCase(ch *channel, fn testBody, isFinal bool, noteFn func
 					status = "INTERESTING"
 					origin = "test failed (via t.Error/t.Fail)"
 					if isFinal {
-						finalErr = fmt.Errorf("test failed")
+						finalErr = fmt.Errorf("property test failed: test failed")
 					}
 				}
 				return
@@ -378,19 +466,21 @@ func (c *client) runTestCase(ch *channel, fn testBody, isFinal bool, noteFn func
 				status = "INVALID"
 			case *dataExhausted:
 				alreadyComplete = true
+			case flakyAbort:
+				alreadyComplete = true
 			case *connectionError:
 				finalErr = fmt.Errorf("%s", v.msg)
 			case fatalSentinel:
 				status = "INTERESTING"
 				origin = extractPanicOrigin(v)
 				if isFinal {
-					finalErr = fmt.Errorf("%s", v.msg)
+					finalErr = fmt.Errorf("property test failed: %s", v.msg)
 				}
 			default:
 				status = "INTERESTING"
 				origin = extractPanicOrigin(v)
 				if isFinal {
-					finalErr = fmt.Errorf("%v", v)
+					finalErr = fmt.Errorf("property test failed: %v", v)
 				}
 			}
 		}()
@@ -440,21 +530,38 @@ type hegelSession struct {
 	conn           *connection
 	cli            *client
 	process        *exec.Cmd
-	tempDir        string
-	socketPath     string
 	hegelCmd       string // overridable for testing
 	suppressStderr bool   // suppress hegel subprocess stderr (used for test-mode sessions that intentionally crash)
+	logFile        *os.File
+	processExited  <-chan struct{} // closed when the server process exits
 }
 
-// mkdirTempFn is the function used to create temp directories.
-// Overridable in tests to simulate failures.
-var mkdirTempFn = os.MkdirTemp
+// openServerLog opens .hegel/server.{pid}.log in the project root for appending server output.
+// Each process gets its own file to avoid interleaved writes from concurrent processes.
+func openServerLog() *os.File {
+	hegelDir := filepath.Join(getProjectRoot(), ".hegel")
+	os.MkdirAll(hegelDir, 0o755) //nolint:errcheck
+	logPath := filepath.Join(hegelDir, fmt.Sprintf("server.%d.log", os.Getpid()))
+	f, err := os.OpenFile(logPath, os.O_CREATE|os.O_APPEND|os.O_WRONLY, 0o644)
+	if err != nil { //nocov
+		panic(fmt.Sprintf("hegel: unreachable: failed to open server log: %v", err)) //nocov
+	}
+	return f
+}
+
+// serverCrashMessage returns the error message for an unexpected server exit.
+func (s *hegelSession) serverCrashMessage() string {
+	if s.logFile != nil {
+		return fmt.Sprintf("The hegel server process exited unexpectedly. See %s for diagnostic information.", s.logFile.Name())
+	}
+	return "The hegel server process exited unexpectedly."
+}
 
 func newHegelSession() *hegelSession {
 	return &hegelSession{}
 }
 
-// start starts the hegel subprocess and connects to it (idempotent).
+// start starts the hegel subprocess and connects via stdio (idempotent).
 func (s *hegelSession) start() error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
@@ -469,64 +576,67 @@ func (s *hegelSession) start() error {
 		hegelBin = findHegel()
 	}
 
-	// Create temp dir for socket.
-	tmp, err := mkdirTempFn("", "hegel-")
-	if err != nil {
-		return fmt.Errorf("hegel: mktemp: %w", err)
-	}
-	s.tempDir = tmp
-	sockPath := filepath.Join(tmp, "hegel.sock")
-	s.socketPath = sockPath
-
-	// Spawn hegel process in the project root so .hegel is created there.
-	cmd := exec.Command(hegelBin, sockPath)
+	// Spawn hegel process with stdio transport.
+	cmd := exec.Command(hegelBin, "--stdio", "--verbosity", "normal")
 	cmd.Dir = getProjectRoot()
-	cmd.Stdout = os.Stderr
+	cmd.Env = append(os.Environ(), "PYTHONUNBUFFERED=1")
+	logFile := openServerLog()
 	if s.suppressStderr {
 		cmd.Stderr = io.Discard
 	} else {
-		cmd.Stderr = os.Stderr
+		cmd.Stderr = logFile
 	}
+	s.logFile = logFile
+
+	stdinPipe, err := cmd.StdinPipe()
+	if err != nil { //nocov
+		panic(fmt.Sprintf("hegel: unreachable: stdin pipe: %v", err)) //nocov
+	}
+	stdoutPipe, err := cmd.StdoutPipe()
+	if err != nil { //nocov
+		panic(fmt.Sprintf("hegel: unreachable: stdout pipe: %v", err)) //nocov
+	}
+
 	if err := cmd.Start(); err != nil {
-		os.RemoveAll(tmp) //nolint:errcheck
+		stdinPipe.Close()
+		stdoutPipe.Close()
+		if logFile != nil {
+			logFile.Close()
+		}
+		s.logFile = nil
 		return fmt.Errorf("hegel: spawn: %w", err)
 	}
 	s.process = cmd
 
-	// Wait for socket to appear and connect.
-	var sock net.Conn
-	for i := 0; i < 50; i++ {
-		if _, statErr := os.Stat(sockPath); statErr == nil {
-			c, connErr := net.Dial("unix", sockPath)
-			if connErr == nil {
-				sock = c
-				break
-			}
-		}
-		time.Sleep(100 * time.Millisecond)
-	}
-	if sock == nil {
-		cmd.Process.Kill() //nolint:errcheck
-		os.RemoveAll(tmp)  //nolint:errcheck
-		return fmt.Errorf("hegel: timeout waiting for hegel to start")
-	}
+	// Start a goroutine to wait for the process to exit.
+	// This ensures cmd.Wait() is called exactly once.
+	processExited := make(chan struct{})
+	go func() {
+		cmd.Wait() //nolint:errcheck
+		close(processExited)
+	}()
 
-	conn := newConnection(sock, "Client")
+	conn := newConnection(stdoutPipe, stdinPipe, "Client")
+	conn.processExited = processExited
+	conn.crashMessage = s.serverCrashMessage()
 	version, err := conn.SendHandshakeVersion()
 	if err != nil {
-		sock.Close()       //nolint:errcheck
+		conn.Close()
 		cmd.Process.Kill() //nolint:errcheck
-		os.RemoveAll(tmp)  //nolint:errcheck
+		<-processExited
+		s.process = nil
+		if s.logFile != nil {
+			s.logFile.Close()
+			s.logFile = nil
+		}
 		return fmt.Errorf("hegel: handshake: %w", err)
 	}
 	_ = version // we accept any version for now
 
 	s.conn = conn
 	s.cli = newClient(conn)
+	s.processExited = processExited
 
-	// Register cleanup on first successful start.
-	// (atexit equivalent: use a finalizer or just let the OS clean up on exit.
-	// For test suites, this is sufficient.)
 	return nil
 }
 
@@ -536,29 +646,23 @@ func (s *hegelSession) cleanup() {
 	defer s.mu.Unlock()
 
 	if s.conn != nil {
-		func() {
-			defer func() { recover() }() //nolint:errcheck
-			s.conn.Close()
-		}()
+		s.conn.Close()
 		s.conn = nil
 		s.cli = nil
 	}
 
 	if s.process != nil {
-		func() {
-			defer func() { recover() }()           //nolint:errcheck
-			s.process.Process.Signal(os.Interrupt) //nolint:errcheck
-			s.process.Wait()                       //nolint:errcheck
-		}()
+		s.process.Process.Signal(os.Interrupt) //nolint:errcheck
+		if s.processExited != nil {
+			<-s.processExited
+		}
 		s.process = nil
+		s.processExited = nil
 	}
 
-	if s.tempDir != "" {
-		func() {
-			defer func() { recover() }() //nolint:errcheck
-			os.RemoveAll(s.tempDir)      //nolint:errcheck
-		}()
-		s.tempDir = ""
+	if s.logFile != nil {
+		s.logFile.Close() //nolint:errcheck
+		s.logFile = nil
 	}
 }
 
