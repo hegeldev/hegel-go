@@ -21,9 +21,10 @@ func ExampleCase() {
 func ExampleCase_withTestCases() {
 	t := &testing.T{}
 	t.Run("many", hegel.Case(func(ht *hegel.T) {
-		n := hegel.Draw(ht, hegel.Integers(math.MinInt, math.MaxInt))
-		if n != n {
-			ht.Fatal("integer should equal itself")
+		a := hegel.Draw(ht, hegel.Integers(-1000, 1000))
+		b := hegel.Draw(ht, hegel.Integers(-1000, 1000))
+		if a+b != b+a {
+			ht.Fatal("addition is not commutative")
 		}
 	}, hegel.WithTestCases(500)))
 }
