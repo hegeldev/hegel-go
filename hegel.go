@@ -220,5 +220,6 @@
 //
 // [Hypothesis]: https://github.com/hypothesisworks/hypothesis
 // [Hegel]: https://hegel.dev/
+//
 // [uv]: https://docs.astral.sh/uv/
 package hegel
