@@ -74,5 +74,11 @@ conformance: build-conformance
     uv pip install --python .venv/bin/python pytest hypothesis > /dev/null 2>&1 || true
     .venv/bin/python -m pytest tests/conformance/ -v
 
+# Serve API documentation locally at http://localhost:8080.
+serve-docs:
+    go install golang.org/x/pkgsite/cmd/pkgsite@latest
+    go clean -cache
+    pkgsite -http=:8080 .
+
 # Run lint + docs + test (the full CI check).
 check: lint docs test

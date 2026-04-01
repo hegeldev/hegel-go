@@ -1,23 +1,19 @@
-// Package hegel provides a Go library for the Hegel property-based testing framework.
+// Package hegel is a property-based testing library for Go. It is based on
+// [Hypothesis], using the [Hegel] protocol.
 //
-// Hegel is a universal property-based testing framework backed by Hypothesis.
-// This library communicates with the hegel binary.
+// Hegel runs your test body many times with different generated inputs,
+// and when a failure is found it automatically shrinks the inputs to a
+// minimal counterexample.
 //
-// # Quick Start
+// Use [Case] to write property tests inside go test, or [Run] for
+// standalone usage. Inside the test body, call [Draw] with a [Generator]
+// to produce typed random values.
 //
-// Run a property test with [Case] inside Go tests:
+// Generators include primitives like [Integers], [Floats], [Booleans],
+// and [Text]; collections like [Lists] and [Dicts]; and combinators like
+// [Map], [Filter], [FlatMap], and [OneOf]. See each function's
+// documentation for details.
 //
-//	func TestMyProperty(t *testing.T) {
-//	    t.Run("bounds", hegel.Case(func(ht *hegel.T) {
-//	        n := hegel.Draw(ht, hegel.Integers[int](0, 100))
-//	        if n < 0 || n > 100 {
-//	            ht.Fatal("out of range")
-//	        }
-//	    }, hegel.WithTestCases(50)))
-//	}
-//
-// Use the composable [Generator] types returned by functions such as [Integers],
-// [Booleans], [Text], [Lists], and [OneOf].
-//
-// See the README and docs/getting-started.md for a full tutorial.
+// [Hypothesis]: https://github.com/hypothesisworks/hypothesis
+// [Hegel]: https://hegel.dev/
 package hegel
