@@ -232,7 +232,7 @@ func Case(fn func(*T), opts ...Option) func(*testing.T) {
 			fn(ht)
 		}
 		err := runHegel(body, func(msg string) { t.Log(msg) }, opts) // coverage-ignore
-		if err != nil { // coverage-ignore
+		if err != nil {                                              // coverage-ignore
 			t.Fatal(err)
 		}
 	}
