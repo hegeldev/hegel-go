@@ -1,5 +1,9 @@
 # Changelog
 
+## 0.2.1 - 2026-04-01
+
+This patch updates documentation: moves the getting-started guide into the package doc comment, fixes code examples, and updates the README to match the style of other Hegel SDKs.
+
 ## 0.2.0 - 2026-03-30
 
 Switch from Unix socket transport to stdio-based communication with the hegel-core binary.

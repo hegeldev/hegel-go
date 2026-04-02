@@ -1,0 +1,12 @@
+profile: coverage.out
+
+threshold:
+  file: 100
+  package: 0
+  total: 0
+
+exclude:
+  paths:
+    - ^cmd/
+    - ^internal/conformance/
+    - ^examples/

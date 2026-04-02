@@ -14,8 +14,8 @@ var decMode = mustDecMode()
 // DecOptions{} is always valid, so this never panics in practice.
 func mustDecMode() cbor.DecMode {
 	m, err := cbor.DecOptions{}.DecMode()
-	if err != nil { //nocov
-		panic(fmt.Sprintf("hegel: failed to create CBOR decode mode: %v", err)) //nocov
+	if err != nil { // coverage-ignore
+		panic(fmt.Sprintf("hegel: failed to create CBOR decode mode: %v", err))
 	}
 	return m
 }

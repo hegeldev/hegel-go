@@ -1,71 +1,45 @@
 #!/usr/bin/env python3
-"""Check Go test coverage and enforce 100% on library code.
+"""Check Go test coverage using go-test-coverage and enforce a ratchet on coverage-ignore annotations.
 
-Parses Go coverage profiles and reports uncovered lines.
-Exits non-zero if any production code line is uncovered.
+Runs go-test-coverage for threshold enforcement, then counts // coverage-ignore
+annotations and enforces a ratchet to prevent growth.
 """
 
+import json
+import os
 import re
 import subprocess
 import sys
+from glob import glob
+RATCHET_FILE = ".github/coverage-ratchet.json"
 
 
 def main() -> int:
     # Sanitize coverage.out: remove any lines that don't match the expected format.
     # When 'go test ./...' runs multiple packages, stray lines (e.g. test-count
-    # output) can get appended to the coverage profile and confuse go tool cover.
+    # output) can get appended to the coverage profile and confuse tools.
     sanitize_coverage("coverage.out", "coverage.sanitized.out")
+    os.replace("coverage.sanitized.out", "coverage.out")
 
-    # Run go tool cover to get per-function coverage
+    # Run go-test-coverage for threshold enforcement.
     result = subprocess.run(
-        ["go", "tool", "cover", "-func=coverage.sanitized.out"],
+        ["go", "tool", "github.com/vladopajic/go-test-coverage/v2",
+         "--config", ".testcoverage.yml"],
         capture_output=True,
         text=True,
     )
-    if result.returncode != 0:
-        print(f"Error running go tool cover: {result.stderr}", file=sys.stderr)
-        return 1
-
     print(result.stdout)
-
-    # Check total coverage
-    for line in result.stdout.strip().splitlines():
-        if "total:" in line:
-            match = re.search(r"(\d+\.\d+)%", line)
-            if match:
-                coverage = float(match.group(1))
-                if coverage == 100.0:
-                    print(f"\n✅ Coverage: {coverage}%")
-                    return 0
-                else:
-                    print(f"\n❌ Coverage: {coverage}% (required: 100%)")
-
-    # If we didn't find 100%, parse the coverage profile for uncovered lines
-    print("\nUncovered lines:")
-    uncovered = parse_uncovered("coverage.sanitized.out")
-    real_uncovered = []
-    for file, local_path, start_line, end_line in uncovered:
-        # Filter out known false positives
-        if is_false_positive(local_path, start_line, end_line):
-            continue
-        real_uncovered.append((file, start_line, end_line))
-        print(f"  {file}:{start_line}-{end_line}")
-
-    if real_uncovered:
-        print(f"\n❌ {len(real_uncovered)} uncovered region(s) found")
+    if result.stderr:
+        print(result.stderr, file=sys.stderr)
+    if result.returncode != 0:
         return 1
 
-    print("\n✅ All uncovered lines are false positives — coverage is effectively 100%")
-    return 0
+    # Enforce ratchet on coverage-ignore annotation count.
+    return check_ratchet()
 
 
 def sanitize_coverage(input_path: str, output_path: str) -> None:
-    """Write a sanitized copy of the Go coverage profile, removing malformed lines.
-
-    Go's 'go test ./...' sometimes appends stray lines (e.g. test-count output)
-    to the coverage profile. This function copies only valid lines (mode header
-    and properly-formatted coverage entries) to a new file.
-    """
+    """Write a sanitized copy of the Go coverage profile, removing malformed lines."""
     valid_line = re.compile(r".+:\d+\.\d+,\d+\.\d+\s+\d+\s+\d+")
     with open(input_path) as fin, open(output_path, "w") as fout:
         for line in fin:
@@ -74,93 +48,56 @@ def sanitize_coverage(input_path: str, output_path: str) -> None:
                 fout.write(line)
 
 
-def parse_uncovered(profile_path: str) -> list[tuple[str, str, int, int]]:
-    """Parse a Go coverage profile and return uncovered regions.
-
-    Coverage profile format per line:
-        module/path/file.go:startLine.startCol,endLine.endCol numStatements executionCount
-
-    When ``go test -coverpkg=PKG ./...`` runs multiple test packages, each
-    test binary independently instruments PKG and writes its own coverage
-    entries.  We merge duplicates by summing execution counts so that a
-    region covered by *any* test binary is not reported as uncovered.
-
-    Returns tuples of (module_path, local_file_path, start_line, end_line)
-    for regions whose merged execution count is still 0.
-    """
-    # key = full coverage key (everything before the exec count fields),
-    # value = (module_path, start_line, end_line, total_exec_count)
-    merged: dict[str, tuple[str, int, int, int]] = {}
-    with open(profile_path) as f:
-        for line in f:
-            line = line.strip()
-            if line.startswith("mode:") or not line:
-                continue
-            # Format: modulePath:startLine.startCol,endLine.endCol numStatements execCount
-            match = re.match(
-                r"(.+):(\d+\.\d+,\d+\.\d+)\s+(\d+)\s+(\d+)", line
-            )
-            if match:
-                module_path = match.group(1)
-                region = match.group(2)  # e.g. "15.33,17.16"
-                exec_count = int(match.group(4))
-                key = f"{module_path}:{region}"
-                if key in merged:
-                    prev = merged[key]
-                    merged[key] = (prev[0], prev[1], prev[2], prev[3] + exec_count)
-                else:
-                    # Parse start/end lines from the region string
-                    parts = region.split(",")
-                    start_line = int(parts[0].split(".")[0])
-                    end_line = int(parts[1].split(".")[0])
-                    merged[key] = (module_path, start_line, end_line, exec_count)
-
-    uncovered = []
-    for module_path, start_line, end_line, total_count in merged.values():
-        if total_count == 0:
-            local_path = _module_path_to_local(module_path)
-            uncovered.append((module_path, local_path, start_line, end_line))
-    return uncovered
+def count_coverage_ignore() -> int:
+    """Count // coverage-ignore annotations in non-test .go files."""
+    count = 0
+    for path in glob("**/*.go", recursive=True):
+        if path.endswith("_test.go"):
+            continue
+        # Skip cmd/, internal/conformance/, and examples/ directories.
+        if any(path.startswith(d) for d in ("cmd/", "internal/conformance/", "examples/")):
+            continue
+        with open(path) as f:
+            for line in f:
+                if "// coverage-ignore" in line:
+                    count += 1
+    return count
 
 
-def _module_path_to_local(module_path: str) -> str:
-    """Convert a Go module file path to a local filesystem path.
+def check_ratchet() -> int:
+    """Enforce the coverage-ignore annotation ratchet."""
+    current = count_coverage_ignore()
+    print(f"Coverage-ignore annotations: {current}")
 
-    Strips the module prefix (everything up to and including the third path
-    component for github.com paths, or finds the first existing file).
-    Falls back to the original path if no mapping is found.
-    """
-    import os
+    if not os.path.exists(RATCHET_FILE):
+        print(f"No ratchet file found at {RATCHET_FILE}, creating with current count.")
+        save_ratchet(current)
+        return 0
 
-    # Try progressively stripping leading path components until the file exists.
-    parts = module_path.split("/")
-    for i in range(len(parts)):
-        candidate = "/".join(parts[i:])
-        if os.path.exists(candidate):
-            return candidate
-    return module_path
+    with open(RATCHET_FILE) as f:
+        data = json.load(f)
+    limit = data.get("coverage_ignore_count", 0)
+
+    if current > limit:
+        print(f"\n\u274c Coverage-ignore count {current} exceeds ratchet limit {limit}.")
+        print("Either remove unnecessary annotations or update the ratchet.")
+        return 1
+
+    if current < limit:
+        print(f"\u2705 Ratchet tightened: {limit} \u2192 {current}")
+        save_ratchet(current)
+    else:
+        print(f"\u2705 Ratchet holds at {current}")
+
+    return 0
 
 
-def is_false_positive(file: str, start_line: int, end_line: int) -> bool:
-    """Check if an uncovered region is a known false positive.
-
-    A region is a false positive if every line in it is either:
-    - Empty or a closing brace
-    - Marked with ``//nocov``
-    """
-    try:
-        with open(file) as f:
-            lines = f.readlines()
-        for i in range(start_line - 1, min(end_line, len(lines))):
-            content = lines[i].strip()
-            if content in ("}", ")", "});", ""):
-                continue
-            if "//nocov" in content:
-                continue
-            return False
-        return True
-    except (FileNotFoundError, IndexError):
-        return False
+def save_ratchet(count: int) -> None:
+    """Save the ratchet count to the ratchet file."""
+    os.makedirs(os.path.dirname(RATCHET_FILE), exist_ok=True)
+    with open(RATCHET_FILE, "w") as f:
+        json.dump({"coverage_ignore_count": count}, f, indent=2)
+        f.write("\n")
 
 
 if __name__ == "__main__":

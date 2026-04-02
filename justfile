@@ -3,18 +3,10 @@
 
 export PATH := "/usr/local/go/bin:" + env("HOME") + "/go/bin:" + env("PATH")
 
-# Install dependencies and the hegel binary.
-# If HEGEL_BINARY is set, symlinks it into .venv/bin instead of installing from git.
+# Install dependencies. The hegel binary is auto-installed by the library
+# on first use (pinned in installer.go). Set HEGEL_SERVER_COMMAND to override.
 setup:
-    #!/usr/bin/env bash
-    set -euo pipefail
     uv venv .venv
-    if [ -n "${HEGEL_BINARY:-}" ]; then
-        mkdir -p .venv/bin
-        ln -sf "$HEGEL_BINARY" .venv/bin/hegel
-    else
-        uv pip install --python .venv/bin/python --reinstall-package hegel-core hegel-core
-    fi
 
 # Run tests with coverage, fail if below 100%.
 # We measure coverage only on the library package (not cmd/ binaries).
@@ -73,6 +65,12 @@ conformance: build-conformance
     export PATH="$(pwd)/.venv/bin:$PATH"
     uv pip install --python .venv/bin/python pytest hypothesis > /dev/null 2>&1 || true
     .venv/bin/python -m pytest tests/conformance/ -v
+
+# Serve API documentation locally at http://localhost:8080.
+serve-docs:
+    go install golang.org/x/pkgsite/cmd/pkgsite@latest
+    go clean -cache
+    pkgsite -http=:8080 .
 
 # Run lint + docs + test (the full CI check).
 check: lint docs test

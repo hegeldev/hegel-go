@@ -23,8 +23,8 @@ func extractInt(v any) int64 {
 		return x.Int64()
 	case *big.Int:
 		return x.Int64()
-	default: //nocov
-		panic(fmt.Sprintf("hegel: expected int, got %T", v)) //nocov
+	default: // coverage-ignore
+		panic(fmt.Sprintf("hegel: expected int, got %T", v))
 	}
 }
 
@@ -39,8 +39,8 @@ func extractFloat(v any) float64 {
 		return float64(x)
 	case uint64:
 		return float64(x)
-	default: //nocov
-		panic(fmt.Sprintf("hegel: expected float, got %T", v)) //nocov
+	default: // coverage-ignore
+		panic(fmt.Sprintf("hegel: expected float, got %T", v))
 	}
 }
 
@@ -306,8 +306,8 @@ func Dates() Generator[time.Time] {
 		schema: map[string]any{"type": "date"},
 		transform: func(a any) time.Time {
 			t, err := time.Parse("2006-01-02", a.(string))
-			if err != nil { //nocov
-				panic(fmt.Sprintf("hegel: failed to parse date %q: %v", a, err)) //nocov
+			if err != nil { // coverage-ignore
+				panic(fmt.Sprintf("hegel: failed to parse date %q: %v", a, err))
 			}
 			return t
 		},
@@ -321,8 +321,8 @@ func Datetimes() Generator[time.Time] {
 		transform: func(a any) time.Time {
 			// TODO: WTF?
 			t, err := time.Parse("2006-01-02T15:04:05", a.(string))
-			if err != nil { //nocov
-				panic(fmt.Sprintf("hegel: failed to parse datetime %q: %v", a, err)) //nocov
+			if err != nil { // coverage-ignore
+				panic(fmt.Sprintf("hegel: failed to parse datetime %q: %v", a, err))
 			}
 			return t
 		},

@@ -54,7 +54,9 @@ or sessions manually — `run_hegel_test()` is a plain free function.
 ## Testing Philosophy
 
 - **100% code coverage** is mandatory. `just check` fails if any line is uncovered.
-  Use `HEGEL_PROTOCOL_TEST_MODE` (see below) to cover error paths — do NOT use `# nocov`.
+  Use `HEGEL_PROTOCOL_TEST_MODE` (see below) to cover error paths — prefer writing
+  real tests over adding `// coverage-ignore` annotations. The annotation count is
+  ratcheted and cannot increase without justification.
 - **Use the real `hegel` binary** for integration tests. Never write a mock server.
   The real binary runs as a subprocess, so there is zero threading contention.
   In-process mocks with threads cause deadlocks — they have wasted hundreds of
@@ -100,7 +102,7 @@ Failing to handle StopTest correctly causes `FlakyStrategyDefinition` errors.
 - **Test framework**: `testing` (Go stdlib) — run via `go test -race -coverprofile=coverage.out -covermode=atomic ./...`
 - **Linter**: `go vet` (stdlib) + `staticcheck` v0.7.0 (2026.1) — run via `just lint`
 - **Formatter**: `gofmt` (bundled with Go) — check with `gofmt -l .`, apply with `gofmt -w .`
-- **Coverage tool**: `go test -coverprofile` + `scripts/check-coverage.py` — custom Python script that parses coverage profiles, filters false positives, and fails if any real line is uncovered
+- **Coverage tool**: [`go-test-coverage`](https://github.com/vladopajic/go-test-coverage) (via `go tool`) configured in `.testcoverage.yml` — enforces 100% per-file coverage with `// coverage-ignore` annotations for genuinely untestable code. A ratchet in `scripts/check-coverage.py` prevents annotation count from growing.
 - **Documentation**: `go doc` (stdlib) — verifies all exported symbols have doc comments
 
 ## Project Conventions
@@ -113,7 +115,7 @@ Failing to handle StopTest correctly causes `FlakyStrategyDefinition` errors.
 - **Unexported symbols**: camelCase per Go convention
 - **Error handling**: Return `error` for failable operations; `panic()` for truly unreachable code paths
 - **Doc comments**: Every exported symbol must have a doc comment starting with the symbol name
-- **Coverage**: 100% enforced — `scripts/check-coverage.py` runs after tests; false positives (closing braces, unreachable panics) are filtered automatically
+- **Coverage**: 100% enforced via `go-test-coverage` with `// coverage-ignore` for exclusions; annotation count ratcheted in `.github/coverage-ratchet.json`
 - **Test execution**: Tests use `PATH="$(pwd)/.venv/bin:$PATH"` (absolute path) to find the `hegel` binary — relative paths don't work with `exec.LookPath`
 
 ## Developer Notes
@@ -130,9 +132,9 @@ Failing to handle StopTest correctly causes `FlakyStrategyDefinition` errors.
 
 ### Coverage enforcement
 
-- 100% coverage is mandatory. `scripts/check-coverage.py` filters false positives automatically.
-- Use `panic("hegel: unreachable: ...")` for truly unreachable code paths — the false-positive filter recognizes the "unreachable" keyword.
-- The `if err != nil {` line must be immediately followed by the `panic(` line (no comments between them) for the filter to detect it.
+- 100% coverage is mandatory. Enforced by `go-test-coverage` (configured in `.testcoverage.yml`).
+- Use `// coverage-ignore` to exclude genuinely untestable code. Place it on the `if`/`switch`/`for` line to exclude the entire block, or on any line to exclude just that coverage region.
+- A ratchet in `.github/coverage-ratchet.json` tracks the annotation count and prevents growth. The ratchet auto-tightens when annotations are removed.
 - Use `-coverpkg=hegel.dev/go/hegel` to restrict coverage to the library package (excludes `cmd/` and `examples/`).
 
 ### Test isolation with HEGEL_PROTOCOL_TEST_MODE
