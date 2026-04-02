@@ -9,6 +9,7 @@ import (
 	"runtime"
 	"strings"
 	"sync"
+	"syscall"
 	"testing"
 	"time"
 )
@@ -549,35 +550,81 @@ func openServerLog() *os.File {
 	return f
 }
 
-// serverCrashMessage returns the error message for an unexpected server exit.
-func (s *hegelSession) serverCrashMessage() string {
-	if s.logFile != nil {
-		return fmt.Sprintf("The hegel server process exited unexpectedly. See %s for diagnostic information.", s.logFile.Name())
+// serverCrashMessageForLog returns an error message for an unexpected server exit.
+// logPath is captured at setup time so this is safe to call without holding the session mutex.
+func serverCrashMessageForLog(logPath string) string {
+	const base = "The hegel server process exited unexpectedly."
+	excerpt := serverLogExcerpt(logPath)
+	if excerpt != "" {
+		return base + "\n\nLast server log entries:\n" + excerpt
 	}
-	return "The hegel server process exited unexpectedly."
+	if logPath != "" {
+		return base + "\n\n(No entries found in " + logPath + ")"
+	}
+	return base
+}
+
+// serverLogExcerpt reads the server log file and returns a formatted excerpt,
+// or "" if the file is empty or unreadable.
+func serverLogExcerpt(logPath string) string {
+	if logPath == "" {
+		return ""
+	}
+	content, err := os.ReadFile(logPath)
+	if err != nil {
+		return ""
+	}
+	text := string(content)
+	if strings.TrimSpace(text) == "" {
+		return ""
+	}
+	return formatLogExcerpt(text)
 }
 
 func newHegelSession() *hegelSession {
 	return &hegelSession{}
 }
 
-// start starts the hegel subprocess and connects via stdio (idempotent).
+// serverHasExited returns true if the server process has exited.
+func (s *hegelSession) serverHasExited() bool {
+	if s.processExited == nil {
+		return false
+	}
+	select {
+	case <-s.processExited:
+		return true
+	default:
+		return false
+	}
+}
+
+// start starts the hegel subprocess and connects via stdio.
+// If the server has exited (crash or explicit kill), it cleans up the old
+// session and starts a fresh one.
 func (s *hegelSession) start() error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 
-	if s.conn != nil {
+	if s.conn != nil && !s.serverHasExited() {
 		return nil
 	}
 
-	// Find hegel binary.
-	hegelBin := s.hegelCmd
-	if hegelBin == "" {
-		hegelBin = findHegel()
+	// Clean up stale session if the server died.
+	if s.conn != nil {
+		s.cleanupLocked()
 	}
 
-	// Spawn hegel process with stdio transport.
-	cmd := exec.Command(hegelBin, "--stdio", "--verbosity", "normal")
+	// Build the hegel command.
+	var cmd *exec.Cmd
+	if s.hegelCmd != "" {
+		cmd = exec.Command(s.hegelCmd, "--stdio", "--verbosity", "normal")
+	} else {
+		var err error
+		cmd, err = hegelCommand()
+		if err != nil {
+			return fmt.Errorf("hegel: %w", err)
+		}
+	}
 	cmd.Dir = getProjectRoot()
 	cmd.Env = append(os.Environ(), "PYTHONUNBUFFERED=1")
 	logFile := openServerLog()
@@ -609,16 +656,17 @@ func (s *hegelSession) start() error {
 	s.process = cmd
 
 	// Start a goroutine to wait for the process to exit.
-	// This ensures cmd.Wait() is called exactly once.
+	// It captures the crash message (including log excerpt) before signaling,
+	// so readers after <-processExited see the message without races.
 	processExited := make(chan struct{})
-	go func() {
-		cmd.Wait() //nolint:errcheck
-		close(processExited)
-	}()
-
 	conn := newConnection(stdoutPipe, stdinPipe, "Client")
 	conn.processExited = processExited
-	conn.crashMessage = s.serverCrashMessage()
+	logPath := logFile.Name()
+	go func() {
+		cmd.Wait() //nolint:errcheck
+		conn.crashMessage = serverCrashMessageForLog(logPath)
+		close(processExited)
+	}()
 	version, err := conn.SendHandshakeVersion()
 	if err != nil {
 		conn.Close()
@@ -644,7 +692,11 @@ func (s *hegelSession) start() error {
 func (s *hegelSession) cleanup() {
 	s.mu.Lock()
 	defer s.mu.Unlock()
+	s.cleanupLocked()
+}
 
+// cleanupLocked is cleanup without acquiring the mutex. Caller must hold s.mu.
+func (s *hegelSession) cleanupLocked() {
 	if s.conn != nil {
 		s.conn.Close()
 		s.conn = nil
@@ -671,38 +723,25 @@ func (s *hegelSession) runTest(fn testBody, opts runOptions, noteFn func(string)
 	return s.cli.runTest(fn, opts, noteFn)
 }
 
-// findHegel locates the hegel binary.
-// Priority: HEGEL_SERVER_COMMAND env var > .venv in project root > auto-install > PATH > bare "hegel".
-func findHegel() string {
-	// 1. Environment variable override.
-	if override := os.Getenv(hegelServerCommandEnv); override != "" {
-		return override
-	}
-	// 2. Check .venv in project root (e.g. from `just setup`).
-	root := getProjectRoot()
-	if p := findHegelInDir(filepath.Join(root, ".venv")); p != "" {
-		return p
-	}
-	// 3. Auto-install into .hegel/venv.
-	if p, err := ensureHegelInstalled(); err == nil {
-		return p
-	}
-	// 4. Check PATH.
-	if p, err := exec.LookPath("hegel"); err == nil {
-		return p
-	}
-	// 5. Fallback.
-	return "hegel"
-}
-
-// findHegelInDir looks for bin/hegel inside dir.
-func findHegelInDir(dir string) string {
-	p := filepath.Join(dir, "bin", "hegel")
-	if _, err := os.Stat(p); err == nil {
-		return p
-	}
-	return ""
-}
-
 // globalSession is the package-level session, lazily started.
 var globalSession = newHegelSession()
+
+// testKillServer kills the hegel server process and waits until the connection
+// detects that it has exited. Only for use in tests.
+func testKillServer() {
+	globalSession.mu.Lock()
+	if globalSession.process == nil {
+		globalSession.mu.Unlock()
+		return
+	}
+	pid := globalSession.process.Process.Pid
+	processExited := globalSession.processExited
+	globalSession.mu.Unlock()
+
+	syscall.Kill(pid, syscall.SIGTERM) //nolint:errcheck
+
+	// Wait for the process to actually exit.
+	if processExited != nil {
+		<-processExited
+	}
+}
