@@ -45,9 +45,16 @@ jobs:
       pull-requests: write  # needed for creating PRs on main
     steps:
       # persist-credentials needed for git push in the auto-update step below
+      # For fork PRs, head_ref points to a branch that doesn't exist on the base repo,
+      # so we fall back to the default ref (the merge commit).
       - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4 # zizmor: ignore[artipacked]
+        if: ${{ github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository }}
         with:
           ref: ${{ github.head_ref || github.ref }}
+      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
+        if: ${{ github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository }}
+        with:
+          persist-credentials: false
 
       - uses: ./.github/actions/base
         with:
@@ -66,7 +73,7 @@ jobs:
         run: just test
 
       - name: Auto-update coverage annotations and ratchet
-        if: success()
+        if: success() && (github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository)
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
