@@ -191,7 +191,7 @@ func TestGetHegelDirectoryIsCached(t *testing.T) {
 	}
 }
 
-func TestFindHegelUsesProjectRoot(t *testing.T) {
+func TestHegelCommandUsesProjectRoot(t *testing.T) {
 	resetProjectRoot(t)
 	t.Setenv(hegelServerCommandEnv, "")
 
@@ -209,9 +209,12 @@ func TestFindHegelUsesProjectRoot(t *testing.T) {
 	// cwd is a subdirectory (simulating go test running from a package dir).
 	t.Chdir(sub)
 
-	result := findHegel()
-	if result != hegelBin {
-		t.Errorf("findHegel() = %q, want %q", result, hegelBin)
+	cmd, err := hegelCommand()
+	if err != nil {
+		t.Fatalf("hegelCommand: %v", err)
+	}
+	if cmd.Args[0] != hegelBin {
+		t.Errorf("hegelCommand().Args[0] = %q, want %q", cmd.Args[0], hegelBin)
 	}
 }
 

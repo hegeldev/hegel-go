@@ -48,7 +48,7 @@ type connection struct {
 	controlSt *stream
 
 	processExited <-chan struct{}
-	crashMessage  string
+	crashMessage  string // set by monitor goroutine before closing processExited
 }
 
 // connectionError wraps a connection-level error that should propagate out of the test.
@@ -58,6 +58,8 @@ type connectionError struct{ msg string }
 func (e *connectionError) Error() string { return e.msg }
 
 // serverCrashError returns an error indicating the server process exited unexpectedly.
+// crashMessage is set by the monitor goroutine before closing processExited,
+// so reading it after receiving from processExited is safe without a lock.
 func (c *connection) serverCrashError() *connectionError {
 	msg := c.crashMessage
 	if msg == "" {
@@ -464,10 +466,17 @@ func (st *stream) processOneMessage(timeout time.Duration) error {
 	case <-st.dropped:
 		panic(fmt.Errorf("%s: dropped a message", st))
 	case <-st.conn.done:
-		select {
-		case <-st.conn.processExited:
-			return st.conn.serverCrashError()
-		default:
+		// When the pipe closes, the process has likely exited too. Wait
+		// briefly for the monitor goroutine to confirm so we can report
+		// a proper crash error instead of a generic "connection closed".
+		// processExited is nil for connections without a subprocess (e.g.,
+		// test connections using net.Pipe); skip the wait in that case.
+		if st.conn.processExited != nil {
+			select {
+			case <-st.conn.processExited:
+				return st.conn.serverCrashError()
+			case <-time.After(100 * time.Millisecond):
+			}
 		}
 		return fmt.Errorf("connection closed")
 	case <-timeoutCh:

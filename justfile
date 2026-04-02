@@ -3,10 +3,11 @@
 
 export PATH := "/usr/local/go/bin:" + env("HOME") + "/go/bin:" + env("PATH")
 
-# Install dependencies. The hegel binary is auto-installed by the library
-# on first use (pinned in installer.go). Set HEGEL_SERVER_COMMAND to override.
+# Install dependencies and the hegel binary into the local venv.
+# Set HEGEL_SERVER_COMMAND to override the binary used at runtime.
 setup:
     uv venv .venv
+    uv pip install --python .venv/bin/python hegel-core==0.2.3
 
 # Run tests with coverage, fail if below 100%.
 # We measure coverage only on the library package (not cmd/ binaries).
