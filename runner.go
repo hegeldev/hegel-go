@@ -656,17 +656,17 @@ func (s *hegelSession) start() error {
 	s.process = cmd
 
 	// Start a goroutine to wait for the process to exit.
-	// This ensures cmd.Wait() is called exactly once.
+	// It captures the crash message (including log excerpt) before signaling,
+	// so readers after <-processExited see the message without races.
 	processExited := make(chan struct{})
-	go func() {
-		cmd.Wait() //nolint:errcheck
-		close(processExited)
-	}()
-
 	conn := newConnection(stdoutPipe, stdinPipe, "Client")
 	conn.processExited = processExited
 	logPath := logFile.Name()
-	conn.crashMessageFn = func() string { return serverCrashMessageForLog(logPath) }
+	go func() {
+		cmd.Wait() //nolint:errcheck
+		conn.crashMessage = serverCrashMessageForLog(logPath)
+		close(processExited)
+	}()
 	version, err := conn.SendHandshakeVersion()
 	if err != nil {
 		conn.Close()

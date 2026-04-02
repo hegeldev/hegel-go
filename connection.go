@@ -47,8 +47,8 @@ type connection struct {
 	controlMu sync.Mutex
 	controlCh *channel
 
-	processExited  <-chan struct{}
-	crashMessageFn func() string
+	processExited <-chan struct{}
+	crashMessage  string // set by monitor goroutine before closing processExited
 }
 
 // connectionError wraps a connection-level error that should propagate out of the test.
@@ -58,11 +58,12 @@ type connectionError struct{ msg string }
 func (e *connectionError) Error() string { return e.msg }
 
 // serverCrashError returns an error indicating the server process exited unexpectedly.
-// The message is computed lazily so it can include log content written after connection creation.
+// crashMessage is set by the monitor goroutine before closing processExited,
+// so reading it after receiving from processExited is safe without a lock.
 func (c *connection) serverCrashError() *connectionError {
-	msg := "The hegel server process exited unexpectedly."
-	if c.crashMessageFn != nil {
-		msg = c.crashMessageFn()
+	msg := c.crashMessage
+	if msg == "" {
+		msg = "The hegel server process exited unexpectedly."
 	}
 	return &connectionError{msg: msg}
 }
