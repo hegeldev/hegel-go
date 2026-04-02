@@ -820,14 +820,17 @@ func TestExtractPanicOriginAllHegelFrames(t *testing.T) {
 
 func TestRunHegelTestEProtocolModeStartError(t *testing.T) {
 	resetProjectRoot(t)
+	t.Setenv(hegelServerCommandEnv, "")
 	// Set HEGEL_PROTOCOL_TEST_MODE so RunHegelTestE uses a temp session.
 	t.Setenv("HEGEL_PROTOCOL_TEST_MODE", "empty_test")
 
 	tmp := t.TempDir() // no .venv here
 	t.Chdir(tmp)
 
-	// Save and restore PATH (remove hegel from it).
+	// Block all paths to finding hegel/uv: no PATH, no cached uv, no venv.
 	t.Setenv("PATH", "/nonexistent")
+	t.Setenv("HOME", "/nonexistent")
+	t.Setenv("XDG_CACHE_HOME", filepath.Join(tmp, "cache"))
 
 	err := runHegel(func(_ *TestCase) {}, stderrNoteFn, []Option{WithTestCases(1)})
 	if err == nil {
