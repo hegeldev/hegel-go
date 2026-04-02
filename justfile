@@ -64,11 +64,7 @@ build-conformance:
 
 # Run conformance tests against the real hegel server.
 conformance: build-conformance
-    #!/usr/bin/env bash
-    set -euo pipefail
-    export PATH="$(pwd)/.venv/bin:$PATH"
-    uv pip install --python .venv/bin/python pytest hypothesis > /dev/null 2>&1 || true
-    .venv/bin/python -m pytest tests/conformance/ -v
+    uv run --with hegel-core --with pytest --with hypothesis pytest tests/conformance/ -v
 
 # Serve API documentation locally at http://localhost:8080.
 serve-docs:
