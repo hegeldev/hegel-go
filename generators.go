@@ -218,7 +218,7 @@ func startSpan(gs *TestCase, label spanLabel) {
 	if gs == nil || gs.aborted {
 		return
 	}
-	ch := gs.channel
+	st := gs.stream
 	payload, err := encodeCBOR(map[string]any{
 		"command": "start_span",
 		"label":   int64(label),
@@ -226,7 +226,7 @@ func startSpan(gs *TestCase, label spanLabel) {
 	if err != nil { //nocov
 		panic(fmt.Sprintf("hegel: startSpan encode: %v", err)) //nocov
 	}
-	pending, err := ch.Request(payload)
+	pending, err := st.Request(payload)
 	if err != nil { //nocov
 		panic(fmt.Sprintf("hegel: startSpan request: %v", err)) //nocov
 	}
@@ -238,7 +238,7 @@ func stopSpan(gs *TestCase, discard bool) {
 	if gs == nil || gs.aborted {
 		return
 	}
-	ch := gs.channel
+	st := gs.stream
 	payload, err := encodeCBOR(map[string]any{
 		"command": "stop_span",
 		"discard": discard,
@@ -246,7 +246,7 @@ func stopSpan(gs *TestCase, discard bool) {
 	if err != nil { //nocov
 		panic(fmt.Sprintf("hegel: stopSpan encode: %v", err)) //nocov
 	}
-	pending, err := ch.Request(payload)
+	pending, err := st.Request(payload)
 	if err != nil { //nocov
 		panic(fmt.Sprintf("hegel: stopSpan request: %v", err)) //nocov
 	}
@@ -276,13 +276,13 @@ func discardableGroup(gs *TestCase, label spanLabel, fn func()) {
 
 // collection manages a server-side collection (list/set/map) generation session.
 type collection struct {
-	serverName string
-	finished   bool
+	collectionID uint64
+	finished     bool
 }
 
 // newCollection starts a new collection on the server with the given size bounds.
 func newCollection(gs *TestCase, minSize, maxSize int) *collection {
-	ch := gs.channel
+	st := gs.stream
 	payload, err := encodeCBOR(map[string]any{
 		"command":  "new_collection",
 		"min_size": int64(minSize),
@@ -291,7 +291,7 @@ func newCollection(gs *TestCase, minSize, maxSize int) *collection {
 	if err != nil { //nocov
 		panic(fmt.Sprintf("hegel: newCollection encode: %v", err)) //nocov
 	}
-	pending, err := ch.Request(payload)
+	pending, err := st.Request(payload)
 	if err != nil { //nocov
 		panic(fmt.Sprintf("hegel: newCollection request: %v", err)) //nocov
 	}
@@ -304,8 +304,8 @@ func newCollection(gs *TestCase, minSize, maxSize int) *collection {
 		}
 		panic(fmt.Sprintf("hegel: new_collection error: %v", err)) //nocov
 	}
-	name, _ := v.(string)
-	return &collection{serverName: name}
+	id, _ := v.(uint64)
+	return &collection{collectionID: id}
 }
 
 // More asks the server whether another element should be generated.
@@ -313,15 +313,15 @@ func (c *collection) More(gs *TestCase) bool {
 	if c.finished { //nocov
 		return false
 	}
-	ch := gs.channel
+	st := gs.stream
 	payload, err := encodeCBOR(map[string]any{
-		"command":    "collection_more",
-		"collection": c.serverName,
+		"command":       "collection_more",
+		"collection_id": c.collectionID,
 	})
 	if err != nil { //nocov
 		panic(fmt.Sprintf("hegel: collection.More encode: %v", err)) //nocov
 	}
-	pending, err := ch.Request(payload)
+	pending, err := st.Request(payload)
 	if err != nil { //nocov
 		panic(fmt.Sprintf("hegel: More request: %v", err)) //nocov
 	}
@@ -346,15 +346,15 @@ func (c *collection) Reject(gs *TestCase) {
 	if c.finished {
 		return
 	}
-	ch := gs.channel
+	st := gs.stream
 	payload, err := encodeCBOR(map[string]any{
-		"command":    "collection_reject",
-		"collection": c.serverName,
+		"command":       "collection_reject",
+		"collection_id": c.collectionID,
 	})
 	if err != nil { //nocov
 		panic(fmt.Sprintf("hegel: collection.Reject encode: %v", err)) //nocov
 	}
-	pending, err := ch.Request(payload)
+	pending, err := st.Request(payload)
 	if err != nil { //nocov
 		panic(fmt.Sprintf("hegel: Reject request: %v", err)) //nocov
 	}

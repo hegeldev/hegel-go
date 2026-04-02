@@ -332,7 +332,7 @@ func Datetimes() Generator[time.Time] {
 // Just returns a Generator that always produces the given constant value.
 func Just[T any](value T) Generator[T] {
 	return &basicGenerator[T]{
-		schema:    map[string]any{"const": nil},
+		schema:    map[string]any{"type": "constant", "value": nil},
 		transform: func(_ any) T { return value },
 	}
 }

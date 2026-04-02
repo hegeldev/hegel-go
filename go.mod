@@ -1,5 +1,6 @@
 module hegel.dev/go/hegel
 
+// todo check the lowest version we can get away with here?
 go 1.25.0
 
 require (

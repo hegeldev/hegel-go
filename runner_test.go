@@ -180,17 +180,17 @@ func TestErrorResponse(t *testing.T) {
 	_ = gotErr // we just verify it doesn't deadlock or hang
 }
 
-// --- Draw outside context: calling Draw with nil-channel state panics ---
+// --- Draw outside context: calling Draw with nil-stream state panics ---
 
-func TestDrawWithNilChannelState(t *testing.T) {
+func TestDrawWithNilStreamState(t *testing.T) {
 	t.Parallel()
 	defer func() {
 		r := recover()
 		if r == nil {
-			t.Error("expected panic when Draw called with nil-channel state")
+			t.Error("expected panic when Draw called with nil-stream state")
 		}
 	}()
-	s := &TestCase{} // channel is nil -> will panic
+	s := &TestCase{} // stream is nil -> will panic
 	Draw[bool](s, Booleans())
 }
 
@@ -228,7 +228,7 @@ func TestTargetOutsideContext(t *testing.T) {
 			t.Error("expected panic from Target outside test context")
 		}
 	}()
-	s := &TestCase{} // channel is nil -> panic
+	s := &TestCase{} // stream is nil -> panic
 	s.Target(1.0, "x")
 }
 
@@ -250,6 +250,7 @@ func TestFindHegelInVenv(t *testing.T) {
 
 func TestFindHegelVenvViaCwd(t *testing.T) {
 	resetProjectRoot(t)
+	t.Setenv(hegelServerCommandEnv, "")
 
 	tmp, _ := filepath.EvalSymlinks(t.TempDir())
 	venvBin := filepath.Join(tmp, ".venv", "bin")
@@ -552,15 +553,15 @@ func TestGenerateFromSchemaConnectionError(t *testing.T) {
 	s, c := socketPair(t)
 	conn := newConnection(s, s, "C")
 	c.Close()
-	// We need state=client so NewChannel works.
+	// We need state=client so NewStream works.
 	conn.state = stateClient
-	ch := &channel{conn: conn, channelID: 1, inbox: make(chan any, 1), nextMessageID: 1}
-	conn.channels[1] = ch
+	st := &stream{conn: conn, streamID: 1, inbox: make(chan any, 1), nextMessageID: 1}
+	conn.streams[1] = st
 
 	// Close the underlying conn so SendPacket fails.
 	s.Close()
 
-	state := &TestCase{channel: ch}
+	state := &TestCase{stream: st}
 
 	var caught any
 	func() {
@@ -583,11 +584,11 @@ func TestTargetConnectionError(t *testing.T) {
 	s, _ := socketPair(t)
 	conn := newConnection(s, s, "C")
 	conn.state = stateClient
-	ch := &channel{conn: conn, channelID: 1, inbox: make(chan any, 1), nextMessageID: 1}
-	conn.channels[1] = ch
+	st := &stream{conn: conn, streamID: 1, inbox: make(chan any, 1), nextMessageID: 1}
+	conn.streams[1] = st
 	s.Close()
 
-	state := &TestCase{channel: ch}
+	state := &TestCase{stream: st}
 
 	var caught any
 	func() {
@@ -885,6 +886,7 @@ func TestHegelSessionStartHandshakeError(t *testing.T) {
 
 func TestFindHegelLookPathAndFallback(t *testing.T) {
 	resetProjectRoot(t)
+	t.Setenv(hegelServerCommandEnv, "")
 	// Change to a temp dir without .venv so findHegelInDir returns "".
 	tmp := t.TempDir()
 	t.Chdir(tmp)
@@ -1166,10 +1168,10 @@ func TestSuppressAllHealthChecksIntegration(t *testing.T) {
 }
 
 // =============================================================================
-// Server crash detection: processExited channel
+// Server crash detection: processExited stream
 // =============================================================================
 
-func TestProcessExitedChannel(t *testing.T) {
+func TestProcessExitedStream(t *testing.T) {
 	t.Parallel()
 	s, c := socketPair(t)
 	conn := newConnection(s, s, "C")
@@ -1262,9 +1264,9 @@ func TestGenerateServerCrashOnRequest(t *testing.T) {
 	conn := newConnection(s, s, "C")
 	c.Close()
 	conn.state = stateClient
-	ch := &channel{conn: conn, channelID: 1, inbox: make(chan any, 1), dropped: make(chan struct{}), nextMessageID: 1}
+	st := &stream{conn: conn, streamID: 1, inbox: make(chan any, 1), dropped: make(chan struct{}), nextMessageID: 1}
 	conn.writerMu.Lock()
-	conn.channels[1] = ch
+	conn.streams[1] = st
 	conn.writerMu.Unlock()
 
 	exited := make(chan struct{})
@@ -1273,7 +1275,7 @@ func TestGenerateServerCrashOnRequest(t *testing.T) {
 
 	s.Close()
 
-	state := &TestCase{channel: ch}
+	state := &TestCase{stream: st}
 	var caught any
 	func() {
 		defer func() { caught = recover() }()
@@ -1298,9 +1300,9 @@ func TestGenerateServerCrashOnGet(t *testing.T) {
 	s, c := socketPair(t)
 	conn := newConnection(s, s, "C")
 	conn.state = stateClient
-	ch := &channel{conn: conn, channelID: 1, inbox: make(chan any, 1), dropped: make(chan struct{}), nextMessageID: 1}
+	st := &stream{conn: conn, streamID: 1, inbox: make(chan any, 1), dropped: make(chan struct{}), nextMessageID: 1}
 	conn.writerMu.Lock()
-	conn.channels[1] = ch
+	conn.streams[1] = st
 	conn.writerMu.Unlock()
 
 	exited := make(chan struct{})
@@ -1313,7 +1315,7 @@ func TestGenerateServerCrashOnGet(t *testing.T) {
 		c.Close()
 	}()
 
-	state := &TestCase{channel: ch}
+	state := &TestCase{stream: st}
 	var caught any
 	func() {
 		defer func() { caught = recover() }()
@@ -1338,7 +1340,7 @@ func TestProcessOneMessageServerCrash(t *testing.T) {
 	s, c := socketPair(t)
 	conn := newConnection(s, s, "C")
 	conn.state = stateClient
-	ch := conn.NewChannel("Test")
+	st := conn.NewStream("Test")
 
 	exited := make(chan struct{})
 	close(exited)
@@ -1348,7 +1350,7 @@ func TestProcessOneMessageServerCrash(t *testing.T) {
 	// Wait for readLoop to notice the close
 	<-conn.done
 
-	_, _, err := ch.RecvRequestRaw(1 * time.Second)
+	_, _, err := st.RecvRequestRaw(1 * time.Second)
 	if err == nil {
 		t.Fatal("expected error")
 	}

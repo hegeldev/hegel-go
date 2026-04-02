@@ -352,6 +352,7 @@ func TestFindHegelServerCommandEnv(t *testing.T) {
 
 func TestFindHegelAutoInstallPath(t *testing.T) {
 	resetProjectRoot(t)
+	t.Setenv(hegelServerCommandEnv, "")
 
 	tmp, _ := filepath.EvalSymlinks(t.TempDir())
 	os.WriteFile(filepath.Join(tmp, "go.mod"), []byte("module test\n"), 0o644) //nolint:errcheck
@@ -660,5 +661,20 @@ func TestEnsureHegelInstalledRecheckAfterFileLock(t *testing.T) {
 	}
 	if result != hegelBin {
 		t.Errorf("got %q, want %q", result, hegelBin)
+	}
+}
+
+// TestDefaultUvLookPathFn exercises the default uvLookPathFn (exec.LookPath("uv")).
+func TestDefaultUvLookPathFn(t *testing.T) {
+	t.Parallel()
+	// Just call the default function. Whether uv is installed or not,
+	// we exercise the code path.
+	path, err := uvLookPathFn()
+	if err != nil {
+		// uv not on PATH — that's fine, we just needed to cover the default body.
+		return
+	}
+	if path == "" {
+		t.Error("uvLookPathFn returned empty path with nil error")
 	}
 }

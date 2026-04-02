@@ -10,7 +10,7 @@ import (
 )
 
 // protocolVersion is the version string used in handshakes.
-const protocolVersion = "0.6"
+const protocolVersion = "0.8"
 
 // handshakePrefix is the prefix expected at the start of a valid handshake response.
 const handshakePrefix = "Hegel/"
@@ -18,7 +18,7 @@ const handshakePrefix = "Hegel/"
 // handshakeRequest is the fixed bytes sent by the client to initiate a handshake.
 var handshakeRequest = []byte("hegel_handshake_start")
 
-// shutdownSentinel is placed in a channel's inbox to signal that it was closed.
+// shutdownSentinel is placed in a stream's inbox to signal that it was closed.
 var shutdownSentinel = &struct{}{}
 
 // connectionState tracks whether the connection has performed a handshake.
@@ -37,15 +37,15 @@ type connection struct {
 	reader io.ReadCloser
 	writer io.WriteCloser
 
-	nextChannelID int
-	channels      map[uint32]*channel
-	state         connectionState
+	nextStreamID int
+	streams      map[uint32]*stream
+	state        connectionState
 
 	writerMu sync.Mutex
 	done     chan struct{}
 
 	controlMu sync.Mutex
-	controlCh *channel
+	controlSt *stream
 
 	processExited <-chan struct{}
 	crashMessage  string
@@ -67,34 +67,34 @@ func (c *connection) serverCrashError() *connectionError {
 }
 
 // newConnection creates a new multiplexed connection from separate reader and writer
-// streams and registers the control channel (ID 0).
+// streams and registers the control stream (ID 0).
 func newConnection(reader io.ReadCloser, writer io.WriteCloser, name string) *connection {
 	c := &connection{
-		name:          name,
-		reader:        reader,
-		writer:        writer,
-		channels:      make(map[uint32]*channel),
-		state:         stateUnresolved,
-		nextChannelID: 1, // first real channel counter (matches Python's __next_channel_id = 1)
-		done:          make(chan struct{}),
+		name:         name,
+		reader:       reader,
+		writer:       writer,
+		streams:      make(map[uint32]*stream),
+		state:        stateUnresolved,
+		nextStreamID: 1, // first real stream counter (matches Python's __next_stream_id = 1)
+		done:         make(chan struct{}),
 	}
-	// channel 0 is the control channel; it is pre-registered before any handshake.
-	c.controlCh = newChannel(c, 0, name)
-	c.channels[0] = c.controlCh
+	// stream 0 is the control stream; it is pre-registered before any handshake.
+	c.controlSt = newStream(c, 0, name)
+	c.streams[0] = c.controlSt
 	go c.readLoop()
 	return c
 }
 
-// ControlChannel returns the channel used for handshake and control messages.
-func (c *connection) ControlChannel() *channel { return c.controlCh }
+// ControlStream returns the stream used for handshake and control messages.
+func (c *connection) ControlStream() *stream { return c.controlSt }
 
-// SendControlRequest sends a request on the control channel and waits for the
+// SendControlRequest sends a request on the control stream and waits for the
 // response. Access is serialized so concurrent callers don't race on the
-// control channel's internal state.
+// control stream's internal state.
 func (c *connection) SendControlRequest(payload []byte) (any, error) {
 	c.controlMu.Lock()
 	defer c.controlMu.Unlock()
-	pending, err := c.controlCh.Request(payload)
+	pending, err := c.controlSt.Request(payload)
 	if err != nil {
 		return nil, err
 	}
@@ -109,7 +109,7 @@ func (c *connection) SendPacket(pkt packet) error {
 }
 
 // Close shuts down the connection. Closing the reader causes readLoop to exit,
-// which closes the done channel and wakes all waiters.
+// which closes the done stream and wakes all waiters.
 func (c *connection) Close() {
 	c.reader.Close() //nolint:errcheck
 	<-c.done
@@ -129,31 +129,31 @@ func (c *connection) readLoop() {
 	}
 }
 
-// dispatch routes a received packet to the appropriate channel's inbox.
+// dispatch routes a received packet to the appropriate stream's inbox.
 func (c *connection) dispatch(pkt packet) {
 	c.writerMu.Lock()
-	ch, ok := c.channels[pkt.ChannelID]
+	st, ok := c.streams[pkt.StreamID]
 	c.writerMu.Unlock()
 
-	if bytes.Equal(pkt.Payload, closeChannelPayload) && pkt.MessageID == closeChannelMessageID {
-		if ok && ch != nil {
-			ch.putInbox(shutdownSentinel)
+	if bytes.Equal(pkt.Payload, closeStreamPayload) && pkt.MessageID == closeStreamMessageID {
+		if ok && st != nil {
+			st.putInbox(shutdownSentinel)
 		}
 		c.writerMu.Lock()
-		delete(c.channels, pkt.ChannelID)
+		delete(c.streams, pkt.StreamID)
 		c.writerMu.Unlock()
 		return
 	}
 
-	if !ok || ch == nil {
-		// Message to unknown channel — send an error reply if it was a request.
+	if !ok || st == nil {
+		// Message to unknown stream — send an error reply if it was a request.
 		if !pkt.IsReply {
-			errMsg := fmt.Sprintf("Message %d sent to non-existent channel %d",
-				pkt.MessageID, pkt.ChannelID)
+			errMsg := fmt.Sprintf("Message %d sent to non-existent stream %d",
+				pkt.MessageID, pkt.StreamID)
 			errPayload, encErr := encodeCBOR(map[string]any{"error": errMsg})
 			if encErr == nil {
 				c.SendPacket(packet{ //nolint:errcheck
-					ChannelID: pkt.ChannelID,
+					StreamID:  pkt.StreamID,
 					MessageID: pkt.MessageID,
 					IsReply:   true,
 					Payload:   errPayload,
@@ -162,7 +162,7 @@ func (c *connection) dispatch(pkt packet) {
 		}
 		return
 	}
-	ch.putInbox(pkt)
+	st.putInbox(pkt)
 }
 
 // SendHandshake performs the client side of the handshake and discards the version.
@@ -182,11 +182,11 @@ func (c *connection) SendHandshakeVersion() (string, error) {
 	c.state = stateClient
 	c.writerMu.Unlock()
 
-	msgID, err := c.controlCh.SendRequestRaw(handshakeRequest)
+	msgID, err := c.controlSt.SendRequestRaw(handshakeRequest)
 	if err != nil {
 		return "", err
 	}
-	resp, err := c.controlCh.recvResponseRaw(msgID, 10*time.Second)
+	resp, err := c.controlSt.recvResponseRaw(msgID, 10*time.Second)
 	if err != nil {
 		return "", err
 	}
@@ -197,40 +197,40 @@ func (c *connection) SendHandshakeVersion() (string, error) {
 	return strings.TrimPrefix(decoded, handshakePrefix), nil
 }
 
-// NewChannel allocates a new client-side logical channel. Panics if called before
+// NewStream allocates a new client-side logical stream. Panics if called before
 // the handshake is complete (matching Python's ValueError).
-func (c *connection) NewChannel(name string) *channel {
+func (c *connection) NewStream(name string) *stream {
 	c.writerMu.Lock()
 	defer c.writerMu.Unlock()
 
 	if c.state == stateUnresolved {
-		panic("Cannot create a new channel before handshake has been performed")
+		panic("Cannot create a new stream before handshake has been performed")
 	}
 
-	// Client channels are odd: (counter << 1) | 1
-	channelID := uint32((c.nextChannelID << 1) | 1)
-	c.nextChannelID++
+	// Client streams are odd: (counter << 1) | 1
+	streamID := uint32((c.nextStreamID << 1) | 1)
+	c.nextStreamID++
 
-	ch := newChannel(c, channelID, name)
-	c.channels[channelID] = ch
-	return ch
+	st := newStream(c, streamID, name)
+	c.streams[streamID] = st
+	return st
 }
 
-// ConnectChannel registers an existing peer-created channel by its ID.
-func (c *connection) ConnectChannel(id uint32, name string) (*channel, error) {
+// ConnectStream registers an existing peer-created stream by its ID.
+func (c *connection) ConnectStream(id uint32, name string) (*stream, error) {
 	c.writerMu.Lock()
 	defer c.writerMu.Unlock()
 
 	if c.state == stateUnresolved {
-		return nil, fmt.Errorf("cannot create a new channel before handshake has been performed")
+		return nil, fmt.Errorf("cannot create a new stream before handshake has been performed")
 	}
-	if _, exists := c.channels[id]; exists {
-		return nil, fmt.Errorf("channel already connected as channel %d", id)
+	if _, exists := c.streams[id]; exists {
+		return nil, fmt.Errorf("stream already connected as stream %d", id)
 	}
 
-	ch := newChannel(c, id, name)
-	c.channels[id] = ch
-	return ch, nil
+	st := newStream(c, id, name)
+	c.streams[id] = st
+	return st, nil
 }
 
 // requestError is an error response received from the peer.
@@ -269,10 +269,10 @@ func resultOrError(body map[any]any) (any, error) {
 	return body[any("result")], nil
 }
 
-// channel is a logical, non-thread-safe communication channel over a connection.
-type channel struct {
+// stream is a logical, non-thread-safe communication stream over a connection.
+type stream struct {
 	conn          *connection
-	channelID     uint32
+	streamID      uint32
 	inbox         chan any
 	droppedOnce   sync.Once
 	dropped       chan struct{} // indicates that a message was dropped at some point
@@ -283,10 +283,10 @@ type channel struct {
 	name          string
 }
 
-func newChannel(c *connection, id uint32, name string) *channel {
-	return &channel{
+func newStream(c *connection, id uint32, name string) *stream {
+	return &stream{
 		conn:          c,
-		channelID:     id,
+		streamID:      id,
 		inbox:         make(chan any, 64),
 		dropped:       make(chan struct{}),
 		nextMessageID: 1,
@@ -294,55 +294,55 @@ func newChannel(c *connection, id uint32, name string) *channel {
 	}
 }
 
-func (ch *channel) String() string {
-	if ch.name != "" {
-		return fmt.Sprintf("channel %d (%s)", ch.channelID, ch.name)
+func (st *stream) String() string {
+	if st.name != "" {
+		return fmt.Sprintf("stream %d (%s)", st.streamID, st.name)
 	}
-	return fmt.Sprintf("channel %d", ch.channelID)
+	return fmt.Sprintf("stream %d", st.streamID)
 }
 
-// ChannelID returns the numeric ID of this channel.
-func (ch *channel) ChannelID() uint32 { return ch.channelID }
+// StreamID returns the numeric ID of this stream.
+func (st *stream) StreamID() uint32 { return st.streamID }
 
-// putInbox delivers a packet to the channel's inbox.
-func (ch *channel) putInbox(v any) {
+// putInbox delivers a packet to the stream's inbox.
+func (st *stream) putInbox(v any) {
 	select {
-	case ch.inbox <- v:
+	case st.inbox <- v:
 	default:
 		// Panic if full — shouldn't happen with a generous buffer.
-		ch.droppedOnce.Do(func() { close(ch.dropped) })
+		st.droppedOnce.Do(func() { close(st.dropped) })
 	}
 }
 
-// Close sends a close notification to the peer and marks the channel closed.
-func (ch *channel) Close() {
-	if ch.closed {
+// Close sends a close notification to the peer and marks the stream closed.
+func (st *stream) Close() {
+	if st.closed {
 		return
 	}
-	ch.closed = true
+	st.closed = true
 
-	// Check if this channel is still registered (not already removed by the peer).
-	ch.conn.writerMu.Lock()
-	registered := ch.conn.channels[ch.channelID] == ch
-	ch.conn.writerMu.Unlock()
+	// Check if this stream is still registered (not already removed by the peer).
+	st.conn.writerMu.Lock()
+	registered := st.conn.streams[st.streamID] == st
+	st.conn.writerMu.Unlock()
 
 	if registered {
 		// Send asynchronously: write may block if the reader isn't consuming yet.
-		go ch.conn.SendPacket(packet{ //nolint:errcheck
-			ChannelID: ch.channelID,
-			MessageID: closeChannelMessageID,
+		go st.conn.SendPacket(packet{ //nolint:errcheck
+			StreamID:  st.streamID,
+			MessageID: closeStreamMessageID,
 			IsReply:   false,
-			Payload:   closeChannelPayload,
+			Payload:   closeStreamPayload,
 		})
 	}
 }
 
 // SendRequestRaw sends raw bytes as a request and returns the message ID.
-func (ch *channel) SendRequestRaw(payload []byte) (uint32, error) {
-	msgID := ch.nextMessageID
-	ch.nextMessageID++
-	err := ch.conn.SendPacket(packet{
-		ChannelID: ch.channelID,
+func (st *stream) SendRequestRaw(payload []byte) (uint32, error) {
+	msgID := st.nextMessageID
+	st.nextMessageID++
+	err := st.conn.SendPacket(packet{
+		StreamID:  st.streamID,
 		MessageID: msgID,
 		IsReply:   false,
 		Payload:   payload,
@@ -351,9 +351,9 @@ func (ch *channel) SendRequestRaw(payload []byte) (uint32, error) {
 }
 
 // SendReplyRaw sends raw bytes as a reply to the given message ID.
-func (ch *channel) SendReplyRaw(msgID uint32, payload []byte) error {
-	return ch.conn.SendPacket(packet{
-		ChannelID: ch.channelID,
+func (st *stream) SendReplyRaw(msgID uint32, payload []byte) error {
+	return st.conn.SendPacket(packet{
+		StreamID:  st.streamID,
 		MessageID: msgID,
 		IsReply:   true,
 		Payload:   payload,
@@ -361,16 +361,16 @@ func (ch *channel) SendReplyRaw(msgID uint32, payload []byte) error {
 }
 
 // SendReplyValue sends a CBOR-encoded {"result": v} reply.
-func (ch *channel) SendReplyValue(msgID uint32, v any) error {
+func (st *stream) SendReplyValue(msgID uint32, v any) error {
 	payload, err := encodeCBOR(map[string]any{"result": v})
 	if err != nil {
 		return err
 	}
-	return ch.SendReplyRaw(msgID, payload)
+	return st.SendReplyRaw(msgID, payload)
 }
 
 // SendReplyError sends a CBOR-encoded error reply with the given message and type.
-func (ch *channel) SendReplyError(msgID uint32, errMsg, errType string) error {
+func (st *stream) SendReplyError(msgID uint32, errMsg, errType string) error {
 	payload, err := encodeCBOR(map[string]any{
 		"error": errMsg,
 		"type":  errType,
@@ -378,26 +378,26 @@ func (ch *channel) SendReplyError(msgID uint32, errMsg, errType string) error {
 	if err != nil { //nocov
 		panic(fmt.Sprintf("hegel: SendReplyError encode: %v", err)) //nocov
 	}
-	return ch.SendReplyRaw(msgID, payload)
+	return st.SendReplyRaw(msgID, payload)
 }
 
 // RecvRequestRaw waits for the next server-initiated request and returns
 // (messageID, payload, error). timeout <= 0 means no timeout.
-func (ch *channel) RecvRequestRaw(timeout time.Duration) (uint32, []byte, error) {
-	for len(ch.requests) == 0 {
-		if err := ch.processOneMessage(timeout); err != nil {
+func (st *stream) RecvRequestRaw(timeout time.Duration) (uint32, []byte, error) {
+	for len(st.requests) == 0 {
+		if err := st.processOneMessage(timeout); err != nil {
 			return 0, nil, err
 		}
 	}
-	pkt := ch.requests[0]
-	ch.requests = ch.requests[1:]
+	pkt := st.requests[0]
+	st.requests = st.requests[1:]
 	return pkt.MessageID, pkt.Payload, nil
 }
 
 // RecvRequest waits for the next server-initiated request and returns
 // (messageID, CBOR-decoded payload, error).
-func (ch *channel) RecvRequest(timeout time.Duration) (uint32, any, error) {
-	msgID, payload, err := ch.RecvRequestRaw(timeout)
+func (st *stream) RecvRequest(timeout time.Duration) (uint32, any, error) {
+	msgID, payload, err := st.RecvRequestRaw(timeout)
 	if err != nil {
 		return 0, nil, err
 	}
@@ -409,16 +409,16 @@ func (ch *channel) RecvRequest(timeout time.Duration) (uint32, any, error) {
 }
 
 // recvResponseRaw waits for a reply to the given message ID.
-func (ch *channel) recvResponseRaw(msgID uint32, timeout time.Duration) ([]byte, error) {
-	if ch.responses == nil {
-		ch.responses = make(map[uint32][]byte)
+func (st *stream) recvResponseRaw(msgID uint32, timeout time.Duration) ([]byte, error) {
+	if st.responses == nil {
+		st.responses = make(map[uint32][]byte)
 	}
 	for {
-		if payload, ok := ch.responses[msgID]; ok {
-			delete(ch.responses, msgID)
+		if payload, ok := st.responses[msgID]; ok {
+			delete(st.responses, msgID)
 			return payload, nil
 		}
-		if err := ch.processOneMessage(timeout); err != nil {
+		if err := st.processOneMessage(timeout); err != nil {
 			return nil, err
 		}
 	}
@@ -426,8 +426,8 @@ func (ch *channel) recvResponseRaw(msgID uint32, timeout time.Duration) ([]byte,
 
 // ReceiveResponse waits for a reply to the given message ID and returns the
 // CBOR-decoded result (unwrapping {"result": v} or raising requestError).
-func (ch *channel) ReceiveResponse(msgID uint32, timeout time.Duration) (any, error) {
-	raw, err := ch.recvResponseRaw(msgID, timeout)
+func (st *stream) ReceiveResponse(msgID uint32, timeout time.Duration) (any, error) {
+	raw, err := st.recvResponseRaw(msgID, timeout)
 	if err != nil {
 		return nil, err
 	}
@@ -442,10 +442,10 @@ func (ch *channel) ReceiveResponse(msgID uint32, timeout time.Duration) (any, er
 	return resultOrError(m)
 }
 
-// processOneMessage waits for a packet on the channel's inbox and routes it.
-func (ch *channel) processOneMessage(timeout time.Duration) error {
-	if ch.closed {
-		return fmt.Errorf("%s is closed", ch)
+// processOneMessage waits for a packet on the stream's inbox and routes it.
+func (st *stream) processOneMessage(timeout time.Duration) error {
+	if st.closed {
+		return fmt.Errorf("%s is closed", st)
 	}
 
 	var timeoutCh <-chan time.Time
@@ -455,54 +455,54 @@ func (ch *channel) processOneMessage(timeout time.Duration) error {
 
 	var pkt packet
 	select {
-	case item := <-ch.inbox:
+	case item := <-st.inbox:
 		if item == shutdownSentinel {
-			ch.closed = true
-			return fmt.Errorf("%s was closed", ch)
+			st.closed = true
+			return fmt.Errorf("%s was closed", st)
 		}
 		pkt = item.(packet)
-	case <-ch.dropped:
-		panic(fmt.Errorf("%s: dropped a message", ch))
-	case <-ch.conn.done:
+	case <-st.dropped:
+		panic(fmt.Errorf("%s: dropped a message", st))
+	case <-st.conn.done:
 		select {
-		case <-ch.conn.processExited:
-			return ch.conn.serverCrashError()
+		case <-st.conn.processExited:
+			return st.conn.serverCrashError()
 		default:
 		}
 		return fmt.Errorf("connection closed")
 	case <-timeoutCh:
-		return fmt.Errorf("timed out after %v waiting for a message on %s", timeout, ch)
+		return fmt.Errorf("timed out after %v waiting for a message on %s", timeout, st)
 	}
 
 	if pkt.IsReply {
-		if ch.responses == nil {
-			ch.responses = make(map[uint32][]byte)
+		if st.responses == nil {
+			st.responses = make(map[uint32][]byte)
 		}
-		ch.responses[pkt.MessageID] = pkt.Payload
+		st.responses[pkt.MessageID] = pkt.Payload
 	} else {
-		ch.requests = append(ch.requests, pkt)
+		st.requests = append(st.requests, pkt)
 	}
 	return nil
 }
 
 // Request sends a request and returns a pendingRequest future.
 // If the write fails because the server process exited, a *connectionError is returned.
-func (ch *channel) Request(payload []byte) (*pendingRequest, error) {
-	msgID, err := ch.SendRequestRaw(payload)
+func (st *stream) Request(payload []byte) (*pendingRequest, error) {
+	msgID, err := st.SendRequestRaw(payload)
 	if err != nil {
 		select {
-		case <-ch.conn.processExited:
-			return nil, ch.conn.serverCrashError()
+		case <-st.conn.processExited:
+			return nil, st.conn.serverCrashError()
 		default:
 		}
 		return nil, err
 	}
-	return &pendingRequest{ch: ch, msgID: msgID}, nil
+	return &pendingRequest{st: st, msgID: msgID}, nil
 }
 
 // pendingRequest is a future for an in-flight request.
 type pendingRequest struct {
-	ch    *channel
+	st    *stream
 	msgID uint32
 	value any
 	done  bool
@@ -514,7 +514,7 @@ func (p *pendingRequest) Get() (any, error) {
 	if p.done {
 		return p.value, p.err
 	}
-	v, err := p.ch.ReceiveResponse(p.msgID, 100*time.Second)
+	v, err := p.st.ReceiveResponse(p.msgID, 100*time.Second)
 	p.value = v
 	p.err = err
 	p.done = true
