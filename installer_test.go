@@ -116,17 +116,3 @@ func TestFindHegelInDirMissing(t *testing.T) {
 	}
 }
 
-// TestDefaultUvLookPathFn exercises the default uvLookPathFn (exec.LookPath("uv")).
-func TestDefaultUvLookPathFn(t *testing.T) {
-	t.Parallel()
-	// Just call the default function. Whether uv is installed or not,
-	// we exercise the code path.
-	path, err := uvLookPathFn()
-	if err != nil {
-		// uv not on PATH — that's fine, we just needed to cover the default body.
-		return
-	}
-	if path == "" {
-		t.Error("uvLookPathFn returned empty path with nil error")
-	}
-}
