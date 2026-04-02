@@ -29,7 +29,7 @@ func TestHegelCommandVenvPath(t *testing.T) {
 
 	// Create .venv/bin/hegel in the project root.
 	venvBin := filepath.Join(tmp, ".venv", "bin")
-	os.MkdirAll(venvBin, 0o755)                                           //nolint:errcheck
+	os.MkdirAll(venvBin, 0o755)                                                 //nolint:errcheck
 	os.WriteFile(filepath.Join(venvBin, "hegel"), []byte("#!/bin/sh\n"), 0o755) //nolint:errcheck
 
 	cmd, err := hegelCommand()
@@ -97,7 +97,7 @@ func TestFindHegelInDir(t *testing.T) {
 	t.Parallel()
 	tmp := t.TempDir()
 	binDir := filepath.Join(tmp, "bin")
-	os.MkdirAll(binDir, 0o755)                                               //nolint:errcheck
+	os.MkdirAll(binDir, 0o755)                                                 //nolint:errcheck
 	os.WriteFile(filepath.Join(binDir, "hegel"), []byte("#!/bin/sh\n"), 0o755) //nolint:errcheck
 
 	result := findHegelInDir(tmp)

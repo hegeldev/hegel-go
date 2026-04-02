@@ -9,6 +9,7 @@ import (
 	"runtime"
 	"strings"
 	"sync"
+	"syscall"
 	"testing"
 	"time"
 )
@@ -550,24 +551,71 @@ func openServerLog() *os.File {
 }
 
 // serverCrashMessage returns the error message for an unexpected server exit.
+// If the log file contains content, the last few lines are included inline.
 func (s *hegelSession) serverCrashMessage() string {
+	const base = "The hegel server process exited unexpectedly."
+	logPath := ""
 	if s.logFile != nil {
-		return fmt.Sprintf("The hegel server process exited unexpectedly. See %s for diagnostic information.", s.logFile.Name())
+		logPath = s.logFile.Name()
 	}
-	return "The hegel server process exited unexpectedly."
+	excerpt := serverLogExcerpt(logPath)
+	if excerpt != "" {
+		return base + "\n\nLast server log entries:\n" + excerpt
+	}
+	if logPath != "" {
+		return base + "\n\n(No entries found in " + logPath + ")"
+	}
+	return base
+}
+
+// serverLogExcerpt reads the server log file and returns a formatted excerpt,
+// or "" if the file is empty or unreadable.
+func serverLogExcerpt(logPath string) string {
+	if logPath == "" {
+		return ""
+	}
+	content, err := os.ReadFile(logPath)
+	if err != nil {
+		return ""
+	}
+	trimmed := strings.TrimSpace(string(content))
+	if trimmed == "" {
+		return ""
+	}
+	return formatLogExcerpt(string(content))
 }
 
 func newHegelSession() *hegelSession {
 	return &hegelSession{}
 }
 
-// start starts the hegel subprocess and connects via stdio (idempotent).
+// serverHasExited returns true if the server process has exited.
+func (s *hegelSession) serverHasExited() bool {
+	if s.processExited == nil {
+		return false
+	}
+	select {
+	case <-s.processExited:
+		return true
+	default:
+		return false
+	}
+}
+
+// start starts the hegel subprocess and connects via stdio.
+// If the server has exited (crash or explicit kill), it cleans up the old
+// session and starts a fresh one.
 func (s *hegelSession) start() error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 
-	if s.conn != nil {
+	if s.conn != nil && !s.serverHasExited() {
 		return nil
+	}
+
+	// Clean up stale session if the server died.
+	if s.conn != nil {
+		s.cleanupLocked()
 	}
 
 	// Build the hegel command.
@@ -621,7 +669,7 @@ func (s *hegelSession) start() error {
 
 	conn := newConnection(stdoutPipe, stdinPipe, "Client")
 	conn.processExited = processExited
-	conn.crashMessage = s.serverCrashMessage()
+	conn.crashMessageFn = s.serverCrashMessage
 	version, err := conn.SendHandshakeVersion()
 	if err != nil {
 		conn.Close()
@@ -647,7 +695,11 @@ func (s *hegelSession) start() error {
 func (s *hegelSession) cleanup() {
 	s.mu.Lock()
 	defer s.mu.Unlock()
+	s.cleanupLocked()
+}
 
+// cleanupLocked is cleanup without acquiring the mutex. Caller must hold s.mu.
+func (s *hegelSession) cleanupLocked() {
 	if s.conn != nil {
 		s.conn.Close()
 		s.conn = nil
@@ -676,3 +728,23 @@ func (s *hegelSession) runTest(fn testBody, opts runOptions, noteFn func(string)
 
 // globalSession is the package-level session, lazily started.
 var globalSession = newHegelSession()
+
+// testKillServer kills the hegel server process and waits until the connection
+// detects that it has exited. Only for use in tests.
+func testKillServer() {
+	globalSession.mu.Lock()
+	if globalSession.process == nil {
+		globalSession.mu.Unlock()
+		return
+	}
+	pid := globalSession.process.Process.Pid
+	processExited := globalSession.processExited
+	globalSession.mu.Unlock()
+
+	syscall.Kill(pid, syscall.SIGTERM) //nolint:errcheck
+
+	// Wait for the process to actually exit.
+	if processExited != nil {
+		<-processExited
+	}
+}

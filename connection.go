@@ -47,8 +47,8 @@ type connection struct {
 	controlMu sync.Mutex
 	controlCh *channel
 
-	processExited <-chan struct{}
-	crashMessage  string
+	processExited  <-chan struct{}
+	crashMessageFn func() string
 }
 
 // connectionError wraps a connection-level error that should propagate out of the test.
@@ -58,10 +58,11 @@ type connectionError struct{ msg string }
 func (e *connectionError) Error() string { return e.msg }
 
 // serverCrashError returns an error indicating the server process exited unexpectedly.
+// The message is computed lazily so it can include log content written after connection creation.
 func (c *connection) serverCrashError() *connectionError {
-	msg := c.crashMessage
-	if msg == "" {
-		msg = "The hegel server process exited unexpectedly."
+	msg := "The hegel server process exited unexpectedly."
+	if c.crashMessageFn != nil {
+		msg = c.crashMessageFn()
 	}
 	return &connectionError{msg: msg}
 }
@@ -464,10 +465,15 @@ func (ch *channel) processOneMessage(timeout time.Duration) error {
 	case <-ch.dropped:
 		panic(fmt.Errorf("%s: dropped a message", ch))
 	case <-ch.conn.done:
-		select {
-		case <-ch.conn.processExited:
-			return ch.conn.serverCrashError()
-		default:
+		// When the pipe closes, the process has likely exited too. Wait
+		// briefly for the monitor goroutine to confirm so we can report
+		// a proper crash error instead of a generic "connection closed".
+		if ch.conn.processExited != nil {
+			select {
+			case <-ch.conn.processExited:
+				return ch.conn.serverCrashError()
+			case <-time.After(100 * time.Millisecond):
+			}
 		}
 		return fmt.Errorf("connection closed")
 	case <-timeoutCh:
