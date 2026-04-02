@@ -2,10 +2,7 @@ module hegel.dev/go/hegel
 
 go 1.26
 
-require (
-	github.com/fxamacker/cbor/v2 v2.9.0
-	golang.org/x/exp v0.0.0-20260218203240-3dfff04db8fa
-)
+require github.com/fxamacker/cbor/v2 v2.9.0
 
 require (
 	github.com/BurntSushi/toml v1.4.1-0.20240526193622-a339e1f7089c // indirect
