@@ -1,19 +1,19 @@
 ---
 name: coverage
-description: "How to approach code coverage in this project. Use when coverage CI fails, when writing tests for new code, when deciding whether to add //nocov, or when you need to make untestable code testable. Also use proactively when writing new code to ensure it will be coverable."
+description: "How to approach code coverage in this project. Use when coverage CI fails, when writing tests for new code, when deciding whether to add // coverage-ignore, or when you need to make untestable code testable. Also use proactively when writing new code to ensure it will be coverable."
 ---
 
 # Code Coverage
 
-This project requires 100% line coverage for new code, with explicit nocov annotations only allowed under rare circumstances and with human permission.
+This project requires 100% line coverage for new code, with explicit coverage-ignore annotations only allowed under rare circumstances and with human permission.
 
-This is implemented as a ratchet which counts the number of lines annotated as not requiring coverage. If the number of excluded lines exceeds the ratchet value, or if there are any uncovered lines without a `//nocov` annotation, the coverage check fails.
+This is implemented as a ratchet which counts the number of lines annotated as not requiring coverage. If the number of excluded lines exceeds the ratchet value, or if there are any uncovered lines without a `// coverage-ignore` annotation, the coverage check fails.
 
 ## The ratchet is not a budget
 
-The nocov count in `.github/coverage-ratchet.json` tracks excluded lines and can only decrease. Just because previous work reduced the count does not mean you have implicit permission to add new uncovered lines. Think of the ratchet as immediately ratcheting down after any reduction — the slack is gone.
+The coverage-ignore count in `.github/coverage-ratchet.json` tracks excluded lines and can only decrease. Just because previous work reduced the count does not mean you have implicit permission to add new uncovered lines. Think of the ratchet as immediately ratcheting down after any reduction — the slack is gone.
 
-You may not add `//nocov` annotations without explicit human permission. If you think code is genuinely untestable, your first move should be to refactor it for testability, not to annotate it. See `references/patterns.md` for testability refactoring examples.
+You may not add `// coverage-ignore` annotations without explicit human permission. If you think code is genuinely untestable, your first move should be to refactor it for testability, not to annotate it. See `references/patterns.md` for testability refactoring examples.
 
 ## Writing good tests
 

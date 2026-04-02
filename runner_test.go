@@ -13,16 +13,17 @@ import (
 	"time"
 )
 
-// --- Helper: check hegel binary is available ---
-
-func hegelBinPath(t *testing.T) string {
+// hegelBinPath verifies the hegel binary is available (installed by just setup).
+func hegelBinPath(t *testing.T) {
 	t.Helper()
-	// justfile sets PATH=".venv/bin:$PATH" for tests; go test inherits it.
-	path, err := exec.LookPath("hegel")
-	if err != nil {
-		t.Skip("hegel binary not found in PATH -- skipping integration test")
+	root := getProjectRoot()
+	if findHegelInDir(filepath.Join(root, ".venv")) != "" {
+		return
 	}
-	return path
+	if _, err := exec.LookPath("hegel"); err == nil {
+		return
+	}
+	t.Skip("hegel binary not found -- run 'just setup'")
 }
 
 // --- RunHegelTest: basic passing test ---
@@ -740,7 +741,13 @@ func TestHegelSessionStartInnerCheck(t *testing.T) {
 
 func TestHegelSessionStartHegelCmd(t *testing.T) {
 	t.Parallel()
-	path := hegelBinPath(t)
+	hegelBinPath(t)
+	root := getProjectRoot()
+	path := findHegelInDir(filepath.Join(root, ".venv"))
+	if path == "" {
+		// Fall back to PATH if .venv doesn't have it.
+		path, _ = exec.LookPath("hegel")
+	}
 	s := newHegelSession()
 	s.hegelCmd = path
 	defer s.cleanup()

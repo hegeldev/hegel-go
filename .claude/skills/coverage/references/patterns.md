@@ -202,7 +202,7 @@ func TestParseInvalidInput(t *testing.T) {
 // Bad: Hiding the problem
 func someFunction() error {
     if errorCondition() {
-        return err //nocov
+        return err // coverage-ignore
     }
 }
 ```

@@ -3,10 +3,11 @@
 
 export PATH := "/usr/local/go/bin:" + env("HOME") + "/go/bin:" + env("PATH")
 
-# Install dependencies. The hegel binary is auto-installed by the library
-# on first use (pinned in installer.go). Set HEGEL_SERVER_COMMAND to override.
+# Install dependencies and the hegel binary into the local venv.
+# Set HEGEL_SERVER_COMMAND to override the binary used at runtime.
 setup:
     uv venv .venv
+    uv pip install --python .venv/bin/python hegel-core==0.2.3
 
 # Run tests with coverage, fail if below 100%.
 # We measure coverage only on the library package (not cmd/ binaries).
@@ -23,12 +24,8 @@ test:
 format:
     gofmt -w .
 
-# Check //nocov annotation style.
-check-nocov-style:
-    python3 scripts/check-nocov-style.py
-
 # Check formatting + linting.
-lint: check-nocov-style
+lint:
     #!/usr/bin/env bash
     set -euo pipefail
     # Check formatting
@@ -64,7 +61,11 @@ build-conformance:
 
 # Run conformance tests against the real hegel server.
 conformance: build-conformance
-    uv run --with hegel-core --with pytest --with hypothesis pytest tests/conformance/ -v
+    #!/usr/bin/env bash
+    set -euo pipefail
+    export PATH="$(pwd)/.venv/bin:$PATH"
+    uv pip install --python .venv/bin/python pytest hypothesis > /dev/null 2>&1 || true
+    .venv/bin/python -m pytest tests/conformance/ -v
 
 # Serve API documentation locally at http://localhost:8080.
 serve-docs:

@@ -26,7 +26,7 @@ Run `git diff origin/main...HEAD` and read through it. Look for:
 - **Network calls in tests**: can any test that hits the network use local fixtures instead? Keep at most one integration test that verifies the real network path works.
 - **Hardcoded paths**: `/tmp/foo` in tests should be `t.TempDir()` for isolation and cleanup.
 - **Missing error context**: error messages should help the user fix the problem (e.g., include "Install X manually: <url>").
-- **New `//nocov` annotations**: each one needs explicit human permission. Your first instinct should be to write a test or refactor for testability instead.
+- **New `// coverage-ignore` annotations**: each one needs explicit human permission. Your first instinct should be to write a test or refactor for testability instead.
 
 ## Coverage check
 

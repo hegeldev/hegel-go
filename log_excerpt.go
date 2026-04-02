@@ -64,11 +64,9 @@ func flushLogIndentRun(run *[]string, output *[]string, threshold, context int) 
 	}
 	if len(*run) > threshold {
 		keep := context
-		//nocov start
-		if keep > len(*run)/2 {
+		if keep > len(*run)/2 { // coverage-ignore
 			keep = len(*run) / 2
 		}
-		//nocov end
 		*output = append(*output, (*run)[:keep]...)
 		hidden := len(*run) - 2*keep
 		*output = append(*output, fmt.Sprintf("  [...%d lines...]", hidden))
