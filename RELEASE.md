@@ -1,3 +1,3 @@
-RELEASE_TYPE: patch
+RELEASE_TYPE: minor
 
-Internal refactoring to drop `golang.org/x/exp/constraints` as a dependency.
+Update to protocol version 0.8 (hegel-core 0.3.0). Renames channels to streams throughout the protocol layer and updates schema format for one_of, constant, and collection commands.
