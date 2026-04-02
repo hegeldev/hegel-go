@@ -154,6 +154,22 @@ func TestFindUVImplMkdirCacheFails(t *testing.T) {
 	}
 }
 
+func TestFindUVImplInstallFails(t *testing.T) {
+	tmp := t.TempDir()
+	cacheDir := filepath.Join(tmp, "cache")
+
+	origInstall := installUVFn
+	installUVFn = func(dir string) error {
+		return os.ErrPermission
+	}
+	defer func() { installUVFn = origInstall }()
+
+	_, err := findUVImpl("", cacheDir)
+	if err == nil {
+		t.Fatal("expected error when installUVFn fails")
+	}
+}
+
 func TestFindUVImplRenameFails(t *testing.T) {
 	tmp := t.TempDir()
 	cacheDir := filepath.Join(tmp, "cache")
