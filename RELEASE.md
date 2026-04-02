@@ -1,3 +1,3 @@
 RELEASE_TYPE: patch
 
-Drop the `golang.org/x/exp/constraints` dependency in favor of locally defined `integer` and `float` type constraints. These interfaces are identical to the ones from `x/exp` but eliminate an external dependency now that Go's type parameter support is mature.
+Internal refactoring to drop `golang.org/x/exp/constraints` as a dependency.
