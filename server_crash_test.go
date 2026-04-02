@@ -52,19 +52,14 @@ func TestServerLogExcerptNonEmptyFile(t *testing.T) {
 	}
 }
 
-// --- serverCrashMessage ---
+// --- serverCrashMessageForLog ---
 
 func TestServerCrashMessageIncludesLogExcerpt(t *testing.T) {
 	tmp := t.TempDir()
-	logFile := filepath.Join(tmp, "server.log")
-	os.WriteFile(logFile, []byte("Error: test crash\n"), 0o644) //nolint:errcheck
-	f, _ := os.Open(logFile)
-	defer f.Close()
+	logPath := filepath.Join(tmp, "server.log")
+	os.WriteFile(logPath, []byte("Error: test crash\n"), 0o644) //nolint:errcheck
 
-	s := newHegelSession()
-	s.logFile = f
-
-	msg := s.serverCrashMessage()
+	msg := serverCrashMessageForLog(logPath)
 	if !strings.Contains(msg, "Error: test crash") {
 		t.Errorf("crash message should include log content, got: %s", msg)
 	}
@@ -75,15 +70,10 @@ func TestServerCrashMessageIncludesLogExcerpt(t *testing.T) {
 
 func TestServerCrashMessageEmptyLog(t *testing.T) {
 	tmp := t.TempDir()
-	logFile := filepath.Join(tmp, "server.log")
-	os.WriteFile(logFile, []byte(""), 0o644) //nolint:errcheck
-	f, _ := os.Open(logFile)
-	defer f.Close()
+	logPath := filepath.Join(tmp, "server.log")
+	os.WriteFile(logPath, []byte(""), 0o644) //nolint:errcheck
 
-	s := newHegelSession()
-	s.logFile = f
-
-	msg := s.serverCrashMessage()
+	msg := serverCrashMessageForLog(logPath)
 	if !strings.Contains(msg, "No entries found") {
 		t.Errorf("expected 'No entries found' for empty log, got: %s", msg)
 	}

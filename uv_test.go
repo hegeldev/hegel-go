@@ -63,22 +63,6 @@ func TestFindUVImplReturnsCachedWhenNotInPath(t *testing.T) {
 	}
 }
 
-func TestFindInPathFindsKnownBinary(t *testing.T) {
-	t.Parallel()
-	result := findInPath("sh")
-	if result == "" {
-		t.Error("findInPath('sh') should find sh")
-	}
-}
-
-func TestFindInPathReturnsEmptyForMissing(t *testing.T) {
-	t.Parallel()
-	result := findInPath("definitely_not_a_real_binary_xyz")
-	if result != "" {
-		t.Errorf("findInPath should return empty for missing binary, got %q", result)
-	}
-}
-
 func TestInstallUVFailsWithBadShell(t *testing.T) {
 	t.Parallel()
 	tmp := t.TempDir()
@@ -151,10 +135,41 @@ func TestFindUVImplInstallsAndReturnsCached(t *testing.T) {
 	}
 }
 
-func TestFindInPathEmptyPATH(t *testing.T) {
-	t.Setenv("PATH", "")
-	result := findInPath("sh")
-	if result != "" {
-		t.Errorf("expected empty for empty PATH, got %q", result)
+func TestFindUVImplMkdirCacheFails(t *testing.T) {
+	tmp := t.TempDir()
+	// Block cacheDir creation by placing a file where the directory should be.
+	blocker := filepath.Join(tmp, "blocker")
+	os.WriteFile(blocker, []byte("not a dir"), 0o644) //nolint:errcheck
+	cacheDir := filepath.Join(blocker, "cache")
+
+	origInstall := installUVFn
+	installUVFn = func(dir string) error {
+		return os.WriteFile(filepath.Join(dir, "uv"), []byte("#!/bin/sh\n"), 0o755)
+	}
+	defer func() { installUVFn = origInstall }()
+
+	_, err := findUVImpl("", cacheDir)
+	if err == nil {
+		t.Fatal("expected error when cacheDir creation fails")
+	}
+}
+
+func TestFindUVImplRenameFails(t *testing.T) {
+	tmp := t.TempDir()
+	cacheDir := filepath.Join(tmp, "cache")
+	os.MkdirAll(cacheDir, 0o755) //nolint:errcheck
+	// Make cacheDir read-only so rename into it fails.
+	os.Chmod(cacheDir, 0o555)       //nolint:errcheck
+	defer os.Chmod(cacheDir, 0o755) //nolint:errcheck
+
+	origInstall := installUVFn
+	installUVFn = func(dir string) error {
+		return os.WriteFile(filepath.Join(dir, "uv"), []byte("#!/bin/sh\n"), 0o755)
+	}
+	defer func() { installUVFn = origInstall }()
+
+	_, err := findUVImpl("", cacheDir)
+	if err == nil {
+		t.Fatal("expected error when rename fails")
 	}
 }

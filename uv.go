@@ -19,7 +19,7 @@ var uvInstaller string
 //  2. Cached binary at ~/.cache/hegel/uv
 //  3. Installs uv to ~/.cache/hegel/uv using the embedded installer script
 func findUV() (string, error) {
-	pathUV := findInPath("uv")
+	pathUV, _ := exec.LookPath("uv")
 	cacheDir := cacheDirFrom(os.Getenv("XDG_CACHE_HOME"), os.Getenv("HOME"))
 	return findUVImpl(pathUV, cacheDir)
 }
@@ -32,8 +32,26 @@ func findUVImpl(pathUV, cacheDir string) (string, error) {
 	if info, err := os.Stat(cached); err == nil && !info.IsDir() {
 		return cached, nil
 	}
-	if err := installUVFn(cacheDir); err != nil {
+	// Install to a temp dir inside cacheDir, then atomically rename.
+	// This is safe for concurrent processes on the same filesystem.
+	tmpDir, err := os.MkdirTemp(filepath.Dir(cacheDir), "hegel-uv-install-*")
+	if err != nil {
+		return "", fmt.Errorf("failed to create temp dir for uv install: %w", err)
+	}
+	defer os.RemoveAll(tmpDir)
+	if err := installUVFn(tmpDir); err != nil {
 		return "", err
+	}
+	if err := os.MkdirAll(cacheDir, 0o755); err != nil { // coverage-ignore
+		return "", fmt.Errorf("failed to create cache directory %s: %w", cacheDir, err)
+	}
+	// Atomic rename; if another process already placed it, that's fine.
+	if err := os.Rename(filepath.Join(tmpDir, "uv"), cached); err != nil && !os.IsExist(err) {
+		// Another process may have beaten us; check if it's there now.
+		if info, statErr := os.Stat(cached); statErr == nil && !info.IsDir() { // coverage-ignore
+			return cached, nil
+		}
+		return "", fmt.Errorf("failed to install uv to %s: %w", cached, err)
 	}
 	return cached, nil
 }
@@ -55,22 +73,6 @@ func installUVWithSh(cacheDir, sh string) error {
 		return fmt.Errorf("uv installer failed: %w\nOutput: %s\nInstall uv manually: https://docs.astral.sh/uv/getting-started/installation/", err, string(output))
 	}
 	return nil
-}
-
-// findInPath searches PATH for a named binary and returns its full path,
-// or "" if not found.
-func findInPath(name string) string {
-	pathVar := os.Getenv("PATH")
-	if pathVar == "" {
-		return ""
-	}
-	for _, dir := range filepath.SplitList(pathVar) {
-		p := filepath.Join(dir, name)
-		if info, err := os.Stat(p); err == nil && !info.IsDir() {
-			return p
-		}
-	}
-	return ""
 }
 
 // cacheDirFrom returns the hegel cache directory based on XDG_CACHE_HOME or HOME.

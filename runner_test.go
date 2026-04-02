@@ -481,12 +481,11 @@ func TestConnectionErrorError(t *testing.T) {
 	}
 }
 
-// --- serverCrashMessage: fallback when logFile is nil ---
+// --- serverCrashMessageForLog: fallback when logPath is empty ---
 
 func TestServerCrashMessageNoLogFile(t *testing.T) {
 	t.Parallel()
-	s := newHegelSession()
-	msg := s.serverCrashMessage()
+	msg := serverCrashMessageForLog("")
 	mustContainStr(t, msg, "server process exited unexpectedly")
 }
 

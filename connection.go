@@ -468,12 +468,10 @@ func (ch *channel) processOneMessage(timeout time.Duration) error {
 		// When the pipe closes, the process has likely exited too. Wait
 		// briefly for the monitor goroutine to confirm so we can report
 		// a proper crash error instead of a generic "connection closed".
-		if ch.conn.processExited != nil {
-			select {
-			case <-ch.conn.processExited:
-				return ch.conn.serverCrashError()
-			case <-time.After(100 * time.Millisecond):
-			}
+		select {
+		case <-ch.conn.processExited:
+			return ch.conn.serverCrashError()
+		case <-time.After(100 * time.Millisecond):
 		}
 		return fmt.Errorf("connection closed")
 	case <-timeoutCh:

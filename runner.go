@@ -550,14 +550,10 @@ func openServerLog() *os.File {
 	return f
 }
 
-// serverCrashMessage returns the error message for an unexpected server exit.
-// If the log file contains content, the last few lines are included inline.
-func (s *hegelSession) serverCrashMessage() string {
+// serverCrashMessageForLog returns an error message for an unexpected server exit.
+// logPath is captured at setup time so this is safe to call without holding the session mutex.
+func serverCrashMessageForLog(logPath string) string {
 	const base = "The hegel server process exited unexpectedly."
-	logPath := ""
-	if s.logFile != nil {
-		logPath = s.logFile.Name()
-	}
 	excerpt := serverLogExcerpt(logPath)
 	if excerpt != "" {
 		return base + "\n\nLast server log entries:\n" + excerpt
@@ -578,11 +574,11 @@ func serverLogExcerpt(logPath string) string {
 	if err != nil {
 		return ""
 	}
-	trimmed := strings.TrimSpace(string(content))
-	if trimmed == "" {
+	text := string(content)
+	if strings.TrimSpace(text) == "" {
 		return ""
 	}
-	return formatLogExcerpt(string(content))
+	return formatLogExcerpt(text)
 }
 
 func newHegelSession() *hegelSession {
@@ -669,7 +665,8 @@ func (s *hegelSession) start() error {
 
 	conn := newConnection(stdoutPipe, stdinPipe, "Client")
 	conn.processExited = processExited
-	conn.crashMessageFn = s.serverCrashMessage
+	logPath := logFile.Name()
+	conn.crashMessageFn = func() string { return serverCrashMessageForLog(logPath) }
 	version, err := conn.SendHandshakeVersion()
 	if err != nil {
 		conn.Close()
