@@ -13,7 +13,7 @@ import (
 // =============================================================================
 
 // TestOneOfPath1Schema verifies that OneOf with all-identity-transform basic
-// generators produces a simple {"one_of": [...]} schema.
+// generators produces a simple {"type": "one_of", "generators": [...]} schema.
 func TestOneOfPath1Schema(t *testing.T) {
 	t.Parallel()
 	g1 := Booleans()
@@ -24,13 +24,16 @@ func TestOneOfPath1Schema(t *testing.T) {
 	if !ok {
 		t.Fatalf("OneOf all-identity-basic should return *basicGenerator[bool], got %T", combined)
 	}
-	oneOf, hasOneOf := bg.schema["one_of"]
-	if !hasOneOf {
-		t.Fatalf("OneOf Path 1 schema should have 'one_of' key; got %v", bg.schema)
+	if bg.schema["type"] != "one_of" {
+		t.Fatalf("OneOf Path 1 schema should have type 'one_of'; got %v", bg.schema)
 	}
-	schemas, ok := oneOf.([]any)
+	generators, hasGenerators := bg.schema["generators"]
+	if !hasGenerators {
+		t.Fatalf("OneOf Path 1 schema should have 'generators' key; got %v", bg.schema)
+	}
+	schemas, ok := generators.([]any)
 	if !ok {
-		t.Fatalf("one_of value should be []any, got %T", oneOf)
+		t.Fatalf("one_of value should be []any, got %T", generators)
 	}
 	if len(schemas) != 2 {
 		t.Errorf("one_of should have 2 branches, got %d", len(schemas))
@@ -94,18 +97,21 @@ func TestOneOfPath2Schema(t *testing.T) {
 	if !ok {
 		t.Fatalf("OneOf Path 2 should return *basicGenerator[int64], got %T", combined)
 	}
-	oneOf, hasOneOf := bg.schema["one_of"]
-	if !hasOneOf {
-		t.Fatalf("Path 2 schema should have 'one_of' key; got %v", bg.schema)
+	if bg.schema["type"] != "one_of" {
+		t.Fatalf("Path 2 schema should have type 'one_of'; got %v", bg.schema)
 	}
-	schemas, ok := oneOf.([]any)
+	generators, hasGenerators := bg.schema["generators"]
+	if !hasGenerators {
+		t.Fatalf("Path 2 schema should have 'generators' key; got %v", bg.schema)
+	}
+	schemas, ok := generators.([]any)
 	if !ok {
 		t.Fatalf("one_of value should be []any")
 	}
 	if len(schemas) != 2 {
 		t.Errorf("one_of should have 2 tagged branches, got %d", len(schemas))
 	}
-	// Each branch should be a tuple with {"type": "tuple", "elements": [{"const": i}, ...]}
+	// Each branch should be a tuple with {"type": "tuple", "elements": [{"type": "constant", "value": i}, ...]}
 	for i, s := range schemas {
 		m, ok := s.(map[string]any)
 		if !ok {
@@ -122,12 +128,15 @@ func TestOneOfPath2Schema(t *testing.T) {
 		}
 		constMap, ok := elems[0].(map[string]any)
 		if !ok {
-			t.Errorf("branch %d: first element should be {const: N}", i)
+			t.Errorf("branch %d: first element should be {type: constant, value: N}", i)
 			continue
 		}
-		constVal, _ := extractCBORInt(constMap["const"])
+		if constMap["type"] != "constant" {
+			t.Errorf("branch %d: first element type should be 'constant', got %v", i, constMap["type"])
+		}
+		constVal, _ := extractCBORInt(constMap["value"])
 		if constVal != int64(i) {
-			t.Errorf("branch %d: const tag should be %d, got %d", i, i, constVal)
+			t.Errorf("branch %d: constant tag should be %d, got %d", i, i, constVal)
 		}
 	}
 }
@@ -403,13 +412,16 @@ func TestIPAddressesDefaultIsOneOf(t *testing.T) {
 	g := IPAddresses()
 	bg := g.buildGenerator().(*basicGenerator[netip.Addr])
 	// Should be a one_of of ipv4 and ipv6
-	oneOf, hasOneOf := bg.schema["one_of"]
-	if !hasOneOf {
-		t.Fatalf("IPAddresses(default) schema should have 'one_of' key; got %v", bg.schema)
+	if bg.schema["type"] != "one_of" {
+		t.Fatalf("IPAddresses(default) schema should have type 'one_of'; got %v", bg.schema)
 	}
-	schemas, ok := oneOf.([]any)
+	generators, hasGenerators := bg.schema["generators"]
+	if !hasGenerators {
+		t.Fatalf("IPAddresses(default) schema should have 'generators' key; got %v", bg.schema)
+	}
+	schemas, ok := generators.([]any)
 	if !ok || len(schemas) != 2 {
-		t.Fatalf("IPAddresses(default) one_of should have 2 branches, got %v", oneOf)
+		t.Fatalf("IPAddresses(default) generators should have 2 branches, got %v", generators)
 	}
 }
 

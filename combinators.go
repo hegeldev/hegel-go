@@ -79,7 +79,7 @@ func OneOf[T any](generators ...Generator[T]) Generator[T] {
 			schemas[i] = bg.schema
 		}
 		return &basicGenerator[T]{
-			schema: map[string]any{"one_of": schemas},
+			schema: map[string]any{"type": "one_of", "generators": schemas},
 		}
 	}
 
@@ -89,7 +89,7 @@ func OneOf[T any](generators ...Generator[T]) Generator[T] {
 		taggedSchemas[i] = map[string]any{
 			"type": "tuple",
 			"elements": []any{
-				map[string]any{"const": int64(i)},
+				map[string]any{"type": "constant", "value": int64(i)},
 				bg.schema,
 			},
 		}
@@ -101,7 +101,7 @@ func OneOf[T any](generators ...Generator[T]) Generator[T] {
 	}
 
 	return &basicGenerator[T]{
-		schema: map[string]any{"one_of": taggedSchemas},
+		schema: map[string]any{"type": "one_of", "generators": taggedSchemas},
 		transform: func(tagged any) T {
 			elems, _ := tagged.([]any)
 			if len(elems) < 2 {

@@ -16,21 +16,21 @@ const (
 
 	terminator byte = 0x0A // appended after every packet payload
 
-	closeChannelMessageID uint32 = (1 << 31) - 1 // special message ID for channel close
+	closeStreamMessageID uint32 = (1 << 31) - 1 // special message ID for stream close
 )
 
-// closeChannelPayload is the special payload sent when closing a channel.
+// closeStreamPayload is the special payload sent when closing a stream.
 // It is chosen to be invalid CBOR (reserved tag byte 0xFE per RFC 8949).
-var closeChannelPayload = []byte{0xFE}
+var closeStreamPayload = []byte{0xFE}
 
 // headerSize is the size of the fixed packet header in bytes (5 × uint32).
 const headerSize = 20
 
 // packet represents a single message in the Hegel wire protocol.
 type packet struct {
-	// ChannelID identifies the logical channel this packet belongs to.
-	ChannelID uint32
-	// MessageID is the per-channel message sequence number.
+	// StreamID identifies the logical stream this packet belongs to.
+	StreamID uint32
+	// MessageID is the per-stream message sequence number.
 	MessageID uint32
 	// IsReply indicates that this packet is a reply to a previous message.
 	IsReply bool
@@ -99,7 +99,7 @@ func readPacket(r io.Reader) (packet, error) {
 
 	mgc := binary.BigEndian.Uint32(header[0:])
 	checksum := binary.BigEndian.Uint32(header[4:])
-	channelID := binary.BigEndian.Uint32(header[8:])
+	streamID := binary.BigEndian.Uint32(header[8:])
 	messageID := binary.BigEndian.Uint32(header[12:])
 	payloadLen := binary.BigEndian.Uint32(header[16:])
 
@@ -137,7 +137,7 @@ func readPacket(r io.Reader) (packet, error) {
 	}
 
 	return packet{
-		ChannelID: channelID,
+		StreamID:  streamID,
 		MessageID: messageID,
 		IsReply:   isReply,
 		Payload:   payload,
@@ -156,7 +156,7 @@ func writePacket(w io.Writer, pkt packet) error {
 	header := make([]byte, headerSize)
 	binary.BigEndian.PutUint32(header[0:], magic)
 	binary.BigEndian.PutUint32(header[4:], 0) // zeroed for CRC computation
-	binary.BigEndian.PutUint32(header[8:], pkt.ChannelID)
+	binary.BigEndian.PutUint32(header[8:], pkt.StreamID)
 	binary.BigEndian.PutUint32(header[12:], messageID)
 	binary.BigEndian.PutUint32(header[16:], uint32(len(pkt.Payload)))
 

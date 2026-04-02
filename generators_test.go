@@ -185,17 +185,17 @@ func TestIntegersSchema(t *testing.T) {
 // Just generator tests
 // =============================================================================
 
-// TestJustSchema verifies that Just produces a schema with "const" key.
+// TestJustSchema verifies that Just produces a schema with type "constant".
 func TestJustSchema(t *testing.T) {
 	t.Parallel()
 	g := Just(42)
 	bg := g.(*basicGenerator[int])
-	if _, hasConst := bg.schema["const"]; !hasConst {
-		t.Error("Just schema should have 'const' key")
+	if bg.schema["type"] != "constant" {
+		t.Errorf("Just schema type should be 'constant', got %v", bg.schema["type"])
 	}
-	// The const value in schema should be nil (null)
-	if bg.schema["const"] != nil {
-		t.Errorf("Just schema 'const' should be nil, got %v", bg.schema["const"])
+	// The value field in schema should be nil (null)
+	if bg.schema["value"] != nil {
+		t.Errorf("Just schema 'value' should be nil, got %v", bg.schema["value"])
 	}
 }
 

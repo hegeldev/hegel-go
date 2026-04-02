@@ -18,11 +18,11 @@ func crc32ChecksumIEEE(data []byte) uint32 { return crc32.ChecksumIEEE(data) }
 
 // makeRawPacket builds a raw wire-format packet from its components.
 // If checksum is 0 the real CRC32 is computed; otherwise the given value is used as-is.
-func makeRawPacket(magic, checksum, channelID, messageID uint32, payload []byte, terminator byte) []byte {
+func makeRawPacket(magic, checksum, streamID, messageID uint32, payload []byte, terminator byte) []byte {
 	var h [20]byte
 	binary.BigEndian.PutUint32(h[0:], magic)
 	binary.BigEndian.PutUint32(h[4:], 0) // zeroed for CRC
-	binary.BigEndian.PutUint32(h[8:], channelID)
+	binary.BigEndian.PutUint32(h[8:], streamID)
 	binary.BigEndian.PutUint32(h[12:], messageID)
 	binary.BigEndian.PutUint32(h[16:], uint32(len(payload)))
 	if checksum == 0 {
@@ -48,14 +48,14 @@ func socketPair(t *testing.T) (net.Conn, net.Conn) {
 
 // packetsEqual reports whether two Packets are equal, including payload bytes.
 func packetsEqual(a, b packet) bool {
-	return a.ChannelID == b.ChannelID &&
+	return a.StreamID == b.StreamID &&
 		a.MessageID == b.MessageID &&
 		a.IsReply == b.IsReply &&
 		bytes.Equal(a.Payload, b.Payload)
 }
 
 // sendRaw writes raw bytes to conn in a goroutine (required because net.Pipe is
-// synchronous) and returns a channel that will receive any write error.
+// synchronous) and returns a stream that will receive any write error.
 func sendRaw(conn net.Conn, data []byte) <-chan error {
 	ch := make(chan error, 1)
 	go func() {
@@ -96,11 +96,11 @@ func TestConstants(t *testing.T) {
 	if terminator != 0x0A {
 		t.Errorf("terminator = 0x%02X, want 0x0A", terminator)
 	}
-	if closeChannelMessageID != (1<<31)-1 {
-		t.Errorf("closeChannelMessageID = %d, want %d", closeChannelMessageID, (1<<31)-1)
+	if closeStreamMessageID != (1<<31)-1 {
+		t.Errorf("closeStreamMessageID = %d, want %d", closeStreamMessageID, (1<<31)-1)
 	}
-	if len(closeChannelPayload) != 1 || closeChannelPayload[0] != 0xFE {
-		t.Errorf("closeChannelPayload = %v, want [0xFE]", closeChannelPayload)
+	if len(closeStreamPayload) != 1 || closeStreamPayload[0] != 0xFE {
+		t.Errorf("closeStreamPayload = %v, want [0xFE]", closeStreamPayload)
 	}
 }
 
@@ -108,7 +108,7 @@ func TestConstants(t *testing.T) {
 
 func TestPacketRoundtripBasic(t *testing.T) {
 	t.Parallel()
-	pkt := packet{ChannelID: 0, MessageID: 1, IsReply: false, Payload: []byte("hello")}
+	pkt := packet{StreamID: 0, MessageID: 1, IsReply: false, Payload: []byte("hello")}
 	got := roundtrip(t, pkt)
 	if !packetsEqual(got, pkt) {
 		t.Errorf("got %+v, want %+v", got, pkt)
@@ -117,25 +117,25 @@ func TestPacketRoundtripBasic(t *testing.T) {
 
 func TestPacketRoundtripEmptyPayload(t *testing.T) {
 	t.Parallel()
-	pkt := packet{ChannelID: 0, MessageID: 1, IsReply: false, Payload: []byte{}}
+	pkt := packet{StreamID: 0, MessageID: 1, IsReply: false, Payload: []byte{}}
 	got := roundtrip(t, pkt)
-	if got.ChannelID != pkt.ChannelID || got.MessageID != pkt.MessageID || got.IsReply != pkt.IsReply || len(got.Payload) != 0 {
+	if got.StreamID != pkt.StreamID || got.MessageID != pkt.MessageID || got.IsReply != pkt.IsReply || len(got.Payload) != 0 {
 		t.Errorf("got %+v, want %+v", got, pkt)
 	}
 }
 
 func TestPacketRoundtripReply(t *testing.T) {
 	t.Parallel()
-	pkt := packet{ChannelID: 1, MessageID: 42, IsReply: true, Payload: []byte("response")}
+	pkt := packet{StreamID: 1, MessageID: 42, IsReply: true, Payload: []byte("response")}
 	got := roundtrip(t, pkt)
 	if !packetsEqual(got, pkt) {
 		t.Errorf("got %+v, want %+v", got, pkt)
 	}
 }
 
-func TestPacketRoundtripLargeChannelID(t *testing.T) {
+func TestPacketRoundtripLargeStreamID(t *testing.T) {
 	t.Parallel()
-	pkt := packet{ChannelID: 0xFFFFFFFF, MessageID: 1, IsReply: false, Payload: []byte("data")}
+	pkt := packet{StreamID: 0xFFFFFFFF, MessageID: 1, IsReply: false, Payload: []byte("data")}
 	got := roundtrip(t, pkt)
 	if !packetsEqual(got, pkt) {
 		t.Errorf("got %+v, want %+v", got, pkt)
@@ -144,7 +144,7 @@ func TestPacketRoundtripLargeChannelID(t *testing.T) {
 
 func TestPacketRoundtripLargeMessageID(t *testing.T) {
 	t.Parallel()
-	pkt := packet{ChannelID: 0, MessageID: (1 << 31) - 1, IsReply: false, Payload: []byte("data")}
+	pkt := packet{StreamID: 0, MessageID: (1 << 31) - 1, IsReply: false, Payload: []byte("data")}
 	got := roundtrip(t, pkt)
 	if !packetsEqual(got, pkt) {
 		t.Errorf("got %+v, want %+v", got, pkt)
@@ -157,7 +157,7 @@ func TestPacketRoundtripBinaryPayload(t *testing.T) {
 	for i := range payload {
 		payload[i] = byte(i)
 	}
-	pkt := packet{ChannelID: 3, MessageID: 7, IsReply: false, Payload: payload}
+	pkt := packet{StreamID: 3, MessageID: 7, IsReply: false, Payload: payload}
 	got := roundtrip(t, pkt)
 	if !packetsEqual(got, pkt) {
 		t.Errorf("got %+v, want %+v", got, pkt)
@@ -394,7 +394,7 @@ func TestCRC32KnownVector(t *testing.T) {
 func TestWritePacketProducesValidCRC(t *testing.T) {
 	t.Parallel()
 	reader, writer := socketPair(t)
-	pkt := packet{ChannelID: 5, MessageID: 10, IsReply: false, Payload: []byte("test")}
+	pkt := packet{StreamID: 5, MessageID: 10, IsReply: false, Payload: []byte("test")}
 	go func() { writePacket(writer, pkt) }() //nolint:errcheck
 	// readPacket validates CRC internally; success means CRC was correct.
 	if _, err := readPacket(reader); err != nil {

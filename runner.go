@@ -16,7 +16,7 @@ import (
 
 // TestCase holds the per-test-case context.
 type TestCase struct {
-	channel *channel
+	stream  *stream
 	isFinal bool
 	aborted bool
 	failed  bool         // for T.Error/Fail deferred INTERESTING
@@ -69,7 +69,7 @@ func (s *TestCase) Note(message string) {
 
 // Target guides Hegel toward values that maximize the given metric.
 func (s *TestCase) Target(value float64, label string) {
-	ch := s.channel
+	st := s.stream
 	payload, err := encodeCBOR(map[string]any{
 		"command": "target",
 		"value":   value,
@@ -78,7 +78,7 @@ func (s *TestCase) Target(value float64, label string) {
 	if err != nil { // coverage-ignore
 		panic(fmt.Sprintf("hegel: Target encode: %v", err))
 	}
-	pending, err := ch.Request(payload)
+	pending, err := st.Request(payload)
 	if err != nil { // coverage-ignore
 		panic(fmt.Sprintf("hegel: Target send: %v", err))
 	}
@@ -102,12 +102,12 @@ func toInt64(v any) (int64, bool) {
 }
 
 func generateFromSchema(gs *TestCase, schema map[string]any) (any, error) {
-	ch := gs.channel
+	st := gs.stream
 	payload, err := encodeCBOR(map[string]any{"command": "generate", "schema": schema})
 	if err != nil { // coverage-ignore
 		panic(fmt.Sprintf("hegel: generateFromSchema encode: %v", err))
 	}
-	pending, err := ch.Request(payload)
+	pending, err := st.Request(payload)
 	if err != nil {
 		// Request returns *connectionError for server crashes.
 		// Other write errors are also connection-level.
@@ -301,7 +301,7 @@ func isHegelFrame(fn string) bool {
 
 // client wraps a connection for running property tests.
 // Multiple goroutines may call runTest concurrently — each call creates its
-// own test channel and the underlying connection multiplexes via channels.
+// own test stream and the underlying connection multiplexes via streams.
 type client struct {
 	conn *connection
 }
@@ -312,12 +312,12 @@ func newClient(conn *connection) *client {
 
 // runTest executes one property test against the server.
 func (c *client) runTest(fn testBody, opts runOptions, noteFn func(string)) error {
-	testCh := c.conn.NewChannel("Test")
+	testSt := c.conn.NewStream("Test")
 
 	runTestMsg := map[string]any{
 		"command":    "run_test",
 		"test_cases": int64(opts.testCases),
-		"channel_id": int64(testCh.ChannelID()),
+		"stream_id":  int64(testSt.StreamID()),
 	}
 	if len(opts.suppressHealthCheck) > 0 {
 		names := make([]string, len(opts.suppressHealthCheck))
@@ -338,7 +338,7 @@ func (c *client) runTest(fn testBody, opts runOptions, noteFn func(string)) erro
 	// Event loop.
 	var resultData map[any]any
 	for {
-		msgID, raw, err := testCh.RecvRequestRaw(30 * time.Second)
+		msgID, raw, err := testSt.RecvRequestRaw(30 * time.Second)
 		if err != nil {
 			return fmt.Errorf("hegel: test event recv: %w", err)
 		}
@@ -354,22 +354,22 @@ func (c *client) runTest(fn testBody, opts runOptions, noteFn func(string)) erro
 
 		switch event {
 		case "test_case":
-			chIDVal := msg[any("channel_id")]
-			chID, ok := toInt64(chIDVal)
+			stIDVal := msg[any("stream_id")]
+			stID, ok := toInt64(stIDVal)
 			if !ok { // coverage-ignore
-				return fmt.Errorf("hegel: test_case missing channel_id")
+				return fmt.Errorf("hegel: test_case missing stream_id")
 			}
-			testCh.SendReplyValue(msgID, nil) //nolint:errcheck
-			caseCh, err := c.conn.ConnectChannel(uint32(chID), "TestCase")
+			testSt.SendReplyValue(msgID, nil) //nolint:errcheck
+			caseSt, err := c.conn.ConnectStream(uint32(stID), "TestCase")
 			if err != nil { // coverage-ignore
-				return fmt.Errorf("hegel: connect test case channel: %w", err)
+				return fmt.Errorf("hegel: connect test case stream: %w", err)
 			}
-			if err := c.runTestCase(caseCh, fn, false, noteFn); err != nil {
+			if err := c.runTestCase(caseSt, fn, false, noteFn); err != nil {
 				return err
 			}
 
 		case "test_done":
-			testCh.SendReplyValue(msgID, true) //nolint:errcheck
+			testSt.SendReplyValue(msgID, true) //nolint:errcheck
 			resultsVal := msg[any("results")]
 			resultData, _ = resultsVal.(map[any]any)
 			goto doneLoop
@@ -408,20 +408,20 @@ doneLoop:
 	// Replay interesting (failing) test cases.
 	var errs []error
 	for i := int64(0); i < nInteresting; i++ {
-		msgID, raw, err := testCh.RecvRequestRaw(30 * time.Second)
+		msgID, raw, err := testSt.RecvRequestRaw(30 * time.Second)
 		if err != nil { // coverage-ignore
 			return fmt.Errorf("hegel: final case recv: %w", err)
 		}
 		decoded, _ := decodeCBOR(raw)
 		msg, _ := decoded.(map[any]any)
-		chIDVal := msg[any("channel_id")]
-		chID, _ := toInt64(chIDVal)
-		testCh.SendReplyValue(msgID, nil) //nolint:errcheck
-		caseCh, err := c.conn.ConnectChannel(uint32(chID), fmt.Sprintf("FinalCase%d", i))
+		stIDVal := msg[any("stream_id")]
+		stID, _ := toInt64(stIDVal)
+		testSt.SendReplyValue(msgID, nil) //nolint:errcheck
+		caseSt, err := c.conn.ConnectStream(uint32(stID), fmt.Sprintf("FinalCase%d", i))
 		if err != nil { // coverage-ignore
-			return fmt.Errorf("hegel: connect final case channel: %w", err)
+			return fmt.Errorf("hegel: connect final case stream: %w", err)
 		}
-		caseErr := c.runTestCase(caseCh, fn, true, noteFn)
+		caseErr := c.runTestCase(caseSt, fn, true, noteFn)
 		if caseErr != nil {
 			errs = append(errs, caseErr)
 		}
@@ -436,9 +436,9 @@ doneLoop:
 }
 
 // runTestCase executes one test case and sends mark_complete to the server.
-func (c *client) runTestCase(ch *channel, fn testBody, isFinal bool, noteFn func(string)) (finalErr error) {
+func (c *client) runTestCase(st *stream, fn testBody, isFinal bool, noteFn func(string)) (finalErr error) {
 	state := &TestCase{
-		channel: ch,
+		stream:  st,
 		isFinal: isFinal,
 		aborted: false,
 		noteFn:  noteFn,
@@ -489,8 +489,8 @@ func (c *client) runTestCase(ch *channel, fn testBody, isFinal bool, noteFn func
 	}()
 
 	if finalErr != nil {
-		// connection error or re-raised final failure: close channel and return.
-		ch.Close()
+		// connection error or re-raised final failure: close stream and return.
+		st.Close()
 		return finalErr
 	}
 
@@ -513,19 +513,19 @@ func (c *client) runTestCase(ch *channel, fn testBody, isFinal bool, noteFn func
 		if err != nil { // coverage-ignore
 			panic(fmt.Sprintf("hegel: mark_complete encode: %v", err))
 		}
-		pending, err := ch.Request(encoded)
+		pending, err := st.Request(encoded)
 		if err == nil {
 			pending.Get() //nolint:errcheck
 		}
 	}
-	ch.Close()
+	st.Close()
 	return nil
 }
 
 // --- Session: manages the hegel subprocess ---
 
 // hegelSession manages a shared hegel subprocess for the entire test suite.
-// Concurrent Run() calls multiplex over a single connection via channels.
+// Concurrent Run() calls multiplex over a single connection via streams.
 type hegelSession struct {
 	mu             sync.Mutex
 	conn           *connection

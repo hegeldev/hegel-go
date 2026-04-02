@@ -18,7 +18,7 @@ Tests must use `PATH="$(pwd)/.venv/bin:$PATH"` (absolute path) so the `hegel` bi
 ## What This Is
 
 A Go implementation of the Hegel property-based testing library. Hegel is a
-universal property-based testing framework powered by Hypothesis on the backend.
+universal property-based testing protocol powered by Hypothesis on the backend.
 Client libraries communicate with the `hegel` binary (a Python server) via Unix sockets using
 a custom binary protocol.
 
@@ -27,22 +27,22 @@ a custom binary protocol.
 The library is structured in layers, each building on the previous:
 
 1. **Protocol Layer** — Binary wire protocol with 20-byte header, CBOR payload, CRC32
-2. **Connection & Channels** — Unix socket multiplexing with demand-driven reader
+2. **Connection & Streams** — Unix socket multiplexing with demand-driven reader
 3. **Test Runner** — Spawns `hegel` subprocess, manages test lifecycle
 4. **Generators** — Type-safe generator abstraction, span system, collection protocol
 5. **Conformance** — Test binaries that validate library correctness against the framework
 
 ### Key Pattern: Demand-Driven Reader
 
-The Connection uses a demand-driven model: when a Channel needs a message, it
+The Connection uses a demand-driven model: when a Stream needs a message, it
 acquires a reader lock and reads packets from the socket until its inbox has data.
 No background threads — reading is triggered by the consumer that needs data.
 
-### Key Pattern: Thread-Local Channel State
+### Key Pattern: Thread-Local Stream State
 
-The current data channel is stored in thread-local (or context-var) state so that
+The current data stream is stored in thread-local (or context-var) state so that
 generator functions (`generate()`, `assume()`, `note()`, `target()`) don't need a
-channel parameter. The test runner sets the current channel before calling the test
+stream parameter. The test runner sets the current stream before calling the test
 body.
 
 ### Key Pattern: Global Lazy Session
@@ -61,7 +61,7 @@ or sessions manually — `run_hegel_test()` is a plain free function.
   The real binary runs as a subprocess, so there is zero threading contention.
   In-process mocks with threads cause deadlocks — they have wasted hundreds of
   agent turns in previous library generations.
-- **Socket pairs** (`socketpair()`) for unit testing Connection/Channel in isolation.
+- **Socket pairs** (`socketpair()`) for unit testing Connection/Stream in isolation.
 
 ### HEGEL_PROTOCOL_TEST_MODE — Error Injection
 
@@ -88,12 +88,12 @@ Failing to handle StopTest correctly causes `FlakyStrategyDefinition` errors.
 
 ## Wire Protocol
 
-- **Header**: 5 big-endian uint32: `magic(0x4845474C)`, `CRC32`, `channel_id`,
+- **Header**: 5 big-endian uint32: `magic(0x4845474C)`, `CRC32`, `stream_id`,
   `message_id`, `payload_length`
 - **Payload**: CBOR-encoded bytes
 - **Terminator**: single byte `0x0A`
 - **Reply bit**: `message_id | (1 << 31)` marks a message as a reply
-- **Client channel IDs**: odd — allocated as `(counter << 1) | 1`
+- **Client stream IDs**: odd — allocated as `(counter << 1) | 1`
 - **CRC32**: computed over the full 20-byte header (checksum field zeroed) + payload
 
 ## Tooling Choices
@@ -144,7 +144,7 @@ Failing to handle StopTest correctly causes `FlakyStrategyDefinition` errors.
 
 ### Protocol field names
 
-- The `run_test` command and server responses use `"channel_id"` for the test channel ID.
+- The `run_test` command and server responses use `"stream_id"` for the test stream ID.
 - Always cross-check field names against the published hegel-core server.
 
 ### Generator optimization

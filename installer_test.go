@@ -22,6 +22,7 @@ func TestHegelCommandServerCommandEnv(t *testing.T) {
 
 func TestHegelCommandVenvPath(t *testing.T) {
 	resetProjectRoot(t)
+	t.Setenv(hegelServerCommandEnv, "")
 
 	tmp, _ := filepath.EvalSymlinks(t.TempDir())
 	os.WriteFile(filepath.Join(tmp, "go.mod"), []byte("module test\n"), 0o644) //nolint:errcheck
@@ -44,6 +45,7 @@ func TestHegelCommandVenvPath(t *testing.T) {
 
 func TestHegelCommandUVToolRun(t *testing.T) {
 	resetProjectRoot(t)
+	t.Setenv(hegelServerCommandEnv, "")
 
 	tmp, _ := filepath.EvalSymlinks(t.TempDir())
 	os.WriteFile(filepath.Join(tmp, "go.mod"), []byte("module test\n"), 0o644) //nolint:errcheck
@@ -77,6 +79,7 @@ func TestHegelCommandUVToolRun(t *testing.T) {
 
 func TestHegelCommandNoUV(t *testing.T) {
 	resetProjectRoot(t)
+	t.Setenv(hegelServerCommandEnv, "")
 
 	tmp, _ := filepath.EvalSymlinks(t.TempDir())
 	os.WriteFile(filepath.Join(tmp, "go.mod"), []byte("module test\n"), 0o644) //nolint:errcheck

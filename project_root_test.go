@@ -193,6 +193,7 @@ func TestGetHegelDirectoryIsCached(t *testing.T) {
 
 func TestHegelCommandUsesProjectRoot(t *testing.T) {
 	resetProjectRoot(t)
+	t.Setenv(hegelServerCommandEnv, "")
 
 	tmp, _ := filepath.EvalSymlinks(t.TempDir())
 	sub := filepath.Join(tmp, "pkg")

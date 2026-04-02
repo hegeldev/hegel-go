@@ -27,7 +27,7 @@ func clientConnPair(t *testing.T) (*connection, net.Conn) {
 		}
 		// Reply with version string.
 		writePacket(s, packet{ //nolint:errcheck
-			ChannelID: pkt.ChannelID,
+			StreamID:  pkt.StreamID,
 			MessageID: pkt.MessageID,
 			IsReply:   true,
 			Payload:   []byte(handshakePrefix + protocolVersion),
@@ -40,7 +40,7 @@ func clientConnPair(t *testing.T) (*connection, net.Conn) {
 	return clientConn, s
 }
 
-// --- connection done channel ---
+// --- connection done stream ---
 
 func TestConnectionDone(t *testing.T) {
 	s, _ := socketPair(t)
@@ -95,7 +95,7 @@ func TestSendHandshakeBadResponse(t *testing.T) {
 			return
 		}
 		writePacket(s, packet{ //nolint:errcheck
-			ChannelID: pkt.ChannelID,
+			StreamID:  pkt.StreamID,
 			MessageID: pkt.MessageID,
 			IsReply:   true,
 			Payload:   []byte("NotHegel"),
@@ -109,33 +109,33 @@ func TestSendHandshakeBadResponse(t *testing.T) {
 	mustContain(t, err.Error(), "bad handshake")
 }
 
-// --- channel allocation: new_channel returns odd IDs ---
+// --- stream allocation: new_stream returns odd IDs ---
 
-func TestNewChannelOddIDs(t *testing.T) {
+func TestNewStreamOddIDs(t *testing.T) {
 	t.Parallel()
 	clientConn, _ := clientConnPair(t)
 
-	ch1 := clientConn.NewChannel("ch1")
-	ch2 := clientConn.NewChannel("ch2")
-	ch3 := clientConn.NewChannel("ch3")
+	st1 := clientConn.NewStream("st1")
+	st2 := clientConn.NewStream("st2")
+	st3 := clientConn.NewStream("st3")
 
-	if ch1.ChannelID()%2 != 1 {
-		t.Errorf("ch1 ID %d is not odd", ch1.ChannelID())
+	if st1.StreamID()%2 != 1 {
+		t.Errorf("st1 ID %d is not odd", st1.StreamID())
 	}
-	if ch2.ChannelID()%2 != 1 {
-		t.Errorf("ch2 ID %d is not odd", ch2.ChannelID())
+	if st2.StreamID()%2 != 1 {
+		t.Errorf("st2 ID %d is not odd", st2.StreamID())
 	}
-	if ch3.ChannelID()%2 != 1 {
-		t.Errorf("ch3 ID %d is not odd", ch3.ChannelID())
+	if st3.StreamID()%2 != 1 {
+		t.Errorf("st3 ID %d is not odd", st3.StreamID())
 	}
-	if ch1.ChannelID() == ch2.ChannelID() || ch2.ChannelID() == ch3.ChannelID() {
-		t.Error("channel IDs must be unique")
+	if st1.StreamID() == st2.StreamID() || st2.StreamID() == st3.StreamID() {
+		t.Error("stream IDs must be unique")
 	}
 }
 
-// --- new_channel before handshake raises ---
+// --- new_stream before handshake raises ---
 
-func TestNewChannelBeforeHandshakeRaises(t *testing.T) {
+func TestNewStreamBeforeHandshakeRaises(t *testing.T) {
 	t.Parallel()
 	s, _ := socketPair(t)
 	conn := newConnection(s, s, "Test")
@@ -143,89 +143,89 @@ func TestNewChannelBeforeHandshakeRaises(t *testing.T) {
 
 	defer func() {
 		if r := recover(); r == nil {
-			t.Error("expected panic for new_channel before handshake")
+			t.Error("expected panic for new_stream before handshake")
 		}
 	}()
-	conn.NewChannel("test")
+	conn.NewStream("test")
 }
 
-// --- connect_channel before handshake raises ---
+// --- connect_stream before handshake raises ---
 
-func TestConnectChannelBeforeHandshakeRaises(t *testing.T) {
+func TestConnectStreamBeforeHandshakeRaises(t *testing.T) {
 	t.Parallel()
 	s, _ := socketPair(t)
 	conn := newConnection(s, s, "Test")
 	defer conn.Close()
 
-	_, err := conn.ConnectChannel(1, "test")
+	_, err := conn.ConnectStream(1, "test")
 	if err == nil {
-		t.Fatal("expected error for connect_channel before handshake")
+		t.Fatal("expected error for connect_stream before handshake")
 	}
-	mustContain(t, err.Error(), "cannot create a new channel")
+	mustContain(t, err.Error(), "cannot create a new stream")
 }
 
-// --- connect_channel already exists raises ---
+// --- connect_stream already exists raises ---
 
-func TestConnectChannelAlreadyExistsRaises(t *testing.T) {
+func TestConnectStreamAlreadyExistsRaises(t *testing.T) {
 	t.Parallel()
 	clientConn, _ := clientConnPair(t)
 
-	// channel 0 (control channel) already exists.
-	_, err := clientConn.ConnectChannel(0, "dup")
+	// stream 0 (control stream) already exists.
+	_, err := clientConn.ConnectStream(0, "dup")
 	if err == nil {
-		t.Fatal("expected error for duplicate channel")
+		t.Fatal("expected error for duplicate stream")
 	}
-	mustContain(t, err.Error(), "channel already connected")
+	mustContain(t, err.Error(), "stream already connected")
 }
 
-// --- channel close: sends close packet, idempotent ---
+// --- stream close: sends close packet, idempotent ---
 
-func TestChannelClose(t *testing.T) {
+func TestStreamClose(t *testing.T) {
 	t.Parallel()
 	clientConn, _ := clientConnPair(t)
 
-	ch := clientConn.NewChannel("TestClose")
-	ch.Close()
-	ch.Close() // idempotent
+	st := clientConn.NewStream("TestClose")
+	st.Close()
+	st.Close() // idempotent
 }
 
-// --- channel close when connection not live ---
+// --- stream close when connection not live ---
 
-func TestChannelCloseWhenConnectionNotLive(t *testing.T) {
+func TestStreamCloseWhenConnectionNotLive(t *testing.T) {
 	t.Parallel()
 	clientConn, _ := clientConnPair(t)
 
-	ch := clientConn.NewChannel("TestClose")
+	st := clientConn.NewStream("TestClose")
 	clientConn.Close()
-	ch.Close() // must not panic
+	st.Close() // must not panic
 }
 
-// --- channel: closed channel rejects recv ---
+// --- stream: closed stream rejects recv ---
 
-func TestChannelProcessMessageWhenClosed(t *testing.T) {
+func TestStreamProcessMessageWhenClosed(t *testing.T) {
 	t.Parallel()
 	clientConn, _ := clientConnPair(t)
 
-	ch := clientConn.NewChannel("TestClosed")
-	ch.Close()
+	st := clientConn.NewStream("TestClosed")
+	st.Close()
 
-	_, _, err := ch.RecvRequest(100 * time.Millisecond)
+	_, _, err := st.RecvRequest(100 * time.Millisecond)
 	if err == nil {
-		t.Fatal("expected error receiving on closed channel")
+		t.Fatal("expected error receiving on closed stream")
 	}
 	mustContain(t, err.Error(), "closed")
 }
 
-// --- channel timeout ---
+// --- stream timeout ---
 
-func TestChannelTimeout(t *testing.T) {
+func TestStreamTimeout(t *testing.T) {
 	t.Parallel()
 	clientConn, _ := clientConnPair(t)
 
-	ch := clientConn.NewChannel("TestTimeout")
-	defer ch.Close()
+	st := clientConn.NewStream("TestTimeout")
+	defer st.Close()
 
-	_, _, err := ch.RecvRequest(100 * time.Millisecond)
+	_, _, err := st.RecvRequest(100 * time.Millisecond)
 	if err == nil {
 		t.Fatal("expected timeout error")
 	}
@@ -239,55 +239,55 @@ func TestConnectionClosedWhileWaiting(t *testing.T) {
 	s, _ := socketPair(t)
 	conn := newConnection(s, s, "Test")
 
-	ch := conn.ControlChannel()
+	st := conn.ControlStream()
 	go func() {
 		time.Sleep(10 * time.Millisecond)
 		conn.Close()
 	}()
 
-	_, _, err := ch.RecvRequest(2 * time.Second)
+	_, _, err := st.RecvRequest(2 * time.Second)
 	if err == nil {
 		t.Fatal("expected error when connection closes")
 	}
 	mustContain(t, err.Error(), "connection closed")
 }
 
-// --- Message to nonexistent channel ---
+// --- Message to nonexistent stream ---
 
-func TestMessageToNonexistentChannel(t *testing.T) {
+func TestMessageToNonexistentStream(t *testing.T) {
 	t.Parallel()
 	clientConn, remote := clientConnPair(t)
 
-	// Send a request from the "server" to a nonexistent channel on the client.
+	// Send a request from the "server" to a nonexistent stream on the client.
 	// Then send a control ping so the client's reader processes both.
 	done := make(chan struct{})
 	go func() {
 		defer close(done)
-		clientConn.ControlChannel().RecvRequestRaw(2 * time.Second) //nolint:errcheck
+		clientConn.ControlStream().RecvRequestRaw(2 * time.Second) //nolint:errcheck
 	}()
 
-	// Send a packet from remote to a nonexistent channel.
+	// Send a packet from remote to a nonexistent stream.
 	go func() {
 		writePacket(remote, packet{ //nolint:errcheck
-			ChannelID: 9999,
+			StreamID:  9999,
 			MessageID: 1,
 			IsReply:   false,
 			Payload:   mustEncode(t, map[string]any{"command": "test"}),
 		})
 	}()
 
-	// Send a control-channel request so the client processes the bad-channel packet.
+	// Send a control-stream request so the client processes the bad-stream packet.
 	go func() {
 		time.Sleep(20 * time.Millisecond)
 		writePacket(remote, packet{ //nolint:errcheck
-			ChannelID: 0,
+			StreamID:  0,
 			MessageID: 100,
 			IsReply:   false,
 			Payload:   []byte("ping"),
 		})
 	}()
 
-	// Drain the error reply the client sends back to ch 9999.
+	// Drain the error reply the client sends back to st 9999.
 	go func() {
 		readPacket(remote) //nolint:errcheck
 	}()
@@ -296,7 +296,7 @@ func TestMessageToNonexistentChannel(t *testing.T) {
 	case <-done:
 		// success
 	case <-time.After(5 * time.Second):
-		t.Error("TestMessageToNonexistentChannel timed out")
+		t.Error("TestMessageToNonexistentStream timed out")
 	}
 }
 
@@ -346,26 +346,26 @@ func TestResultOrErrorReturnsResult(t *testing.T) {
 	}
 }
 
-// --- dispatch: close-channel notification path ---
+// --- dispatch: close-stream notification path ---
 
-func TestDispatchCloseChannelNotification(t *testing.T) {
+func TestDispatchCloseStreamNotification(t *testing.T) {
 	t.Parallel()
 	clientConn, remote := clientConnPair(t)
 
-	clientCh := clientConn.NewChannel("ClosedCh")
+	clientSt := clientConn.NewStream("ClosedSt")
 
-	// Simulate the server sending a close-channel notification.
+	// Simulate the server sending a close-stream notification.
 	go func() {
 		writePacket(remote, packet{ //nolint:errcheck
-			ChannelID: clientCh.ChannelID(),
-			MessageID: closeChannelMessageID,
+			StreamID:  clientSt.StreamID(),
+			MessageID: closeStreamMessageID,
 			IsReply:   false,
-			Payload:   closeChannelPayload,
+			Payload:   closeStreamPayload,
 		})
 	}()
 
-	// A subsequent recv on the closed channel should return a close error.
-	_, _, err := clientCh.RecvRequestRaw(2 * time.Second)
+	// A subsequent recv on the closed stream should return a close error.
+	_, _, err := clientSt.RecvRequestRaw(2 * time.Second)
 	if err == nil {
 		t.Fatal("expected error after peer close")
 	}
@@ -376,24 +376,24 @@ func TestPeerCloseWakesBlockedGoroutine(t *testing.T) {
 	t.Parallel()
 	clientConn, remote := clientConnPair(t)
 
-	clientCh := clientConn.NewChannel("BlockedCh")
+	clientSt := clientConn.NewStream("BlockedSt")
 
 	// Block a goroutine on RecvRequestRaw.
 	errc := make(chan error, 1)
 	go func() {
-		_, _, err := clientCh.RecvRequestRaw(5 * time.Second)
+		_, _, err := clientSt.RecvRequestRaw(5 * time.Second)
 		errc <- err
 	}()
 
 	// Give the goroutine time to block.
 	time.Sleep(20 * time.Millisecond)
 
-	// Send a close-channel notification from the peer.
+	// Send a close-stream notification from the peer.
 	writePacket(remote, packet{ //nolint:errcheck
-		ChannelID: clientCh.ChannelID(),
-		MessageID: closeChannelMessageID,
+		StreamID:  clientSt.StreamID(),
+		MessageID: closeStreamMessageID,
 		IsReply:   false,
-		Payload:   closeChannelPayload,
+		Payload:   closeStreamPayload,
 	})
 
 	select {
@@ -407,23 +407,23 @@ func TestPeerCloseWakesBlockedGoroutine(t *testing.T) {
 	}
 }
 
-// --- dispatch: message to unknown channel (request) → sends error reply ---
-// --- dispatch: message to unknown channel (reply) → silently dropped ---
+// --- dispatch: message to unknown stream (request) → sends error reply ---
+// --- dispatch: message to unknown stream (reply) → silently dropped ---
 
-func TestDispatchUnknownChannelIsReply(t *testing.T) {
+func TestDispatchUnknownStreamIsReply(t *testing.T) {
 	t.Parallel()
 	clientConn, remote := clientConnPair(t)
 
-	// Send an IsReply=true packet from remote to a nonexistent channel — should be silently dropped.
+	// Send an IsReply=true packet from remote to a nonexistent stream — should be silently dropped.
 	done := make(chan struct{})
 	go func() {
 		defer close(done)
-		clientConn.ControlChannel().RecvRequestRaw(500 * time.Millisecond) //nolint:errcheck
+		clientConn.ControlStream().RecvRequestRaw(500 * time.Millisecond) //nolint:errcheck
 	}()
 
 	go func() {
 		writePacket(remote, packet{ //nolint:errcheck
-			ChannelID: 9997,
+			StreamID:  9997,
 			MessageID: 1,
 			IsReply:   true,
 			Payload:   mustEncode(t, map[string]any{"result": 1}),
@@ -431,9 +431,9 @@ func TestDispatchUnknownChannelIsReply(t *testing.T) {
 	}()
 	go func() {
 		time.Sleep(20 * time.Millisecond)
-		// Send a control-channel request so client processes the bad packet.
+		// Send a control-stream request so client processes the bad packet.
 		writePacket(remote, packet{ //nolint:errcheck
-			ChannelID: 0,
+			StreamID:  0,
 			MessageID: 100,
 			IsReply:   false,
 			Payload:   []byte("ping"),
@@ -443,25 +443,25 @@ func TestDispatchUnknownChannelIsReply(t *testing.T) {
 	select {
 	case <-done:
 	case <-time.After(2 * time.Second):
-		t.Error("TestDispatchUnknownChannelIsReply timed out")
+		t.Error("TestDispatchUnknownStreamIsReply timed out")
 	}
 }
 
-func TestDispatchUnknownChannelRequest(t *testing.T) {
+func TestDispatchUnknownStreamRequest(t *testing.T) {
 	t.Parallel()
 	clientConn, remote := clientConnPair(t)
 
-	// Send a request (IsReply=false) to a nonexistent client channel.
+	// Send a request (IsReply=false) to a nonexistent client stream.
 	// The client should send an error reply.
 	done := make(chan struct{})
 	go func() {
 		defer close(done)
-		clientConn.ControlChannel().RecvRequestRaw(2 * time.Second) //nolint:errcheck
+		clientConn.ControlStream().RecvRequestRaw(2 * time.Second) //nolint:errcheck
 	}()
 
 	go func() {
 		writePacket(remote, packet{ //nolint:errcheck
-			ChannelID: 9998,
+			StreamID:  9998,
 			MessageID: 1,
 			IsReply:   false,
 			Payload:   mustEncode(t, map[string]any{"command": "test"}),
@@ -477,7 +477,7 @@ func TestDispatchUnknownChannelRequest(t *testing.T) {
 	go func() {
 		time.Sleep(30 * time.Millisecond)
 		writePacket(remote, packet{ //nolint:errcheck
-			ChannelID: 0,
+			StreamID:  0,
 			MessageID: 100,
 			IsReply:   false,
 			Payload:   []byte("ping"),
@@ -487,7 +487,7 @@ func TestDispatchUnknownChannelRequest(t *testing.T) {
 	select {
 	case <-done:
 	case <-time.After(5 * time.Second):
-		t.Error("TestDispatchUnknownChannelRequest timed out")
+		t.Error("TestDispatchUnknownStreamRequest timed out")
 	}
 }
 
@@ -548,20 +548,20 @@ func TestNewRequestErrorNonStringKey(t *testing.T) {
 
 // --- putInbox: default drop path (inbox full) ---
 
-func TestChannelPanicsOnDroppedMessage(t *testing.T) {
+func TestStreamPanicsOnDroppedMessage(t *testing.T) {
 	t.Parallel()
 	s, _ := socketPair(t)
 	conn := newConnection(s, s, "Test")
 	defer conn.Close()
 
-	ch := conn.ControlChannel()
-	for i := range cap(ch.inbox) {
-		ch.inbox <- packet{ChannelID: 0, MessageID: uint32(i)}
+	st := conn.ControlStream()
+	for i := range cap(st.inbox) {
+		st.inbox <- packet{StreamID: 0, MessageID: uint32(i)}
 	}
 	// This call should hit the default case and enqueue a panic for the next receive.
-	ch.putInbox(packet{ChannelID: 0, MessageID: 99})
-	if len(ch.inbox) != cap(ch.inbox) {
-		t.Errorf("inbox isn't full: %d < %d", len(ch.inbox), cap(ch.inbox))
+	st.putInbox(packet{StreamID: 0, MessageID: 99})
+	if len(st.inbox) != cap(st.inbox) {
+		t.Errorf("inbox isn't full: %d < %d", len(st.inbox), cap(st.inbox))
 	}
 
 	func() {
@@ -571,7 +571,7 @@ func TestChannelPanicsOnDroppedMessage(t *testing.T) {
 				t.Fatal("Expected Recv to panic")
 			}
 		}()
-		_, _ = ch.ReceiveResponse(999, time.Second)
+		_, _ = st.ReceiveResponse(999, time.Second)
 	}()
 
 }
@@ -585,11 +585,11 @@ func TestSendReplyValueEncodeError(t *testing.T) {
 	defer c.Close()
 	conn := newConnection(s, s, "Test")
 
-	// Build a channel manually without handshake for encode error testing.
-	ch := &channel{conn: conn, channelID: 0, inbox: make(chan any, 1), nextMessageID: 1}
+	// Build a stream manually without handshake for encode error testing.
+	st := &stream{conn: conn, streamID: 0, inbox: make(chan any, 1), nextMessageID: 1}
 
 	// func() cannot be CBOR-encoded — triggers encode error.
-	err := ch.SendReplyValue(1, func() {})
+	err := st.SendReplyValue(1, func() {})
 	if err == nil {
 		t.Fatal("expected encode error from SendReplyValue")
 	}
@@ -603,9 +603,9 @@ func TestSendReplyErrorSucceeds(t *testing.T) {
 	defer s.Close()
 	defer c.Close()
 	conn := newConnection(s, s, "Test")
-	ch := &channel{conn: conn, channelID: 0, inbox: make(chan any, 1), nextMessageID: 1}
+	st := &stream{conn: conn, streamID: 0, inbox: make(chan any, 1), nextMessageID: 1}
 	errc := make(chan error, 1)
-	go func() { errc <- ch.SendReplyError(1, "msg", "Type") }()
+	go func() { errc <- st.SendReplyError(1, "msg", "Type") }()
 	// Drain from peer so write unblocks.
 	buf := make([]byte, 256)
 	c.Read(buf) //nolint:errcheck
@@ -622,11 +622,11 @@ func TestRecvRequestDecodeCBORError(t *testing.T) {
 	conn := newConnection(s, s, "Test")
 	defer conn.Close()
 
-	ch := conn.ControlChannel()
+	st := conn.ControlStream()
 	// Put a raw packet with invalid CBOR payload directly into the inbox.
-	ch.inbox <- packet{ChannelID: 0, MessageID: 1, IsReply: false, Payload: []byte{0xFF}}
+	st.inbox <- packet{StreamID: 0, MessageID: 1, IsReply: false, Payload: []byte{0xFF}}
 
-	_, _, err := ch.RecvRequest(100 * time.Millisecond)
+	_, _, err := st.RecvRequest(100 * time.Millisecond)
 	if err == nil {
 		t.Fatal("expected CBOR decode error from RecvRequest")
 	}
@@ -639,14 +639,14 @@ func TestRecvResponseRawProcessError(t *testing.T) {
 	s, _ := socketPair(t)
 	conn := newConnection(s, s, "Test")
 
-	ch := conn.ControlChannel()
+	st := conn.ControlStream()
 	// Close connection so processOneMessage returns an error.
 	go func() {
 		time.Sleep(10 * time.Millisecond)
 		conn.Close()
 	}()
 
-	_, err := ch.recvResponseRaw(1, 2*time.Second)
+	_, err := st.recvResponseRaw(1, 2*time.Second)
 	if err == nil {
 		t.Fatal("expected error from recvResponseRaw when connection closed")
 	}
@@ -660,11 +660,11 @@ func TestReceiveResponseDecodeCBORError(t *testing.T) {
 	conn := newConnection(s, s, "Test")
 	defer conn.Close()
 
-	ch := conn.ControlChannel()
+	st := conn.ControlStream()
 	// Inject a reply with invalid CBOR into the inbox.
-	ch.inbox <- packet{ChannelID: 0, MessageID: 1, IsReply: true, Payload: []byte{0xFF}}
+	st.inbox <- packet{StreamID: 0, MessageID: 1, IsReply: true, Payload: []byte{0xFF}}
 
-	_, err := ch.ReceiveResponse(1, 100*time.Millisecond)
+	_, err := st.ReceiveResponse(1, 100*time.Millisecond)
 	if err == nil {
 		t.Fatal("expected CBOR decode error from ReceiveResponse")
 	}
@@ -678,12 +678,12 @@ func TestReceiveResponseExtractCBORDictError(t *testing.T) {
 	conn := newConnection(s, s, "Test")
 	defer conn.Close()
 
-	ch := conn.ControlChannel()
+	st := conn.ControlStream()
 	// Inject a reply whose payload is a CBOR integer (not a dict).
 	payload, _ := encodeCBOR(int64(42))
-	ch.inbox <- packet{ChannelID: 0, MessageID: 1, IsReply: true, Payload: payload}
+	st.inbox <- packet{StreamID: 0, MessageID: 1, IsReply: true, Payload: payload}
 
-	_, err := ch.ReceiveResponse(1, 100*time.Millisecond)
+	_, err := st.ReceiveResponse(1, 100*time.Millisecond)
 	if err == nil {
 		t.Fatal("expected extractCBORDict error from ReceiveResponse")
 	}
@@ -696,20 +696,20 @@ func TestReceiveResponseRecvError(t *testing.T) {
 	s, _ := socketPair(t)
 	conn := newConnection(s, s, "Test")
 
-	ch := conn.ControlChannel()
+	st := conn.ControlStream()
 	// Close connection so recvResponseRaw returns an error.
 	go func() {
 		time.Sleep(10 * time.Millisecond)
 		conn.Close()
 	}()
 
-	_, err := ch.ReceiveResponse(1, 2*time.Second)
+	_, err := st.ReceiveResponse(1, 2*time.Second)
 	if err == nil {
 		t.Fatal("expected error from ReceiveResponse when connection closed")
 	}
 }
 
-// --- processOneMessage: reply packet routed to responses map (ch.responses nil) ---
+// --- processOneMessage: reply packet routed to responses map (st.responses nil) ---
 
 func TestProcessOneMessageRouteReplyNilResponses(t *testing.T) {
 	t.Parallel()
@@ -717,36 +717,36 @@ func TestProcessOneMessageRouteReplyNilResponses(t *testing.T) {
 	conn := newConnection(s, s, "Test")
 	defer conn.Close()
 
-	ch := conn.ControlChannel()
-	// ch.responses is nil (never initialized).
+	st := conn.ControlStream()
+	// st.responses is nil (never initialized).
 	// Put a reply packet directly in the inbox and call processOneMessage.
 	payload, _ := encodeCBOR(map[string]any{"result": int64(7)})
-	ch.inbox <- packet{ChannelID: 0, MessageID: 5, IsReply: true, Payload: payload}
+	st.inbox <- packet{StreamID: 0, MessageID: 5, IsReply: true, Payload: payload}
 
-	// processOneMessage is called with ch.responses == nil, exercising the init path.
-	if err := ch.processOneMessage(100 * time.Millisecond); err != nil {
+	// processOneMessage is called with st.responses == nil, exercising the init path.
+	if err := st.processOneMessage(100 * time.Millisecond); err != nil {
 		t.Fatalf("processOneMessage: %v", err)
 	}
-	if ch.responses == nil {
-		t.Error("ch.responses should have been initialized")
+	if st.responses == nil {
+		t.Error("st.responses should have been initialized")
 	}
-	if _, ok := ch.responses[5]; !ok {
-		t.Error("ch.responses[5] should contain the routed reply")
+	if _, ok := st.responses[5]; !ok {
+		t.Error("st.responses[5] should contain the routed reply")
 	}
 }
 
-// --- channelName: unnamed channel returns "channel N" ---
+// --- streamName: unnamed stream returns "stream N" ---
 
-func TestChannelNameUnnamed(t *testing.T) {
+func TestStreamNameUnnamed(t *testing.T) {
 	t.Parallel()
 	s, _ := socketPair(t)
 	conn := newConnection(s, s, "Test")
 	defer conn.Close()
 
-	// Create a channel with an empty name to exercise the unnamed branch.
-	ch := newChannel(conn, 42, "")
-	name := ch.String()
-	mustContain(t, name, "channel 42")
+	// Create a stream with an empty name to exercise the unnamed branch.
+	st := newStream(conn, 42, "")
+	name := st.String()
+	mustContain(t, name, "stream 42")
 }
 
 // --- Request: SendRequestRaw error path ---
@@ -759,8 +759,8 @@ func TestRequestSendError(t *testing.T) {
 	s.Close()
 	c.Close()
 
-	ch := &channel{conn: conn, channelID: 0, inbox: make(chan any, 1), nextMessageID: 1}
-	_, err := ch.Request([]byte("test"))
+	st := &stream{conn: conn, streamID: 0, inbox: make(chan any, 1), nextMessageID: 1}
+	_, err := st.Request([]byte("test"))
 	if err == nil {
 		t.Fatal("expected error from Request on closed conn")
 	}
@@ -773,12 +773,12 @@ func TestRecvRequestHappyPath(t *testing.T) {
 	conn := newConnection(s, s, "Test")
 	defer conn.Close()
 
-	ch := conn.ControlChannel()
+	st := conn.ControlStream()
 	// Inject a valid request packet with CBOR payload.
 	payload, _ := encodeCBOR(map[string]any{"command": "test"})
-	ch.inbox <- packet{ChannelID: 0, MessageID: 1, IsReply: false, Payload: payload}
+	st.inbox <- packet{StreamID: 0, MessageID: 1, IsReply: false, Payload: payload}
 
-	msgID, v, err := ch.RecvRequest(100 * time.Millisecond)
+	msgID, v, err := st.RecvRequest(100 * time.Millisecond)
 	if err != nil {
 		t.Fatalf("RecvRequest: %v", err)
 	}
@@ -797,12 +797,12 @@ func TestPendingRequestGetCached(t *testing.T) {
 	conn := newConnection(s, s, "Test")
 	defer conn.Close()
 
-	ch := conn.ControlChannel()
+	st := conn.ControlStream()
 	// Inject a reply so ReceiveResponse succeeds.
 	replyPayload, _ := encodeCBOR(map[string]any{"result": int64(42)})
-	ch.inbox <- packet{ChannelID: 0, MessageID: 1, IsReply: true, Payload: replyPayload}
+	st.inbox <- packet{StreamID: 0, MessageID: 1, IsReply: true, Payload: replyPayload}
 
-	p := &pendingRequest{ch: ch, msgID: 1}
+	p := &pendingRequest{st: st, msgID: 1}
 	v1, err1 := p.Get()
 	if err1 != nil {
 		t.Fatalf("first Get: %v", err1)

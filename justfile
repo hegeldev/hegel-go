@@ -7,7 +7,7 @@ export PATH := "/usr/local/go/bin:" + env("HOME") + "/go/bin:" + env("PATH")
 # Set HEGEL_SERVER_COMMAND to override the binary used at runtime.
 setup:
     uv venv .venv
-    uv pip install --python .venv/bin/python hegel-core==0.2.3
+    uv pip install --python .venv/bin/python hegel-core==0.3.0
 
 # Run tests with coverage, fail if below 100%.
 # We measure coverage only on the library package (not cmd/ binaries).
@@ -64,7 +64,7 @@ conformance: build-conformance
     #!/usr/bin/env bash
     set -euo pipefail
     export PATH="$(pwd)/.venv/bin:$PATH"
-    uv pip install --python .venv/bin/python pytest hypothesis > /dev/null 2>&1 || true
+    uv pip install --python .venv/bin/python hegel-core==0.3.0 pytest hypothesis
     .venv/bin/python -m pytest tests/conformance/ -v
 
 # Serve API documentation locally at http://localhost:8080.
