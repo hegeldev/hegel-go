@@ -87,3 +87,74 @@ func TestInstallUVFailsWithBadShell(t *testing.T) {
 		t.Fatal("expected error from installUVWithSh with bad shell")
 	}
 }
+
+func TestInstallUVMkdirFails(t *testing.T) {
+	t.Parallel()
+	// Use a file path as the cache dir so MkdirAll fails.
+	tmp := t.TempDir()
+	blocker := filepath.Join(tmp, "blocker")
+	os.WriteFile(blocker, []byte("not a dir"), 0o644) //nolint:errcheck
+	err := installUVWithSh(filepath.Join(blocker, "subdir"), "sh")
+	if err == nil {
+		t.Fatal("expected error when mkdir fails")
+	}
+}
+
+func TestInstallUVSuccess(t *testing.T) {
+	t.Parallel()
+	tmp := t.TempDir()
+	cacheDir := filepath.Join(tmp, "cache")
+
+	// Create a fake shell that writes a "uv" binary to the UV_UNMANAGED_INSTALL dir.
+	scriptDir := t.TempDir()
+	fakeShPath := filepath.Join(scriptDir, "fake_sh")
+	fakeShScript := `#!/bin/sh
+# Read and discard stdin (the installer script)
+cat > /dev/null
+# Create a fake uv binary in the install dir
+touch "$UV_UNMANAGED_INSTALL/uv"
+chmod +x "$UV_UNMANAGED_INSTALL/uv"
+`
+	os.WriteFile(fakeShPath, []byte(fakeShScript), 0o755) //nolint:errcheck
+
+	err := installUVWithSh(cacheDir, fakeShPath)
+	if err != nil {
+		t.Fatalf("installUVWithSh: %v", err)
+	}
+
+	// Verify the uv binary was created.
+	uvPath := filepath.Join(cacheDir, "uv")
+	if _, err := os.Stat(uvPath); err != nil {
+		t.Errorf("expected uv binary at %s, got error: %v", uvPath, err)
+	}
+}
+
+func TestFindUVImplInstallsAndReturnsCached(t *testing.T) {
+	tmp := t.TempDir()
+	cacheDir := filepath.Join(tmp, "cache")
+
+	// Mock installUVFn to create a fake uv binary.
+	origInstall := installUVFn
+	installUVFn = func(dir string) error {
+		os.MkdirAll(dir, 0o755) //nolint:errcheck
+		return os.WriteFile(filepath.Join(dir, "uv"), []byte("#!/bin/sh\n"), 0o755)
+	}
+	defer func() { installUVFn = origInstall }()
+
+	result, err := findUVImpl("", cacheDir)
+	if err != nil {
+		t.Fatalf("findUVImpl: %v", err)
+	}
+	expected := filepath.Join(cacheDir, "uv")
+	if result != expected {
+		t.Errorf("findUVImpl = %q, want %q", result, expected)
+	}
+}
+
+func TestFindInPathEmptyPATH(t *testing.T) {
+	t.Setenv("PATH", "")
+	result := findInPath("sh")
+	if result != "" {
+		t.Errorf("expected empty for empty PATH, got %q", result)
+	}
+}

@@ -32,13 +32,14 @@ func findUVImpl(pathUV, cacheDir string) (string, error) {
 	if info, err := os.Stat(cached); err == nil && !info.IsDir() {
 		return cached, nil
 	}
-	if err := installUV(cacheDir); err != nil {
+	if err := installUVFn(cacheDir); err != nil {
 		return "", err
 	}
 	return cached, nil
 }
 
-func installUV(cacheDir string) error {
+// installUVFn is the function used to install uv. Overridable in tests.
+var installUVFn = func(cacheDir string) error {
 	return installUVWithSh(cacheDir, "sh")
 }
 

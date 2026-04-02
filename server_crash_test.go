@@ -264,6 +264,16 @@ func TestServerCrashEmptyLog(t *testing.T) {
 	mustContainStr(t, err.Error(), "server process exited unexpectedly")
 }
 
+// --- testKillServer with no server ---
+
+func TestKillServerNoProcess(t *testing.T) {
+	old := globalSession
+	defer func() { globalSession = old }()
+	globalSession = newHegelSession()
+	// Should not panic when no server is running.
+	testKillServer()
+}
+
 // --- Server restart after kill ---
 
 func TestServerRestartsAfterKill(t *testing.T) {
