@@ -13,16 +13,17 @@ import (
 	"time"
 )
 
-// --- Helper: check hegel binary is available ---
-
-func hegelBinPath(t *testing.T) string {
+// hegelBinPath verifies the hegel binary is available (installed by just setup).
+func hegelBinPath(t *testing.T) {
 	t.Helper()
-	// justfile sets PATH=".venv/bin:$PATH" for tests; go test inherits it.
-	path, err := exec.LookPath("hegel")
-	if err != nil {
-		t.Skip("hegel binary not found in PATH -- skipping integration test")
+	root := getProjectRoot()
+	if findHegelInDir(filepath.Join(root, ".venv")) != "" {
+		return
 	}
-	return path
+	if _, err := exec.LookPath("hegel"); err == nil {
+		return
+	}
+	t.Skip("hegel binary not found -- run 'just setup'")
 }
 
 // --- RunHegelTest: basic passing test ---
@@ -232,52 +233,7 @@ func TestTargetOutsideContext(t *testing.T) {
 	s.Target(1.0, "x")
 }
 
-// --- findHegel: venv path ---
-
-func TestFindHegelInVenv(t *testing.T) {
-	t.Parallel()
-	tmp := t.TempDir()
-	binDir := tmp + "/bin"
-	os.MkdirAll(binDir, 0o755) //nolint:errcheck
-	hegelBin := binDir + "/hegel"
-	os.WriteFile(hegelBin, []byte("#!/bin/sh\n"), 0o755) //nolint:errcheck
-
-	result := findHegelInDir(tmp)
-	if result != hegelBin {
-		t.Errorf("findHegelInDir(%q) = %q, want %q", tmp, result, hegelBin)
-	}
-}
-
-func TestFindHegelVenvViaCwd(t *testing.T) {
-	resetProjectRoot(t)
-
-	tmp, _ := filepath.EvalSymlinks(t.TempDir())
-	venvBin := filepath.Join(tmp, ".venv", "bin")
-	os.MkdirAll(venvBin, 0o755) //nolint:errcheck
-	hegelBin := filepath.Join(venvBin, "hegel")
-	os.WriteFile(hegelBin, []byte("#!/bin/sh\n"), 0o755) //nolint:errcheck
-	// Create a project root marker so findHegel uses this directory.
-	os.WriteFile(filepath.Join(tmp, "go.mod"), []byte("module test\n"), 0o644) //nolint:errcheck
-
-	t.Chdir(tmp)
-
-	result := findHegel()
-	expected := filepath.Join(tmp, ".venv", "bin", "hegel")
-	if result != expected {
-		t.Errorf("findHegel() = %q, want %q", result, expected)
-	}
-}
-
-// --- findHegel: not in dir returns empty ---
-
-func TestFindHegelInDirMissing(t *testing.T) {
-	t.Parallel()
-	tmp := t.TempDir()
-	result := findHegelInDir(tmp)
-	if result != "" {
-		t.Errorf("findHegelInDir missing: got %q, want empty", result)
-	}
-}
+// --- findHegelInDir tests are in installer_test.go ---
 
 // --- hegelSession: start and cleanup ---
 
@@ -525,12 +481,11 @@ func TestConnectionErrorError(t *testing.T) {
 	}
 }
 
-// --- serverCrashMessage: fallback when logFile is nil ---
+// --- serverCrashMessageForLog: fallback when logPath is empty ---
 
 func TestServerCrashMessageNoLogFile(t *testing.T) {
 	t.Parallel()
-	s := newHegelSession()
-	msg := s.serverCrashMessage()
+	msg := serverCrashMessageForLog("")
 	mustContainStr(t, msg, "server process exited unexpectedly")
 }
 
@@ -644,17 +599,7 @@ func TestNoteIsFinalTrue(t *testing.T) {
 	state.Note("test note on final")
 }
 
-// --- findHegel: fallback when not in venv or PATH ---
-
-func TestFindHegelFallback(t *testing.T) {
-	t.Parallel()
-	// findHegel should return "hegel" as fallback when nothing found.
-	// We can't easily test this without mocking, but we can test findHegelInDir.
-	result := findHegelInDir("/nonexistent/path")
-	if result != "" {
-		t.Errorf("expected empty, got %q", result)
-	}
-}
+// --- findHegelInDir fallback test is in installer_test.go ---
 
 // --- hegelSession: start with spawn error ---
 
@@ -760,14 +705,16 @@ func TestHegelSessionRunTest(t *testing.T) {
 	}
 }
 
-// --- findHegel: uses cwd venv or PATH ---
+// --- hegelCommand: basic non-error check ---
 
-func TestFindHegel(t *testing.T) {
+func TestHegelCommandReturnsNonNil(t *testing.T) {
 	t.Parallel()
-	// Just verify it returns a non-empty string.
-	result := findHegel()
-	if result == "" {
-		t.Error("findHegel returned empty string")
+	cmd, err := hegelCommand()
+	if err != nil {
+		t.Skipf("hegelCommand: %v (uv not available)", err)
+	}
+	if cmd == nil {
+		t.Error("hegelCommand returned nil cmd")
 	}
 }
 
@@ -794,8 +741,14 @@ func TestHegelSessionStartInnerCheck(t *testing.T) {
 func TestHegelSessionStartHegelCmd(t *testing.T) {
 	t.Parallel()
 	hegelBinPath(t)
+	root := getProjectRoot()
+	path := findHegelInDir(filepath.Join(root, ".venv"))
+	if path == "" {
+		// Fall back to PATH if .venv doesn't have it.
+		path, _ = exec.LookPath("hegel")
+	}
 	s := newHegelSession()
-	s.hegelCmd = findHegel()
+	s.hegelCmd = path
 	defer s.cleanup()
 	if err := s.start(); err != nil {
 		t.Fatalf("start with hegelCmd: %v", err)
@@ -881,40 +834,7 @@ func TestHegelSessionStartHandshakeError(t *testing.T) {
 	mustContainStr(t, err.Error(), "handshake")
 }
 
-// --- findHegel: LookPath success and fallback ---
-
-func TestFindHegelLookPathAndFallback(t *testing.T) {
-	resetProjectRoot(t)
-	// Change to a temp dir without .venv so findHegelInDir returns "".
-	tmp := t.TempDir()
-	t.Chdir(tmp)
-
-	// Disable auto-installer so we test the PATH and fallback paths.
-	origUv := uvLookPathFn
-	uvLookPathFn = func() (string, error) {
-		return "", fmt.Errorf("uv not found")
-	}
-	defer func() { uvLookPathFn = origUv }()
-
-	// First: put hegel somewhere in PATH -> LookPath succeeds.
-	hegelBin := filepath.Join(tmp, "hegel")
-	if err := os.WriteFile(hegelBin, []byte("#!/bin/sh\n"), 0o755); err != nil {
-		t.Fatalf("write fake hegel: %v", err)
-	}
-	oldPath := os.Getenv("PATH")
-	t.Setenv("PATH", tmp+":"+oldPath)
-	result := findHegel()
-	if result != hegelBin {
-		t.Errorf("findHegel with PATH: got %q, want %q", result, hegelBin)
-	}
-
-	// Second: remove hegel from PATH -> fallback "hegel".
-	t.Setenv("PATH", "/nonexistent")
-	result = findHegel()
-	if result != "hegel" {
-		t.Errorf("findHegel fallback: got %q, want \"hegel\"", result)
-	}
-}
+// --- hegelCommand tests are in installer_test.go ---
 
 // =============================================================================
 // fatalSentinel.Error()
@@ -1061,17 +981,7 @@ func TestCaseNoteFnOnFinal(t *testing.T) {
 	}
 }
 
-// =============================================================================
-// findHegel — basic non-empty check (different from TestFindHegelFallback above)
-// =============================================================================
-
-func TestFindHegelReturnsNonEmpty(t *testing.T) {
-	t.Parallel()
-	result := findHegel()
-	if result == "" {
-		t.Error("findHegel should return non-empty string")
-	}
-}
+// --- hegelCommand: covered in installer_test.go ---
 
 // --- runTest: SendControlRequest error (closed connection) ---
 
