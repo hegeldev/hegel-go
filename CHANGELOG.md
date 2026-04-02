@@ -1,5 +1,9 @@
 # Changelog
 
+## 0.3.2 - 2026-04-02
+
+Update to new hegel-core protocol version.
+
 ## 0.3.1 - 2026-04-02
 
 Internal refactoring to drop `golang.org/x/exp/constraints` as a dependency.
