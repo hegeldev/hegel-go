@@ -5,9 +5,16 @@ import (
 	"math/big"
 	"time"
 	"unsafe"
-
-	"golang.org/x/exp/constraints"
 )
+
+type integer interface {
+	~int | ~int8 | ~int16 | ~int32 | ~int64 |
+		~uint | ~uint8 | ~uint16 | ~uint32 | ~uint64 | ~uintptr
+}
+
+type float interface {
+	~float32 | ~float64
+}
 
 // --- Built-in generators ---
 
@@ -45,12 +52,12 @@ func extractFloat(v any) float64 {
 }
 
 // extractIntAs extracts an integer from a CBOR-decoded value and converts it to T.
-func extractIntAs[T constraints.Integer](v any) T {
+func extractIntAs[T integer](v any) T {
 	return T(extractInt(v))
 }
 
 // extractFloatAs extracts a float from a CBOR-decoded value and converts it to T.
-func extractFloatAs[T constraints.Float](v any) T {
+func extractFloatAs[T float](v any) T {
 	return T(extractFloat(v))
 }
 
@@ -58,7 +65,7 @@ func extractFloatAs[T constraints.Float](v any) T {
 // For unbounded generation, use the full range of the type:
 //
 //	hegel.Integers[int](math.MinInt, math.MaxInt)
-func Integers[T constraints.Integer](minVal, maxVal T) Generator[T] {
+func Integers[T integer](minVal, maxVal T) Generator[T] {
 	if minVal > maxVal {
 		panic(fmt.Sprintf("hegel: Cannot have max_value=%d < min_value=%d", maxVal, minVal))
 	}
@@ -75,7 +82,7 @@ func Integers[T constraints.Integer](minVal, maxVal T) Generator[T] {
 // FloatGenerator configures and generates floating-point values of type T.
 // Use [Floats] to create one, then chain builder methods to configure bounds
 // and behavior. Invalid configurations panic on the first [Draw] call.
-type FloatGenerator[T constraints.Float] struct {
+type FloatGenerator[T float] struct {
 	minVal     *float64
 	maxVal     *float64
 	allowNaN   *bool
@@ -90,7 +97,7 @@ type FloatGenerator[T constraints.Float] struct {
 //	hegel.Floats[float64]()                         // any float64 including NaN and Inf
 //	hegel.Floats[float64]().Min(0).Max(1)           // bounded [0, 1]
 //	hegel.Floats[float32]().Min(0).ExcludeMin()     // (0, +Inf)
-func Floats[T constraints.Float]() FloatGenerator[T] {
+func Floats[T float]() FloatGenerator[T] {
 	return FloatGenerator[T]{}
 }
 
