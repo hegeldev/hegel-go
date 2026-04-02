@@ -67,7 +67,9 @@ func ExampleCase_assume() {
 	t.Run("division", hegel.Case(func(ht *hegel.T) {
 		n1 := hegel.Draw(ht, hegel.Integers(-1000, 1000))
 		n2 := hegel.Draw(ht, hegel.Integers(-1000, 1000))
-		ht.Assume(n2 != 0)
+		ht.Assume(n2 != 0) // discard the case where n2 is zero
+
+		// n2 is guaranteed non-zero from here
 		q, r := n1/n2, n1%n2
 		if n1 != q*n2+r {
 			ht.Fatalf("%d != %d*%d + %d", n1, q, n2, r)
@@ -95,7 +97,7 @@ func ExampleDraw_dependentGeneration() {
 		n := hegel.Draw(ht, hegel.Integers(1, 10))
 		lst := hegel.Draw(ht, hegel.Lists(
 			hegel.Integers(math.MinInt, math.MaxInt),
-		).MinSize(int(n)).MaxSize(int(n)))
+		).MinSize(n).MaxSize(n))
 		index := hegel.Draw(ht, hegel.Integers(0, n-1))
 		if index < 0 || index >= len(lst) {
 			ht.Fatal("index out of range")
@@ -122,7 +124,7 @@ func ExampleFlatMap() {
 
 func ExampleCase_note() {
 	t := &testing.T{}
-	t.Run("commutativity", hegel.Case(func(ht *hegel.T) {
+	t.Run("example", hegel.Case(func(ht *hegel.T) {
 		x := hegel.Draw(ht, hegel.Integers(-1000, 1000))
 		y := hegel.Draw(ht, hegel.Integers(-1000, 1000))
 		ht.Note(fmt.Sprintf("trying x=%d, y=%d", x, y))

@@ -73,5 +73,9 @@ serve-docs:
     go clean -cache
     pkgsite -http=:8080 .
 
-# Run lint + docs + test (the full CI check).
-check: lint docs test
+# Check README code examples appear in example_test.go.
+check-readme:
+    python3 scripts/check-readme-examples.py
+
+# Run lint + docs + test + readme check (the full CI check).
+check: lint docs test check-readme

@@ -32,6 +32,8 @@ jobs:
 
       - name: Lint
         run: just lint
+      - name: Check README examples
+        run: just check-readme
       - name: Install zizmor
         run: pip install zizmor
       - name: Run zizmor
