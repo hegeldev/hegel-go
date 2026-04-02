@@ -1,5 +1,9 @@
 # Changelog
 
+## 0.3.1 - 2026-04-02
+
+Internal refactoring to drop `golang.org/x/exp/constraints` as a dependency.
+
 ## 0.3.0 - 2026-04-02
 
 This release changes how hegel-core is installed and run, and improves server crash handling:
