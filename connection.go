@@ -469,10 +469,14 @@ func (ch *channel) processOneMessage(timeout time.Duration) error {
 		// When the pipe closes, the process has likely exited too. Wait
 		// briefly for the monitor goroutine to confirm so we can report
 		// a proper crash error instead of a generic "connection closed".
-		select {
-		case <-ch.conn.processExited:
-			return ch.conn.serverCrashError()
-		case <-time.After(100 * time.Millisecond):
+		// processExited is nil for connections without a subprocess (e.g.,
+		// test connections using net.Pipe); skip the wait in that case.
+		if ch.conn.processExited != nil {
+			select {
+			case <-ch.conn.processExited:
+				return ch.conn.serverCrashError()
+			case <-time.After(100 * time.Millisecond):
+			}
 		}
 		return fmt.Errorf("connection closed")
 	case <-timeoutCh:
