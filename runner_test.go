@@ -614,6 +614,31 @@ func TestHegelSessionSpawnError(t *testing.T) {
 	}
 }
 
+// --- hegelSession: start fails when hegelCommand() errors ---
+
+func TestHegelSessionStartHegelCommandError(t *testing.T) {
+	resetProjectRoot(t)
+	t.Setenv(hegelServerCommandEnv, "")
+
+	tmp, _ := filepath.EvalSymlinks(t.TempDir())
+	os.WriteFile(filepath.Join(tmp, "go.mod"), []byte("module test\n"), 0o644) //nolint:errcheck
+	t.Chdir(tmp)
+
+	// No .venv, no uv on PATH → hegelCommand() should fail.
+	t.Setenv("PATH", "/nonexistent")
+	t.Setenv("HOME", "/nonexistent")
+	t.Setenv("XDG_CACHE_HOME", filepath.Join(tmp, "cache"))
+
+	s := newHegelSession()
+	// hegelCmd is empty, so start() calls hegelCommand() which should fail.
+	err := s.start()
+	if err == nil {
+		s.cleanup()
+		t.Fatal("expected error when hegelCommand fails")
+	}
+	mustContainStr(t, err.Error(), "hegel")
+}
+
 // --- hegelSession: cleanup with erroring close ---
 
 func TestHegelSessionCleanupWithErrors(t *testing.T) {
