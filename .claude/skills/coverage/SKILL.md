@@ -7,7 +7,13 @@ description: "How to approach code coverage in this project. Use when coverage C
 
 This project requires 100% line coverage for new code, with explicit nocov annotations only allowed under rare circumstances and with human permission.
 
-Coverage is enforced by `scripts/check-coverage.py`, which parses Go coverage profiles and fails if any production code line is uncovered.
+This is implemented as a ratchet which counts the number of lines annotated as not requiring coverage. If the number of excluded lines exceeds the ratchet value, or if there are any uncovered lines without a `//nocov` annotation, the coverage check fails.
+
+## The ratchet is not a budget
+
+The nocov count in `.github/coverage-ratchet.json` tracks excluded lines and can only decrease. Just because previous work reduced the count does not mean you have implicit permission to add new uncovered lines. Think of the ratchet as immediately ratcheting down after any reduction — the slack is gone.
+
+You may not add `//nocov` annotations without explicit human permission. If you think code is genuinely untestable, your first move should be to refactor it for testability, not to annotate it. See `references/patterns.md` for testability refactoring examples.
 
 ## Writing good tests
 

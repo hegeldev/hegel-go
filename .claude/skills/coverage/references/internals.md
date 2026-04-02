@@ -6,20 +6,33 @@ The canonical source of truth for the behaviour is `scripts/check-coverage.py`, 
 
 ## How the coverage script works
 
-1. Sanitizes `coverage.out` — removes stray lines (e.g. test-count output) that `go test ./...` sometimes appends when running multiple packages.
+1. Sanitizes `coverage.out` — removes stray lines (test-count output, etc.) that `go test ./...` sometimes appends when running multiple packages.
 2. Runs `go tool cover -func=coverage.sanitized.out` to get per-function coverage.
-3. If total coverage is 100%, exits successfully.
-4. Otherwise, parses the Go coverage profile for uncovered regions.
-5. Merges duplicate entries — when `go test -coverpkg=PKG ./...` runs multiple test packages, each independently instruments PKG. Execution counts are summed so that a region covered by *any* test binary is not reported as uncovered.
-6. Checks each uncovered region against automatic false-positive filters.
-7. Reports any genuinely uncovered lines.
+3. Parses the Go coverage profile for uncovered regions, merging duplicate entries by summing execution counts.
+4. Checks each uncovered region against automatic false-positive filters.
+5. Reports any genuinely uncovered lines.
+6. Auto-removes `//nocov` annotations from lines that are now covered.
+7. Counts remaining `//nocov`-excluded lines and checks against the ratchet.
+8. If the count decreased, tightens the ratchet and updates `.github/coverage-ratchet.json`.
 
 ## Automatic exclusions
 
 These patterns are excluded without needing `//nocov`:
 
 - Structural syntax (closing braces `}`, `)`, `});`, empty lines)
-- Lines containing `//nocov`
+
+## nocov annotations
+
+Two forms are supported:
+
+- **Inline**: `code(); //nocov` — excludes that single line.
+- **Block**: `//nocov start` ... `//nocov end` on their own lines — excludes all lines between the markers.
+
+The script auto-removes inline `//nocov` from lines that turn out to be covered. Block markers are never auto-removed.
+
+## Ratchet mechanism
+
+The total count of `//nocov`-excluded lines (inline annotations + lines inside blocks) is tracked in `.github/coverage-ratchet.json`. This count may only decrease. If the script finds fewer excluded lines than the ratchet allows, it tightens the ratchet automatically.
 
 ## Coverage profile format
 
@@ -29,7 +42,7 @@ Go coverage profiles use this format per line:
 module/path/file.go:startLine.startCol,endLine.endCol numStatements executionCount
 ```
 
-The script uses **line-level** analysis — a line with execution count > 0 is covered. This means inline closures on covered lines don't need separate tests.
+When `go test -coverpkg=PKG ./...` runs multiple test packages, each independently instruments PKG and writes its own entries. The script merges duplicates by summing execution counts so that a region covered by any test binary is not reported as uncovered.
 
 ## File path resolution
 

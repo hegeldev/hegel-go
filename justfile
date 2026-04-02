@@ -23,8 +23,12 @@ test:
 format:
     gofmt -w .
 
+# Check //nocov annotation style.
+check-nocov-style:
+    python3 scripts/check-nocov-style.py
+
 # Check formatting + linting.
-lint:
+lint: check-nocov-style
     #!/usr/bin/env bash
     set -euo pipefail
     # Check formatting
