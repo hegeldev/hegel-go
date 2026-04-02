@@ -375,8 +375,8 @@ func (ch *channel) SendReplyError(msgID uint32, errMsg, errType string) error {
 		"error": errMsg,
 		"type":  errType,
 	})
-	if err != nil { //nocov
-		panic(fmt.Sprintf("hegel: SendReplyError encode: %v", err)) //nocov
+	if err != nil { // coverage-ignore
+		panic(fmt.Sprintf("hegel: SendReplyError encode: %v", err))
 	}
 	return ch.SendReplyRaw(msgID, payload)
 }

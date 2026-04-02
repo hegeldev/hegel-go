@@ -223,12 +223,12 @@ func startSpan(gs *TestCase, label spanLabel) {
 		"command": "start_span",
 		"label":   int64(label),
 	})
-	if err != nil { //nocov
-		panic(fmt.Sprintf("hegel: startSpan encode: %v", err)) //nocov
+	if err != nil { // coverage-ignore
+		panic(fmt.Sprintf("hegel: startSpan encode: %v", err))
 	}
 	pending, err := ch.Request(payload)
-	if err != nil { //nocov
-		panic(fmt.Sprintf("hegel: startSpan request: %v", err)) //nocov
+	if err != nil { // coverage-ignore
+		panic(fmt.Sprintf("hegel: startSpan request: %v", err))
 	}
 	pending.Get() //nolint:errcheck
 }
@@ -243,12 +243,12 @@ func stopSpan(gs *TestCase, discard bool) {
 		"command": "stop_span",
 		"discard": discard,
 	})
-	if err != nil { //nocov
-		panic(fmt.Sprintf("hegel: stopSpan encode: %v", err)) //nocov
+	if err != nil { // coverage-ignore
+		panic(fmt.Sprintf("hegel: stopSpan encode: %v", err))
 	}
 	pending, err := ch.Request(payload)
-	if err != nil { //nocov
-		panic(fmt.Sprintf("hegel: stopSpan request: %v", err)) //nocov
+	if err != nil { // coverage-ignore
+		panic(fmt.Sprintf("hegel: stopSpan request: %v", err))
 	}
 	pending.Get() //nolint:errcheck
 }
@@ -288,12 +288,12 @@ func newCollection(gs *TestCase, minSize, maxSize int) *collection {
 		"min_size": int64(minSize),
 		"max_size": int64(maxSize),
 	})
-	if err != nil { //nocov
-		panic(fmt.Sprintf("hegel: newCollection encode: %v", err)) //nocov
+	if err != nil { // coverage-ignore
+		panic(fmt.Sprintf("hegel: newCollection encode: %v", err))
 	}
 	pending, err := ch.Request(payload)
-	if err != nil { //nocov
-		panic(fmt.Sprintf("hegel: newCollection request: %v", err)) //nocov
+	if err != nil { // coverage-ignore
+		panic(fmt.Sprintf("hegel: newCollection request: %v", err))
 	}
 	v, err := pending.Get()
 	if err != nil {
@@ -302,7 +302,7 @@ func newCollection(gs *TestCase, minSize, maxSize int) *collection {
 			gs.aborted = true
 			panic(&dataExhausted{msg: "server ran out of data (new_collection)"})
 		}
-		panic(fmt.Sprintf("hegel: new_collection error: %v", err)) //nocov
+		panic(fmt.Sprintf("hegel: new_collection error: %v", err)) // coverage-ignore
 	}
 	name, _ := v.(string)
 	return &collection{serverName: name}
@@ -310,7 +310,7 @@ func newCollection(gs *TestCase, minSize, maxSize int) *collection {
 
 // More asks the server whether another element should be generated.
 func (c *collection) More(gs *TestCase) bool {
-	if c.finished { //nocov
+	if c.finished { // coverage-ignore
 		return false
 	}
 	ch := gs.channel
@@ -318,12 +318,12 @@ func (c *collection) More(gs *TestCase) bool {
 		"command":    "collection_more",
 		"collection": c.serverName,
 	})
-	if err != nil { //nocov
-		panic(fmt.Sprintf("hegel: collection.More encode: %v", err)) //nocov
+	if err != nil { // coverage-ignore
+		panic(fmt.Sprintf("hegel: collection.More encode: %v", err))
 	}
 	pending, err := ch.Request(payload)
-	if err != nil { //nocov
-		panic(fmt.Sprintf("hegel: More request: %v", err)) //nocov
+	if err != nil { // coverage-ignore
+		panic(fmt.Sprintf("hegel: More request: %v", err))
 	}
 	v, err := pending.Get()
 	if err != nil {
@@ -332,7 +332,7 @@ func (c *collection) More(gs *TestCase) bool {
 			gs.aborted = true
 			panic(&dataExhausted{msg: "server ran out of data (collection_more)"})
 		}
-		panic(fmt.Sprintf("hegel: collection_more error: %v", err)) //nocov
+		panic(fmt.Sprintf("hegel: collection_more error: %v", err)) // coverage-ignore
 	}
 	more, _ := v.(bool)
 	if !more {
@@ -351,12 +351,12 @@ func (c *collection) Reject(gs *TestCase) {
 		"command":    "collection_reject",
 		"collection": c.serverName,
 	})
-	if err != nil { //nocov
-		panic(fmt.Sprintf("hegel: collection.Reject encode: %v", err)) //nocov
+	if err != nil { // coverage-ignore
+		panic(fmt.Sprintf("hegel: collection.Reject encode: %v", err))
 	}
 	pending, err := ch.Request(payload)
-	if err != nil { //nocov
-		panic(fmt.Sprintf("hegel: Reject request: %v", err)) //nocov
+	if err != nil { // coverage-ignore
+		panic(fmt.Sprintf("hegel: Reject request: %v", err))
 	}
 	pending.Get() //nolint:errcheck
 }
