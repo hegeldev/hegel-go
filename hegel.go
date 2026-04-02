@@ -20,10 +20,10 @@
 // You're now ready to write your first test. Hegel integrates directly with
 // go test via [Case], which returns a func(*testing.T) for use with t.Run:
 //
-//	t.Run("self_equality", hegel.Case(func(ht *hegel.T) {
+//	t.Run("addition_identity", hegel.Case(func(ht *hegel.T) {
 //		n := hegel.Draw(ht, hegel.Integers(math.MinInt, math.MaxInt))
-//		if n != n { // integers should always be equal to themselves
-//			ht.Fatal("integer not equal to itself")
+//		if n+0 != n { // adding zero should never change a number
+//			ht.Fatal("addition identity failed")
 //		}
 //	}))
 //
@@ -32,7 +32,8 @@
 // Let's look at what's happening in more detail. [Case] runs your test
 // many times (100, by default). The test function receives a *[T],
 // which is used with the [Draw] function for producing different values.
-// This test draws a random integer and checks that it is equal to itself.
+// This test draws a random integer and checks that adding zero does not
+// change it.
 //
 // Next, try a test that fails:
 //
@@ -145,8 +146,8 @@
 //
 //	t.Run("many_cases", hegel.Case(func(ht *hegel.T) {
 //		n := hegel.Draw(ht, hegel.Integers(math.MinInt, math.MaxInt))
-//		if n != n {
-//			ht.Fatal("integer not equal to itself")
+//		if n+0 != n {
+//			ht.Fatal("addition identity failed")
 //		}
 //	}, hegel.WithTestCases(500)))
 //

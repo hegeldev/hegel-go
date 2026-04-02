@@ -20,12 +20,12 @@ func ExampleCase() {
 	}))
 }
 
-func ExampleCase_selfEquality() {
+func ExampleCase_additionIdentity() {
 	t := &testing.T{}
-	t.Run("self_equality", hegel.Case(func(ht *hegel.T) {
+	t.Run("addition_identity", hegel.Case(func(ht *hegel.T) {
 		n := hegel.Draw(ht, hegel.Integers(math.MinInt, math.MaxInt))
-		if n != n { // integers should always be equal to themselves
-			ht.Fatal("integer not equal to itself")
+		if n+0 != n { // adding zero should never change a number
+			ht.Fatal("addition identity failed")
 		}
 	}))
 }
@@ -112,8 +112,8 @@ func ExampleCase_withTestCases() {
 	t := &testing.T{}
 	t.Run("many_cases", hegel.Case(func(ht *hegel.T) {
 		n := hegel.Draw(ht, hegel.Integers(math.MinInt, math.MaxInt))
-		if n != n {
-			ht.Fatal("integer not equal to itself")
+		if n+0 != n {
+			ht.Fatal("addition identity failed")
 		}
 	}, hegel.WithTestCases(500)))
 }
