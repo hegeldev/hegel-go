@@ -191,33 +191,6 @@ func TestGetHegelDirectoryIsCached(t *testing.T) {
 	}
 }
 
-func TestHegelCommandUsesProjectRoot(t *testing.T) {
-	resetProjectRoot(t)
-	t.Setenv(hegelServerCommandEnv, "")
-
-	tmp, _ := filepath.EvalSymlinks(t.TempDir())
-	sub := filepath.Join(tmp, "pkg")
-	os.MkdirAll(sub, 0o755) //nolint:errcheck
-	// Create go.mod in tmp (the project root).
-	os.WriteFile(filepath.Join(tmp, "go.mod"), []byte("module test\n"), 0o644) //nolint:errcheck
-	// Create .venv/bin/hegel in the project root.
-	venvBin := filepath.Join(tmp, ".venv", "bin")
-	os.MkdirAll(venvBin, 0o755) //nolint:errcheck
-	hegelBin := filepath.Join(venvBin, "hegel")
-	os.WriteFile(hegelBin, []byte("#!/bin/sh\n"), 0o755) //nolint:errcheck
-
-	// cwd is a subdirectory (simulating go test running from a package dir).
-	t.Chdir(sub)
-
-	cmd, err := hegelCommand()
-	if err != nil {
-		t.Fatalf("hegelCommand: %v", err)
-	}
-	if cmd.Args[0] != hegelBin {
-		t.Errorf("hegelCommand().Args[0] = %q, want %q", cmd.Args[0], hegelBin)
-	}
-}
-
 func TestFindProjectRootGetwdError(t *testing.T) {
 	orig := getwdFn
 	getwdFn = func() (string, error) {

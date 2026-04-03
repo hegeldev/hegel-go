@@ -13,17 +13,16 @@ import (
 	"time"
 )
 
-// hegelBinPath verifies the hegel binary is available (installed by just setup).
+// hegelBinPath verifies the hegel binary is available (via uv tool run or PATH).
 func hegelBinPath(t *testing.T) {
 	t.Helper()
-	root := getProjectRoot()
-	if findHegelInDir(filepath.Join(root, ".venv")) != "" {
+	if _, err := findUV(); err == nil {
 		return
 	}
 	if _, err := exec.LookPath("hegel"); err == nil {
 		return
 	}
-	t.Skip("hegel binary not found -- run 'just setup'")
+	t.Skip("hegel binary not found -- install uv or put hegel on PATH")
 }
 
 // --- RunHegelTest: basic passing test ---
@@ -232,8 +231,6 @@ func TestTargetOutsideContext(t *testing.T) {
 	s := &TestCase{} // stream is nil -> panic
 	s.Target(1.0, "x")
 }
-
-// --- findHegelInDir tests are in installer_test.go ---
 
 // --- hegelSession: start and cleanup ---
 
@@ -599,8 +596,6 @@ func TestNoteIsFinalTrue(t *testing.T) {
 	state.Note("test note on final")
 }
 
-// --- findHegelInDir fallback test is in installer_test.go ---
-
 // --- hegelSession: start with spawn error ---
 
 func TestHegelSessionSpawnError(t *testing.T) {
@@ -624,7 +619,7 @@ func TestHegelSessionStartHegelCommandError(t *testing.T) {
 	os.WriteFile(filepath.Join(tmp, "go.mod"), []byte("module test\n"), 0o644) //nolint:errcheck
 	t.Chdir(tmp)
 
-	// No .venv, no uv on PATH → hegelCommand() should fail.
+	// No uv on PATH → hegelCommand() should fail.
 	t.Setenv("PATH", "/nonexistent")
 	t.Setenv("HOME", "/nonexistent")
 	t.Setenv("XDG_CACHE_HOME", filepath.Join(tmp, "cache"))
@@ -766,11 +761,9 @@ func TestHegelSessionStartInnerCheck(t *testing.T) {
 func TestHegelSessionStartHegelCmd(t *testing.T) {
 	t.Parallel()
 	hegelBinPath(t)
-	root := getProjectRoot()
-	path := findHegelInDir(filepath.Join(root, ".venv"))
+	path, _ := exec.LookPath("hegel")
 	if path == "" {
-		// Fall back to PATH if .venv doesn't have it.
-		path, _ = exec.LookPath("hegel")
+		t.Skip("hegel binary not on PATH")
 	}
 	s := newHegelSession()
 	s.hegelCmd = path
@@ -824,10 +817,10 @@ func TestRunHegelTestEProtocolModeStartError(t *testing.T) {
 	// Set HEGEL_PROTOCOL_TEST_MODE so RunHegelTestE uses a temp session.
 	t.Setenv("HEGEL_PROTOCOL_TEST_MODE", "empty_test")
 
-	tmp := t.TempDir() // no .venv here
+	tmp := t.TempDir()
 	t.Chdir(tmp)
 
-	// Block all paths to finding hegel/uv: no PATH, no cached uv, no venv.
+	// Block all paths to finding hegel/uv: no PATH, no cached uv.
 	t.Setenv("PATH", "/nonexistent")
 	t.Setenv("HOME", "/nonexistent")
 	t.Setenv("XDG_CACHE_HOME", filepath.Join(tmp, "cache"))
