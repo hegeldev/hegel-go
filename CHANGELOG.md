@@ -1,5 +1,9 @@
 # Changelog
 
+## 0.0.1 - 2026-04-03
+
+Rewrite the getting-started guide in the package documentation to match the structure and prose of the Rust library's guide, covering prerequisites, first test, generators, composite data, debugging with Note, and configuring test cases.
+
 ## 0.3.2 - 2026-04-02
 
 Update to new hegel-core protocol version.
