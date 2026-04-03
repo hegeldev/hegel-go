@@ -15,10 +15,7 @@ property-based testing library. See https://hegel.dev/compatibility for details.
 go get hegel.dev/go/hegel@latest
 ```
 
-Hegel requires either:
-
-* [`uv`](https://docs.astral.sh/uv/) on your system,
-* or `HEGEL_SERVER_COMMAND` set to the path of a hegel-core binary.
+Hegel will use [uv](https://docs.astral.sh/uv/) to install the required [hegel-core](https://github.com/hegeldev/hegel-core) server component. If `uv` is already on your path, it will use that, otherwise it will download a private copy of it to `~/.cache/hegel` and not put it on your path. See https://hegel.dev/reference/installation for details.
 
 ## Quick example
 
@@ -33,7 +30,7 @@ import (
 
 func TestIntegers(t *testing.T) {
 	t.Run("integers", hegel.Case(func(ht *hegel.T) {
-		n := hegel.Draw(ht, hegel.Integers(0, 200))
+		n := hegel.Draw(ht, hegel.Integers[int]().Min(0).Max(200))
 		if n >= 50 {
 			ht.Fatalf("n=%d is too large", n)
 		}
@@ -41,5 +38,4 @@ func TestIntegers(t *testing.T) {
 }
 ```
 
-See the [full documentation](https://pkg.go.dev/hegel.dev/go/hegel) for a
-getting-started guide, generator reference, and API docs.
+See the [full documentation](https://pkg.go.dev/hegel.dev/go/hegel) for a getting-started guide, generator reference, and API docs.
