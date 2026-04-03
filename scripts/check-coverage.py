@@ -86,8 +86,6 @@ def check_ratchet() -> int:
     if current < limit:
         print(f"\u2705 Ratchet tightened: {limit} \u2192 {current}")
         save_ratchet(current)
-    else:
-        print(f"\u2705 Ratchet holds at {current}")
 
     return 0
 
