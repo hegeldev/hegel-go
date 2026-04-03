@@ -26,6 +26,7 @@ Here's a quick example of how to write a Hegel test:
 package example_test
 
 import (
+	"math"
 	"slices"
 	"testing"
 
@@ -42,7 +43,7 @@ func mySort(ls []int) []int {
 
 func TestMatchesBuiltin(t *testing.T) {
 	t.Run("matches builtin", hegel.Case(func(ht *hegel.T) {
-		slice1 := hegel.Draw(ht, hegel.Lists(hegel.Integers[int]()))
+		slice1 := hegel.Draw(ht, hegel.Lists(hegel.Integers(math.MinInt, math.MaxInt)))
 		slice2 := mySort(slice1)
 		slices.Sort(slice1)
 		if !slices.Equal(slice1, slice2) {
