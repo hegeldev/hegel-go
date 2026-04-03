@@ -59,7 +59,7 @@ def get_current_version() -> str:
         tag = git("describe", "--tags", "--abbrev=0", cwd=ROOT)
         return tag.removeprefix("v")
     except subprocess.CalledProcessError:
-        return "0.0.0"
+        return "0.1.0"
 
 
 def add_changelog(path: Path, *, version: str, content: str) -> None:
