@@ -98,4 +98,21 @@ func TestDocExamplesCompile(t *testing.T) {
 	if out, err := cmd.CombinedOutput(); err != nil {
 		t.Fatalf("doc examples failed to compile:\n%s", out)
 	}
+
+	cmd = exec.Command("go", "vet", "./...")
+	cmd.Dir = tmpdir
+	if out, err := cmd.CombinedOutput(); err != nil {
+		t.Fatalf("go vet failed on doc examples:\n%s", out)
+	}
+
+	for i, content := range files {
+		filename := filepath.Join(tmpdir, fmt.Sprintf("ex%d_test.go", i))
+		cmd = exec.Command("gofmt", "-l", filename)
+		if out, err := cmd.CombinedOutput(); err != nil {
+			t.Fatalf("gofmt failed on doc example %d:\n%s", i, out)
+		} else if len(strings.TrimSpace(string(out))) > 0 {
+			formatted, _ := exec.Command("gofmt", filename).CombinedOutput()
+			t.Errorf("doc example %d is not gofmt-formatted.\nOriginal:\n%s\nFormatted:\n%s", i, content, formatted)
+		}
+	}
 }
