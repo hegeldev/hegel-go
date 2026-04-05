@@ -38,7 +38,7 @@ build-conformance:
     go build -o bin/conformance ./internal/conformance/cmd/...
 
 conformance: build-conformance
-    uv run --with hegel-core --with pytest --with hypothesis \
+    uv run --with 'hegel-core==0.3.0' --with pytest --with hypothesis \
         pytest tests/conformance/ -v
 
 serve-docs:
