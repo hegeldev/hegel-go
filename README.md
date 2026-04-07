@@ -10,7 +10,7 @@
 * [Documentation](https://pkg.go.dev/hegel.dev/go/hegel)
 * [Hegel website](https://hegel.dev)
 
-`hegel-go` is a property-based testing library for Go. `hegel-go` is based on [Hypothesis](https://github.com/hypothesisworks/hypothesis), using the [Hegel](https://hegel.dev/) protocol.
+Hegel is a property-based testing library for Go. Hegel is based on [Hypothesis](https://github.com/hypothesisworks/hypothesis), using the [Hegel protocol](https://hegel.dev/).
 
 ## Installation
 

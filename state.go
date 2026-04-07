@@ -19,14 +19,14 @@ type T struct {
 
 // Shadowed methods — override testing.T behavior for Hegel compatibility.
 
-// Fatal logs the message via [T.Note] and marks the test case as failed.
+// Fatal logs the message via [TestCase.Note] and marks the test case as failed.
 func (t *T) Fatal(args ...any) {
 	msg := fmt.Sprint(args...)
 	t.Note(msg)
 	panic(fatalSentinel{msg: msg})
 }
 
-// Fatalf logs the formatted message via [T.Note] and marks the test case as failed.
+// Fatalf logs the formatted message via [TestCase.Note] and marks the test case as failed.
 func (t *T) Fatalf(format string, args ...any) {
 	msg := fmt.Sprintf(format, args...)
 	t.Note(msg)
@@ -55,7 +55,7 @@ func (t *T) SkipNow() {
 	t.Assume(false)
 }
 
-// Error logs the message via [T.Note] and sets the failed flag.
+// Error logs the message via [TestCase.Note] and sets the failed flag.
 //
 // The test case continues running but will be treated as a failure after return.
 func (t *T) Error(args ...any) {
@@ -64,7 +64,7 @@ func (t *T) Error(args ...any) {
 	t.TestCase.failed = true
 }
 
-// Errorf logs the formatted message via [T.Note] and sets the failed flag.
+// Errorf logs the formatted message via [TestCase.Note] and sets the failed flag.
 func (t *T) Errorf(format string, args ...any) {
 	msg := fmt.Sprintf(format, args...)
 	t.Note(msg)
@@ -81,12 +81,12 @@ func (t *T) Failed() bool {
 	return t.TestCase.failed
 }
 
-// Log routes the message through [T.Note] (only emitted on final replay).
+// Log routes the message through [TestCase.Note] (only emitted on final replay).
 func (t *T) Log(args ...any) {
 	t.Note(fmt.Sprint(args...))
 }
 
-// Logf routes the formatted message through [T.Note].
+// Logf routes the formatted message through [TestCase.Note].
 func (t *T) Logf(format string, args ...any) {
 	t.Note(fmt.Sprintf(format, args...))
 }
