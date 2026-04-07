@@ -122,8 +122,8 @@ jobs:
       - name: Install just
         run: sudo apt-get update && sudo apt-get install -y just
 
-      - name: Check doc comments
-        run: just docs
+      - name: Check docs
+        run: just check-docs
 
   conformance:
     name: conformance
