@@ -5,13 +5,13 @@
 //
 // This guide walks you through the basics of installing Hegel and writing your first tests.
 //
-// ## Install Hegel
+// # Install Hegel
 //
 // Add hegel to your module using go get:
 //
 //	go get hegel.dev/go/hegel@latest
 //
-// ## Write your first test
+// # Write your first test
 //
 // You're now ready to write your first test. Hegel integrates directly with
 // go test via [Case], which returns a func(*testing.T) for use with t.Run:
@@ -63,7 +63,7 @@
 //
 // Run the test again. It should now pass.
 //
-// ## Use generators
+// # Use generators
 //
 // Hegel provides a rich library of generators that you can use out of the
 // box. There are primitive generators, such as [Integers], [Floats], and
@@ -127,9 +127,9 @@
 //		}))
 //	}
 //
-// ## Debug your failing test cases
+// # Debug your failing test cases
 //
-// Use the [T.Note] method to attach debug information:
+// Use the [TestCase.Note] method to attach debug information:
 //
 //	func TestWithNotes(t *testing.T) {
 //		t.Run("with_notes", hegel.Case(func(ht *hegel.T) {
@@ -144,7 +144,7 @@
 //
 // Notes only appear when Hegel replays the minimal failing example.
 //
-// ## Change the number of test cases
+// # Change the number of test cases
 //
 // By default Hegel runs 100 test cases. To override this, pass
 // [WithTestCases]:
@@ -158,7 +158,7 @@
 //		}, hegel.WithTestCases(500)))
 //	}
 //
-// ## Learning more
+// # Learning more
 //
 //   - Browse the function documentation for the full list of available
 //     generators.

@@ -3,8 +3,6 @@ export PATH := "/usr/local/go/bin:" + env("HOME") + "/go/bin:" + env("PATH")
 # Run tests with coverage.
 # We measure coverage only on the library package (not cmd/ binaries).
 test:
-    #!/usr/bin/env bash
-    set -euo pipefail
     go test -race -coverprofile=coverage.out -covermode=atomic \
         -coverpkg=hegel.dev/go/hegel \
         ./...
@@ -25,15 +23,14 @@ lint:
     go vet ./...
     go tool staticcheck ./...
 
-docs:
-    #!/usr/bin/env bash
-    set -euo pipefail
-    # Verify all exported symbols have doc comments using go vet
+check-docs:
+    # verify all exported symbols have doc comments
     go doc -all . > /dev/null 2>&1
 
+docs:
+    go doc -http .
+
 build-conformance:
-    #!/usr/bin/env bash
-    set -euo pipefail
     mkdir -p bin/conformance
     go build -o bin/conformance ./internal/conformance/cmd/...
 
@@ -41,10 +38,5 @@ conformance: build-conformance
     uv run --with 'hegel-core==0.3.0' --with pytest --with hypothesis \
         pytest tests/conformance/ -v
 
-serve-docs:
-    go install golang.org/x/pkgsite/cmd/pkgsite@latest
-    go clean -cache
-    pkgsite -http=:8080 .
-
 # Run lint + docs + test (the full CI check).
-check: lint docs test
+check: lint check-docs test
