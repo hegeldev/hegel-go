@@ -81,10 +81,10 @@ func TestMappedGeneratorMapOnBasicInner(t *testing.T) {
 func TestCollectionStopTestOnNewCollection(t *testing.T) {
 	hegelBinPath(t)
 	t.Setenv("HEGEL_PROTOCOL_TEST_MODE", "stop_test_on_new_collection")
-	err := runHegel(func(s *TestCase) {
+	err := Run(func(s *TestCase) {
 		coll := newCollection(s, 0, 5)
 		_ = coll.More(s)
-	}, stderrNoteFn, nil)
+	})
 	// Should not error -- the test was stopped, not failed.
 	_ = err
 }
@@ -94,10 +94,10 @@ func TestCollectionStopTestOnNewCollection(t *testing.T) {
 func TestCollectionStopTestOnCollectionMore(t *testing.T) {
 	hegelBinPath(t)
 	t.Setenv("HEGEL_PROTOCOL_TEST_MODE", "stop_test_on_collection_more")
-	err := runHegel(func(s *TestCase) {
+	err := Run(func(s *TestCase) {
 		coll := newCollection(s, 0, 5)
 		_ = coll.More(s)
-	}, stderrNoteFn, nil)
+	})
 	_ = err
 }
 
@@ -145,13 +145,13 @@ func TestIntegersGeneratorHappyPath(t *testing.T) {
 	t.Parallel()
 	hegelBinPath(t)
 	var vals []int64
-	if _err := runHegel(func(s *TestCase) {
+	if _err := Run(func(s *TestCase) {
 		v := Draw[int64](s, Integers[int64](0, 100))
 		vals = append(vals, v)
 		if v < 0 || v > 100 {
 			panic(fmt.Sprintf("out of range: %d", v))
 		}
-	}, stderrNoteFn, []Option{WithTestCases(10)}); _err != nil {
+	}, WithTestCases(10)); _err != nil {
 		panic(_err)
 	}
 	if len(vals) == 0 {
@@ -219,12 +219,12 @@ func TestJustTransformIgnoresInput(t *testing.T) {
 func TestJustE2E(t *testing.T) {
 	t.Parallel()
 	hegelBinPath(t)
-	if _err := runHegel(func(s *TestCase) {
+	if _err := Run(func(s *TestCase) {
 		v := Draw[int](s, Just(42))
 		if v != 42 {
 			panic(fmt.Sprintf("Just: expected 42, got %v", v))
 		}
-	}, stderrNoteFn, []Option{WithTestCases(20)}); _err != nil {
+	}, WithTestCases(20)); _err != nil {
 		panic(_err)
 	}
 }
@@ -235,12 +235,12 @@ func TestJustNonPrimitive(t *testing.T) {
 	hegelBinPath(t)
 	type myStruct struct{ x int }
 	val := &myStruct{x: 99}
-	if _err := runHegel(func(s *TestCase) {
+	if _err := Run(func(s *TestCase) {
 		v := Draw[*myStruct](s, Just(val))
 		if v != val {
 			panic("Just: pointer identity not preserved")
 		}
-	}, stderrNoteFn, []Option{WithTestCases(10)}); _err != nil {
+	}, WithTestCases(10)); _err != nil {
 		panic(_err)
 	}
 }
@@ -298,12 +298,12 @@ func TestSampledFromTransformMapsIndices(t *testing.T) {
 func TestSampledFromSingleElement(t *testing.T) {
 	t.Parallel()
 	hegelBinPath(t)
-	if _err := runHegel(func(s *TestCase) {
+	if _err := Run(func(s *TestCase) {
 		v := Draw[string](s, SampledFrom([]string{"only"}))
 		if v != "only" {
 			panic(fmt.Sprintf("SampledFrom single: expected 'only', got %v", v))
 		}
-	}, stderrNoteFn, []Option{WithTestCases(20)}); _err != nil {
+	}, WithTestCases(20)); _err != nil {
 		panic(_err)
 	}
 }
@@ -315,7 +315,7 @@ func TestSampledFromE2E(t *testing.T) {
 	hegelBinPath(t)
 	choices := []string{"apple", "banana", "cherry"}
 	seen := map[string]bool{}
-	if _err := runHegel(func(s *TestCase) {
+	if _err := Run(func(s *TestCase) {
 		v := Draw[string](s, SampledFrom(choices))
 		found := false
 		for _, c := range choices {
@@ -328,7 +328,7 @@ func TestSampledFromE2E(t *testing.T) {
 			panic(fmt.Sprintf("SampledFrom: value %q not in choices", v))
 		}
 		seen[v] = true
-	}, stderrNoteFn, []Option{WithTestCases(100)}); _err != nil {
+	}, WithTestCases(100)); _err != nil {
 		panic(_err)
 	}
 	// After 100 cases we expect all 3 values to have appeared.
@@ -347,12 +347,12 @@ func TestSampledFromNonPrimitive(t *testing.T) {
 	type myStruct struct{ x int }
 	obj1 := &myStruct{x: 1}
 	obj2 := &myStruct{x: 2}
-	if _err := runHegel(func(s *TestCase) {
+	if _err := Run(func(s *TestCase) {
 		v := Draw[*myStruct](s, SampledFrom([]*myStruct{obj1, obj2}))
 		if v != obj1 && v != obj2 {
 			panic("SampledFrom: value is not one of the original pointers")
 		}
-	}, stderrNoteFn, []Option{WithTestCases(10)}); _err != nil {
+	}, WithTestCases(10)); _err != nil {
 		panic(_err)
 	}
 }
@@ -392,7 +392,7 @@ func TestFromRegexE2E(t *testing.T) {
 	t.Parallel()
 	hegelBinPath(t)
 	// Only digits, 1-5 chars
-	if _err := runHegel(func(s *TestCase) {
+	if _err := Run(func(s *TestCase) {
 		v := Draw[string](s, FromRegex(`[0-9]{1,5}`, true))
 		if len(v) == 0 || len(v) > 5 {
 			panic(fmt.Sprintf("FromRegex: length out of range: %q", v))
@@ -402,7 +402,7 @@ func TestFromRegexE2E(t *testing.T) {
 				panic(fmt.Sprintf("FromRegex: non-digit character %q in %q", ch, v))
 			}
 		}
-	}, stderrNoteFn, []Option{WithTestCases(50)}); _err != nil {
+	}, WithTestCases(50)); _err != nil {
 		panic(_err)
 	}
 }
@@ -416,10 +416,10 @@ func TestFromRegexE2E(t *testing.T) {
 func TestBasicGeneratorGenerateErrorResponse(t *testing.T) {
 	hegelBinPath(t)
 	t.Setenv("HEGEL_PROTOCOL_TEST_MODE", "error_response")
-	err := runHegel(func(s *TestCase) {
+	err := Run(func(s *TestCase) {
 		g := &basicGenerator[int64]{schema: map[string]any{"type": "integer"}, transform: func(v any) int64 { return extractInt(v) }}
 		_ = g.draw(s) // should panic with requestError -> caught as INTERESTING
-	}, stderrNoteFn, nil)
+	})
 	// error_response causes the test to appear interesting (failing).
 	_ = err
 }
@@ -458,7 +458,7 @@ func TestMapBasicGeneratorE2E(t *testing.T) {
 	if _, ok := gen.(*basicGenerator[int]); !ok {
 		t.Fatalf("Map on basicGenerator should return *basicGenerator[int], got %T", gen)
 	}
-	if _err := runHegel(func(s *TestCase) {
+	if _err := Run(func(s *TestCase) {
 		n := Draw[int](s, gen)
 		if n%2 != 0 {
 			panic(fmt.Sprintf("map(x*2): expected even number, got %d", n))
@@ -466,7 +466,7 @@ func TestMapBasicGeneratorE2E(t *testing.T) {
 		if n < 0 || n > 200 {
 			panic(fmt.Sprintf("map(x*2): expected [0,200], got %d", n))
 		}
-	}, stderrNoteFn, []Option{WithTestCases(50)}); _err != nil {
+	}, WithTestCases(50)); _err != nil {
 		panic(_err)
 	}
 }
@@ -485,7 +485,7 @@ func TestMapChainedBasicGeneratorE2E(t *testing.T) {
 	if _, ok := gen.(*basicGenerator[int]); !ok {
 		t.Fatalf("chained Map on basicGenerator should return *basicGenerator[int], got %T", gen)
 	}
-	if _err := runHegel(func(s *TestCase) {
+	if _err := Run(func(s *TestCase) {
 		n := Draw[int](s, gen)
 		// (x+1)*2 is always even. x in [0,100] -> result in [2, 202].
 		if n%2 != 0 {
@@ -494,7 +494,7 @@ func TestMapChainedBasicGeneratorE2E(t *testing.T) {
 		if n < 2 || n > 202 {
 			panic(fmt.Sprintf("map(x+1).map(x*2): expected [2,202], got %d", n))
 		}
-	}, stderrNoteFn, []Option{WithTestCases(50)}); _err != nil {
+	}, WithTestCases(50)); _err != nil {
 		panic(_err)
 	}
 }
@@ -517,13 +517,13 @@ func TestMapNonBasicGeneratorE2E(t *testing.T) {
 	if _, ok := gen.(*mappedGenerator[int, int]); !ok {
 		t.Fatalf("Map on non-basic Generator should return *mappedGenerator, got %T", gen)
 	}
-	if _err := runHegel(func(s *TestCase) {
+	if _err := Run(func(s *TestCase) {
 		n := Draw[int](s, gen)
 		// inner is Integers[int](1,5)*1, map(*3): result is in {3, 6, 9, 12, 15}
 		if n < 3 || n > 15 || n%3 != 0 {
 			panic(fmt.Sprintf("map(*3) on [1,5]: expected multiple of 3 in [3,15], got %d", n))
 		}
-	}, stderrNoteFn, []Option{WithTestCases(50)}); _err != nil {
+	}, WithTestCases(50)); _err != nil {
 		panic(_err)
 	}
 }
@@ -626,7 +626,7 @@ func TestFilteredGeneratorMapMethod(t *testing.T) {
 func TestFilteredGeneratorE2EAlwaysPasses(t *testing.T) {
 	t.Parallel()
 	hegelBinPath(t)
-	if _err := runHegel(func(s *TestCase) {
+	if _err := Run(func(s *TestCase) {
 		gen := Filter[int](Integers[int](0, 100), func(v int) bool {
 			return v > 50
 		})
@@ -634,7 +634,7 @@ func TestFilteredGeneratorE2EAlwaysPasses(t *testing.T) {
 		if n <= 50 {
 			panic(fmt.Sprintf("filter(>50): expected n>50, got %d", n))
 		}
-	}, stderrNoteFn, []Option{WithTestCases(50)}); _err != nil {
+	}, WithTestCases(50)); _err != nil {
 		panic(_err)
 	}
 }
@@ -643,7 +643,7 @@ func TestFilteredGeneratorE2EAlwaysPasses(t *testing.T) {
 func TestFilteredGeneratorE2EEvenNumbers(t *testing.T) {
 	t.Parallel()
 	hegelBinPath(t)
-	if _err := runHegel(func(s *TestCase) {
+	if _err := Run(func(s *TestCase) {
 		gen := Filter[int](Integers[int](0, 10), func(v int) bool {
 			return v%2 == 0
 		})
@@ -651,7 +651,7 @@ func TestFilteredGeneratorE2EEvenNumbers(t *testing.T) {
 		if n%2 != 0 {
 			panic(fmt.Sprintf("filter(even): expected even, got %d", n))
 		}
-	}, stderrNoteFn, []Option{WithTestCases(50)}); _err != nil {
+	}, WithTestCases(50)); _err != nil {
 		panic(_err)
 	}
 }
@@ -902,14 +902,14 @@ func TestFlatMappedGeneratorE2E(t *testing.T) {
 	gen := FlatMap[int, string](Integers[int](1, 5), func(v int) Generator[string] {
 		return Text(v, v) // exact length = n
 	})
-	if _err := runHegel(func(s *TestCase) {
+	if _err := Run(func(s *TestCase) {
 		v := Draw[string](s, gen)
 		count := len([]rune(v))
 		// n is in [1,5], so text length is in [1,5].
 		if count < 1 || count > 5 {
 			panic(fmt.Sprintf("flat_map text length %d out of [1,5]", count))
 		}
-	}, stderrNoteFn, []Option{WithTestCases(50)}); _err != nil {
+	}, WithTestCases(50)); _err != nil {
 		panic(_err)
 	}
 }
@@ -924,7 +924,7 @@ func TestFlatMappedGeneratorDependency(t *testing.T) {
 		sz := int(v)
 		return Lists[int64](Integers[int64](0, 100)).MinSize(sz).MaxSize(sz)
 	})
-	if _err := runHegel(func(s *TestCase) {
+	if _err := Run(func(s *TestCase) {
 		slice := Draw[[]int64](s, gen)
 		if len(slice) < 2 || len(slice) > 4 {
 			panic(fmt.Sprintf("flat_map dependency: list length %d not in [2,4]", len(slice)))
@@ -934,7 +934,7 @@ func TestFlatMappedGeneratorDependency(t *testing.T) {
 				panic(fmt.Sprintf("flat_map dependency: element %d not in [0,100]", elem))
 			}
 		}
-	}, stderrNoteFn, []Option{WithTestCases(50)}); _err != nil {
+	}, WithTestCases(50)); _err != nil {
 		panic(_err)
 	}
 }
@@ -1134,7 +1134,7 @@ func TestRejectFinishedCollection(t *testing.T) {
 // continue iterating — the server should handle this gracefully.
 func TestRejectE2E(t *testing.T) {
 	hegelBinPath(t)
-	if _err := runHegel(func(s *TestCase) {
+	if _err := Run(func(s *TestCase) {
 		coll := newCollection(s, 0, 5)
 		if coll.More(s) {
 			// Reject the first element — tells the server it doesn't count.
@@ -1143,7 +1143,7 @@ func TestRejectE2E(t *testing.T) {
 		// Drain remaining elements.
 		for coll.More(s) {
 		}
-	}, stderrNoteFn, []Option{WithTestCases(10)}); _err != nil {
+	}, WithTestCases(10)); _err != nil {
 		panic(_err)
 	}
 }

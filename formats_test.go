@@ -121,12 +121,12 @@ func TestDatetimesSchema(t *testing.T) {
 func TestEmailsE2E(t *testing.T) {
 	t.Parallel()
 	hegelBinPath(t)
-	if _err := runHegel(func(s *TestCase) {
+	if _err := Run(func(s *TestCase) {
 		v := Draw(s, Emails())
 		if !strings.Contains(v, "@") {
 			panic("email does not contain '@': " + v)
 		}
-	}, stderrNoteFn, []Option{WithTestCases(30)}); _err != nil {
+	}, WithTestCases(30)); _err != nil {
 		panic(_err)
 	}
 }
@@ -135,12 +135,12 @@ func TestEmailsE2E(t *testing.T) {
 func TestURLsE2E(t *testing.T) {
 	t.Parallel()
 	hegelBinPath(t)
-	if _err := runHegel(func(s *TestCase) {
+	if _err := Run(func(s *TestCase) {
 		v := Draw(s, URLs())
 		if !strings.HasPrefix(v, "http://") && !strings.HasPrefix(v, "https://") {
 			panic("url does not start with http:// or https://: " + v)
 		}
-	}, stderrNoteFn, []Option{WithTestCases(30)}); _err != nil {
+	}, WithTestCases(30)); _err != nil {
 		panic(_err)
 	}
 }
@@ -154,14 +154,14 @@ func isValidDomainChar(r rune) bool {
 func TestDomainsE2E(t *testing.T) {
 	t.Parallel()
 	hegelBinPath(t)
-	if _err := runHegel(func(s *TestCase) {
+	if _err := Run(func(s *TestCase) {
 		v := Draw(s, Domains())
 		for _, r := range v {
 			if !isValidDomainChar(r) {
 				panic("domain contains invalid character '" + string(r) + "': " + v)
 			}
 		}
-	}, stderrNoteFn, []Option{WithTestCases(30)}); _err != nil {
+	}, WithTestCases(30)); _err != nil {
 		panic(_err)
 	}
 }
@@ -171,12 +171,12 @@ func TestDomainsMaxLengthE2E(t *testing.T) {
 	t.Parallel()
 	hegelBinPath(t)
 	const maxLen = 20
-	if _err := runHegel(func(s *TestCase) {
+	if _err := Run(func(s *TestCase) {
 		v := Draw(s, Domains().MaxLength(maxLen))
 		if len(v) > maxLen {
 			panic("domain exceeds max_length constraint: " + v)
 		}
-	}, stderrNoteFn, []Option{WithTestCases(30)}); _err != nil {
+	}, WithTestCases(30)); _err != nil {
 		panic(_err)
 	}
 }
@@ -185,12 +185,12 @@ func TestDomainsMaxLengthE2E(t *testing.T) {
 func TestDatesE2E(t *testing.T) {
 	t.Parallel()
 	hegelBinPath(t)
-	if _err := runHegel(func(s *TestCase) {
+	if _err := Run(func(s *TestCase) {
 		v := Draw(s, Dates())
 		if v.IsZero() {
 			panic("date is zero value")
 		}
-	}, stderrNoteFn, []Option{WithTestCases(30)}); _err != nil {
+	}, WithTestCases(30)); _err != nil {
 		panic(_err)
 	}
 }
@@ -199,12 +199,12 @@ func TestDatesE2E(t *testing.T) {
 func TestDatetimesE2E(t *testing.T) {
 	t.Parallel()
 	hegelBinPath(t)
-	if _err := runHegel(func(s *TestCase) {
+	if _err := Run(func(s *TestCase) {
 		v := Draw(s, Datetimes())
 		if v.IsZero() {
 			panic("datetime is zero value")
 		}
-	}, stderrNoteFn, []Option{WithTestCases(30)}); _err != nil {
+	}, WithTestCases(30)); _err != nil {
 		panic(_err)
 	}
 }
