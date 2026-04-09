@@ -1,6 +1,6 @@
 module hegel.dev/go/hegel
 
-go 1.26
+go 1.25.0
 
 require github.com/fxamacker/cbor/v2 v2.9.0
 
@@ -10,7 +10,8 @@ require (
 	github.com/alexflint/go-scalar v1.2.0 // indirect
 	github.com/aws/aws-sdk-go v1.49.4 // indirect
 	github.com/golang/freetype v0.0.0-20170609003504-e2365dfdc4a0 // indirect
-	github.com/google/go-github/v82 v82.0.0 // indirect
+	github.com/google/go-cmp v0.7.0 // indirect
+	github.com/google/go-github/v56 v56.0.0 // indirect
 	github.com/google/go-querystring v1.2.0 // indirect
 	github.com/jmespath/go-jmespath v0.4.0 // indirect
 	github.com/kr/text v0.2.0 // indirect
@@ -18,7 +19,7 @@ require (
 	github.com/mattn/go-isatty v0.0.19 // indirect
 	github.com/narqo/go-badge v0.0.0-20230821190521-c9a75c019a59 // indirect
 	github.com/rs/zerolog v1.34.0 // indirect
-	github.com/vladopajic/go-test-coverage/v2 v2.18.4 // indirect
+	github.com/vladopajic/go-test-coverage/v2 v2.18.3 // indirect
 	github.com/x448/float16 v0.8.4 // indirect
 	golang.org/x/exp/typeparams v0.0.0-20231108232855-2478ac86f678 // indirect
 	golang.org/x/image v0.18.0 // indirect

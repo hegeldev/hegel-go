@@ -3,7 +3,6 @@
 ## Build Commands
 
 ```bash
-just setup              # Install dependencies and hegel binary
 just test               # Run tests with coverage (fails if coverage < 100%)
 just format             # Auto-format code
 just lint               # Check formatting + linting
@@ -11,6 +10,7 @@ just docs               # Build API documentation
 just check              # Run lint + docs + test (full CI check)
 just build-conformance  # Compile conformance binaries to bin/conformance/
 just conformance        # Build conformance binaries + run Python conformance test suite
+go test -run TestName ./...  # Run a single test
 ```
 
 Tests must use `PATH="$(pwd)/.venv/bin:$PATH"` (absolute path) so the `hegel` binary is found.
@@ -98,7 +98,7 @@ Failing to handle StopTest correctly causes `FlakyStrategyDefinition` errors.
 
 ## Tooling Choices
 
-- **Go version**: 1.23.x (installed via `actions/setup-go@v5` in CI)
+- **Go version**: the oldest version supported by go.dev (1.N-1); CI tests 1.N and 1.N-1
 - **Test framework**: `testing` (Go stdlib) — run via `go test -race -coverprofile=coverage.out -covermode=atomic ./...`
 - **Linter**: `go vet` (stdlib) + `staticcheck` v0.7.0 (2026.1) — run via `just lint`
 - **Formatter**: `gofmt` (bundled with Go) — check with `gofmt -l .`, apply with `gofmt -w .`
