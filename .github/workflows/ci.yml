@@ -25,7 +25,7 @@ jobs:
 
       - uses: actions/setup-go@40f1582b2485089dde7abd97c1529aa768e1baff # v5
         with:
-          go-version: '1.23'
+          go-version: stable
 
       - name: Install just
         run: sudo apt-get update && sudo apt-get install -y just
@@ -38,11 +38,14 @@ jobs:
         run: zizmor --format plain .github/
 
   test:
-    name: test
+    name: "test (go ${{ matrix.go-version }})"
     runs-on: ubuntu-latest
     permissions:
       contents: write  # needed for ratchet auto-update
       pull-requests: write  # needed for creating PRs on main
+    strategy:
+      matrix:
+        go-version: [oldstable, stable]
     steps:
       # persist-credentials needed for git push in the auto-update step below
       # For fork PRs, head_ref points to a branch that doesn't exist on the base repo,
@@ -66,13 +69,13 @@ jobs:
 
       - uses: actions/setup-go@40f1582b2485089dde7abd97c1529aa768e1baff # v5
         with:
-          go-version: '1.23'
+          go-version: ${{ matrix.go-version }}
 
       - name: Run tests
         run: just test
 
       - name: Auto-update coverage annotations and ratchet
-        if: success() && (github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository)
+        if: success() && matrix.go-version == 'stable' && (github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository)
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
@@ -117,7 +120,7 @@ jobs:
 
       - uses: actions/setup-go@40f1582b2485089dde7abd97c1529aa768e1baff # v5
         with:
-          go-version: '1.23'
+          go-version: stable
 
       - name: Install just
         run: sudo apt-get update && sudo apt-get install -y just
@@ -145,7 +148,7 @@ jobs:
 
       - uses: actions/setup-go@40f1582b2485089dde7abd97c1529aa768e1baff # v5
         with:
-          go-version: '1.23'
+          go-version: stable
 
       - run: just conformance
 
