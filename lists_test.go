@@ -136,14 +136,14 @@ func TestListsNegativeMinSizePanics(t *testing.T) {
 func TestListsBasicIntegersE2E(t *testing.T) {
 	t.Parallel()
 	hegelBinPath(t)
-	if _err := runHegel(func(s *TestCase) {
+	if _err := Run(func(s *TestCase) {
 		xs := Lists(Integers[int](0, 100)).MaxSize(10).draw(s)
 		for _, x := range xs {
 			if x < 0 || x > 100 {
 				panic(fmt.Sprintf("Lists: element %d out of range [0, 100]", x))
 			}
 		}
-	}, stderrNoteFn, []Option{WithTestCases(50)}); _err != nil {
+	}, WithTestCases(50)); _err != nil {
 		panic(_err)
 	}
 }
@@ -153,12 +153,12 @@ func TestListsBasicIntegersE2E(t *testing.T) {
 func TestListsWithSizeBoundsE2E(t *testing.T) {
 	t.Parallel()
 	hegelBinPath(t)
-	if _err := runHegel(func(s *TestCase) {
+	if _err := Run(func(s *TestCase) {
 		xs := Lists(Booleans()).MinSize(3).MaxSize(5).draw(s)
 		if len(xs) < 3 || len(xs) > 5 {
 			panic(fmt.Sprintf("Lists: length %d out of [3, 5]", len(xs)))
 		}
-	}, stderrNoteFn, []Option{WithTestCases(50)}); _err != nil {
+	}, WithTestCases(50)); _err != nil {
 		panic(_err)
 	}
 }
@@ -174,14 +174,14 @@ func TestListsNonBasicElementE2E(t *testing.T) {
 	})
 	nonBasic := &mappedGenerator[int, int]{inner: mapped, fn: func(v int) int { return v }}
 
-	if _err := runHegel(func(s *TestCase) {
+	if _err := Run(func(s *TestCase) {
 		xs := Lists(nonBasic).MaxSize(5).draw(s)
 		for _, x := range xs {
 			if x%2 != 0 {
 				panic(fmt.Sprintf("Lists(non-basic): expected even element, got %d", x))
 			}
 		}
-	}, stderrNoteFn, []Option{WithTestCases(50)}); _err != nil {
+	}, WithTestCases(50)); _err != nil {
 		panic(_err)
 	}
 }
@@ -191,7 +191,7 @@ func TestListsNonBasicElementE2E(t *testing.T) {
 func TestListsNestedE2E(t *testing.T) {
 	t.Parallel()
 	hegelBinPath(t)
-	if _err := runHegel(func(s *TestCase) {
+	if _err := Run(func(s *TestCase) {
 		outer := Lists(Lists(Booleans()).MaxSize(3)).MaxSize(3).draw(s)
 		for i, inner := range outer {
 			for j, b := range inner {
@@ -201,7 +201,7 @@ func TestListsNestedE2E(t *testing.T) {
 				}
 			}
 		}
-	}, stderrNoteFn, []Option{WithTestCases(50)}); _err != nil {
+	}, WithTestCases(50)); _err != nil {
 		panic(_err)
 	}
 }
@@ -215,14 +215,14 @@ func TestListsBasicWithTransformE2E(t *testing.T) {
 	doubled := Map(Integers[int](0, 10), func(n int) int {
 		return n * 2
 	})
-	if _err := runHegel(func(s *TestCase) {
+	if _err := Run(func(s *TestCase) {
 		xs := Lists(doubled).MaxSize(5).draw(s)
 		for _, x := range xs {
 			if x%2 != 0 || x < 0 || x > 20 {
 				panic(fmt.Sprintf("Lists(basic+transform): element %d should be even in [0,20]", x))
 			}
 		}
-	}, stderrNoteFn, []Option{WithTestCases(50)}); _err != nil {
+	}, WithTestCases(50)); _err != nil {
 		panic(_err)
 	}
 }

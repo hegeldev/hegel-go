@@ -220,14 +220,14 @@ func TestPairsToMapNonSlicePair(t *testing.T) {
 func TestDictsStopTestOnNewCollection(t *testing.T) {
 	hegelBinPath(t)
 	t.Setenv("HEGEL_PROTOCOL_TEST_MODE", "stop_test_on_new_collection")
-	err := runHegel(func(s *TestCase) {
+	err := Run(func(s *TestCase) {
 		nonBasicKeys := &mappedGenerator[int64, int64]{
 			inner: Integers[int64](0, 10),
 			fn:    func(v int64) int64 { return v },
 		}
 		gen := Dicts(nonBasicKeys, Integers[int64](0, 100)).MaxSize(3)
 		_ = gen.draw(s)
-	}, stderrNoteFn, nil)
+	})
 	// StopTest causes test to be skipped or aborted, not fail
 	_ = err
 }
@@ -237,14 +237,14 @@ func TestDictsStopTestOnNewCollection(t *testing.T) {
 func TestDictsStopTestOnCollectionMore(t *testing.T) {
 	hegelBinPath(t)
 	t.Setenv("HEGEL_PROTOCOL_TEST_MODE", "stop_test_on_collection_more")
-	err := runHegel(func(s *TestCase) {
+	err := Run(func(s *TestCase) {
 		nonBasicKeys := &mappedGenerator[int64, int64]{
 			inner: Integers[int64](0, 10),
 			fn:    func(v int64) int64 { return v },
 		}
 		gen := Dicts(nonBasicKeys, Integers[int64](0, 100)).MaxSize(3)
 		_ = gen.draw(s)
-	}, stderrNoteFn, nil)
+	})
 	_ = err
 }
 
@@ -257,7 +257,7 @@ func TestDictsStopTestOnCollectionMore(t *testing.T) {
 func TestDictsBasicE2E(t *testing.T) {
 	t.Parallel()
 	hegelBinPath(t)
-	if _err := runHegel(func(s *TestCase) {
+	if _err := Run(func(s *TestCase) {
 		gen := Dicts(Text(0, 5), Integers[int](0, 100)).MaxSize(3)
 		m := gen.draw(s)
 		if len(m) > 3 {
@@ -271,7 +271,7 @@ func TestDictsBasicE2E(t *testing.T) {
 				panic(fmt.Sprintf("Dicts: value %d out of [0,100]", val))
 			}
 		}
-	}, stderrNoteFn, []Option{WithTestCases(50)}); _err != nil {
+	}, WithTestCases(50)); _err != nil {
 		panic(_err)
 	}
 }
@@ -281,7 +281,7 @@ func TestDictsBasicE2E(t *testing.T) {
 func TestDictsBasicWithBoundsE2E(t *testing.T) {
 	t.Parallel()
 	hegelBinPath(t)
-	if _err := runHegel(func(s *TestCase) {
+	if _err := Run(func(s *TestCase) {
 		gen := Dicts(Integers[int](0, 10), Booleans()).MinSize(1).MaxSize(3)
 		m := gen.draw(s)
 		if len(m) < 1 || len(m) > 3 {
@@ -292,7 +292,7 @@ func TestDictsBasicWithBoundsE2E(t *testing.T) {
 				panic(fmt.Sprintf("Dicts bounded: key %d out of [0,10]", k))
 			}
 		}
-	}, stderrNoteFn, []Option{WithTestCases(50)}); _err != nil {
+	}, WithTestCases(50)); _err != nil {
 		panic(_err)
 	}
 }
@@ -301,7 +301,7 @@ func TestDictsBasicWithBoundsE2E(t *testing.T) {
 // uses the default (min_size + 10).
 func TestDictsCompositeNoMaxE2E(t *testing.T) {
 	hegelBinPath(t)
-	if _err := runHegel(func(s *TestCase) {
+	if _err := Run(func(s *TestCase) {
 		nonBasicKeys := &mappedGenerator[int64, int64]{
 			inner: Integers[int64](0, 100),
 			fn:    func(n int64) int64 { return n },
@@ -310,7 +310,7 @@ func TestDictsCompositeNoMaxE2E(t *testing.T) {
 		gen := Dicts(nonBasicKeys, Just("v"))
 		m := gen.draw(s)
 		_ = m // just verify it doesn't panic
-	}, stderrNoteFn, []Option{WithTestCases(30)}); _err != nil {
+	}, WithTestCases(30)); _err != nil {
 		panic(_err)
 	}
 }
@@ -320,7 +320,7 @@ func TestDictsCompositeNoMaxE2E(t *testing.T) {
 func TestDictsCompositeE2E(t *testing.T) {
 	t.Parallel()
 	hegelBinPath(t)
-	if _err := runHegel(func(s *TestCase) {
+	if _err := Run(func(s *TestCase) {
 		// mappedGenerator makes this non-basic -> composite path
 		nonBasicKeys := &mappedGenerator[int64, int64]{
 			inner: Integers[int64](0, 10),
@@ -339,7 +339,7 @@ func TestDictsCompositeE2E(t *testing.T) {
 				panic(fmt.Sprintf("Dicts composite: expected value 'val', got %v for key %v", val, k))
 			}
 		}
-	}, stderrNoteFn, []Option{WithTestCases(50)}); _err != nil {
+	}, WithTestCases(50)); _err != nil {
 		panic(_err)
 	}
 }
