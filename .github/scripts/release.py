@@ -16,7 +16,7 @@ def git(*args: str, cwd: Path | None = None) -> str:
 
 
 def is_source_file(path: str) -> bool:
-    return path.endswith(".go") and not path.startswith("tests/")
+    return path.endswith(".go") and not path.startswith("tests/") and not path.startswith("internal/conformance/") and not path.endswith("_test.go")
 
 
 def parse_release_file(path: Path) -> tuple[str, str]:
