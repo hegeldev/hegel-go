@@ -1,6 +1,6 @@
 ---
-name: release-notes
-description: "Changelog style guide for writing RELEASE.md files. Use when creating or reviewing RELEASE.md, writing changelog entries, or preparing a PR that needs release notes."
+name: changelog
+description: "Changelog style guide for writing RELEASE.md files. Use when creating or reviewing RELEASE.md, writing changelog entries, or preparing a PR that needs a changelog."
 ---
 
 # Changelog Style Guide
