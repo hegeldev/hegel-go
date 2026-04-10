@@ -12,6 +12,8 @@ __pycache__/
 # Claude Code transient files
 .claude/plan.md
 .claude/settings.local.json
+CLAUDE.local.md
+.claude/local/
 
 # Hegelator metadata
 .hegelator/
