@@ -541,7 +541,8 @@ type hegelSession struct {
 // Each process gets its own file to avoid interleaved writes from concurrent processes.
 func openServerLog() *os.File {
 	hegelDir := filepath.Join(getProjectRoot(), ".hegel")
-	os.MkdirAll(hegelDir, 0o755) //nolint:errcheck
+	os.MkdirAll(hegelDir, 0o755)                                              //nolint:errcheck
+	os.WriteFile(filepath.Join(hegelDir, ".gitignore"), []byte("*\n"), 0o644) //nolint:errcheck
 	logPath := filepath.Join(hegelDir, fmt.Sprintf("server.%d.log", os.Getpid()))
 	f, err := os.OpenFile(logPath, os.O_CREATE|os.O_APPEND|os.O_WRONLY, 0o644)
 	if err != nil { // coverage-ignore
