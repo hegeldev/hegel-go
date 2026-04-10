@@ -38,5 +38,6 @@ Loop up to three times:
 
 1. Watch CI: `gh pr checks <number> --repo <owner>/<repo> --watch --fail-fast`
    - Note: checks may take a few seconds to register after push. If `--watch` reports "no checks", retry once.
+   - Note: if checks never register after retrying, stop and inform the user — a maintainer may need to approve the workflow run first (e.g. for PRs from forks).
 2. If the build fails, read the failure logs, fix, push, and repeat from step 1.
 3. If you made changes, push and repeat from step 1.
