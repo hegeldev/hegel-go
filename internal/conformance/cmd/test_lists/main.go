@@ -1,6 +1,6 @@
 // test_lists is a conformance binary for list generation.
 // It parses JSON params from argv[1] (min_size, max_size, min_value, max_value)
-// and writes list metrics (size, min_element, max_element).
+// and writes the raw list of elements as metrics.
 //
 // When HEGEL_PROTOCOL_TEST_MODE contains "collection" or mode is "non_basic",
 // the element generator is wrapped with a no-op Filter to force the collection
@@ -83,28 +83,8 @@ func main() {
 
 	hegel.MustRun(func(s *hegel.TestCase) {
 		items := hegel.Draw(s, gen)
-		size := len(items)
-
-		var minElem, maxElem any
-		if size > 0 {
-			minVal := math.MaxInt
-			maxVal := math.MinInt
-			for _, v := range items {
-				if v < minVal {
-					minVal = v
-				}
-				if v > maxVal {
-					maxVal = v
-				}
-			}
-			minElem = minVal
-			maxElem = maxVal
-		}
-
 		conformance.WriteMetrics(map[string]any{
-			"size":        size,
-			"min_element": minElem,
-			"max_element": maxElem,
+			"elements": items,
 		})
 	}, hegel.WithTestCases(n))
 	os.Exit(0)
