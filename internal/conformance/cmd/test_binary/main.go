@@ -17,6 +17,7 @@ func main() {
 			panic("test_binary: bad params JSON: " + err.Error())
 		}
 	}
+	mode := conformance.GetMode(params)
 
 	minSize := 0
 	maxSize := -1 // unbounded
@@ -33,9 +34,16 @@ func main() {
 	}
 
 	gen := hegel.Binary(minSize, maxSize)
+	var finalGen hegel.Generator[[]byte]
+	if mode == "non_basic" {
+		finalGen = conformance.MakeNonBasic(gen)
+	} else {
+		finalGen = gen
+	}
+
 	n := conformance.GetTestCases()
 	hegel.MustRun(func(s *hegel.TestCase) {
-		v := hegel.Draw(s, gen)
+		v := hegel.Draw(s, finalGen)
 		length := len(v)
 		conformance.WriteMetrics(map[string]any{
 			"length": length,

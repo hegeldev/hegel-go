@@ -19,6 +19,7 @@ func main() {
 			panic("test_hashmaps: bad params JSON: " + err.Error())
 		}
 	}
+	mode := conformance.GetMode(params)
 
 	minSize := 0
 	maxSize := 10
@@ -68,12 +69,23 @@ func main() {
 		}
 	}
 
-	valsGen := hegel.Integers[int](minVal, maxVal)
 	n := conformance.GetTestCases()
 
 	if keyType == "string" {
 		keysGen := hegel.Text(0, -1)
-		gen := hegel.Dicts(keysGen, valsGen).MinSize(minSize).MaxSize(maxSize)
+		valsGen := hegel.Integers[int](minVal, maxVal)
+
+		var finalKeysGen hegel.Generator[string]
+		var finalValsGen hegel.Generator[int]
+		if mode == "non_basic" {
+			finalKeysGen = conformance.MakeNonBasic(keysGen)
+			finalValsGen = conformance.MakeNonBasic(valsGen)
+		} else {
+			finalKeysGen = keysGen
+			finalValsGen = valsGen
+		}
+
+		gen := hegel.Dicts(finalKeysGen, finalValsGen).MinSize(minSize).MaxSize(maxSize)
 
 		hegel.MustRun(func(s *hegel.TestCase) {
 			m := hegel.Draw(s, gen)
@@ -119,7 +131,19 @@ func main() {
 		}, hegel.WithTestCases(n))
 	} else {
 		keysGen := hegel.Integers[int](minKey, maxKey)
-		gen := hegel.Dicts(keysGen, valsGen).MinSize(minSize).MaxSize(maxSize)
+		valsGen := hegel.Integers[int](minVal, maxVal)
+
+		var finalKeysGen hegel.Generator[int]
+		var finalValsGen hegel.Generator[int]
+		if mode == "non_basic" {
+			finalKeysGen = conformance.MakeNonBasic(keysGen)
+			finalValsGen = conformance.MakeNonBasic(valsGen)
+		} else {
+			finalKeysGen = keysGen
+			finalValsGen = valsGen
+		}
+
+		gen := hegel.Dicts(finalKeysGen, finalValsGen).MinSize(minSize).MaxSize(maxSize)
 
 		hegel.MustRun(func(s *hegel.TestCase) {
 			m := hegel.Draw(s, gen)

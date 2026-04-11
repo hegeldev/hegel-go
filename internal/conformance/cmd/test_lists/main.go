@@ -2,8 +2,9 @@
 // It parses JSON params from argv[1] (min_size, max_size, min_value, max_value)
 // and writes list metrics (size, min_element, max_element).
 //
-// When HEGEL_PROTOCOL_TEST_MODE contains "collection", the element generator
-// is wrapped with a no-op Filter to force the collection protocol path.
+// When HEGEL_PROTOCOL_TEST_MODE contains "collection" or mode is "non_basic",
+// the element generator is wrapped with a no-op Filter to force the collection
+// protocol path.
 package main
 
 import (
@@ -23,6 +24,7 @@ func main() {
 			panic("test_lists: bad params JSON: " + err.Error())
 		}
 	}
+	mode := conformance.GetMode(params)
 
 	minSize := 0
 	maxSize := -1 // unbounded
@@ -53,14 +55,17 @@ func main() {
 
 	elemGen := hegel.Integers[int](elemMinVal, elemMaxVal)
 
-	// When running collection StopTest modes, force the collection protocol
-	// by wrapping the element generator with a no-op Filter. This makes it
-	// non-basic, so Lists uses new_collection/collection_more instead of a
-	// single generate command with a list schema.
+	// When running collection StopTest modes or non_basic mode, force the
+	// collection protocol by wrapping the element generator with a no-op
+	// Filter. This makes it non-basic, so Lists uses
+	// new_collection/collection_more instead of a single generate command
+	// with a list schema.
 	testMode := os.Getenv("HEGEL_PROTOCOL_TEST_MODE")
+	needsNonBasic := mode == "non_basic" || strings.Contains(testMode, "collection")
+
 	var gen hegel.Generator[[]int]
-	if strings.Contains(testMode, "collection") {
-		filtered := hegel.Filter(elemGen, func(v int) bool { return true })
+	if needsNonBasic {
+		filtered := conformance.MakeNonBasic(elemGen)
 		builder := hegel.Lists(filtered).MinSize(minSize)
 		if maxSize >= 0 {
 			builder = builder.MaxSize(maxSize)

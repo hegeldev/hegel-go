@@ -7,6 +7,8 @@ import (
 	"os"
 	"strconv"
 	"sync"
+
+	hegel "hegel.dev/go/hegel"
 )
 
 // GetTestCases returns the number of conformance test cases to run.
@@ -48,4 +50,20 @@ func WriteMetrics(metrics map[string]any) {
 	if _, err := f.Write(append(data, '\n')); err != nil {
 		panic(fmt.Sprintf("hegel: unreachable: WriteMetrics write: %v", err))
 	}
+}
+
+// MakeNonBasic wraps a generator in a trivial filter so as_basic() returns nil,
+// forcing the compositional fallback path.
+func MakeNonBasic[T any](gen hegel.Generator[T]) hegel.Generator[T] {
+	return hegel.Filter(gen, func(v T) bool { return true })
+}
+
+// GetMode extracts the "mode" field from conformance params, defaulting to "basic".
+func GetMode(params map[string]any) string {
+	if v, ok := params["mode"]; ok {
+		if s, ok := v.(string); ok {
+			return s
+		}
+	}
+	return "basic"
 }

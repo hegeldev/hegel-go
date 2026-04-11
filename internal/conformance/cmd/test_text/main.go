@@ -18,6 +18,7 @@ func main() {
 			panic("test_text: bad params JSON: " + err.Error())
 		}
 	}
+	mode := conformance.GetMode(params)
 
 	minSize := 0
 	maxSize := -1 // unbounded
@@ -34,9 +35,16 @@ func main() {
 	}
 
 	gen := hegel.Text(minSize, maxSize)
+	var finalGen hegel.Generator[string]
+	if mode == "non_basic" {
+		finalGen = conformance.MakeNonBasic(gen)
+	} else {
+		finalGen = gen
+	}
+
 	n := conformance.GetTestCases()
 	hegel.MustRun(func(s *hegel.TestCase) {
-		val := hegel.Draw(s, gen)
+		val := hegel.Draw(s, finalGen)
 		// Count Unicode codepoints (not bytes)
 		length := utf8.RuneCountInString(val)
 		conformance.WriteMetrics(map[string]any{

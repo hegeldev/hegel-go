@@ -18,6 +18,7 @@ func main() {
 			panic("test_sampled_from: bad params JSON: " + err.Error())
 		}
 	}
+	mode := conformance.GetMode(params)
 
 	// options is a list of integers
 	var options []any
@@ -45,9 +46,16 @@ func main() {
 	}
 
 	gen := hegel.SampledFrom(int64Options)
+	var finalGen hegel.Generator[int64]
+	if mode == "non_basic" {
+		finalGen = conformance.MakeNonBasic(gen)
+	} else {
+		finalGen = gen
+	}
+
 	n := conformance.GetTestCases()
 	hegel.MustRun(func(s *hegel.TestCase) {
-		val := hegel.Draw(s, gen)
+		val := hegel.Draw(s, finalGen)
 		conformance.WriteMetrics(map[string]any{
 			"value": val,
 		})
