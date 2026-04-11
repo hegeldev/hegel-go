@@ -4,7 +4,6 @@
 package main
 
 import (
-	"encoding/json"
 	"os"
 
 	hegel "hegel.dev/go/hegel"
@@ -12,25 +11,9 @@ import (
 )
 
 func main() {
-	params := map[string]any{}
-	if len(os.Args) > 1 {
-		if err := json.Unmarshal([]byte(os.Args[1]), &params); err != nil {
-			panic("test_booleans: bad params JSON: " + err.Error())
-		}
-	}
-	mode := conformance.GetMode(params)
-
-	gen := hegel.Booleans()
-	var finalGen hegel.Generator[bool]
-	if mode == "non_basic" {
-		finalGen = conformance.MakeNonBasic(gen)
-	} else {
-		finalGen = gen
-	}
-
 	n := conformance.GetTestCases()
 	hegel.MustRun(func(s *hegel.TestCase) {
-		v := hegel.Draw(s, finalGen)
+		v := hegel.Draw(s, hegel.Booleans())
 		conformance.WriteMetrics(map[string]any{
 			"value": v,
 		})

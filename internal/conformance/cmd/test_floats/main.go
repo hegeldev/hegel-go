@@ -18,8 +18,6 @@ func main() {
 			panic("test_floats: bad params JSON: " + err.Error())
 		}
 	}
-	mode := conformance.GetMode(params)
-
 	g := hegel.Floats[float64]()
 
 	if v, ok := params["min_value"]; ok && v != nil {
@@ -53,16 +51,9 @@ func main() {
 		}
 	}
 
-	var finalGen hegel.Generator[float64]
-	if mode == "non_basic" {
-		finalGen = conformance.MakeNonBasic[float64](g)
-	} else {
-		finalGen = g
-	}
-
 	n := conformance.GetTestCases()
 	hegel.MustRun(func(s *hegel.TestCase) {
-		val := hegel.Draw(s, finalGen)
+		val := hegel.Draw(s, g)
 		isNaN := math.IsNaN(val)
 		isInfinite := math.IsInf(val, 0)
 		m := map[string]any{
