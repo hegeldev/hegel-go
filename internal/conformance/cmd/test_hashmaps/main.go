@@ -19,8 +19,6 @@ func main() {
 			panic("test_hashmaps: bad params JSON: " + err.Error())
 		}
 	}
-	mode := params["mode"].(string)
-
 	minSize := 0
 	maxSize := 10
 
@@ -77,7 +75,7 @@ func main() {
 
 		var finalKeysGen hegel.Generator[string]
 		var finalValsGen hegel.Generator[int]
-		if mode == "non_basic" {
+		if params["mode"] == "non_basic" {
 			finalKeysGen = conformance.MakeNonBasic(keysGen)
 			finalValsGen = conformance.MakeNonBasic(valsGen)
 		} else {
@@ -135,7 +133,7 @@ func main() {
 
 		var finalKeysGen hegel.Generator[int]
 		var finalValsGen hegel.Generator[int]
-		if mode == "non_basic" {
+		if params["mode"] == "non_basic" {
 			finalKeysGen = conformance.MakeNonBasic(keysGen)
 			finalValsGen = conformance.MakeNonBasic(valsGen)
 		} else {

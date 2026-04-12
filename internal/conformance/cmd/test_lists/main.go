@@ -24,8 +24,6 @@ func main() {
 			panic("test_lists: bad params JSON: " + err.Error())
 		}
 	}
-	mode := params["mode"].(string)
-
 	minSize := 0
 	maxSize := -1 // unbounded
 
@@ -61,7 +59,7 @@ func main() {
 	// new_collection/collection_more instead of a single generate command
 	// with a list schema.
 	testMode := os.Getenv("HEGEL_PROTOCOL_TEST_MODE")
-	needsNonBasic := mode == "non_basic" || strings.Contains(testMode, "collection")
+	needsNonBasic := params["mode"] == "non_basic" || strings.Contains(testMode, "collection")
 
 	var gen hegel.Generator[[]int]
 	if needsNonBasic {
