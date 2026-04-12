@@ -24,7 +24,7 @@ func main() {
 			panic("test_lists: bad params JSON: " + err.Error())
 		}
 	}
-	mode := conformance.GetMode(params)
+	mode := params["mode"].(string)
 
 	minSize := 0
 	maxSize := -1 // unbounded
