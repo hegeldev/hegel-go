@@ -181,6 +181,39 @@ func TestIntegersSchema(t *testing.T) {
 	}
 }
 
+func TestIntegersInBounds(t *testing.T) {
+	runIntegersBoundsCheck[int8](t, "int8", math.MinInt8, math.MaxInt8)
+	runIntegersBoundsCheck[int16](t, "int16", math.MinInt16, math.MaxInt16)
+	runIntegersBoundsCheck[int32](t, "int32", math.MinInt32, math.MaxInt32)
+	runIntegersBoundsCheck[int64](t, "int64", math.MinInt64, math.MaxInt64)
+	runIntegersBoundsCheck[int](t, "int", math.MinInt, math.MaxInt)
+	runIntegersBoundsCheck[uint8](t, "uint8", 0, math.MaxUint8)
+	runIntegersBoundsCheck[uint16](t, "uint16", 0, math.MaxUint16)
+	runIntegersBoundsCheck[uint32](t, "uint32", 0, math.MaxUint32)
+	runIntegersBoundsCheck[uint64](t, "uint64", 0, math.MaxUint64)
+	runIntegersBoundsCheck[uint](t, "uint", 0, math.MaxUint)
+}
+
+func runIntegersBoundsCheck[T integer](t *testing.T, name string, lo, hi T) {
+	t.Helper()
+	t.Run(name, func(t *testing.T) {
+		t.Parallel()
+		var drew bool
+		if _err := Run(func(s *TestCase) {
+			v := Draw[T](s, Integers[T](lo, hi))
+			drew = true
+			if v < lo || v > hi {
+				panic(fmt.Sprintf("out of range: lo=%d hi=%d v=%d", lo, hi, v))
+			}
+		}, WithTestCases(20)); _err != nil {
+			t.Fatalf("run failed: %v", _err)
+		}
+		if !drew {
+			t.Error("test function was never called")
+		}
+	})
+}
+
 // =============================================================================
 // Just generator tests
 // =============================================================================
