@@ -65,15 +65,26 @@ func extractFloatAs[T float](v any) T {
 // For unbounded generation, use the full range of the type:
 //
 //	hegel.Integers[int](math.MinInt, math.MaxInt)
+//	hegel.Integers[uint](0, math.MaxUint)
 func Integers[T integer](minVal, maxVal T) Generator[T] {
 	if minVal > maxVal {
 		panic(fmt.Sprintf("hegel: Cannot have max_value=%d < min_value=%d", maxVal, minVal))
 	}
+	// Encode bounds in the widest type that preserves T's range.
+	var minSchema, maxSchema any
+	var zero T
+	if ^zero > zero {
+		minSchema = uint64(minVal)
+		maxSchema = uint64(maxVal)
+	} else {
+		minSchema = int64(minVal)
+		maxSchema = int64(maxVal)
+	}
 	return &basicGenerator[T]{
 		schema: map[string]any{
 			"type":      "integer",
-			"min_value": int64(minVal),
-			"max_value": int64(maxVal),
+			"min_value": minSchema,
+			"max_value": maxSchema,
 		},
 		transform: extractIntAs[T],
 	}
