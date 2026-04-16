@@ -1181,6 +1181,56 @@ func TestRejectE2E(t *testing.T) {
 	}
 }
 
+// TestRejectStopTestError verifies that a StopTest error in response to
+// collection_reject panics with *dataExhausted and marks the test as aborted.
+// We set up a client stream whose peer swallows the outbound request and
+// immediately injects a StopTest error reply.
+func TestRejectStopTestError(t *testing.T) {
+	t.Parallel()
+	clientConn, peer := clientConnPair(t)
+	defer peer.Close()
+	clientConn.state = stateClient
+	st := clientConn.NewStream("test")
+
+	// Peer goroutine: drain the outgoing collection_reject request and write
+	// back a StopTest error reply. We need to consume the wire bytes so that
+	// SendRequestRaw on the client side does not block on a full pipe.
+	ready := make(chan struct{})
+	go func() {
+		defer close(ready)
+		pkt, err := readPacket(peer)
+		if err != nil {
+			return
+		}
+		errPayload, _ := encodeCBOR(map[string]any{"error": "server stopped", "type": "StopTest"})
+		_ = writePacket(peer, packet{
+			StreamID:  pkt.StreamID,
+			MessageID: pkt.MessageID,
+			IsReply:   true,
+			Payload:   errPayload,
+		})
+	}()
+
+	c := &collection{collectionID: 42}
+	tc := &TestCase{stream: st}
+
+	var caught any
+	func() {
+		defer func() { caught = recover() }()
+		c.Reject(tc)
+	}()
+	<-ready
+	if _, ok := caught.(*dataExhausted); !ok {
+		t.Fatalf("expected *dataExhausted panic, got %T: %v", caught, caught)
+	}
+	if !tc.aborted {
+		t.Error("expected TestCase.aborted=true after StopTest during Reject")
+	}
+	if !c.finished {
+		t.Error("expected collection.finished=true after StopTest during Reject")
+	}
+}
+
 // =============================================================================
 // Lists: MaxSize >= 0, MinSize < 0 (clamping path) - schema check
 // =============================================================================

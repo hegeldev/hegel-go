@@ -5,7 +5,6 @@ package main
 import (
 	"encoding/json"
 	"os"
-	"unicode/utf8"
 
 	hegel "hegel.dev/go/hegel"
 	"hegel.dev/go/hegel/internal/conformance"
@@ -35,10 +34,14 @@ func main() {
 	n := conformance.GetTestCases()
 	hegel.MustRun(func(s *hegel.TestCase) {
 		val := hegel.Draw(s, hegel.Text(minSize, maxSize))
-		// Count Unicode codepoints (not bytes)
-		length := utf8.RuneCountInString(val)
+		// Emit the raw codepoints so the conformance harness can validate
+		// per-codepoint constraints (categories, codec, bounds, etc.).
+		codepoints := make([]int, 0, len(val))
+		for _, r := range val {
+			codepoints = append(codepoints, int(r))
+		}
 		conformance.WriteMetrics(map[string]any{
-			"length": length,
+			"codepoints": codepoints,
 		})
 	}, hegel.WithTestCases(n))
 	os.Exit(0)

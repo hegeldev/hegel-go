@@ -281,13 +281,18 @@ type collection struct {
 }
 
 // newCollection starts a new collection on the server with the given size bounds.
+// Pass maxSize < 0 to indicate an unbounded collection; the max_size field is
+// omitted from the payload and the server treats it as +inf.
 func newCollection(gs *TestCase, minSize, maxSize int) *collection {
 	st := gs.stream
-	payload, err := encodeCBOR(map[string]any{
+	payloadMap := map[string]any{
 		"command":  "new_collection",
 		"min_size": int64(minSize),
-		"max_size": int64(maxSize),
-	})
+	}
+	if maxSize >= 0 {
+		payloadMap["max_size"] = int64(maxSize)
+	}
+	payload, err := encodeCBOR(payloadMap)
 	if err != nil { // coverage-ignore
 		panic(fmt.Sprintf("hegel: newCollection encode: %v", err))
 	}
@@ -342,6 +347,9 @@ func (c *collection) More(gs *TestCase) bool {
 }
 
 // Reject tells the server that the last generated element should not count.
+// If the server responds with a StopTest error (e.g. because too many rejections
+// have exhausted the collection's budget), the test case is aborted just like
+// the other collection-protocol commands.
 func (c *collection) Reject(gs *TestCase) {
 	if c.finished {
 		return
@@ -358,5 +366,13 @@ func (c *collection) Reject(gs *TestCase) {
 	if err != nil { // coverage-ignore
 		panic(fmt.Sprintf("hegel: Reject request: %v", err))
 	}
-	pending.Get() //nolint:errcheck
+	if _, err := pending.Get(); err != nil {
+		re, ok := err.(*requestError)
+		if ok && re.ErrorType == "StopTest" {
+			c.finished = true
+			gs.aborted = true
+			panic(&dataExhausted{msg: "server ran out of data (collection_reject)"})
+		}
+		panic(fmt.Sprintf("hegel: collection_reject error: %v", err)) // coverage-ignore
+	}
 }

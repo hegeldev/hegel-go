@@ -1,6 +1,9 @@
 package hegel
 
-import "fmt"
+import (
+	"fmt"
+	"reflect"
+)
 
 // --- Lists generator ---
 
@@ -12,6 +15,7 @@ type ListGenerator[T any] struct {
 	minSize  int
 	maxSize  int
 	hasMax   bool
+	unique   bool
 }
 
 // Lists returns a Generator that produces slices of values from the elements generator.
@@ -29,6 +33,14 @@ func (g ListGenerator[T]) MinSize(n int) ListGenerator[T] {
 func (g ListGenerator[T]) MaxSize(n int) ListGenerator[T] {
 	g.maxSize = n
 	g.hasMax = true
+	return g
+}
+
+// Unique requires every element of the generated list to be distinct.
+// Equality is determined with [reflect.DeepEqual] for the non-basic path;
+// the basic path delegates uniqueness to the server via the list schema.
+func (g ListGenerator[T]) Unique(unique bool) ListGenerator[T] {
+	g.unique = unique
 	return g
 }
 
@@ -52,6 +64,9 @@ func (g ListGenerator[T]) buildGenerator() Generator[[]T] {
 		}
 		if g.hasMax {
 			rawSchema["max_size"] = int64(g.maxSize)
+		}
+		if g.unique {
+			rawSchema["unique"] = true
 		}
 		if bg.transform != nil {
 			t := bg.transform
@@ -94,6 +109,7 @@ func (g ListGenerator[T]) buildGenerator() Generator[[]T] {
 		elements: elements,
 		minSize:  g.minSize,
 		maxSize:  maxSize,
+		unique:   g.unique,
 	}
 }
 
@@ -107,11 +123,14 @@ type compositeListGenerator[T any] struct {
 	elements Generator[T]
 	minSize  int
 	maxSize  int
+	unique   bool
 }
 
 // draw produces a list by using the collection protocol inside a labelList span.
+// When unique is set, duplicates are rejected via the collection protocol so the
+// server can retry until min_size distinct elements have been drawn.
 func (g *compositeListGenerator[T]) draw(s *TestCase) []T {
-	var result []T
+	result := []T{}
 	startSpan(s, labelList)
 	panicked := true
 	defer func() {
@@ -119,7 +138,21 @@ func (g *compositeListGenerator[T]) draw(s *TestCase) []T {
 	}()
 	coll := newCollection(s, g.minSize, g.maxSize)
 	for coll.More(s) {
-		result = append(result, g.elements.draw(s))
+		element := g.elements.draw(s)
+		if g.unique {
+			duplicate := false
+			for _, existing := range result {
+				if reflect.DeepEqual(existing, element) {
+					duplicate = true
+					break
+				}
+			}
+			if duplicate {
+				coll.Reject(s)
+				continue
+			}
+		}
+		result = append(result, element)
 	}
 	panicked = false
 	return result
@@ -243,6 +276,8 @@ type compositeDictGenerator[K comparable, V any] struct {
 }
 
 // draw implements Generator by using the MAP span and collection protocol.
+// Duplicate keys are rejected via the collection protocol so the server can
+// keep drawing until min_size distinct keys have been generated.
 func (g *compositeDictGenerator[K, V]) draw(s *TestCase) map[K]V {
 	var result map[K]V
 	discardableGroup(s, labelMap, func() {
@@ -253,11 +288,19 @@ func (g *compositeDictGenerator[K, V]) draw(s *TestCase) map[K]V {
 		coll := newCollection(s, g.minSize, maxSz)
 		m := map[K]V{}
 		for coll.More(s) {
+			duplicate := false
 			group(s, labelMapEntry, func() {
 				k := g.keys.draw(s)
+				if _, exists := m[k]; exists {
+					duplicate = true
+					return
+				}
 				v := g.values.draw(s)
 				m[k] = v
 			})
+			if duplicate {
+				coll.Reject(s)
+			}
 		}
 		result = m
 	})

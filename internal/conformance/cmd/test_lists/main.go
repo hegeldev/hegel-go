@@ -51,6 +51,13 @@ func main() {
 		}
 	}
 
+	unique := false
+	if v, ok := params["unique"]; ok && v != nil {
+		if b, ok := v.(bool); ok {
+			unique = b
+		}
+	}
+
 	elemGen := hegel.Integers[int](elemMinVal, elemMaxVal)
 
 	// When running collection StopTest modes or non_basic mode, force the
@@ -64,13 +71,13 @@ func main() {
 	var gen hegel.Generator[[]int]
 	if needsNonBasic {
 		filtered := conformance.MakeNonBasic(elemGen)
-		builder := hegel.Lists(filtered).MinSize(minSize)
+		builder := hegel.Lists(filtered).MinSize(minSize).Unique(unique)
 		if maxSize >= 0 {
 			builder = builder.MaxSize(maxSize)
 		}
 		gen = builder
 	} else {
-		builder := hegel.Lists(elemGen).MinSize(minSize)
+		builder := hegel.Lists(elemGen).MinSize(minSize).Unique(unique)
 		if maxSize >= 0 {
 			builder = builder.MaxSize(maxSize)
 		}
