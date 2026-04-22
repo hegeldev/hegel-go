@@ -227,8 +227,9 @@ func Text(minSize int, maxSize int) Generator[string] {
 		panic(fmt.Sprintf("hegel: Cannot have max_size=%d < min_size=%d", maxSize, minSize))
 	}
 	schema := map[string]any{
-		"type":     "string",
-		"min_size": int64(minSize),
+		"type":               "string",
+		"min_size":           int64(minSize),
+		"exclude_categories": []string{"Cs"},
 	}
 	if maxSize >= 0 {
 		schema["max_size"] = int64(maxSize)
@@ -259,6 +260,11 @@ func TextWithAlphabet(minSize int, maxSize int, alphabetParams map[string]any) G
 	}
 	for k, v := range alphabetParams {
 		schema[k] = v
+	}
+	if _, hasCats := schema["categories"]; !hasCats {
+		if _, hasExcl := schema["exclude_categories"]; !hasExcl {
+			schema["exclude_categories"] = []string{"Cs"}
+		}
 	}
 	return &basicGenerator[string]{schema: schema}
 }
