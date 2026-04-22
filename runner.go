@@ -48,7 +48,6 @@ const (
 	flakyReplay             = "FlakyReplay"
 )
 
-// IsFinal reports whether this is the final (replay) test case.
 func (s *TestCase) IsFinal() bool { return s.isFinal }
 
 // internal returns the underlying TestCase, satisfying the State interface.

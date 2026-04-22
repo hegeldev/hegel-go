@@ -740,10 +740,10 @@ func TestBooleansSchema(t *testing.T) {
 // TestTextSchema verifies that Text produces the correct schema structure.
 func TestTextSchema(t *testing.T) {
 	t.Parallel()
-	g := Text(3, 10)
-	bg, ok := g.(*basicGenerator[string])
+	g := Text().MinSize(3).MaxSize(10)
+	bg, ok := g.buildGenerator().(*basicGenerator[string])
 	if !ok {
-		t.Fatalf("Text should return *basicGenerator[string], got %T", g)
+		t.Fatalf("Text should build *basicGenerator[string], got %T", g.buildGenerator())
 	}
 	if bg.schema["type"] != "string" {
 		t.Errorf("type: expected 'string', got %v", bg.schema["type"])
@@ -765,8 +765,8 @@ func TestTextSchema(t *testing.T) {
 // TestTextSchemaNoMax verifies that Text with maxSize<0 omits max_size from schema.
 func TestTextSchemaNoMax(t *testing.T) {
 	t.Parallel()
-	g := Text(0, -1)
-	bg := g.(*basicGenerator[string])
+	g := Text()
+	bg := g.buildGenerator().(*basicGenerator[string])
 	if _, hasMax := bg.schema["max_size"]; hasMax {
 		t.Error("max_size should not be present when maxSize < 0")
 	}
@@ -933,7 +933,7 @@ func TestFlatMappedGeneratorE2E(t *testing.T) {
 	t.Parallel()
 	hegelBinPath(t)
 	gen := FlatMap[int, string](Integers[int](1, 5), func(v int) Generator[string] {
-		return Text(v, v) // exact length = n
+		return Text().MinSize(v).MaxSize(v) // exact length = n
 	})
 	if _err := Run(func(s *TestCase) {
 		v := Draw[string](s, gen)

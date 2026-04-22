@@ -61,7 +61,7 @@ func TestOneOfPath1E2E(t *testing.T) {
 	hegelBinPath(t)
 	sawShort := false
 	sawLong := false
-	combined := OneOf(Text(1, 3), Text(10, 15))
+	combined := OneOf(Text().MinSize(1).MaxSize(3), Text().MinSize(10).MaxSize(15))
 	if _err := Run(func(s *TestCase) {
 		v := combined.draw(s)
 		n := len([]rune(v))
@@ -268,7 +268,7 @@ func TestOneOfPath3E2E(t *testing.T) {
 		inner: Integers[int](0, 1000),
 		fn:    func(v int) int { return v }, // identity, but still a mappedGenerator
 	}
-	text := Text(1, 5)
+	text := Text().MinSize(1).MaxSize(5)
 	// These have different types so we need to unify. Use any.
 	nonBasicAny := Map[int, any](nonBasic, func(v int) any { return v })
 	textAny := Map[string, any](text, func(v string) any { return v })
@@ -510,7 +510,7 @@ func TestOneOfAllBranchesAppear(t *testing.T) {
 	hegelBinPath(t)
 	sawA := false
 	sawB := false
-	gen := OneOf(Text(1, 3), Text(4, 6))
+	gen := OneOf(Text().MinSize(1).MaxSize(3), Text().MinSize(4).MaxSize(6))
 	if _err := Run(func(s *TestCase) {
 		v := gen.draw(s)
 		n := len([]rune(v))
@@ -523,10 +523,10 @@ func TestOneOfAllBranchesAppear(t *testing.T) {
 		panic(_err)
 	}
 	if !sawA {
-		t.Error("OneOf: Text(1,3) branch never appeared")
+		t.Error("OneOf: Text().MinSize(1).MaxSize(3) branch never appeared")
 	}
 	if !sawB {
-		t.Error("OneOf: Text(4,6) branch never appeared")
+		t.Error("OneOf: Text().MinSize(4).MaxSize(6) branch never appeared")
 	}
 }
 

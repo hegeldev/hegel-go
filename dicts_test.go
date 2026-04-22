@@ -17,7 +17,7 @@ import (
 // a dict schema containing the expected fields.
 func TestDictsBasicSchema(t *testing.T) {
 	t.Parallel()
-	keys := Text(0, 5)
+	keys := Text().MaxSize(5)
 	vals := Integers[int64](0, 100)
 	gen := Dicts(keys, vals).MaxSize(3)
 	bg := gen.buildGenerator().(*basicGenerator[map[string]int64])
@@ -51,7 +51,7 @@ func TestDictsBasicSchema(t *testing.T) {
 // TestDictsBasicSchemaNoMaxSize verifies that when HasMaxSize=false, max_size is omitted.
 func TestDictsBasicSchemaNoMaxSize(t *testing.T) {
 	t.Parallel()
-	gen := Dicts(Text(0, 5), Integers[int64](0, 100)).MinSize(1)
+	gen := Dicts(Text().MaxSize(5), Integers[int64](0, 100)).MinSize(1)
 	bg := gen.buildGenerator().(*basicGenerator[map[string]int64])
 	if _, has := bg.schema["max_size"]; has {
 		t.Error("max_size should not be present when HasMaxSize=false")
@@ -61,7 +61,7 @@ func TestDictsBasicSchemaNoMaxSize(t *testing.T) {
 // TestDictsBasicSchemaMinSize verifies that MinSize is propagated to the schema.
 func TestDictsBasicSchemaMinSize(t *testing.T) {
 	t.Parallel()
-	gen := Dicts(Text(0, 5), Integers[int64](0, 100)).MinSize(2).MaxSize(5)
+	gen := Dicts(Text().MaxSize(5), Integers[int64](0, 100)).MinSize(2).MaxSize(5)
 	bg := gen.buildGenerator().(*basicGenerator[map[string]int64])
 	minSz, _ := extractCBORInt(bg.schema["min_size"])
 	if minSz != 2 {
@@ -72,7 +72,7 @@ func TestDictsBasicSchemaMinSize(t *testing.T) {
 // TestDictsBasicBuildsBasicGenerator verifies the direct schema path.
 func TestDictsBasicBuildsBasicGenerator(t *testing.T) {
 	t.Parallel()
-	gen := Dicts(Text(0, 5), Integers[int64](0, 100))
+	gen := Dicts(Text().MaxSize(5), Integers[int64](0, 100))
 	if _, ok := gen.buildGenerator().(*basicGenerator[map[string]int64]); !ok {
 		t.Errorf("Dicts(basic,basic) should build *basicGenerator[map[string]int64], got %T", gen.buildGenerator())
 	}
@@ -258,7 +258,7 @@ func TestDictsBasicE2E(t *testing.T) {
 	t.Parallel()
 	hegelBinPath(t)
 	if _err := Run(func(s *TestCase) {
-		gen := Dicts(Text(0, 5), Integers[int](0, 100)).MaxSize(3)
+		gen := Dicts(Text().MaxSize(5), Integers[int](0, 100)).MaxSize(3)
 		m := gen.draw(s)
 		if len(m) > 3 {
 			panic(fmt.Sprintf("Dicts: expected at most 3 entries, got %d", len(m)))

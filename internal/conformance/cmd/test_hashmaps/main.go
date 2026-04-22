@@ -72,7 +72,7 @@ func main() {
 	n := conformance.GetTestCases()
 
 	if keyType == "string" {
-		keysGen := hegel.Text(0, -1)
+		keysGen := hegel.Text()
 		gen := hegel.Dicts(keysGen, valsGen).MinSize(minSize).MaxSize(maxSize)
 
 		hegel.MustRun(func(s *hegel.TestCase) {

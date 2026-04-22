@@ -50,11 +50,11 @@ func TestFloatsAllowInfinityWithBothBounds(t *testing.T) {
 }
 
 func TestTextMinSizeNegative(t *testing.T) {
-	assertPanicsWithMessage(t, "min_size", func() { Text(-1, 10) })
+	assertPanicsWithMessage(t, "min_size", func() { Text().MinSize(-1).MaxSize(10).buildGenerator() })
 }
 
 func TestTextMinGreaterThanMax(t *testing.T) {
-	assertPanicsWithMessage(t, "max_size", func() { Text(10, 5) })
+	assertPanicsWithMessage(t, "max_size", func() { Text().MinSize(10).MaxSize(5).buildGenerator() })
 }
 
 func TestBinaryMinSizeNegative(t *testing.T) {

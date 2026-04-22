@@ -216,57 +216,157 @@ func Booleans() Generator[bool] {
 	}
 }
 
-// Text returns a Generator that produces string values with codepoint count in [minSize, maxSize].
+// TextGenerator configures and generates string values.
+// Use [Text] to create one, then chain builder methods to configure character constraints.
+// Invalid configurations panic on the first [Draw] call.
+type TextGenerator struct {
+	minSize           int
+	maxSize           int
+	hasMax            bool
+	codec             string
+	minCodepoint      int64
+	maxCodepoint      int64
+	hasMinCodepoint   bool
+	hasMaxCodepoint   bool
+	categories        []string
+	excludeCategories []string
+	includeCharacters string
+	excludeCharacters string
+}
+
+// Text returns a TextGenerator that produces string values.
+// Configure bounds and character constraints by chaining builder methods.
 //
-// Pass maxSize < 0 for unbounded.
-func Text(minSize int, maxSize int) Generator[string] {
-	if minSize < 0 {
-		panic(fmt.Sprintf("hegel: min_size=%d must be non-negative", minSize))
+//	hegel.Text()                                     // any string
+//	hegel.Text().MinSize(1).MaxSize(100)             // bounded length
+//	hegel.Text().MinCodepoint(65).MaxCodepoint(90)   // uppercase ASCII only
+func Text() TextGenerator {
+	return TextGenerator{}
+}
+
+// MinSize sets the minimum codepoint count (inclusive). Default: 0.
+func (g TextGenerator) MinSize(n int) TextGenerator {
+	g.minSize = n
+	return g
+}
+
+// MaxSize sets the maximum codepoint count (inclusive).
+func (g TextGenerator) MaxSize(n int) TextGenerator {
+	g.maxSize = n
+	g.hasMax = true
+	return g
+}
+
+// Codec sets the string encoding codec (e.g., "utf-8", "ascii").
+func (g TextGenerator) Codec(codec string) TextGenerator {
+	g.codec = codec
+	return g
+}
+
+// MinCodepoint sets the minimum Unicode codepoint (inclusive).
+func (g TextGenerator) MinCodepoint(cp int64) TextGenerator {
+	g.minCodepoint = cp
+	g.hasMinCodepoint = true
+	return g
+}
+
+// MaxCodepoint sets the maximum Unicode codepoint (inclusive).
+func (g TextGenerator) MaxCodepoint(cp int64) TextGenerator {
+	g.maxCodepoint = cp
+	g.hasMaxCodepoint = true
+	return g
+}
+
+// Categories restricts generated characters to the given Unicode categories.
+// Mutually exclusive with ExcludeCategories.
+func (g TextGenerator) Categories(cats ...string) TextGenerator {
+	g.categories = cats
+	return g
+}
+
+// ExcludeCategories excludes the given Unicode categories from generation.
+// Mutually exclusive with Categories.
+func (g TextGenerator) ExcludeCategories(cats ...string) TextGenerator {
+	g.excludeCategories = cats
+	return g
+}
+
+// IncludeCharacters adds specific characters that should always be allowed.
+func (g TextGenerator) IncludeCharacters(chars string) TextGenerator {
+	g.includeCharacters = chars
+	return g
+}
+
+// ExcludeCharacters removes specific characters from the allowed set.
+func (g TextGenerator) ExcludeCharacters(chars string) TextGenerator {
+	g.excludeCharacters = chars
+	return g
+}
+
+func (g TextGenerator) buildGenerator() Generator[string] {
+	if g.minSize < 0 {
+		panic(fmt.Sprintf("hegel: min_size=%d must be non-negative", g.minSize))
 	}
-	if maxSize >= 0 && minSize > maxSize {
-		panic(fmt.Sprintf("hegel: Cannot have max_size=%d < min_size=%d", maxSize, minSize))
+	if g.hasMax && g.maxSize < 0 {
+		panic(fmt.Sprintf("hegel: max_size=%d must be non-negative", g.maxSize))
 	}
+	if g.hasMax && g.minSize > g.maxSize {
+		panic(fmt.Sprintf("hegel: Cannot have max_size=%d < min_size=%d", g.maxSize, g.minSize))
+	}
+	if len(g.categories) > 0 && len(g.excludeCategories) > 0 {
+		panic("hegel: Cannot use both Categories and ExcludeCategories")
+	}
+	if len(g.categories) > 0 {
+		for _, c := range g.categories {
+			if c == "Cs" || c == "C" {
+				panic("hegel: Cannot include surrogate category Cs; Go strings are UTF-8")
+			}
+		}
+	}
+
 	schema := map[string]any{
-		"type":               "string",
-		"min_size":           int64(minSize),
-		"exclude_categories": []string{"Cs"},
+		"type":     "string",
+		"min_size": int64(g.minSize),
 	}
-	if maxSize >= 0 {
-		schema["max_size"] = int64(maxSize)
+	if g.hasMax {
+		schema["max_size"] = int64(g.maxSize)
+	}
+	if g.codec != "" {
+		schema["codec"] = g.codec
+	}
+	if g.hasMinCodepoint {
+		schema["min_codepoint"] = g.minCodepoint
+	}
+	if g.hasMaxCodepoint {
+		schema["max_codepoint"] = g.maxCodepoint
+	}
+	if len(g.categories) > 0 {
+		schema["categories"] = g.categories
+	} else {
+		excl := g.excludeCategories
+		hasCs := false
+		for _, c := range excl {
+			if c == "Cs" {
+				hasCs = true
+				break
+			}
+		}
+		if !hasCs {
+			excl = append(excl, "Cs")
+		}
+		schema["exclude_categories"] = excl
+	}
+	if g.includeCharacters != "" {
+		schema["include_characters"] = g.includeCharacters
+	}
+	if g.excludeCharacters != "" {
+		schema["exclude_characters"] = g.excludeCharacters
 	}
 	return &basicGenerator[string]{schema: schema}
 }
 
-// TextWithAlphabet returns a Generator that produces string values with codepoint
-// count in [minSize, maxSize], using custom character constraints. The alphabetParams
-// map is passed directly to the server's character strategy (e.g., "codec",
-// "min_codepoint", "max_codepoint", "categories", "exclude_categories",
-// "exclude_characters", "include_characters").
-//
-// Pass maxSize < 0 for unbounded.
-func TextWithAlphabet(minSize int, maxSize int, alphabetParams map[string]any) Generator[string] {
-	if minSize < 0 {
-		panic(fmt.Sprintf("hegel: min_size=%d must be non-negative", minSize))
-	}
-	if maxSize >= 0 && minSize > maxSize {
-		panic(fmt.Sprintf("hegel: Cannot have max_size=%d < min_size=%d", maxSize, minSize))
-	}
-	schema := map[string]any{
-		"type":     "string",
-		"min_size": int64(minSize),
-	}
-	if maxSize >= 0 {
-		schema["max_size"] = int64(maxSize)
-	}
-	for k, v := range alphabetParams {
-		schema[k] = v
-	}
-	if _, hasCats := schema["categories"]; !hasCats {
-		if _, hasExcl := schema["exclude_categories"]; !hasExcl {
-			schema["exclude_categories"] = []string{"Cs"}
-		}
-	}
-	return &basicGenerator[string]{schema: schema}
+func (g TextGenerator) draw(s *TestCase) string {
+	return g.buildGenerator().draw(s)
 }
 
 // Binary returns a Generator that produces byte slices with length in [minSize, maxSize].
