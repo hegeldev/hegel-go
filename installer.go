@@ -7,7 +7,7 @@ import (
 )
 
 // hegelServerVersion is the version of hegel-core that this SDK requires.
-const hegelServerVersion = "0.3.0"
+const hegelServerVersion = "0.4.7"
 
 // hegelServerCommandEnv is the environment variable that overrides automatic installation.
 const hegelServerCommandEnv = "HEGEL_SERVER_COMMAND"

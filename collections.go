@@ -12,6 +12,7 @@ type ListGenerator[T any] struct {
 	minSize  int
 	maxSize  int
 	hasMax   bool
+	unique   bool
 }
 
 // Lists returns a Generator that produces slices of values from the elements generator.
@@ -32,6 +33,12 @@ func (g ListGenerator[T]) MaxSize(n int) ListGenerator[T] {
 	return g
 }
 
+// Unique constrains the generated list to contain only unique elements.
+func (g ListGenerator[T]) Unique() ListGenerator[T] {
+	g.unique = true
+	return g
+}
+
 func (g ListGenerator[T]) buildGenerator() Generator[[]T] {
 	if g.minSize < 0 {
 		panic(fmt.Sprintf("hegel: min_size=%d must be non-negative", g.minSize))
@@ -49,6 +56,7 @@ func (g ListGenerator[T]) buildGenerator() Generator[[]T] {
 			"type":     "list",
 			"elements": bg.schema,
 			"min_size": int64(g.minSize),
+			"unique":   g.unique,
 		}
 		if g.hasMax {
 			rawSchema["max_size"] = int64(g.maxSize)

@@ -171,6 +171,82 @@ func TestFloatGeneratorBuildsBasicGenerator(t *testing.T) {
 	}
 }
 
+func TestTextWithAlphabetSchema(t *testing.T) {
+	t.Parallel()
+	gen := TextWithAlphabet(1, 10, map[string]any{
+		"min_codepoint": int64(65),
+		"max_codepoint": int64(90),
+	})
+	bg := gen.(*basicGenerator[string])
+	if bg.schema["type"] != "string" {
+		t.Errorf("schema type: expected 'string', got %v", bg.schema["type"])
+	}
+	minV, _ := extractCBORInt(bg.schema["min_size"])
+	if minV != 1 {
+		t.Errorf("min_size: expected 1, got %d", minV)
+	}
+	maxV, _ := extractCBORInt(bg.schema["max_size"])
+	if maxV != 10 {
+		t.Errorf("max_size: expected 10, got %d", maxV)
+	}
+	minCP, _ := extractCBORInt(bg.schema["min_codepoint"])
+	if minCP != 65 {
+		t.Errorf("min_codepoint: expected 65, got %d", minCP)
+	}
+}
+
+func TestTextWithAlphabetUnbounded(t *testing.T) {
+	t.Parallel()
+	gen := TextWithAlphabet(0, -1, map[string]any{})
+	bg := gen.(*basicGenerator[string])
+	if _, hasMax := bg.schema["max_size"]; hasMax {
+		t.Error("max_size should not be present when maxSize < 0")
+	}
+}
+
+func TestTextWithAlphabetNegativeMinPanics(t *testing.T) {
+	t.Parallel()
+	defer func() {
+		r := recover()
+		if r == nil {
+			t.Fatal("expected panic for negative min_size")
+		}
+	}()
+	TextWithAlphabet(-1, 10, map[string]any{})
+}
+
+func TestTextWithAlphabetMinGtMaxPanics(t *testing.T) {
+	t.Parallel()
+	defer func() {
+		r := recover()
+		if r == nil {
+			t.Fatal("expected panic for min_size > max_size")
+		}
+	}()
+	TextWithAlphabet(10, 5, map[string]any{})
+}
+
+func TestTextWithAlphabetE2E(t *testing.T) {
+	t.Parallel()
+	hegelBinPath(t)
+	if _err := Run(func(s *TestCase) {
+		val := Draw(s, TextWithAlphabet(1, 20, map[string]any{
+			"min_codepoint": int64(65),
+			"max_codepoint": int64(90),
+		}))
+		if len(val) == 0 {
+			panic("TextWithAlphabet: got empty string with min_size=1")
+		}
+		for _, r := range val {
+			if r < 'A' || r > 'Z' {
+				panic("TextWithAlphabet: got character outside A-Z range")
+			}
+		}
+	}, WithTestCases(50)); _err != nil {
+		panic(_err)
+	}
+}
+
 func TestListsFloatBuilderUsesBasicPath(t *testing.T) {
 	t.Parallel()
 	gen := Lists(Floats[float64]().Min(0).Max(1).AllowNaN(false).AllowInfinity(false)).MaxSize(3)

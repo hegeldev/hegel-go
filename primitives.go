@@ -236,6 +236,33 @@ func Text(minSize int, maxSize int) Generator[string] {
 	return &basicGenerator[string]{schema: schema}
 }
 
+// TextWithAlphabet returns a Generator that produces string values with codepoint
+// count in [minSize, maxSize], using custom character constraints. The alphabetParams
+// map is passed directly to the server's character strategy (e.g., "codec",
+// "min_codepoint", "max_codepoint", "categories", "exclude_categories",
+// "exclude_characters", "include_characters").
+//
+// Pass maxSize < 0 for unbounded.
+func TextWithAlphabet(minSize int, maxSize int, alphabetParams map[string]any) Generator[string] {
+	if minSize < 0 {
+		panic(fmt.Sprintf("hegel: min_size=%d must be non-negative", minSize))
+	}
+	if maxSize >= 0 && minSize > maxSize {
+		panic(fmt.Sprintf("hegel: Cannot have max_size=%d < min_size=%d", maxSize, minSize))
+	}
+	schema := map[string]any{
+		"type":     "string",
+		"min_size": int64(minSize),
+	}
+	if maxSize >= 0 {
+		schema["max_size"] = int64(maxSize)
+	}
+	for k, v := range alphabetParams {
+		schema[k] = v
+	}
+	return &basicGenerator[string]{schema: schema}
+}
+
 // Binary returns a Generator that produces byte slices with length in [minSize, maxSize].
 //
 // Pass maxSize < 0 for unbounded.

@@ -596,6 +596,18 @@ func TestNoteIsFinalTrue(t *testing.T) {
 	state.Note("test note on final")
 }
 
+func TestIsFinal(t *testing.T) {
+	t.Parallel()
+	nonFinal := &TestCase{isFinal: false}
+	if nonFinal.IsFinal() {
+		t.Error("IsFinal should be false for non-final test case")
+	}
+	final := &TestCase{isFinal: true}
+	if !final.IsFinal() {
+		t.Error("IsFinal should be true for final test case")
+	}
+}
+
 // --- hegelSession: start with spawn error ---
 
 func TestHegelSessionSpawnError(t *testing.T) {

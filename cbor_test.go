@@ -460,3 +460,86 @@ func TestEncodeCBORError(t *testing.T) {
 		t.Fatal("encodeCBOR(func): expected error")
 	}
 }
+
+// --- unwrapHegelTags ---
+
+func TestUnwrapHegelTagsString(t *testing.T) {
+	t.Parallel()
+	tag := cbor.Tag{Number: hegelStringTag, Content: []byte("hello")}
+	got := unwrapHegelTags(tag)
+	if got != "hello" {
+		t.Errorf("unwrapHegelTags(string tag) = %v, want \"hello\"", got)
+	}
+}
+
+func TestUnwrapHegelTagsUnknownTag(t *testing.T) {
+	t.Parallel()
+	tag := cbor.Tag{Number: 999, Content: []byte("data")}
+	got := unwrapHegelTags(tag)
+	gotTag, ok := got.(cbor.Tag)
+	if !ok {
+		t.Fatalf("unwrapHegelTags(unknown tag) = %T, want cbor.Tag", got)
+	}
+	if gotTag.Number != 999 {
+		t.Errorf("tag number = %d, want 999", gotTag.Number)
+	}
+}
+
+func TestUnwrapHegelTagsStringTagNonBytes(t *testing.T) {
+	t.Parallel()
+	tag := cbor.Tag{Number: hegelStringTag, Content: int64(42)}
+	got := unwrapHegelTags(tag)
+	_, ok := got.(cbor.Tag)
+	if !ok {
+		t.Fatalf("unwrapHegelTags(tag 91 with int content) = %T, want cbor.Tag", got)
+	}
+}
+
+func TestUnwrapHegelTagsList(t *testing.T) {
+	t.Parallel()
+	input := []any{
+		cbor.Tag{Number: hegelStringTag, Content: []byte("a")},
+		int64(1),
+		cbor.Tag{Number: hegelStringTag, Content: []byte("b")},
+	}
+	got := unwrapHegelTags(input)
+	list, ok := got.([]any)
+	if !ok {
+		t.Fatalf("unwrapHegelTags(list) = %T, want []any", got)
+	}
+	if list[0] != "a" || list[2] != "b" {
+		t.Errorf("list unwrap = %v, want [a 1 b]", list)
+	}
+}
+
+func TestUnwrapHegelTagsMap(t *testing.T) {
+	t.Parallel()
+	input := map[any]any{
+		"key":    cbor.Tag{Number: hegelStringTag, Content: []byte("val")},
+		int64(1): cbor.Tag{Number: hegelStringTag, Content: []byte("num_val")},
+	}
+	got := unwrapHegelTags(input)
+	m, ok := got.(map[any]any)
+	if !ok {
+		t.Fatalf("unwrapHegelTags(map) = %T, want map[any]any", got)
+	}
+	if m["key"] != "val" {
+		t.Errorf("map[key] = %v, want \"val\"", m["key"])
+	}
+	if m[int64(1)] != "num_val" {
+		t.Errorf("map[1] = %v, want \"num_val\"", m[int64(1)])
+	}
+}
+
+func TestUnwrapHegelTagsPassthrough(t *testing.T) {
+	t.Parallel()
+	if unwrapHegelTags(int64(42)) != int64(42) {
+		t.Error("int64 passthrough failed")
+	}
+	if unwrapHegelTags(true) != true {
+		t.Error("bool passthrough failed")
+	}
+	if unwrapHegelTags(nil) != nil {
+		t.Error("nil passthrough failed")
+	}
+}

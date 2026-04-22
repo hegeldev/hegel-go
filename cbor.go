@@ -39,6 +39,38 @@ func encodeCBOR(v any) ([]byte, error) {
 	return b, nil
 }
 
+const hegelStringTag = 91
+
+// unwrapHegelTags recursively unwraps CBOR tag 91 (hegel string tag) values.
+// The server encodes strings as CBORTag(91, WTF-8 bytes) to support surrogate
+// code points. This function converts them back to Go strings and recurses
+// into lists and maps.
+func unwrapHegelTags(v any) any {
+	switch x := v.(type) {
+	case cbor.Tag:
+		if x.Number == hegelStringTag {
+			b, ok := x.Content.([]byte)
+			if ok {
+				return string(b)
+			}
+		}
+		return v
+	case []any:
+		for i, elem := range x {
+			x[i] = unwrapHegelTags(elem)
+		}
+		return x
+	case map[any]any:
+		out := make(map[any]any, len(x))
+		for k, val := range x {
+			out[unwrapHegelTags(k)] = unwrapHegelTags(val)
+		}
+		return out
+	default:
+		return v
+	}
+}
+
 // extractCBORInt extracts an integer value from a CBOR-decoded value.
 // The fxamacker/cbor library decodes CBOR integers as uint64 (positive) or
 // int64 (negative), so both are handled.

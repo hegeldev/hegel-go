@@ -48,6 +48,9 @@ const (
 	flakyReplay             = "FlakyReplay"
 )
 
+// IsFinal reports whether this is the final (replay) test case.
+func (s *TestCase) IsFinal() bool { return s.isFinal }
+
 // internal returns the underlying TestCase, satisfying the State interface.
 func (s *TestCase) internal() *TestCase { return s }
 
@@ -129,7 +132,7 @@ func generateFromSchema(gs *TestCase, schema map[string]any) (any, error) {
 		}
 		return nil, err
 	}
-	return v, nil
+	return unwrapHegelTags(v), nil
 }
 
 // fatalSentinel is panic'd by T.Fatal/Fatalf/FailNow to mark a test case as INTERESTING.

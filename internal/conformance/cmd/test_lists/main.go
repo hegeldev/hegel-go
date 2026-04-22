@@ -1,14 +1,7 @@
-// test_lists is a conformance binary for list generation.
-// It parses JSON params from argv[1] (min_size, max_size, min_value, max_value)
-// and writes list metrics (size, min_element, max_element).
-//
-// When HEGEL_PROTOCOL_TEST_MODE contains "collection", the element generator
-// is wrapped with a no-op Filter to force the collection protocol path.
 package main
 
 import (
 	"encoding/json"
-	"math"
 	"os"
 	"strings"
 
@@ -25,10 +18,10 @@ func main() {
 	}
 
 	minSize := 0
-	maxSize := -1 // unbounded
-
-	elemMinVal := math.MinInt
-	elemMaxVal := math.MaxInt
+	maxSize := -1
+	elemMinVal := -1000
+	elemMaxVal := 1000
+	unique := false
 
 	if v, ok := params["min_size"]; ok && v != nil {
 		if x, ok := v.(float64); ok {
@@ -50,16 +43,24 @@ func main() {
 			elemMaxVal = int(x)
 		}
 	}
+	if v, ok := params["unique"]; ok {
+		if x, ok := v.(bool); ok {
+			unique = x
+		}
+	}
+
+	mode := "basic"
+	if m, ok := params["mode"].(string); ok {
+		mode = m
+	}
+
+	testMode := os.Getenv("HEGEL_PROTOCOL_TEST_MODE")
+	useNonBasic := mode == "non_basic" || strings.Contains(testMode, "collection")
 
 	elemGen := hegel.Integers[int](elemMinVal, elemMaxVal)
 
-	// When running collection StopTest modes, force the collection protocol
-	// by wrapping the element generator with a no-op Filter. This makes it
-	// non-basic, so Lists uses new_collection/collection_more instead of a
-	// single generate command with a list schema.
-	testMode := os.Getenv("HEGEL_PROTOCOL_TEST_MODE")
 	var gen hegel.Generator[[]int]
-	if strings.Contains(testMode, "collection") {
+	if useNonBasic && !unique {
 		filtered := hegel.Filter(elemGen, func(v int) bool { return true })
 		builder := hegel.Lists(filtered).MinSize(minSize)
 		if maxSize >= 0 {
@@ -71,35 +72,21 @@ func main() {
 		if maxSize >= 0 {
 			builder = builder.MaxSize(maxSize)
 		}
+		if unique {
+			builder = builder.Unique()
+		}
 		gen = builder
 	}
 
 	n := conformance.GetTestCases()
-
 	hegel.MustRun(func(s *hegel.TestCase) {
 		items := hegel.Draw(s, gen)
-		size := len(items)
-
-		var minElem, maxElem any
-		if size > 0 {
-			minVal := math.MaxInt
-			maxVal := math.MinInt
-			for _, v := range items {
-				if v < minVal {
-					minVal = v
-				}
-				if v > maxVal {
-					maxVal = v
-				}
-			}
-			minElem = minVal
-			maxElem = maxVal
+		elements := make([]any, len(items))
+		for i, v := range items {
+			elements[i] = v
 		}
-
 		conformance.WriteMetrics(map[string]any{
-			"size":        size,
-			"min_element": minElem,
-			"max_element": maxElem,
+			"elements": elements,
 		})
 	}, hegel.WithTestCases(n))
 	os.Exit(0)

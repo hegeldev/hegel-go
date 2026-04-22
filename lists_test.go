@@ -226,3 +226,30 @@ func TestListsBasicWithTransformE2E(t *testing.T) {
 		panic(_err)
 	}
 }
+
+func TestListsUniqueSchema(t *testing.T) {
+	t.Parallel()
+	elem := Integers[int64](0, 100)
+	gen := Lists(elem).Unique().MaxSize(10)
+	bg := gen.buildGenerator().(*basicGenerator[[]int64])
+	if bg.schema["unique"] != true {
+		t.Errorf("unique: expected true, got %v", bg.schema["unique"])
+	}
+}
+
+func TestListsUniqueE2E(t *testing.T) {
+	t.Parallel()
+	hegelBinPath(t)
+	if _err := Run(func(s *TestCase) {
+		xs := Lists(Integers[int](0, 1000)).Unique().MinSize(2).MaxSize(10).draw(s)
+		seen := map[int]bool{}
+		for _, x := range xs {
+			if seen[x] {
+				panic(fmt.Sprintf("Lists(unique): duplicate element %d", x))
+			}
+			seen[x] = true
+		}
+	}, WithTestCases(50)); _err != nil {
+		panic(_err)
+	}
+}

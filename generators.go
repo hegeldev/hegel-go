@@ -283,11 +283,14 @@ type collection struct {
 // newCollection starts a new collection on the server with the given size bounds.
 func newCollection(gs *TestCase, minSize, maxSize int) *collection {
 	st := gs.stream
-	payload, err := encodeCBOR(map[string]any{
+	msg := map[string]any{
 		"command":  "new_collection",
 		"min_size": int64(minSize),
-		"max_size": int64(maxSize),
-	})
+	}
+	if maxSize >= 0 {
+		msg["max_size"] = int64(maxSize)
+	}
+	payload, err := encodeCBOR(msg)
 	if err != nil { // coverage-ignore
 		panic(fmt.Sprintf("hegel: newCollection encode: %v", err))
 	}
