@@ -32,96 +32,74 @@ func (g ListGenerator[T]) MaxSize(n int) ListGenerator[T] {
 	return g
 }
 
-func (g ListGenerator[T]) buildGenerator() Generator[[]T] {
+// asBasic validates the configuration and returns a basic generator when the
+// element generator is itself basic. Returns (nil, false, nil) when the
+// element generator is non-basic.
+func (g ListGenerator[T]) asBasic() (*basicGenerator[[]T], bool, error) {
 	if g.minSize < 0 {
-		panic(fmt.Sprintf("hegel: min_size=%d must be non-negative", g.minSize))
+		return nil, false, fmt.Errorf("min_size=%d must be non-negative", g.minSize)
 	}
 	if g.hasMax && g.maxSize < 0 {
-		panic(fmt.Sprintf("hegel: max_size=%d must be non-negative", g.maxSize))
+		return nil, false, fmt.Errorf("max_size=%d must be non-negative", g.maxSize)
 	}
 	if g.hasMax && g.minSize > g.maxSize {
-		panic(fmt.Sprintf("hegel: Cannot have max_size=%d < min_size=%d", g.maxSize, g.minSize))
+		return nil, false, fmt.Errorf("Cannot have max_size=%d < min_size=%d", g.maxSize, g.minSize)
 	}
 
-	elements := unwrapGenerator(g.elements)
-	if bg, ok := elements.(*basicGenerator[T]); ok {
-		rawSchema := map[string]any{
-			"type":     "list",
-			"elements": bg.schema,
-			"min_size": int64(g.minSize),
-		}
-		if g.hasMax {
-			rawSchema["max_size"] = int64(g.maxSize)
-		}
-		if bg.transform != nil {
-			t := bg.transform
-			return &basicGenerator[[]T]{
-				schema: rawSchema,
-				transform: func(raw any) []T {
-					rawSlice, ok := raw.([]any)
-					if !ok {
-						return nil
-					}
-					result := make([]T, len(rawSlice))
-					for i, x := range rawSlice {
-						result[i] = t(x)
-					}
-					return result
-				},
+	bg, ok, err := g.elements.asBasic()
+	if err != nil {
+		return nil, false, err
+	}
+	if !ok {
+		return nil, false, nil
+	}
+
+	rawSchema := map[string]any{
+		"type":     "list",
+		"elements": bg.schema,
+		"min_size": int64(g.minSize),
+	}
+	if g.hasMax {
+		rawSchema["max_size"] = int64(g.maxSize)
+	}
+	elemParse := bg.parse
+	return &basicGenerator[[]T]{
+		schema: rawSchema,
+		parse: func(raw any) []T {
+			rawSlice, ok := raw.([]any)
+			if !ok {
+				return nil
 			}
-		}
-		return &basicGenerator[[]T]{
-			schema: rawSchema,
-			transform: func(raw any) []T {
-				rawSlice, ok := raw.([]any)
-				if !ok {
-					return nil
-				}
-				result := make([]T, len(rawSlice))
-				for i, x := range rawSlice {
-					result[i] = x.(T)
-				}
-				return result
-			},
-		}
-	}
+			result := make([]T, len(rawSlice))
+			for i, x := range rawSlice {
+				result[i] = elemParse(x)
+			}
+			return result
+		},
+	}, true, nil
+}
 
+// draw produces a list by dispatching to the basic schema when possible,
+// falling back to the collection protocol otherwise.
+func (g ListGenerator[T]) draw(s *TestCase) []T {
+	bg, ok, err := g.asBasic()
+	if err != nil {
+		panic(err.Error())
+	}
+	if ok {
+		return bg.draw(s)
+	}
 	maxSize := -1
 	if g.hasMax {
 		maxSize = g.maxSize
 	}
-	return &compositeListGenerator[T]{
-		elements: elements,
-		minSize:  g.minSize,
-		maxSize:  maxSize,
-	}
-}
-
-// draw produces a list by delegating to the effective generator.
-func (g ListGenerator[T]) draw(s *TestCase) []T {
-	return g.buildGenerator().draw(s)
-}
-
-// compositeListGenerator generates a list using the collection protocol.
-type compositeListGenerator[T any] struct {
-	elements Generator[T]
-	minSize  int
-	maxSize  int
-}
-
-// draw produces a list by using the collection protocol inside a labelList span.
-func (g *compositeListGenerator[T]) draw(s *TestCase) []T {
-	var result []T
 	startSpan(s, labelList)
-	panicked := true
-	defer func() {
-		stopSpan(s, panicked)
-	}()
-	coll := newCollection(s, g.minSize, g.maxSize)
+	var result []T
+	coll := newCollection(s, g.minSize, maxSize)
 	for coll.More(s) {
 		result = append(result, g.elements.draw(s))
 	}
-	panicked = false
+	stopSpan(s, false)
 	return result
 }
 
@@ -156,56 +134,81 @@ func (g DictGenerator[K, V]) MaxSize(n int) DictGenerator[K, V] {
 	return g
 }
 
-func (g DictGenerator[K, V]) buildGenerator() Generator[map[K]V] {
+// asBasic validates the configuration and returns a basic generator when both
+// key and value generators are basic. Returns (nil, false, nil) when either
+// is non-basic.
+func (g DictGenerator[K, V]) asBasic() (*basicGenerator[map[K]V], bool, error) {
 	if g.minSize < 0 {
-		panic(fmt.Sprintf("hegel: min_size=%d must be non-negative", g.minSize))
+		return nil, false, fmt.Errorf("min_size=%d must be non-negative", g.minSize)
 	}
 	if g.hasMax && g.maxSize < 0 {
-		panic(fmt.Sprintf("hegel: max_size=%d must be non-negative", g.maxSize))
+		return nil, false, fmt.Errorf("max_size=%d must be non-negative", g.maxSize)
 	}
 	if g.hasMax && g.minSize > g.maxSize {
-		panic(fmt.Sprintf("hegel: Cannot have max_size=%d < min_size=%d", g.maxSize, g.minSize))
+		return nil, false, fmt.Errorf("Cannot have max_size=%d < min_size=%d", g.maxSize, g.minSize)
 	}
 
-	keys := unwrapGenerator(g.keys)
-	values := unwrapGenerator(g.values)
-	keyBasic, keyIsBasic := keys.(*basicGenerator[K])
-	valBasic, valIsBasic := values.(*basicGenerator[V])
-	if keyIsBasic && valIsBasic {
-		rawSchema := map[string]any{
-			"type":     "dict",
-			"keys":     keyBasic.schema,
-			"values":   valBasic.schema,
-			"min_size": int64(g.minSize),
-		}
-		if g.hasMax {
-			rawSchema["max_size"] = int64(g.maxSize)
-		}
-		keyTransform := keyBasic.transform
-		valTransform := valBasic.transform
-		return &basicGenerator[map[K]V]{
-			schema: rawSchema,
-			transform: func(v any) map[K]V {
-				return pairsToMap[K, V](v, keyTransform, valTransform)
-			},
-		}
+	keyBasic, keyOk, err := g.keys.asBasic()
+	if err != nil {
+		return nil, false, err
 	}
-	return &compositeDictGenerator[K, V]{
-		keys:    keys,
-		values:  values,
-		minSize: g.minSize,
-		maxSize: g.maxSize,
-		hasMax:  g.hasMax,
+	valBasic, valOk, err := g.values.asBasic()
+	if err != nil {
+		return nil, false, err
 	}
+	if !keyOk || !valOk {
+		return nil, false, nil
+	}
+
+	rawSchema := map[string]any{
+		"type":     "dict",
+		"keys":     keyBasic.schema,
+		"values":   valBasic.schema,
+		"min_size": int64(g.minSize),
+	}
+	if g.hasMax {
+		rawSchema["max_size"] = int64(g.maxSize)
+	}
+	keyParse := keyBasic.parse
+	valParse := valBasic.parse
+	return &basicGenerator[map[K]V]{
+		schema: rawSchema,
+		parse: func(v any) map[K]V {
+			return pairsToMap[K, V](v, keyParse, valParse)
+		},
+	}, true, nil
 }
 
-// draw produces a map by delegating to the effective generator.
+// draw produces a map by dispatching to the basic schema when possible,
+// falling back to the collection protocol otherwise.
 func (g DictGenerator[K, V]) draw(s *TestCase) map[K]V {
-	return g.buildGenerator().draw(s)
+	bg, ok, err := g.asBasic()
+	if err != nil {
+		panic(err.Error())
+	}
+	if ok {
+		return bg.draw(s)
+	}
+	maxSize := g.maxSize
+	if !g.hasMax {
+		maxSize = g.minSize + 10
+	}
+	startSpan(s, labelMap)
+	result := map[K]V{}
+	coll := newCollection(s, g.minSize, maxSize)
+	for coll.More(s) {
+		startSpan(s, labelMapEntry)
+		k := g.keys.draw(s)
+		v := g.values.draw(s)
+		result[k] = v
+		stopSpan(s, false)
+	}
+	stopSpan(s, false)
+	return result
 }
 
 // pairsToMap converts a CBOR-decoded pair list [[k,v], ...] to a map[K]V.
-func pairsToMap[K comparable, V any](v any, keyTransform func(any) K, valTransform func(any) V) map[K]V {
+func pairsToMap[K comparable, V any](v any, keyParse func(any) K, valParse func(any) V) map[K]V {
 	result := map[K]V{}
 	pairs, ok := v.([]any)
 	if !ok {
@@ -216,50 +219,7 @@ func pairsToMap[K comparable, V any](v any, keyTransform func(any) K, valTransfo
 		if !ok || len(kv) < 2 {
 			continue
 		}
-		var k K
-		if keyTransform != nil {
-			k = keyTransform(kv[0])
-		} else {
-			k = kv[0].(K)
-		}
-		var val V
-		if valTransform != nil {
-			val = valTransform(kv[1])
-		} else {
-			val = kv[1].(V)
-		}
-		result[k] = val
+		result[keyParse(kv[0])] = valParse(kv[1])
 	}
-	return result
-}
-
-// compositeDictGenerator generates maps using the collection protocol.
-type compositeDictGenerator[K comparable, V any] struct {
-	keys    Generator[K]
-	values  Generator[V]
-	minSize int
-	maxSize int
-	hasMax  bool
-}
-
-// draw implements Generator by using the MAP span and collection protocol.
-func (g *compositeDictGenerator[K, V]) draw(s *TestCase) map[K]V {
-	var result map[K]V
-	discardableGroup(s, labelMap, func() {
-		maxSz := g.maxSize
-		if !g.hasMax {
-			maxSz = g.minSize + 10
-		}
-		coll := newCollection(s, g.minSize, maxSz)
-		m := map[K]V{}
-		for coll.More(s) {
-			group(s, labelMapEntry, func() {
-				k := g.keys.draw(s)
-				v := g.values.draw(s)
-				m[k] = v
-			})
-		}
-		result = m
-	})
 	return result
 }

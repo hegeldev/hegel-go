@@ -52,11 +52,15 @@ type Generator[T any] interface {
 	// draw produces a value from the Hegel server using the given state.
 	// Unexported to seal the interface to this package.
 	draw(s *TestCase) T
-}
 
-type builderGenerator[T any] interface {
-	Generator[T]
-	buildGenerator() Generator[T]
+	// asBasic returns the basic-schema form of this generator, when one exists.
+	// The three return values encode three distinct states:
+	//   (bg, true, nil)   — generator is basic; bg holds the schema and parser.
+	//   (nil, false, nil) — generator is composite (e.g. filtered, flat-mapped,
+	//                       or has non-basic element generators); no schema.
+	//   (nil, false, err) — configuration is invalid (e.g. min > max).
+	// Unexported to seal the interface to this package.
+	asBasic() (*basicGenerator[T], bool, error)
 }
 
 // testCase is the test context for a Hegel property test.
@@ -79,26 +83,13 @@ func Draw[T any](tc testCase, g Generator[T]) T {
 	return g.draw(tc.internal())
 }
 
-func unwrapGenerator[T any](g Generator[T]) Generator[T] {
-	if builder, ok := g.(builderGenerator[T]); ok {
-		return builder.buildGenerator()
-	}
-	return g
-}
-
 // --- basicGenerator ---
 
 // basicGenerator is a generator backed by a single JSON-schema sent to the
-// Hegel server. An optional transform function converts the raw CBOR value to T.
+// Hegel server. The parse function converts the raw CBOR value to T.
 type basicGenerator[T any] struct {
-	schema    map[string]any
-	transform func(any) T // nil means the raw CBOR value is T
-}
-
-// isSchemaIdentity reports whether this basicGenerator has no transform,
-// meaning the raw CBOR value is used directly.
-func (g *basicGenerator[T]) isSchemaIdentity() bool {
-	return g.transform == nil
+	schema map[string]any
+	parse  func(any) T
 }
 
 // draw sends a generate command to the server and returns the result.
@@ -107,10 +98,12 @@ func (g *basicGenerator[T]) draw(s *TestCase) T {
 	if err != nil {
 		panic(err)
 	}
-	if g.transform != nil {
-		return g.transform(v)
-	}
-	return v.(T)
+	return g.parse(v)
+}
+
+// asBasic returns the receiver — a basicGenerator is trivially basic.
+func (g *basicGenerator[T]) asBasic() (*basicGenerator[T], bool, error) {
+	return g, true, nil
 }
 
 // --- mappedGenerator ---
@@ -124,11 +117,18 @@ type mappedGenerator[T, U any] struct {
 
 // draw calls the inner generator inside a MAPPED span and applies fn.
 func (g *mappedGenerator[T, U]) draw(s *TestCase) U {
-	var result U
-	group(s, labelMapped, func() {
-		result = g.fn(g.inner.draw(s))
-	})
+	startSpan(s, labelMapped)
+	result := g.fn(g.inner.draw(s))
+	stopSpan(s, false)
 	return result
+}
+
+// asBasic always returns not-basic. Map() composes basic-with-basic at
+// construction time, so a mappedGenerator only exists when wrapping a
+// non-basic source — collapsing it back through here would never match a
+// caller's expectations.
+func (g *mappedGenerator[T, U]) asBasic() (*basicGenerator[U], bool, error) {
+	return nil, false, nil
 }
 
 // --- filteredGenerator ---
@@ -157,6 +157,11 @@ func (g *filteredGenerator[T]) draw(s *TestCase) T {
 	// unreachable
 }
 
+// asBasic always returns not-basic — filtering cannot be expressed as a schema.
+func (g *filteredGenerator[T]) asBasic() (*basicGenerator[T], bool, error) {
+	return nil, false, nil
+}
+
 // --- flatMappedGenerator ---
 
 // flatMappedGenerator generates a value from source, passes it to f, and then
@@ -168,31 +173,32 @@ type flatMappedGenerator[T, U any] struct {
 
 // draw generates from source, then from the dependent generator, inside a FLAT_MAP span.
 func (g *flatMappedGenerator[T, U]) draw(s *TestCase) U {
-	var result U
-	discardableGroup(s, labelFlatMap, func() {
-		first := g.source.draw(s)
-		secondGen := g.f(first)
-		result = secondGen.draw(s)
-	})
+	startSpan(s, labelFlatMap)
+	first := g.source.draw(s)
+	secondGen := g.f(first)
+	result := secondGen.draw(s)
+	stopSpan(s, false)
 	return result
+}
+
+// asBasic always returns not-basic — flat-map's dependent generator is dynamic.
+func (g *flatMappedGenerator[T, U]) asBasic() (*basicGenerator[U], bool, error) {
+	return nil, false, nil
 }
 
 // --- Free function combinators ---
 
 // Map returns a new Generator that applies fn to each value from g.
 func Map[T, U any](g Generator[T], fn func(T) U) Generator[U] {
-	g = unwrapGenerator(g)
-	if bg, ok := g.(*basicGenerator[T]); ok {
-		if bg.transform != nil {
-			prev := bg.transform
-			return &basicGenerator[U]{
-				schema:    bg.schema,
-				transform: func(v any) U { return fn(prev(v)) },
-			}
-		}
+	bg, ok, err := g.asBasic()
+	if err != nil {
+		panic(err.Error())
+	}
+	if ok {
+		prev := bg.parse
 		return &basicGenerator[U]{
-			schema:    bg.schema,
-			transform: func(v any) U { return fn(v.(T)) },
+			schema: bg.schema,
+			parse:  func(v any) U { return fn(prev(v)) },
 		}
 	}
 	return &mappedGenerator[T, U]{inner: g, fn: fn}
@@ -224,11 +230,11 @@ func startSpan(gs *TestCase, label spanLabel) {
 		"label":   int64(label),
 	})
 	if err != nil { // coverage-ignore
-		panic(fmt.Sprintf("hegel: startSpan encode: %v", err))
+		panic(fmt.Sprintf("startSpan encode: %v", err))
 	}
 	pending, err := st.Request(payload)
 	if err != nil { // coverage-ignore
-		panic(fmt.Sprintf("hegel: startSpan request: %v", err))
+		panic(fmt.Sprintf("startSpan request: %v", err))
 	}
 	pending.Get() //nolint:errcheck
 }
@@ -244,32 +250,13 @@ func stopSpan(gs *TestCase, discard bool) {
 		"discard": discard,
 	})
 	if err != nil { // coverage-ignore
-		panic(fmt.Sprintf("hegel: stopSpan encode: %v", err))
+		panic(fmt.Sprintf("stopSpan encode: %v", err))
 	}
 	pending, err := st.Request(payload)
 	if err != nil { // coverage-ignore
-		panic(fmt.Sprintf("hegel: stopSpan request: %v", err))
+		panic(fmt.Sprintf("stopSpan request: %v", err))
 	}
 	pending.Get() //nolint:errcheck
-}
-
-// group runs fn inside a start_span / stop_span pair with the given label.
-func group(gs *TestCase, label spanLabel, fn func()) {
-	startSpan(gs, label)
-	fn()
-	stopSpan(gs, false)
-}
-
-// discardableGroup runs fn inside a start_span / stop_span pair.
-// If fn panics, the span is ended with discard=true before re-panicking.
-func discardableGroup(gs *TestCase, label spanLabel, fn func()) {
-	startSpan(gs, label)
-	panicked := true
-	defer func() {
-		stopSpan(gs, panicked)
-	}()
-	fn()
-	panicked = false
 }
 
 // --- collection protocol ---
@@ -289,11 +276,11 @@ func newCollection(gs *TestCase, minSize, maxSize int) *collection {
 		"max_size": int64(maxSize),
 	})
 	if err != nil { // coverage-ignore
-		panic(fmt.Sprintf("hegel: newCollection encode: %v", err))
+		panic(fmt.Sprintf("newCollection encode: %v", err))
 	}
 	pending, err := st.Request(payload)
 	if err != nil { // coverage-ignore
-		panic(fmt.Sprintf("hegel: newCollection request: %v", err))
+		panic(fmt.Sprintf("newCollection request: %v", err))
 	}
 	v, err := pending.Get()
 	if err != nil {
@@ -302,7 +289,7 @@ func newCollection(gs *TestCase, minSize, maxSize int) *collection {
 			gs.aborted = true
 			panic(&dataExhausted{msg: "server ran out of data (new_collection)"})
 		}
-		panic(fmt.Sprintf("hegel: new_collection error: %v", err)) // coverage-ignore
+		panic(fmt.Sprintf("new_collection error: %v", err)) // coverage-ignore
 	}
 	id, _ := v.(uint64)
 	return &collection{collectionID: id}
@@ -319,11 +306,11 @@ func (c *collection) More(gs *TestCase) bool {
 		"collection_id": c.collectionID,
 	})
 	if err != nil { // coverage-ignore
-		panic(fmt.Sprintf("hegel: collection.More encode: %v", err))
+		panic(fmt.Sprintf("collection.More encode: %v", err))
 	}
 	pending, err := st.Request(payload)
 	if err != nil { // coverage-ignore
-		panic(fmt.Sprintf("hegel: More request: %v", err))
+		panic(fmt.Sprintf("More request: %v", err))
 	}
 	v, err := pending.Get()
 	if err != nil {
@@ -332,7 +319,7 @@ func (c *collection) More(gs *TestCase) bool {
 			gs.aborted = true
 			panic(&dataExhausted{msg: "server ran out of data (collection_more)"})
 		}
-		panic(fmt.Sprintf("hegel: collection_more error: %v", err)) // coverage-ignore
+		panic(fmt.Sprintf("collection_more error: %v", err)) // coverage-ignore
 	}
 	more, _ := v.(bool)
 	if !more {
@@ -352,11 +339,11 @@ func (c *collection) Reject(gs *TestCase) {
 		"collection_id": c.collectionID,
 	})
 	if err != nil { // coverage-ignore
-		panic(fmt.Sprintf("hegel: collection.Reject encode: %v", err))
+		panic(fmt.Sprintf("collection.Reject encode: %v", err))
 	}
 	pending, err := st.Request(payload)
 	if err != nil { // coverage-ignore
-		panic(fmt.Sprintf("hegel: Reject request: %v", err))
+		panic(fmt.Sprintf("Reject request: %v", err))
 	}
 	pending.Get() //nolint:errcheck
 }

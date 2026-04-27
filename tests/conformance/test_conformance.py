@@ -43,7 +43,7 @@ def conformance_tests() -> list:
         BooleanConformance(_bin("test_booleans")),
         IntegerConformance(_bin("test_integers"), min_value=-1000, max_value=1000),
         FloatConformance(_bin("test_floats")),
-        TextConformance(_bin("test_text")),
+        TextConformance(_bin("test_text"), no_surrogates=True),
         BinaryConformance(_bin("test_binary")),
         ListConformance(_bin("test_lists"), min_value=-1000, max_value=1000),
         SampledFromConformance(_bin("test_sampled_from")),

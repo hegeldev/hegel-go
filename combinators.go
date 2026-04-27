@@ -7,83 +7,27 @@ import (
 
 // --- OneOf generator ---
 
-// compositeOneOfGenerator generates a value from one of the given generators
-// using the Hegel server to pick the branch.
-type compositeOneOfGenerator[T any] struct {
+// oneOfGenerator generates a value from one of the given generators.
+type oneOfGenerator[T any] struct {
 	generators []Generator[T]
 }
 
-// draw picks one generator and returns a value from it, wrapped in a ONE_OF span.
-func (g *compositeOneOfGenerator[T]) draw(s *TestCase) T {
-	var result T
-	group(s, labelOneOf, func() {
-		n := len(g.generators)
-		idx, err := generateFromSchema(s, map[string]any{
-			"type":      "integer",
-			"min_value": int64(0),
-			"max_value": int64(n - 1),
-		})
-		if err != nil { // coverage-ignore
-			panic(fmt.Sprintf("hegel: OneOf generateFromSchema: %v", err))
+// asBasic returns a basic generator with a tagged-tuple one_of schema when
+// every branch is basic. Returns (nil, false, nil) when any branch is not.
+func (g *oneOfGenerator[T]) asBasic() (*basicGenerator[T], bool, error) {
+	basics := make([]*basicGenerator[T], 0, len(g.generators))
+	for _, branch := range g.generators {
+		bg, ok, err := branch.asBasic()
+		if err != nil {
+			return nil, false, err
 		}
-		i := extractInt(idx)
-		result = g.generators[i].draw(s)
-	})
-	return result
-}
-
-// OneOf returns a Generator that produces values from one of the given generators.
-//
-// Requires at least 2 generators.
-func OneOf[T any](generators ...Generator[T]) Generator[T] {
-	if len(generators) == 0 {
-		panic("hegel: OneOf requires at least one generator")
-	}
-
-	resolved := make([]Generator[T], len(generators))
-	for i, g := range generators {
-		resolved[i] = unwrapGenerator(g)
-	}
-
-	// Check if all generators are basic.
-	allBasic := true
-	for _, g := range resolved {
-		if _, ok := g.(*basicGenerator[T]); !ok {
-			allBasic = false
-			break
+		if !ok {
+			return nil, false, nil
 		}
+		basics = append(basics, bg)
 	}
 
-	if !allBasic {
-		gens := make([]Generator[T], len(resolved))
-		copy(gens, resolved)
-		return &compositeOneOfGenerator[T]{generators: gens}
-	}
-
-	basics := make([]*basicGenerator[T], len(resolved))
-	for i, g := range resolved {
-		basics[i] = g.(*basicGenerator[T])
-	}
-
-	allIdentity := true
-	for _, bg := range basics {
-		if bg.transform != nil {
-			allIdentity = false
-			break
-		}
-	}
-
-	if allIdentity {
-		schemas := make([]any, len(basics))
-		for i, bg := range basics {
-			schemas[i] = bg.schema
-		}
-		return &basicGenerator[T]{
-			schema: map[string]any{"type": "one_of", "generators": schemas},
-		}
-	}
-
-	// Path 2: tagged tuples
+	// Tagged tuples: each branch is [tag, value], dispatch to the right parse fn.
 	taggedSchemas := make([]any, len(basics))
 	for i, bg := range basics {
 		taggedSchemas[i] = map[string]any{
@@ -95,26 +39,61 @@ func OneOf[T any](generators ...Generator[T]) Generator[T] {
 		}
 	}
 
-	transforms := make([]func(any) T, len(basics))
+	parseFns := make([]func(any) T, len(basics))
 	for i, bg := range basics {
-		transforms[i] = bg.transform
+		parseFns[i] = bg.parse
 	}
 
 	return &basicGenerator[T]{
 		schema: map[string]any{"type": "one_of", "generators": taggedSchemas},
-		transform: func(tagged any) T {
+		parse: func(tagged any) T {
 			elems, _ := tagged.([]any)
 			if len(elems) < 2 {
 				return tagged.(T)
 			}
 			tag := extractInt(elems[0])
 			value := elems[1]
-			if t := transforms[tag]; t != nil {
-				return t(value)
-			}
-			return value.(T)
+			return parseFns[tag](value)
 		},
+	}, true, nil
+}
+
+// draw produces a value by dispatching to the basic schema when possible,
+// falling back to a server-side index draw otherwise.
+func (g *oneOfGenerator[T]) draw(s *TestCase) T {
+	bg, ok, err := g.asBasic()
+	if err != nil {
+		panic(err.Error())
 	}
+	if ok {
+		return bg.draw(s)
+	}
+	startSpan(s, labelOneOf)
+	n := len(g.generators)
+	idx, err := generateFromSchema(s, map[string]any{
+		"type":      "integer",
+		"min_value": int64(0),
+		"max_value": int64(n - 1),
+	})
+	if err != nil { // coverage-ignore
+		panic(fmt.Sprintf("OneOf generateFromSchema: %v", err))
+	}
+	i := extractInt(idx)
+	result := g.generators[i].draw(s)
+	stopSpan(s, false)
+	return result
+}
+
+// OneOf returns a Generator that produces values from one of the given generators.
+//
+// Requires at least 1 generator.
+func OneOf[T any](generators ...Generator[T]) Generator[T] {
+	if len(generators) == 0 {
+		panic("OneOf requires at least one generator")
+	}
+	gens := make([]Generator[T], len(generators))
+	copy(gens, generators)
+	return &oneOfGenerator[T]{generators: gens}
 }
 
 // Optional returns a Generator that produces either nil (as *T) or a value from element.
@@ -127,26 +106,81 @@ type optionalGenerator[T any] struct {
 	inner Generator[T]
 }
 
-// draw generates either nil or a value, wrapped in an OPTIONAL/ONE_OF span.
+// asBasic returns a basic generator with a tagged-tuple one_of schema (a null
+// branch and an inner-value branch) when inner is basic. Returns
+// (nil, false, nil) when inner is not.
+func (g *optionalGenerator[T]) asBasic() (*basicGenerator[*T], bool, error) {
+	innerBasic, ok, err := g.inner.asBasic()
+	if err != nil {
+		return nil, false, err
+	}
+	if !ok {
+		return nil, false, nil
+	}
+
+	innerParse := innerBasic.parse
+	schema := map[string]any{
+		"type": "one_of",
+		"generators": []any{
+			map[string]any{
+				"type": "tuple",
+				"elements": []any{
+					map[string]any{"type": "constant", "value": int64(0)},
+					map[string]any{"type": "null"},
+				},
+			},
+			map[string]any{
+				"type": "tuple",
+				"elements": []any{
+					map[string]any{"type": "constant", "value": int64(1)},
+					innerBasic.schema,
+				},
+			},
+		},
+	}
+	return &basicGenerator[*T]{
+		schema: schema,
+		parse: func(raw any) *T {
+			elems, _ := raw.([]any)
+			if len(elems) < 2 {
+				return nil
+			}
+			tag := extractInt(elems[0])
+			if tag == 0 {
+				return nil
+			}
+			v := innerParse(elems[1])
+			return &v
+		},
+	}, true, nil
+}
+
+// draw generates either nil or a value by dispatching to the basic schema
+// when inner is basic, falling back to a server-side index draw otherwise.
 func (g *optionalGenerator[T]) draw(s *TestCase) *T {
-	var result *T
-	group(s, labelOneOf, func() {
-		idx, err := generateFromSchema(s, map[string]any{
-			"type":      "integer",
-			"min_value": int64(0),
-			"max_value": int64(1),
-		})
-		if err != nil { // coverage-ignore
-			panic(fmt.Sprintf("hegel: Optional generateFromSchema: %v", err))
-		}
-		i := extractInt(idx)
-		if i == 0 {
-			result = nil
-		} else {
-			v := g.inner.draw(s)
-			result = &v
-		}
+	bg, ok, err := g.asBasic()
+	if err != nil {
+		panic(err.Error())
+	}
+	if ok {
+		return bg.draw(s)
+	}
+	startSpan(s, labelOneOf)
+	idx, err := generateFromSchema(s, map[string]any{
+		"type":      "integer",
+		"min_value": int64(0),
+		"max_value": int64(1),
 	})
+	if err != nil { // coverage-ignore
+		panic(fmt.Sprintf("Optional generateFromSchema: %v", err))
+	}
+	i := extractInt(idx)
+	var result *T
+	if i != 0 {
+		v := g.inner.draw(s)
+		result = &v
+	}
+	stopSpan(s, false)
 	return result
 }
 
@@ -175,28 +209,35 @@ func (g IPAddressGenerator) IPv6() IPAddressGenerator {
 	return g
 }
 
-func (g IPAddressGenerator) buildGenerator() Generator[netip.Addr] {
+// asBasic always returns a basic generator: when version is set it produces a
+// single-type schema; otherwise it delegates to OneOf of the two basic
+// branches, which itself yields a basic.
+func (g IPAddressGenerator) asBasic() (*basicGenerator[netip.Addr], bool, error) {
 	addrTransform := func(a any) netip.Addr {
 		return netip.MustParseAddr(a.(string))
 	}
 	if g.version != "" {
 		return &basicGenerator[netip.Addr]{
-			schema:    map[string]any{"type": g.version},
-			transform: addrTransform,
-		}
+			schema: map[string]any{"type": g.version},
+			parse:  addrTransform,
+		}, true, nil
 	}
 	return OneOf(
 		&basicGenerator[netip.Addr]{
-			schema:    map[string]any{"type": "ipv4"},
-			transform: addrTransform,
+			schema: map[string]any{"type": "ipv4"},
+			parse:  addrTransform,
 		},
 		&basicGenerator[netip.Addr]{
-			schema:    map[string]any{"type": "ipv6"},
-			transform: addrTransform,
+			schema: map[string]any{"type": "ipv6"},
+			parse:  addrTransform,
 		},
-	)
+	).asBasic()
 }
 
 func (g IPAddressGenerator) draw(s *TestCase) netip.Addr {
-	return g.buildGenerator().draw(s)
+	bg, _, err := g.asBasic()
+	if err != nil { // coverage-ignore
+		panic(err.Error())
+	}
+	return bg.draw(s)
 }

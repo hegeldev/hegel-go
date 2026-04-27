@@ -15,19 +15,54 @@ var decMode = mustDecMode()
 func mustDecMode() cbor.DecMode {
 	m, err := cbor.DecOptions{}.DecMode()
 	if err != nil { // coverage-ignore
-		panic(fmt.Sprintf("hegel: failed to create CBOR decode mode: %v", err))
+		panic(fmt.Sprintf("failed to create CBOR decode mode: %v", err))
 	}
 	return m
 }
 
+// convertCBOR recursively processes a CBOR-decoded value:
+//   - Tag 91 (character-filtered text) is converted: the content is always
+//     []byte and becomes a Go string. Panics if the content is not []byte.
+//   - Unrecognized cbor.Tag values are left as-is (not unwrapped).
+//   - []any slices and maps have their elements/values recursively processed.
+//   - All other values are returned as-is.
+func convertCBOR(v any) any {
+	switch x := v.(type) {
+	case cbor.Tag:
+		if x.Number == 91 {
+			b, ok := x.Content.([]byte)
+			if !ok {
+				panic(fmt.Sprintf("tag 91 content: expected []byte, got %T", x.Content))
+			}
+			return string(b)
+		}
+		return v
+	case []any:
+		for i, elem := range x {
+			x[i] = convertCBOR(elem)
+		}
+		return x
+	case map[any]any:
+		for k, val := range x {
+			x[k] = convertCBOR(val)
+		}
+		return x
+	default:
+		return v
+	}
+}
+
 // decodeCBOR decodes CBOR-encoded bytes into a generic Go value (any).
-// Maps decode to map[interface{}]interface{} by default.
+// After decoding, it converts tag 91 byte strings to Go strings (the Hegel
+// server uses tag 91 for character-filtered text). Unrecognized tags are
+// preserved as cbor.Tag values. Maps decode to map[interface{}]interface{} by
+// default.
 func decodeCBOR(data []byte) (any, error) {
 	var v any
 	if err := decMode.Unmarshal(data, &v); err != nil {
 		return nil, fmt.Errorf("CBOR decode: %w", err)
 	}
-	return v, nil
+	return convertCBOR(v), nil
 }
 
 // encodeCBOR encodes a Go value to CBOR bytes.
