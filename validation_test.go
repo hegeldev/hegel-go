@@ -165,3 +165,85 @@ func TestOneOfSingleGeneratorNoPanic(t *testing.T) {
 	// one generator should be accepted
 	OneOf(Booleans())
 }
+
+// invalidFloats returns a Floats generator whose asBasic() always errors,
+// for use as a malformed inner generator in error-propagation tests.
+func invalidFloats() Generator[float64] {
+	return Floats[float64]().Min(0.0).AllowNaN(true)
+}
+
+// --- inner-error propagation in asBasic ---
+
+func TestListsInnerErrorPropagates(t *testing.T) {
+	_, _, err := Lists(invalidFloats()).asBasic()
+	assertErrorContains(t, "allow_nan", err)
+}
+
+func TestDictsKeyErrorPropagates(t *testing.T) {
+	_, _, err := Dicts[float64, int](invalidFloats(), Integers(0, 1)).asBasic()
+	assertErrorContains(t, "allow_nan", err)
+}
+
+func TestDictsValueErrorPropagates(t *testing.T) {
+	_, _, err := Dicts[int, float64](Integers(0, 1), invalidFloats()).asBasic()
+	assertErrorContains(t, "allow_nan", err)
+}
+
+func TestOneOfBranchErrorPropagates(t *testing.T) {
+	_, _, err := OneOf(invalidFloats()).asBasic()
+	assertErrorContains(t, "allow_nan", err)
+}
+
+func TestOptionalInnerErrorPropagates(t *testing.T) {
+	g := Optional(invalidFloats()).(*optionalGenerator[float64])
+	_, _, err := g.asBasic()
+	assertErrorContains(t, "allow_nan", err)
+}
+
+// --- draw() panics when asBasic errors ---
+
+func TestListsDrawInvalidConfigPanics(t *testing.T) {
+	gen := Lists(Booleans()).MinSize(-1)
+	assertPanicsWithMessage(t, "min_size", func() { gen.draw(nil) })
+}
+
+func TestDictsDrawInvalidConfigPanics(t *testing.T) {
+	gen := Dicts(Integers(0, 1), Integers(0, 1)).MinSize(-1)
+	assertPanicsWithMessage(t, "min_size", func() { gen.draw(nil) })
+}
+
+func TestOneOfDrawInvalidBranchPanics(t *testing.T) {
+	gen := OneOf(invalidFloats()).(*oneOfGenerator[float64])
+	assertPanicsWithMessage(t, "allow_nan", func() { gen.draw(nil) })
+}
+
+func TestOptionalDrawInvalidInnerPanics(t *testing.T) {
+	gen := Optional(invalidFloats()).(*optionalGenerator[float64])
+	assertPanicsWithMessage(t, "allow_nan", func() { gen.draw(nil) })
+}
+
+func TestMapInvalidSourcePanics(t *testing.T) {
+	assertPanicsWithMessage(t, "allow_nan", func() {
+		Map(invalidFloats(), func(v float64) float64 { return v })
+	})
+}
+
+func TestFloatsDrawInvalidConfigPanics(t *testing.T) {
+	gen := Floats[float64]().Min(10.0).Max(5.0)
+	assertPanicsWithMessage(t, "max_value", func() { gen.draw(nil) })
+}
+
+func TestTextDrawInvalidConfigPanics(t *testing.T) {
+	gen := Text(-1, 5)
+	assertPanicsWithMessage(t, "min_size", func() { gen.draw(nil) })
+}
+
+func TestCharactersDrawInvalidConfigPanics(t *testing.T) {
+	gen := Characters().Categories([]string{"Cs"})
+	assertPanicsWithMessage(t, "surrogate", func() { gen.draw(nil) })
+}
+
+func TestDomainsDrawInvalidConfigPanics(t *testing.T) {
+	gen := Domains().MaxLength(0)
+	assertPanicsWithMessage(t, "max_length", func() { gen.draw(nil) })
+}

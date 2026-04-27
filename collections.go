@@ -43,7 +43,7 @@ func (g ListGenerator[T]) asBasic() (*basicGenerator[[]T], bool, error) {
 		return nil, false, fmt.Errorf("max_size=%d must be non-negative", g.maxSize)
 	}
 	if g.hasMax && g.minSize > g.maxSize {
-		return nil, false, fmt.Errorf("Cannot have max_size=%d < min_size=%d", g.maxSize, g.minSize)
+		return nil, false, fmt.Errorf("cannot have max_size=%d < min_size=%d", g.maxSize, g.minSize)
 	}
 
 	bg, ok, err := g.elements.asBasic()
@@ -145,7 +145,7 @@ func (g DictGenerator[K, V]) asBasic() (*basicGenerator[map[K]V], bool, error) {
 		return nil, false, fmt.Errorf("max_size=%d must be non-negative", g.maxSize)
 	}
 	if g.hasMax && g.minSize > g.maxSize {
-		return nil, false, fmt.Errorf("Cannot have max_size=%d < min_size=%d", g.maxSize, g.minSize)
+		return nil, false, fmt.Errorf("cannot have max_size=%d < min_size=%d", g.maxSize, g.minSize)
 	}
 
 	keyBasic, keyOk, err := g.keys.asBasic()

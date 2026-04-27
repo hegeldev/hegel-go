@@ -102,6 +102,8 @@ func (g *basicGenerator[T]) draw(s *TestCase) T {
 }
 
 // asBasic returns the receiver — a basicGenerator is trivially basic.
+//
+//lint:ignore U1000 satisfies Generator interface; staticcheck misses generic dispatch
 func (g *basicGenerator[T]) asBasic() (*basicGenerator[T], bool, error) {
 	return g, true, nil
 }
@@ -116,6 +118,8 @@ type mappedGenerator[T, U any] struct {
 }
 
 // draw calls the inner generator inside a MAPPED span and applies fn.
+//
+//lint:ignore U1000 satisfies Generator interface; staticcheck misses generic dispatch
 func (g *mappedGenerator[T, U]) draw(s *TestCase) U {
 	startSpan(s, labelMapped)
 	result := g.fn(g.inner.draw(s))
@@ -127,6 +131,8 @@ func (g *mappedGenerator[T, U]) draw(s *TestCase) U {
 // construction time, so a mappedGenerator only exists when wrapping a
 // non-basic source — collapsing it back through here would never match a
 // caller's expectations.
+//
+//lint:ignore U1000 satisfies Generator interface; staticcheck misses generic dispatch
 func (g *mappedGenerator[T, U]) asBasic() (*basicGenerator[U], bool, error) {
 	return nil, false, nil
 }
@@ -140,9 +146,12 @@ type filteredGenerator[T any] struct {
 	predicate func(T) bool
 }
 
+//lint:ignore U1000 used by filteredGenerator.draw, which is reached via Generator interface
 const maxFilterAttempts = 3
 
 // draw tries up to maxFilterAttempts times to produce a value satisfying predicate.
+//
+//lint:ignore U1000 satisfies Generator interface; staticcheck misses generic dispatch
 func (g *filteredGenerator[T]) draw(s *TestCase) T {
 	for range maxFilterAttempts {
 		startSpan(s, labelFilter)
@@ -158,6 +167,8 @@ func (g *filteredGenerator[T]) draw(s *TestCase) T {
 }
 
 // asBasic always returns not-basic — filtering cannot be expressed as a schema.
+//
+//lint:ignore U1000 satisfies Generator interface; staticcheck misses generic dispatch
 func (g *filteredGenerator[T]) asBasic() (*basicGenerator[T], bool, error) {
 	return nil, false, nil
 }
@@ -172,6 +183,8 @@ type flatMappedGenerator[T, U any] struct {
 }
 
 // draw generates from source, then from the dependent generator, inside a FLAT_MAP span.
+//
+//lint:ignore U1000 satisfies Generator interface; staticcheck misses generic dispatch
 func (g *flatMappedGenerator[T, U]) draw(s *TestCase) U {
 	startSpan(s, labelFlatMap)
 	first := g.source.draw(s)
@@ -182,6 +195,8 @@ func (g *flatMappedGenerator[T, U]) draw(s *TestCase) U {
 }
 
 // asBasic always returns not-basic — flat-map's dependent generator is dynamic.
+//
+//lint:ignore U1000 satisfies Generator interface; staticcheck misses generic dispatch
 func (g *flatMappedGenerator[T, U]) asBasic() (*basicGenerator[U], bool, error) {
 	return nil, false, nil
 }

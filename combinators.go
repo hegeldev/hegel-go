@@ -109,6 +109,8 @@ type optionalGenerator[T any] struct {
 // asBasic returns a basic generator with a tagged-tuple one_of schema (a null
 // branch and an inner-value branch) when inner is basic. Returns
 // (nil, false, nil) when inner is not.
+//
+//lint:ignore U1000 satisfies Generator interface; staticcheck misses generic dispatch
 func (g *optionalGenerator[T]) asBasic() (*basicGenerator[*T], bool, error) {
 	innerBasic, ok, err := g.inner.asBasic()
 	if err != nil {
@@ -141,10 +143,7 @@ func (g *optionalGenerator[T]) asBasic() (*basicGenerator[*T], bool, error) {
 	return &basicGenerator[*T]{
 		schema: schema,
 		parse: func(raw any) *T {
-			elems, _ := raw.([]any)
-			if len(elems) < 2 {
-				return nil
-			}
+			elems := raw.([]any)
 			tag := extractInt(elems[0])
 			if tag == 0 {
 				return nil
@@ -157,6 +156,8 @@ func (g *optionalGenerator[T]) asBasic() (*basicGenerator[*T], bool, error) {
 
 // draw generates either nil or a value by dispatching to the basic schema
 // when inner is basic, falling back to a server-side index draw otherwise.
+//
+//lint:ignore U1000 satisfies Generator interface; staticcheck misses generic dispatch
 func (g *optionalGenerator[T]) draw(s *TestCase) *T {
 	bg, ok, err := g.asBasic()
 	if err != nil {

@@ -172,13 +172,13 @@ func (g FloatGenerator[T]) asBasic() (*basicGenerator[T], bool, error) {
 	}
 
 	if nan && (hasMin || hasMax) {
-		return nil, false, fmt.Errorf("Cannot have allow_nan=true with min_value or max_value")
+		return nil, false, fmt.Errorf("cannot have allow_nan=true with min_value or max_value")
 	}
 	if hasMin && hasMax && *g.minVal > *g.maxVal {
-		return nil, false, fmt.Errorf("Cannot have max_value=%v < min_value=%v", *g.maxVal, *g.minVal)
+		return nil, false, fmt.Errorf("cannot have max_value=%v < min_value=%v", *g.maxVal, *g.minVal)
 	}
 	if inf && hasMin && hasMax {
-		return nil, false, fmt.Errorf("Cannot have allow_infinity=true with both min_value and max_value")
+		return nil, false, fmt.Errorf("cannot have allow_infinity=true with both min_value and max_value")
 	}
 
 	width := int64(unsafe.Sizeof(T(1.0)) * 8)
@@ -387,7 +387,7 @@ func (g TextGenerator) asBasic() (*basicGenerator[string], bool, error) {
 		return nil, false, fmt.Errorf("min_size=%d must be non-negative", g.minSize)
 	}
 	if g.maxSize >= 0 && g.minSize > g.maxSize {
-		return nil, false, fmt.Errorf("Cannot have max_size=%d < min_size=%d", g.maxSize, g.minSize)
+		return nil, false, fmt.Errorf("cannot have max_size=%d < min_size=%d", g.maxSize, g.minSize)
 	}
 	if g.alphabetCalled && g.charParamCalled {
 		return nil, false, fmt.Errorf("cannot combine Alphabet with character filtering methods")
