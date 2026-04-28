@@ -12,71 +12,48 @@ import (
 )
 
 func main() {
-	params := map[string]any{}
-	if len(os.Args) > 1 {
-		if err := json.Unmarshal([]byte(os.Args[1]), &params); err != nil {
-			panic("test_text: bad params JSON: " + err.Error())
-		}
+	if len(os.Args) <= 1 {
+		panic("test_text: missing params JSON argument")
+	}
+	var params struct {
+		MinSize           int      `json:"min_size"`
+		MaxSize           *int     `json:"max_size"`
+		Codec             *string  `json:"codec"`
+		MinCodepoint      *int     `json:"min_codepoint"`
+		MaxCodepoint      *int     `json:"max_codepoint"`
+		Categories        []string `json:"categories"`
+		ExcludeCategories []string `json:"exclude_categories"`
+		IncludeCharacters *string  `json:"include_characters"`
+		ExcludeCharacters *string  `json:"exclude_characters"`
+	}
+	if err := json.Unmarshal([]byte(os.Args[1]), &params); err != nil {
+		panic("test_text: bad params JSON: " + err.Error())
 	}
 
-	minSize := 0
-	maxSize := -1 // unbounded
-
-	if v, ok := params["min_size"]; ok && v != nil {
-		if x, ok := v.(float64); ok {
-			minSize = int(x)
-		}
+	g := hegel.Text().MinSize(params.MinSize)
+	if params.MaxSize != nil {
+		g = g.MaxSize(*params.MaxSize)
 	}
-	if v, ok := params["max_size"]; ok && v != nil {
-		if x, ok := v.(float64); ok {
-			maxSize = int(x)
-		}
+	if params.Codec != nil {
+		g = g.Codec(*params.Codec)
 	}
-
-	g := hegel.Text(minSize, maxSize)
-
-	if v, ok := params["codec"]; ok && v != nil {
-		if x, ok := v.(string); ok {
-			g = g.Codec(x)
-		}
+	if params.MinCodepoint != nil {
+		g = g.MinCodepoint(rune(*params.MinCodepoint))
 	}
-	if v, ok := params["min_codepoint"]; ok && v != nil {
-		if x, ok := v.(float64); ok {
-			g = g.MinCodepoint(rune(x))
-		}
+	if params.MaxCodepoint != nil {
+		g = g.MaxCodepoint(rune(*params.MaxCodepoint))
 	}
-	if v, ok := params["max_codepoint"]; ok && v != nil {
-		if x, ok := v.(float64); ok {
-			g = g.MaxCodepoint(rune(x))
-		}
+	if params.Categories != nil {
+		g = g.Categories(params.Categories)
 	}
-	if v, ok := params["categories"]; ok && v != nil {
-		if arr, ok := v.([]any); ok {
-			cats := make([]string, len(arr))
-			for i, c := range arr {
-				cats[i] = c.(string)
-			}
-			g = g.Categories(cats)
-		}
+	if params.ExcludeCategories != nil {
+		g = g.ExcludeCategories(params.ExcludeCategories)
 	}
-	if v, ok := params["exclude_categories"]; ok && v != nil {
-		if arr, ok := v.([]any); ok {
-			cats := make([]string, len(arr))
-			for i, c := range arr {
-				cats[i] = c.(string)
-			}
-			g = g.ExcludeCategories(cats)
-		}
+	if params.IncludeCharacters != nil {
+		g = g.IncludeCharacters(*params.IncludeCharacters)
 	}
-	if v, ok := params["include_characters"]; ok && v != nil {
-		if x, ok := v.(string); ok {
-			g = g.IncludeCharacters(x)
-		}
-	}
-	if v, ok := params["exclude_characters"]; ok && v != nil {
-		if x, ok := v.(string); ok {
-			g = g.ExcludeCharacters(x)
-		}
+	if params.ExcludeCharacters != nil {
+		g = g.ExcludeCharacters(*params.ExcludeCharacters)
 	}
 
 	gen := g

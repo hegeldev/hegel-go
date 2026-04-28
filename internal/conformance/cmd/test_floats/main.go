@@ -1,5 +1,3 @@
-// test_floats is a conformance binary for float generation.
-// It parses JSON params from argv[1] and writes float metrics.
 package main
 
 import (
@@ -12,44 +10,39 @@ import (
 )
 
 func main() {
-	params := map[string]any{}
-	if len(os.Args) > 1 {
-		if err := json.Unmarshal([]byte(os.Args[1]), &params); err != nil {
-			panic("test_floats: bad params JSON: " + err.Error())
-		}
+	if len(os.Args) <= 1 {
+		panic("test_floats: missing params JSON argument")
+	}
+	var params struct {
+		MinValue      *float64 `json:"min_value"`
+		MaxValue      *float64 `json:"max_value"`
+		ExcludeMin    bool     `json:"exclude_min"`
+		ExcludeMax    bool     `json:"exclude_max"`
+		AllowNaN      *bool    `json:"allow_nan"`
+		AllowInfinity *bool    `json:"allow_infinity"`
+	}
+	if err := json.Unmarshal([]byte(os.Args[1]), &params); err != nil {
+		panic("test_floats: bad params JSON: " + err.Error())
 	}
 
 	g := hegel.Floats[float64]()
-
-	if v, ok := params["min_value"]; ok && v != nil {
-		if x, ok := v.(float64); ok {
-			g = g.Min(x)
-		}
+	if params.MinValue != nil {
+		g = g.Min(*params.MinValue)
 	}
-	if v, ok := params["max_value"]; ok && v != nil {
-		if x, ok := v.(float64); ok {
-			g = g.Max(x)
-		}
+	if params.MaxValue != nil {
+		g = g.Max(*params.MaxValue)
 	}
-	if v, ok := params["allow_nan"]; ok && v != nil {
-		if x, ok := v.(bool); ok {
-			g = g.AllowNaN(x)
-		}
+	if params.AllowNaN != nil {
+		g = g.AllowNaN(*params.AllowNaN)
 	}
-	if v, ok := params["allow_infinity"]; ok && v != nil {
-		if x, ok := v.(bool); ok {
-			g = g.AllowInfinity(x)
-		}
+	if params.AllowInfinity != nil {
+		g = g.AllowInfinity(*params.AllowInfinity)
 	}
-	if v, ok := params["exclude_min"]; ok {
-		if x, ok := v.(bool); ok && x {
-			g = g.ExcludeMin()
-		}
+	if params.ExcludeMin {
+		g = g.ExcludeMin()
 	}
-	if v, ok := params["exclude_max"]; ok {
-		if x, ok := v.(bool); ok && x {
-			g = g.ExcludeMax()
-		}
+	if params.ExcludeMax {
+		g = g.ExcludeMax()
 	}
 
 	gen := g

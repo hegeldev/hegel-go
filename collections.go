@@ -89,9 +89,10 @@ func (g ListGenerator[T]) draw(s *TestCase) []T {
 	if ok {
 		return bg.draw(s)
 	}
-	maxSize := -1
+	var maxSize *int
 	if g.hasMax {
-		maxSize = g.maxSize
+		m := g.maxSize
+		maxSize = &m
 	}
 	startSpan(s, labelList)
 	var result []T
@@ -103,12 +104,12 @@ func (g ListGenerator[T]) draw(s *TestCase) []T {
 	return result
 }
 
-// --- Dicts generator ---
+// --- Maps generator ---
 
-// DictGenerator configures and generates map[K]V values.
-// Use [Dicts] to create one, then chain builder methods to configure bounds.
+// MapGenerator configures and generates map[K]V values.
+// Use [Maps] to create one, then chain builder methods to configure bounds.
 // Invalid configurations panic on the first [Draw] call.
-type DictGenerator[K comparable, V any] struct {
+type MapGenerator[K comparable, V any] struct {
 	keys    Generator[K]
 	values  Generator[V]
 	minSize int
@@ -116,19 +117,19 @@ type DictGenerator[K comparable, V any] struct {
 	hasMax  bool
 }
 
-// Dicts returns a Generator that produces map[K]V values.
-func Dicts[K comparable, V any](keys Generator[K], values Generator[V]) DictGenerator[K, V] {
-	return DictGenerator[K, V]{keys: keys, values: values}
+// Maps returns a Generator that produces map[K]V values.
+func Maps[K comparable, V any](keys Generator[K], values Generator[V]) MapGenerator[K, V] {
+	return MapGenerator[K, V]{keys: keys, values: values}
 }
 
 // MinSize sets the minimum number of key-value pairs. Default: 0.
-func (g DictGenerator[K, V]) MinSize(n int) DictGenerator[K, V] {
+func (g MapGenerator[K, V]) MinSize(n int) MapGenerator[K, V] {
 	g.minSize = n
 	return g
 }
 
 // MaxSize sets the maximum number of key-value pairs.
-func (g DictGenerator[K, V]) MaxSize(n int) DictGenerator[K, V] {
+func (g MapGenerator[K, V]) MaxSize(n int) MapGenerator[K, V] {
 	g.maxSize = n
 	g.hasMax = true
 	return g
@@ -137,7 +138,7 @@ func (g DictGenerator[K, V]) MaxSize(n int) DictGenerator[K, V] {
 // asBasic validates the configuration and returns a basic generator when both
 // key and value generators are basic. Returns (nil, false, nil) when either
 // is non-basic.
-func (g DictGenerator[K, V]) asBasic() (*basicGenerator[map[K]V], bool, error) {
+func (g MapGenerator[K, V]) asBasic() (*basicGenerator[map[K]V], bool, error) {
 	if g.minSize < 0 {
 		return nil, false, fmt.Errorf("min_size=%d must be non-negative", g.minSize)
 	}
@@ -181,7 +182,7 @@ func (g DictGenerator[K, V]) asBasic() (*basicGenerator[map[K]V], bool, error) {
 
 // draw produces a map by dispatching to the basic schema when possible,
 // falling back to the collection protocol otherwise.
-func (g DictGenerator[K, V]) draw(s *TestCase) map[K]V {
+func (g MapGenerator[K, V]) draw(s *TestCase) map[K]V {
 	bg, ok, err := g.asBasic()
 	if err != nil {
 		panic(err.Error())
@@ -189,9 +190,10 @@ func (g DictGenerator[K, V]) draw(s *TestCase) map[K]V {
 	if ok {
 		return bg.draw(s)
 	}
-	maxSize := g.maxSize
-	if !g.hasMax {
-		maxSize = g.minSize + 10
+	var maxSize *int
+	if g.hasMax {
+		m := g.maxSize
+		maxSize = &m
 	}
 	startSpan(s, labelMap)
 	result := map[K]V{}
@@ -199,6 +201,11 @@ func (g DictGenerator[K, V]) draw(s *TestCase) map[K]V {
 	for coll.More(s) {
 		startSpan(s, labelMapEntry)
 		k := g.keys.draw(s)
+		if _, exists := result[k]; exists {
+			stopSpan(s, false)
+			coll.Reject(s)
+			continue
+		}
 		v := g.values.draw(s)
 		result[k] = v
 		stopSpan(s, false)

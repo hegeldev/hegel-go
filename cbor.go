@@ -6,26 +6,6 @@ import (
 	cbor "github.com/fxamacker/cbor/v2"
 )
 
-// decMode is a package-level CBOR decode mode used for all decoding.
-// It is safe for concurrent use.
-var decMode = mustDecMode()
-
-// mustDecMode creates a CBOR decode mode from default options.
-// DecOptions{} is always valid, so this never panics in practice.
-func mustDecMode() cbor.DecMode {
-	m, err := cbor.DecOptions{}.DecMode()
-	if err != nil { // coverage-ignore
-		panic(fmt.Sprintf("failed to create CBOR decode mode: %v", err))
-	}
-	return m
-}
-
-// convertCBOR recursively processes a CBOR-decoded value:
-//   - Tag 91 (character-filtered text) is converted: the content is always
-//     []byte and becomes a Go string. Panics if the content is not []byte.
-//   - Unrecognized cbor.Tag values are left as-is (not unwrapped).
-//   - []any slices and maps have their elements/values recursively processed.
-//   - All other values are returned as-is.
 func convertCBOR(v any) any {
 	switch x := v.(type) {
 	case cbor.Tag:
@@ -52,14 +32,9 @@ func convertCBOR(v any) any {
 	}
 }
 
-// decodeCBOR decodes CBOR-encoded bytes into a generic Go value (any).
-// After decoding, it converts tag 91 byte strings to Go strings (the Hegel
-// server uses tag 91 for character-filtered text). Unrecognized tags are
-// preserved as cbor.Tag values. Maps decode to map[interface{}]interface{} by
-// default.
 func decodeCBOR(data []byte) (any, error) {
 	var v any
-	if err := decMode.Unmarshal(data, &v); err != nil {
+	if err := cbor.Unmarshal(data, &v); err != nil {
 		return nil, fmt.Errorf("CBOR decode: %w", err)
 	}
 	return convertCBOR(v), nil
@@ -85,22 +60,6 @@ func extractCBORInt(v any) (int64, error) {
 		return int64(x), nil
 	default:
 		return 0, fmt.Errorf("expected int, got %T", v)
-	}
-}
-
-// extractCBORFloat extracts a float64 from a CBOR-decoded value.
-func extractCBORFloat(v any) (float64, error) {
-	switch x := v.(type) {
-	case float64:
-		return x, nil
-	case float32:
-		return float64(x), nil
-	case int64:
-		return float64(x), nil
-	case uint64:
-		return float64(x), nil
-	default:
-		return 0, fmt.Errorf("expected float, got %T", v)
 	}
 }
 

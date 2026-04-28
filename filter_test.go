@@ -75,16 +75,16 @@ func TestCompositeListGeneratorFilterReturnsfilteredGenerator(t *testing.T) {
 	}
 }
 
-// TestCompositeDictGeneratorFilterReturnsfilteredGenerator verifies that calling
-// Filter on a DictGenerator with non-basic key or value returns a *filteredGenerator.
-func TestCompositeDictGeneratorFilterReturnsfilteredGenerator(t *testing.T) {
+// TestCompositeMapGeneratorFilterReturnsfilteredGenerator verifies that calling
+// Filter on a MapGenerator with non-basic key or value returns a *filteredGenerator.
+func TestCompositeMapGeneratorFilterReturnsfilteredGenerator(t *testing.T) {
 	t.Parallel()
-	// Filter produces a filteredGenerator (non-basic), forcing Dicts into the composite draw path.
+	// Filter produces a filteredGenerator (non-basic), forcing Maps into the composite draw path.
 	nonBasic := Filter(Integers[int](0, 10), func(v int) bool { return true })
-	dictGen := Dicts(nonBasic, Integers[int](0, 100))
-	filtered := Filter(dictGen, func(v map[int]int) bool { return true })
+	mapGen := Maps(nonBasic, Integers[int](0, 100))
+	filtered := Filter(mapGen, func(v map[int]int) bool { return true })
 	if _, ok := filtered.(*filteredGenerator[map[int]int]); !ok {
-		t.Fatalf("Filter(DictGenerator(non-basic)) should return *filteredGenerator, got %T", filtered)
+		t.Fatalf("Filter(MapGenerator(non-basic)) should return *filteredGenerator, got %T", filtered)
 	}
 }
 

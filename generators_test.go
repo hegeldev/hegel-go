@@ -79,7 +79,8 @@ func TestCollectionStopTestOnNewCollection(t *testing.T) {
 
 	t.Setenv("HEGEL_PROTOCOL_TEST_MODE", "stop_test_on_new_collection")
 	err := Run(func(s *TestCase) {
-		coll := newCollection(s, 0, 5)
+		max := 5
+		coll := newCollection(s, 0, &max)
 		_ = coll.More(s)
 	})
 	// Should not error -- the test was stopped, not failed.
@@ -92,7 +93,8 @@ func TestCollectionStopTestOnCollectionMore(t *testing.T) {
 
 	t.Setenv("HEGEL_PROTOCOL_TEST_MODE", "stop_test_on_collection_more")
 	err := Run(func(s *TestCase) {
-		coll := newCollection(s, 0, 5)
+		max := 5
+		coll := newCollection(s, 0, &max)
 		_ = coll.More(s)
 	})
 	_ = err
@@ -698,11 +700,11 @@ func TestFilterOnNonBasicGenerators(t *testing.T) {
 	if _, ok := fg2.(*filteredGenerator[[]int64]); !ok {
 		t.Errorf("Filter on ListGenerator(non-basic) should return *filteredGenerator, got %T", fg2)
 	}
-	// DictGenerator with non-basic keys (composite path).Filter
-	cd := Dicts[int64, int64](mg, Integers[int64](0, 5))
+	// MapGenerator with non-basic keys (composite path).Filter
+	cd := Maps[int64, int64](mg, Integers[int64](0, 5))
 	fg3 := Filter[map[int64]int64](cd, func(v map[int64]int64) bool { return true })
 	if _, ok := fg3.(*filteredGenerator[map[int64]int64]); !ok {
-		t.Errorf("Filter on DictGenerator(non-basic) should return *filteredGenerator, got %T", fg3)
+		t.Errorf("Filter on MapGenerator(non-basic) should return *filteredGenerator, got %T", fg3)
 	}
 	// oneOfGenerator.Filter
 	co := &oneOfGenerator[int64]{generators: []Generator[int64]{Integers[int64](0, 5), Integers[int64](6, 10)}}
@@ -734,7 +736,7 @@ func TestBooleansSchema(t *testing.T) {
 // TestTextSchema verifies that Text produces the correct schema structure.
 func TestTextSchema(t *testing.T) {
 	t.Parallel()
-	bg, _, err := Text(3, 10).asBasic()
+	bg, _, err := Text().MinSize(3).MaxSize(10).asBasic()
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -763,7 +765,7 @@ func TestTextSchema(t *testing.T) {
 // TestTextSchemaNoMax verifies that Text with maxSize<0 omits max_size from schema.
 func TestTextSchemaNoMax(t *testing.T) {
 	t.Parallel()
-	bg, _, err := Text(0, -1).asBasic()
+	bg, _, err := Text().asBasic()
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -950,7 +952,7 @@ func TestFlatMappedGeneratorE2E(t *testing.T) {
 	t.Parallel()
 
 	gen := FlatMap[int, string](Integers[int](1, 5), func(v int) Generator[string] {
-		return Text(v, v) // exact length = n
+		return Text().MinSize(v).MaxSize(v) // exact length = n
 	})
 	if _err := Run(func(s *TestCase) {
 		v := Draw[string](s, gen)
@@ -1173,7 +1175,8 @@ func TestRejectFinishedCollection(t *testing.T) {
 func TestRejectE2E(t *testing.T) {
 
 	if _err := Run(func(s *TestCase) {
-		coll := newCollection(s, 0, 5)
+		max := 5
+		coll := newCollection(s, 0, &max)
 		if coll.More(s) {
 			// Reject the first element — tells the server it doesn't count.
 			coll.Reject(s)

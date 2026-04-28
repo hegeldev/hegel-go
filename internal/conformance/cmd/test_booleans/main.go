@@ -1,6 +1,3 @@
-// test_booleans is a conformance binary for boolean generation.
-// It parses JSON params from argv[1], runs a hegel test, and writes
-// boolean metrics to CONFORMANCE_METRICS_FILE for each generated value.
 package main
 
 import (

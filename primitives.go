@@ -294,24 +294,35 @@ func (cf *characterFields) toSchema() (map[string]any, error) {
 
 // TextGenerator configures and generates Unicode text strings.
 // Use [Text] to create one, then chain builder methods to configure
-// character filtering. Invalid configurations panic on the first [Draw] call.
+// the size bounds and character filtering. Invalid configurations panic
+// on the first [Draw] call.
 type TextGenerator struct {
 	minSize         int
 	maxSize         int
+	hasMax          bool
 	charFields      characterFields
 	alphabetCalled  bool
 	charParamCalled bool
 }
 
-// Text returns a TextGenerator that produces string values with codepoint count
-// in [minSize, maxSize].
-//
-// Pass maxSize < 0 for unbounded.
-func Text(minSize int, maxSize int) TextGenerator {
-	return TextGenerator{
-		minSize: minSize,
-		maxSize: maxSize,
-	}
+// Text returns a TextGenerator that produces string values. By default
+// strings have no size bounds; use [TextGenerator.MinSize] and
+// [TextGenerator.MaxSize] to constrain the codepoint count.
+func Text() TextGenerator {
+	return TextGenerator{}
+}
+
+// MinSize sets the minimum codepoint count for generated strings.
+func (g TextGenerator) MinSize(n int) TextGenerator {
+	g.minSize = n
+	return g
+}
+
+// MaxSize sets the maximum codepoint count for generated strings.
+func (g TextGenerator) MaxSize(n int) TextGenerator {
+	g.maxSize = n
+	g.hasMax = true
+	return g
 }
 
 // Codec restricts generated text to characters encodable in the given codec
@@ -386,7 +397,10 @@ func (g TextGenerator) asBasic() (*basicGenerator[string], bool, error) {
 	if g.minSize < 0 {
 		return nil, false, fmt.Errorf("min_size=%d must be non-negative", g.minSize)
 	}
-	if g.maxSize >= 0 && g.minSize > g.maxSize {
+	if g.hasMax && g.maxSize < 0 {
+		return nil, false, fmt.Errorf("max_size=%d must be non-negative", g.maxSize)
+	}
+	if g.hasMax && g.minSize > g.maxSize {
 		return nil, false, fmt.Errorf("cannot have max_size=%d < min_size=%d", g.maxSize, g.minSize)
 	}
 	if g.alphabetCalled && g.charParamCalled {
@@ -396,7 +410,7 @@ func (g TextGenerator) asBasic() (*basicGenerator[string], bool, error) {
 		"type":     "string",
 		"min_size": int64(g.minSize),
 	}
-	if g.maxSize >= 0 {
+	if g.hasMax {
 		schema["max_size"] = int64(g.maxSize)
 	}
 	charSchema, err := g.charFields.toSchema()

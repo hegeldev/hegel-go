@@ -47,10 +47,7 @@ func (g *oneOfGenerator[T]) asBasic() (*basicGenerator[T], bool, error) {
 	return &basicGenerator[T]{
 		schema: map[string]any{"type": "one_of", "generators": taggedSchemas},
 		parse: func(tagged any) T {
-			elems, _ := tagged.([]any)
-			if len(elems) < 2 {
-				return tagged.(T)
-			}
+			elems := tagged.([]any)
 			tag := extractInt(elems[0])
 			value := elems[1]
 			return parseFns[tag](value)

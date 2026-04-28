@@ -51,6 +51,10 @@ const (
 // internal returns the underlying TestCase, satisfying the State interface.
 func (s *TestCase) internal() *TestCase { return s }
 
+// IsFinal reports whether this is the final (replay) test case run after
+// shrinking, where the failing example is reported to the user.
+func (s *TestCase) IsFinal() bool { return s.isFinal }
+
 // Assume rejects the current test case if condition is false.
 func (s *TestCase) Assume(condition bool) {
 	if !condition {
@@ -69,7 +73,6 @@ func (s *TestCase) Note(message string) {
 
 // Target guides Hegel toward values that maximize the given metric.
 func (s *TestCase) Target(value float64, label string) {
-	st := s.stream
 	payload, err := encodeCBOR(map[string]any{
 		"command": "target",
 		"value":   value,
@@ -78,13 +81,7 @@ func (s *TestCase) Target(value float64, label string) {
 	if err != nil { // coverage-ignore
 		panic(fmt.Sprintf("Target encode: %v", err))
 	}
-	pending, err := st.Request(payload)
-	if err != nil { // coverage-ignore
-		panic(fmt.Sprintf("Target send: %v", err))
-	}
-	if _, err := pending.Get(); err != nil { // coverage-ignore
-		panic(fmt.Sprintf("Target response: %v", err))
-	}
+	doRequest(s, payload)
 }
 
 // --- Internal helpers ---
@@ -617,7 +614,7 @@ func (s *hegelSession) start() error {
 	// Build the hegel command.
 	var cmd *exec.Cmd
 	if s.hegelCmd != "" {
-		cmd = exec.Command(s.hegelCmd, "--stdio", "--verbosity", "normal")
+		cmd = exec.Command(s.hegelCmd, "--verbosity", "normal")
 	} else {
 		var err error
 		cmd, err = hegelCommand()
@@ -704,7 +701,7 @@ func (s *hegelSession) cleanupLocked() {
 	}
 
 	if s.process != nil {
-		s.process.Process.Signal(os.Interrupt) //nolint:errcheck
+		s.process.Process.Kill() //nolint:errcheck
 		if s.processExited != nil {
 			<-s.processExited
 		}

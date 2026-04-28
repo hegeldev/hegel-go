@@ -9,16 +9,17 @@ import (
 	"sync"
 )
 
-// GetTestCases returns the number of conformance test cases to run.
-// It reads CONFORMANCE_TEST_CASES from the environment; defaults to 50.
+// GetTestCases returns the number of conformance test cases to run,
+// read from CONFORMANCE_TEST_CASES. Panics if the env var is missing
+// or not a positive integer.
 func GetTestCases() int {
 	val := os.Getenv("CONFORMANCE_TEST_CASES")
 	if val == "" {
-		return 50
+		panic("CONFORMANCE_TEST_CASES env var not set")
 	}
 	n, err := strconv.Atoi(val)
 	if err != nil || n <= 0 {
-		return 50
+		panic("CONFORMANCE_TEST_CASES must be a positive integer, got: " + val)
 	}
 	return n
 }

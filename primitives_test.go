@@ -112,7 +112,7 @@ func TestTextE2E(t *testing.T) {
 	t.Parallel()
 
 	if _err := Run(func(s *TestCase) {
-		sv := Draw[string](s, Text(2, 8))
+		sv := Draw[string](s, Text().MinSize(2).MaxSize(8))
 		count := utf8.RuneCountInString(sv)
 		if count < 2 || count > 8 {
 			panic("text: codepoint count out of range [2, 8]")
@@ -126,7 +126,7 @@ func TestTextE2E_Unbounded(t *testing.T) {
 	t.Parallel()
 
 	if _err := Run(func(s *TestCase) {
-		sv := Draw[string](s, Text(0, -1))
+		sv := Draw[string](s, Text())
 		if !utf8.ValidString(sv) {
 			panic("text: invalid UTF-8 string")
 		}
@@ -201,7 +201,7 @@ func TestListsFloatBuilderUsesBasicPath(t *testing.T) {
 
 func TestTextCodecSchema(t *testing.T) {
 	t.Parallel()
-	bg, _, err := Text(0, 10).Codec("ascii").asBasic()
+	bg, _, err := Text().MaxSize(10).Codec("ascii").asBasic()
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -212,7 +212,7 @@ func TestTextCodecSchema(t *testing.T) {
 
 func TestTextMinCodepointSchema(t *testing.T) {
 	t.Parallel()
-	bg, _, err := Text(0, 10).MinCodepoint(32).asBasic()
+	bg, _, err := Text().MaxSize(10).MinCodepoint(32).asBasic()
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -223,7 +223,7 @@ func TestTextMinCodepointSchema(t *testing.T) {
 
 func TestTextMaxCodepointSchema(t *testing.T) {
 	t.Parallel()
-	bg, _, err := Text(0, 10).MaxCodepoint(127).asBasic()
+	bg, _, err := Text().MaxSize(10).MaxCodepoint(127).asBasic()
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -234,7 +234,7 @@ func TestTextMaxCodepointSchema(t *testing.T) {
 
 func TestTextCategoriesSchema(t *testing.T) {
 	t.Parallel()
-	bg, _, err := Text(0, 10).Categories([]string{"L"}).asBasic()
+	bg, _, err := Text().MaxSize(10).Categories([]string{"L"}).asBasic()
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -249,7 +249,7 @@ func TestTextCategoriesSchema(t *testing.T) {
 
 func TestTextExcludeCategoriesSchema(t *testing.T) {
 	t.Parallel()
-	bg, _, err := Text(0, 10).ExcludeCategories([]string{"Zs"}).asBasic()
+	bg, _, err := Text().MaxSize(10).ExcludeCategories([]string{"Zs"}).asBasic()
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -271,7 +271,7 @@ func TestTextExcludeCategoriesSchema(t *testing.T) {
 
 func TestTextIncludeCharactersSchema(t *testing.T) {
 	t.Parallel()
-	bg, _, err := Text(0, 10).IncludeCharacters("!@#").asBasic()
+	bg, _, err := Text().MaxSize(10).IncludeCharacters("!@#").asBasic()
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -282,7 +282,7 @@ func TestTextIncludeCharactersSchema(t *testing.T) {
 
 func TestTextExcludeCharactersSchema(t *testing.T) {
 	t.Parallel()
-	bg, _, err := Text(0, 10).ExcludeCharacters("xyz").asBasic()
+	bg, _, err := Text().MaxSize(10).ExcludeCharacters("xyz").asBasic()
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -293,7 +293,7 @@ func TestTextExcludeCharactersSchema(t *testing.T) {
 
 func TestTextExcludeCategoriesNoDuplicateCs(t *testing.T) {
 	t.Parallel()
-	bg, _, err := Text(0, 10).ExcludeCategories([]string{"Cs", "Zs"}).asBasic()
+	bg, _, err := Text().MaxSize(10).ExcludeCategories([]string{"Cs", "Zs"}).asBasic()
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -311,7 +311,7 @@ func TestTextExcludeCategoriesNoDuplicateCs(t *testing.T) {
 
 func TestTextAlphabetSchema(t *testing.T) {
 	t.Parallel()
-	bg, _, err := Text(0, 10).Alphabet("abc").asBasic()
+	bg, _, err := Text().MaxSize(10).Alphabet("abc").asBasic()
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -329,7 +329,7 @@ func TestTextAlphabetSchema(t *testing.T) {
 
 func TestTextAlphabetConflictsWithCharParams(t *testing.T) {
 	t.Parallel()
-	_, _, err := Text(0, 10).Codec("ascii").Alphabet("abc").asBasic()
+	_, _, err := Text().MaxSize(10).Codec("ascii").Alphabet("abc").asBasic()
 	assertErrorContains(t, "cannot combine", err)
 }
 
@@ -367,7 +367,7 @@ func TestCharactersAsBasic(t *testing.T) {
 
 func TestTextAsBasic(t *testing.T) {
 	t.Parallel()
-	_, ok, err := Text(0, 10).asBasic()
+	_, ok, err := Text().MaxSize(10).asBasic()
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -397,7 +397,7 @@ func TestTextCodecE2E(t *testing.T) {
 	t.Parallel()
 
 	if _err := runHegel(func(s *TestCase) {
-		v := Draw[string](s, Text(1, 10).Codec("ascii"))
+		v := Draw[string](s, Text().MinSize(1).MaxSize(10).Codec("ascii"))
 		for _, r := range v {
 			if r > 127 {
 				panic("Text with Codec(ascii): non-ASCII character found")
@@ -412,7 +412,7 @@ func TestTextAlphabetE2E(t *testing.T) {
 	t.Parallel()
 
 	if _err := runHegel(func(s *TestCase) {
-		v := Draw[string](s, Text(1, 5).Alphabet("abc"))
+		v := Draw[string](s, Text().MinSize(1).MaxSize(5).Alphabet("abc"))
 		for _, r := range v {
 			if r != 'a' && r != 'b' && r != 'c' {
 				panic("Text with Alphabet(abc): unexpected character")
@@ -427,7 +427,7 @@ func TestTextSingleCharAlphabetE2E(t *testing.T) {
 	t.Parallel()
 
 	if _err := runHegel(func(s *TestCase) {
-		v := Draw[string](s, Text(1, 5).Alphabet("x"))
+		v := Draw[string](s, Text().MinSize(1).MaxSize(5).Alphabet("x"))
 		for _, r := range v {
 			if r != 'x' {
 				panic(fmt.Sprintf("Text with Alphabet(x): expected 'x', got %q", r))
@@ -442,7 +442,7 @@ func TestTextCodepointRangeE2E(t *testing.T) {
 	t.Parallel()
 
 	if _err := runHegel(func(s *TestCase) {
-		v := Draw[string](s, Text(1, 20).MinCodepoint(0x41).MaxCodepoint(0x5A))
+		v := Draw[string](s, Text().MinSize(1).MaxSize(20).MinCodepoint(0x41).MaxCodepoint(0x5A))
 		for _, r := range v {
 			if r < 0x41 || r > 0x5A {
 				panic(fmt.Sprintf("Text codepoint range: %U outside [U+0041, U+005A]", r))
@@ -457,10 +457,10 @@ func TestTextCategoriesE2E(t *testing.T) {
 	t.Parallel()
 
 	if _err := runHegel(func(s *TestCase) {
-		v := Draw[string](s, Text(1, 20).Categories([]string{"Lu"}))
+		v := Draw[string](s, Text().MinSize(1).MaxSize(20).Categories([]string{"Lu"}))
 		for _, r := range v {
-			if !unicode.IsUpper(r) {
-				panic(fmt.Sprintf("Text with Categories([Lu]): %q is not uppercase", r))
+			if !unicode.In(r, unicode.Lu) {
+				panic(fmt.Sprintf("Text with Categories([Lu]): %q is not in category Lu", r))
 			}
 		}
 	}, stderrNoteFn, []Option{WithTestCases(30)}); _err != nil {
@@ -472,10 +472,10 @@ func TestTextExcludeCategoriesE2E(t *testing.T) {
 	t.Parallel()
 
 	if _err := runHegel(func(s *TestCase) {
-		v := Draw[string](s, Text(1, 20).ExcludeCategories([]string{"Lu"}))
+		v := Draw[string](s, Text().MinSize(1).MaxSize(20).ExcludeCategories([]string{"Lu"}))
 		for _, r := range v {
-			if unicode.IsUpper(r) {
-				panic(fmt.Sprintf("Text with ExcludeCategories([Lu]): %q is uppercase", r))
+			if unicode.In(r, unicode.Lu) {
+				panic(fmt.Sprintf("Text with ExcludeCategories([Lu]): %q is in category Lu", r))
 			}
 		}
 	}, stderrNoteFn, []Option{WithTestCases(30)}); _err != nil {
@@ -487,7 +487,7 @@ func TestTextIncludeCharactersE2E(t *testing.T) {
 	t.Parallel()
 
 	if _err := runHegel(func(s *TestCase) {
-		v := Draw[string](s, Text(1, 20).Categories([]string{}).IncludeCharacters("xyz"))
+		v := Draw[string](s, Text().MinSize(1).MaxSize(20).Categories([]string{}).IncludeCharacters("xyz"))
 		for _, r := range v {
 			if !strings.ContainsRune("xyz", r) {
 				panic(fmt.Sprintf("Text with IncludeCharacters(xyz): %q not in allowed set", r))
@@ -503,7 +503,7 @@ func TestTextExcludeCharactersE2E(t *testing.T) {
 
 	if _err := runHegel(func(s *TestCase) {
 		excluded := "aeiou"
-		v := Draw[string](s, Text(1, 20).Codec("ascii").ExcludeCharacters(excluded))
+		v := Draw[string](s, Text().MinSize(1).MaxSize(20).Codec("ascii").ExcludeCharacters(excluded))
 		for _, r := range v {
 			if strings.ContainsRune(excluded, r) {
 				panic(fmt.Sprintf("Text with ExcludeCharacters: %q should be excluded", r))
@@ -538,8 +538,8 @@ func TestCharactersCategoriesLuE2E(t *testing.T) {
 	if _err := runHegel(func(s *TestCase) {
 		v := Draw[string](s, Characters().Categories([]string{"Lu"}))
 		r, _ := utf8.DecodeRuneInString(v)
-		if !unicode.IsUpper(r) {
-			panic(fmt.Sprintf("Characters with Categories([Lu]): %q is not uppercase", r))
+		if !unicode.In(r, unicode.Lu) {
+			panic(fmt.Sprintf("Characters with Categories([Lu]): %q is not in category Lu", r))
 		}
 	}, stderrNoteFn, []Option{WithTestCases(30)}); _err != nil {
 		panic(_err)
@@ -552,8 +552,8 @@ func TestCharactersExcludeCategoriesE2E(t *testing.T) {
 	if _err := runHegel(func(s *TestCase) {
 		v := Draw[string](s, Characters().ExcludeCategories([]string{"Lu"}))
 		r, _ := utf8.DecodeRuneInString(v)
-		if unicode.IsUpper(r) {
-			panic(fmt.Sprintf("Characters with ExcludeCategories([Lu]): %q is uppercase", r))
+		if unicode.In(r, unicode.Lu) {
+			panic(fmt.Sprintf("Characters with ExcludeCategories([Lu]): %q is in category Lu", r))
 		}
 	}, stderrNoteFn, []Option{WithTestCases(30)}); _err != nil {
 		panic(_err)

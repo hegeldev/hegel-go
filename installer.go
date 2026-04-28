@@ -7,12 +7,13 @@ import (
 )
 
 // hegelServerVersion is the version of hegel-core that this SDK requires.
-const hegelServerVersion = "0.3.0"
+const hegelServerVersion = "0.4.11"
 
 // hegelServerCommandEnv is the environment variable that overrides automatic installation.
 const hegelServerCommandEnv = "HEGEL_SERVER_COMMAND"
 
-// hegelCommand returns an exec.Cmd that starts the hegel server with --stdio.
+// hegelCommand returns an exec.Cmd that starts the hegel server. The server
+// communicates with the client over stdin/stdout.
 //
 // Priority:
 //  1. HEGEL_SERVER_COMMAND env var → direct binary
@@ -20,7 +21,7 @@ const hegelServerCommandEnv = "HEGEL_SERVER_COMMAND"
 func hegelCommand() (*exec.Cmd, error) {
 	// 1. Environment variable override.
 	if override := os.Getenv(hegelServerCommandEnv); override != "" {
-		return exec.Command(override, "--stdio", "--verbosity", "normal"), nil
+		return exec.Command(override, "--verbosity", "normal"), nil
 	}
 
 	// 2. Use uv tool run.
@@ -30,6 +31,6 @@ func hegelCommand() (*exec.Cmd, error) {
 	}
 	cmd := exec.Command(uvPath, "tool", "run",
 		"--from", fmt.Sprintf("hegel-core==%s", hegelServerVersion),
-		"hegel", "--stdio", "--verbosity", "normal")
+		"hegel", "--verbosity", "normal")
 	return cmd, nil
 }

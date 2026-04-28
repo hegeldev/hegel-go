@@ -65,32 +65,32 @@ func TestFloatsAllowInfinityWithBothBounds(t *testing.T) {
 }
 
 func TestTextMinSizeNegative(t *testing.T) {
-	_, _, err := Text(-1, 10).asBasic()
+	_, _, err := Text().MinSize(-1).MaxSize(10).asBasic()
 	assertErrorContains(t, "min_size", err)
 }
 
 func TestTextMinGreaterThanMax(t *testing.T) {
-	_, _, err := Text(10, 5).asBasic()
+	_, _, err := Text().MinSize(10).MaxSize(5).asBasic()
 	assertErrorContains(t, "max_size", err)
 }
 
 func TestTextAlphabetWithCodecError(t *testing.T) {
-	_, _, err := Text(0, 10).Alphabet("abc").Codec("ascii").asBasic()
+	_, _, err := Text().MaxSize(10).Alphabet("abc").Codec("ascii").asBasic()
 	assertErrorContains(t, "cannot combine", err)
 }
 
 func TestTextAlphabetWithCategoriesError(t *testing.T) {
-	_, _, err := Text(0, 10).Alphabet("abc").Categories([]string{"Lu"}).asBasic()
+	_, _, err := Text().MaxSize(10).Alphabet("abc").Categories([]string{"Lu"}).asBasic()
 	assertErrorContains(t, "cannot combine", err)
 }
 
 func TestTextCategoriesIncludingCsError(t *testing.T) {
-	_, _, err := Text(0, 10).Categories([]string{"L", "Cs"}).asBasic()
+	_, _, err := Text().MaxSize(10).Categories([]string{"L", "Cs"}).asBasic()
 	assertErrorContains(t, "surrogate", err)
 }
 
 func TestTextCategoriesIncludingCSuperCatError(t *testing.T) {
-	_, _, err := Text(0, 10).Categories([]string{"C"}).asBasic()
+	_, _, err := Text().MaxSize(10).Categories([]string{"C"}).asBasic()
 	assertErrorContains(t, "surrogate", err)
 }
 
@@ -127,18 +127,18 @@ func TestListsMaxSizeNegative(t *testing.T) {
 	assertErrorContains(t, "max_size", err)
 }
 
-func TestDictsMinSizeNegative(t *testing.T) {
-	_, _, err := Dicts(Integers(0, 100), Integers(0, 100)).MinSize(-1).asBasic()
+func TestMapsMinSizeNegative(t *testing.T) {
+	_, _, err := Maps(Integers(0, 100), Integers(0, 100)).MinSize(-1).asBasic()
 	assertErrorContains(t, "min_size", err)
 }
 
-func TestDictsMaxSizeNegative(t *testing.T) {
-	_, _, err := Dicts(Integers(0, 100), Integers(0, 100)).MaxSize(-1).asBasic()
+func TestMapsMaxSizeNegative(t *testing.T) {
+	_, _, err := Maps(Integers(0, 100), Integers(0, 100)).MaxSize(-1).asBasic()
 	assertErrorContains(t, "max_size", err)
 }
 
-func TestDictsMinGreaterThanMax(t *testing.T) {
-	_, _, err := Dicts(Integers(0, 100), Integers(0, 100)).MinSize(10).MaxSize(5).asBasic()
+func TestMapsMinGreaterThanMax(t *testing.T) {
+	_, _, err := Maps(Integers(0, 100), Integers(0, 100)).MinSize(10).MaxSize(5).asBasic()
 	assertErrorContains(t, "max_size", err)
 }
 
@@ -179,13 +179,13 @@ func TestListsInnerErrorPropagates(t *testing.T) {
 	assertErrorContains(t, "allow_nan", err)
 }
 
-func TestDictsKeyErrorPropagates(t *testing.T) {
-	_, _, err := Dicts[float64, int](invalidFloats(), Integers(0, 1)).asBasic()
+func TestMapsKeyErrorPropagates(t *testing.T) {
+	_, _, err := Maps[float64, int](invalidFloats(), Integers(0, 1)).asBasic()
 	assertErrorContains(t, "allow_nan", err)
 }
 
-func TestDictsValueErrorPropagates(t *testing.T) {
-	_, _, err := Dicts[int, float64](Integers(0, 1), invalidFloats()).asBasic()
+func TestMapsValueErrorPropagates(t *testing.T) {
+	_, _, err := Maps[int, float64](Integers(0, 1), invalidFloats()).asBasic()
 	assertErrorContains(t, "allow_nan", err)
 }
 
@@ -207,8 +207,8 @@ func TestListsDrawInvalidConfigPanics(t *testing.T) {
 	assertPanicsWithMessage(t, "min_size", func() { gen.draw(nil) })
 }
 
-func TestDictsDrawInvalidConfigPanics(t *testing.T) {
-	gen := Dicts(Integers(0, 1), Integers(0, 1)).MinSize(-1)
+func TestMapsDrawInvalidConfigPanics(t *testing.T) {
+	gen := Maps(Integers(0, 1), Integers(0, 1)).MinSize(-1)
 	assertPanicsWithMessage(t, "min_size", func() { gen.draw(nil) })
 }
 
@@ -234,7 +234,7 @@ func TestFloatsDrawInvalidConfigPanics(t *testing.T) {
 }
 
 func TestTextDrawInvalidConfigPanics(t *testing.T) {
-	gen := Text(-1, 5)
+	gen := Text().MinSize(-1).MaxSize(5)
 	assertPanicsWithMessage(t, "min_size", func() { gen.draw(nil) })
 }
 

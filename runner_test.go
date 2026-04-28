@@ -367,7 +367,8 @@ func TestStopTestOnCollectionMore(t *testing.T) {
 
 	t.Setenv("HEGEL_PROTOCOL_TEST_MODE", "stop_test_on_collection_more")
 	err := Run(func(s *TestCase) {
-		coll := newCollection(s, 0, 10)
+		max := 10
+		coll := newCollection(s, 0, &max)
 		_ = coll.More(s)
 	})
 	_ = err // StopTest causes abort, not necessarily an error return
@@ -379,7 +380,8 @@ func TestStopTestOnNewCollection(t *testing.T) {
 
 	t.Setenv("HEGEL_PROTOCOL_TEST_MODE", "stop_test_on_new_collection")
 	err := Run(func(s *TestCase) {
-		coll := newCollection(s, 0, 10)
+		max := 10
+		coll := newCollection(s, 0, &max)
 		_ = coll.More(s)
 	})
 	_ = err // StopTest causes abort, not necessarily an error return
@@ -584,6 +586,18 @@ func TestNoteIsFinalTrue(t *testing.T) {
 	state.Note("test note on final")
 }
 
+// --- IsFinal mirrors the underlying isFinal field ---
+
+func TestIsFinal(t *testing.T) {
+	t.Parallel()
+	if (&TestCase{isFinal: false}).IsFinal() {
+		t.Error("IsFinal: expected false on non-final test case")
+	}
+	if !(&TestCase{isFinal: true}).IsFinal() {
+		t.Error("IsFinal: expected true on final test case")
+	}
+}
+
 // --- hegelSession: start with spawn error ---
 
 func TestHegelSessionSpawnError(t *testing.T) {
@@ -741,23 +755,6 @@ func TestHegelSessionStartInnerCheck(t *testing.T) {
 	// Start again -- should hit outer hasWorkingClient check.
 	if err := s.start(); err != nil {
 		t.Errorf("second start: %v", err)
-	}
-}
-
-// --- hegelSession.start: hegelCmd field used ---
-
-func TestHegelSessionStartHegelCmd(t *testing.T) {
-	t.Parallel()
-
-	path, _ := exec.LookPath("hegel")
-	if path == "" {
-		t.Skip("hegel binary not on PATH")
-	}
-	s := newHegelSession()
-	s.hegelCmd = path
-	defer s.cleanup()
-	if err := s.start(); err != nil {
-		t.Fatalf("start with hegelCmd: %v", err)
 	}
 }
 

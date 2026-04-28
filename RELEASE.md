@@ -1,15 +1,27 @@
-RELEASE_TYPE: patch
+RELEASE_TYPE: minor
 
-This release adds more configuration parameters to `Text()`:
+This release renames the `hegel.Dicts` generator to `hegel.Maps`.
+
+This release also changes `Text` to a builder pattern, matching our other generator APIs:
 
 ```go
-hegel.Text(0, 100).Codec("ascii")
-hegel.Text(0, 100).Alphabet("abc")
-hegel.Text(0, 100).MinCodepoint(0x20).MaxCodepoint(0x7E)
-hegel.Text(0, 100).Categories([]string{"L", "Nd"})
-hegel.Text(0, 100).ExcludeCategories([]string{"Cc"})
-hegel.Text(0, 100).IncludeCharacters("@#$")
-hegel.Text(0, 100).ExcludeCharacters("\n\t")
+// before
+hegel.Text(1, 50)
+
+// after
+hegel.Text().MinSize(1).MaxSize(50)
+```
+
+This release also adds more configuration parameters to `Text()`:
+
+```go
+hegel.Text().Codec("ascii")
+hegel.Text().Alphabet("abc")
+hegel.Text().MinCodepoint(0x20).MaxCodepoint(0x7E)
+hegel.Text().Categories([]string{"L", "Nd"})
+hegel.Text().ExcludeCategories([]string{"Cc"})
+hegel.Text().IncludeCharacters("@#$")
+hegel.Text().ExcludeCharacters("\n\t")
 ```
 
 As well as a new `Characters()` generator:

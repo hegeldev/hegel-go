@@ -232,14 +232,45 @@ func Filter[T any](g Generator[T], pred func(T) bool) Generator[T] {
 	return &filteredGenerator[T]{source: g, predicate: pred}
 }
 
+// doRequest sends a request on gs.stream and returns the decoded reply.
+//
+// Server-side abort signals are translated into the appropriate panic
+// sentinel: StopTest/Overflow becomes [dataExhausted], FlakyStrategyDefinition/
+// FlakyReplay becomes [flakyAbort]. Both also set gs.aborted so that any
+// follow-up calls (deferred or otherwise) are no-ops via the early-return
+// at the top of this function.
+//
+// Connection-level errors panic with a string; these paths are exercised
+// via error-injection elsewhere and marked coverage-ignore here.
+func doRequest(gs *TestCase, payload []byte) any {
+	if gs.aborted {
+		return nil
+	}
+	pending, err := gs.stream.Request(payload)
+	if err != nil { // coverage-ignore
+		panic(fmt.Sprintf("request: %v", err))
+	}
+	v, err := pending.Get()
+	if err == nil {
+		return v
+	}
+	if re, ok := err.(*requestError); ok {
+		switch re.ErrorType {
+		case "StopTest":
+			gs.aborted = true
+			panic(&dataExhausted{msg: "server ran out of data"})
+		case flakyStrategyDefinition, flakyReplay: // coverage-ignore
+			gs.aborted = true
+			panic(flakyAbort{})
+		}
+	}
+	panic(fmt.Sprintf("request error: %v", err)) // coverage-ignore
+}
+
 // --- Span helpers ---
 
 // startSpan notifies the server that a new generation span has started.
 func startSpan(gs *TestCase, label spanLabel) {
-	if gs == nil || gs.aborted {
-		return
-	}
-	st := gs.stream
 	payload, err := encodeCBOR(map[string]any{
 		"command": "start_span",
 		"label":   int64(label),
@@ -247,19 +278,11 @@ func startSpan(gs *TestCase, label spanLabel) {
 	if err != nil { // coverage-ignore
 		panic(fmt.Sprintf("startSpan encode: %v", err))
 	}
-	pending, err := st.Request(payload)
-	if err != nil { // coverage-ignore
-		panic(fmt.Sprintf("startSpan request: %v", err))
-	}
-	pending.Get() //nolint:errcheck
+	doRequest(gs, payload)
 }
 
 // stopSpan notifies the server that the current generation span has ended.
 func stopSpan(gs *TestCase, discard bool) {
-	if gs == nil || gs.aborted {
-		return
-	}
-	st := gs.stream
 	payload, err := encodeCBOR(map[string]any{
 		"command": "stop_span",
 		"discard": discard,
@@ -267,11 +290,7 @@ func stopSpan(gs *TestCase, discard bool) {
 	if err != nil { // coverage-ignore
 		panic(fmt.Sprintf("stopSpan encode: %v", err))
 	}
-	pending, err := st.Request(payload)
-	if err != nil { // coverage-ignore
-		panic(fmt.Sprintf("stopSpan request: %v", err))
-	}
-	pending.Get() //nolint:errcheck
+	doRequest(gs, payload)
 }
 
 // --- collection protocol ---
@@ -283,30 +302,20 @@ type collection struct {
 }
 
 // newCollection starts a new collection on the server with the given size bounds.
-func newCollection(gs *TestCase, minSize, maxSize int) *collection {
-	st := gs.stream
-	payload, err := encodeCBOR(map[string]any{
+// A nil maxSize means unbounded (omitted from the payload).
+func newCollection(gs *TestCase, minSize int, maxSize *int) *collection {
+	msg := map[string]any{
 		"command":  "new_collection",
 		"min_size": int64(minSize),
-		"max_size": int64(maxSize),
-	})
+	}
+	if maxSize != nil {
+		msg["max_size"] = int64(*maxSize)
+	}
+	payload, err := encodeCBOR(msg)
 	if err != nil { // coverage-ignore
 		panic(fmt.Sprintf("newCollection encode: %v", err))
 	}
-	pending, err := st.Request(payload)
-	if err != nil { // coverage-ignore
-		panic(fmt.Sprintf("newCollection request: %v", err))
-	}
-	v, err := pending.Get()
-	if err != nil {
-		re, ok := err.(*requestError)
-		if ok && re.ErrorType == "StopTest" {
-			gs.aborted = true
-			panic(&dataExhausted{msg: "server ran out of data (new_collection)"})
-		}
-		panic(fmt.Sprintf("new_collection error: %v", err)) // coverage-ignore
-	}
-	id, _ := v.(uint64)
+	id, _ := doRequest(gs, payload).(uint64)
 	return &collection{collectionID: id}
 }
 
@@ -315,7 +324,6 @@ func (c *collection) More(gs *TestCase) bool {
 	if c.finished { // coverage-ignore
 		return false
 	}
-	st := gs.stream
 	payload, err := encodeCBOR(map[string]any{
 		"command":       "collection_more",
 		"collection_id": c.collectionID,
@@ -323,20 +331,7 @@ func (c *collection) More(gs *TestCase) bool {
 	if err != nil { // coverage-ignore
 		panic(fmt.Sprintf("collection.More encode: %v", err))
 	}
-	pending, err := st.Request(payload)
-	if err != nil { // coverage-ignore
-		panic(fmt.Sprintf("More request: %v", err))
-	}
-	v, err := pending.Get()
-	if err != nil {
-		re, ok := err.(*requestError)
-		if ok && re.ErrorType == "StopTest" {
-			gs.aborted = true
-			panic(&dataExhausted{msg: "server ran out of data (collection_more)"})
-		}
-		panic(fmt.Sprintf("collection_more error: %v", err)) // coverage-ignore
-	}
-	more, _ := v.(bool)
+	more, _ := doRequest(gs, payload).(bool)
 	if !more {
 		c.finished = true
 	}
@@ -348,7 +343,6 @@ func (c *collection) Reject(gs *TestCase) {
 	if c.finished {
 		return
 	}
-	st := gs.stream
 	payload, err := encodeCBOR(map[string]any{
 		"command":       "collection_reject",
 		"collection_id": c.collectionID,
@@ -356,9 +350,5 @@ func (c *collection) Reject(gs *TestCase) {
 	if err != nil { // coverage-ignore
 		panic(fmt.Sprintf("collection.Reject encode: %v", err))
 	}
-	pending, err := st.Request(payload)
-	if err != nil { // coverage-ignore
-		panic(fmt.Sprintf("Reject request: %v", err))
-	}
-	pending.Get() //nolint:errcheck
+	doRequest(gs, payload)
 }
