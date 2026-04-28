@@ -586,18 +586,6 @@ func TestNoteIsFinalTrue(t *testing.T) {
 	state.Note("test note on final")
 }
 
-// --- IsFinal mirrors the underlying isFinal field ---
-
-func TestIsFinal(t *testing.T) {
-	t.Parallel()
-	if (&TestCase{isFinal: false}).IsFinal() {
-		t.Error("IsFinal: expected false on non-final test case")
-	}
-	if !(&TestCase{isFinal: true}).IsFinal() {
-		t.Error("IsFinal: expected true on final test case")
-	}
-}
-
 // --- hegelSession: start with spawn error ---
 
 func TestHegelSessionSpawnError(t *testing.T) {

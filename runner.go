@@ -51,10 +51,6 @@ const (
 // internal returns the underlying TestCase, satisfying the State interface.
 func (s *TestCase) internal() *TestCase { return s }
 
-// IsFinal reports whether this is the final (replay) test case run after
-// shrinking, where the failing example is reported to the user.
-func (s *TestCase) IsFinal() bool { return s.isFinal }
-
 // Assume rejects the current test case if condition is false.
 func (s *TestCase) Assume(condition bool) {
 	if !condition {
@@ -619,7 +615,7 @@ func (s *hegelSession) start() error {
 		var err error
 		cmd, err = hegelCommand()
 		if err != nil {
-			return fmt.Errorf("%w", err)
+			return err
 		}
 	}
 	cmd.Dir = getProjectRoot()
