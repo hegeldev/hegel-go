@@ -19,6 +19,7 @@ func main() {
 		MaxSize  *int   `json:"max_size"`
 		MinValue *int   `json:"min_value"`
 		MaxValue *int   `json:"max_value"`
+		Unique   bool   `json:"unique"`
 		Mode     string `json:"mode"`
 	}
 	if err := json.Unmarshal([]byte(os.Args[1]), &params); err != nil {
@@ -41,13 +42,13 @@ func main() {
 	var gen hegel.Generator[[]int]
 	if useNonBasic {
 		filtered := hegel.Filter(elemGen, func(v int) bool { return true })
-		builder := hegel.Lists(filtered).MinSize(params.MinSize)
+		builder := hegel.Lists(filtered).MinSize(params.MinSize).Unique(params.Unique)
 		if params.MaxSize != nil {
 			builder = builder.MaxSize(*params.MaxSize)
 		}
 		gen = builder
 	} else {
-		builder := hegel.Lists(elemGen).MinSize(params.MinSize)
+		builder := hegel.Lists(elemGen).MinSize(params.MinSize).Unique(params.Unique)
 		if params.MaxSize != nil {
 			builder = builder.MaxSize(*params.MaxSize)
 		}

@@ -1,6 +1,9 @@
 package hegel
 
-import "fmt"
+import (
+	"fmt"
+	"reflect"
+)
 
 // --- Lists generator ---
 
@@ -12,6 +15,7 @@ type ListGenerator[T any] struct {
 	minSize  int
 	maxSize  int
 	hasMax   bool
+	unique   bool
 }
 
 // Lists returns a Generator that produces slices of values from the elements generator.
@@ -29,6 +33,15 @@ func (g ListGenerator[T]) MinSize(n int) ListGenerator[T] {
 func (g ListGenerator[T]) MaxSize(n int) ListGenerator[T] {
 	g.maxSize = n
 	g.hasMax = true
+	return g
+}
+
+// Unique requires every element of the generated list to be distinct.
+// On the basic path, uniqueness is delegated to the server via the list schema.
+// On the compositional path, duplicates are rejected via the collection protocol
+// using [reflect.DeepEqual] for equality.
+func (g ListGenerator[T]) Unique(unique bool) ListGenerator[T] {
+	g.unique = unique
 	return g
 }
 
@@ -62,6 +75,9 @@ func (g ListGenerator[T]) asBasic() (*basicGenerator[[]T], bool, error) {
 	if g.hasMax {
 		rawSchema["max_size"] = int64(g.maxSize)
 	}
+	if g.unique {
+		rawSchema["unique"] = true
+	}
 	elemParse := bg.parse
 	return &basicGenerator[[]T]{
 		schema: rawSchema,
@@ -80,7 +96,9 @@ func (g ListGenerator[T]) asBasic() (*basicGenerator[[]T], bool, error) {
 }
 
 // draw produces a list by dispatching to the basic schema when possible,
-// falling back to the collection protocol otherwise.
+// falling back to the collection protocol otherwise. When unique is set on
+// the compositional path, duplicates are rejected via the collection protocol
+// so the server can retry until min_size distinct elements have been drawn.
 func (g ListGenerator[T]) draw(s *TestCase) []T {
 	bg, ok, err := g.asBasic()
 	if err != nil {
@@ -95,10 +113,24 @@ func (g ListGenerator[T]) draw(s *TestCase) []T {
 		maxSize = &m
 	}
 	startSpan(s, labelList)
-	var result []T
+	result := []T{}
 	coll := newCollection(s, g.minSize, maxSize)
 	for coll.More(s) {
-		result = append(result, g.elements.draw(s))
+		element := g.elements.draw(s)
+		if g.unique {
+			duplicate := false
+			for _, existing := range result {
+				if reflect.DeepEqual(existing, element) {
+					duplicate = true
+					break
+				}
+			}
+			if duplicate {
+				coll.Reject(s)
+				continue
+			}
+		}
+		result = append(result, element)
 	}
 	stopSpan(s, false)
 	return result

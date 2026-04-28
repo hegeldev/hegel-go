@@ -30,8 +30,8 @@ jobs:
       - name: Install just
         run: sudo apt-get update && sudo apt-get install -y just
 
-      - name: Lint
-        run: just lint
+      - name: Check lint
+        run: just check-lint
       - name: Install zizmor
         run: pip install zizmor
       - name: Run zizmor
@@ -68,7 +68,7 @@ jobs:
           go-version: ${{ matrix.go-version }}
 
       - name: Run tests
-        run: just test
+        run: just check-tests
 
       - name: Auto-update coverage annotations and ratchet
         if: success() && matrix.go-version == 'stable' && (github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository)
@@ -142,7 +142,8 @@ jobs:
         with:
           go-version: stable
 
-      - run: just conformance
+      - name: Run conformance tests
+        run: just check-conformance
 
   release:
     name: release
