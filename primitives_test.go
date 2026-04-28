@@ -333,6 +333,12 @@ func TestTextAlphabetConflictsWithCharParams(t *testing.T) {
 	assertErrorContains(t, "cannot combine", err)
 }
 
+func TestTextNegativeMaxSize(t *testing.T) {
+	t.Parallel()
+	_, _, err := Text().MaxSize(-1).asBasic()
+	assertErrorContains(t, "max_size=-1 must be non-negative", err)
+}
+
 // =============================================================================
 // CharactersGenerator tests
 // =============================================================================
