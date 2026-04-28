@@ -67,7 +67,7 @@ func detectHegelDirectory() string {
 		return filepath.Join(root, ".hegel")
 	}
 	fmt.Fprintf(os.Stderr,
-		"hegel: warning: could not detect project root (no go.mod, .git, etc. found in parent directories). "+
+		"warning: could not detect project root (no go.mod, .git, etc. found in parent directories). "+
 			"The .hegel data directory will be created in the current working directory. "+
 			"Call hegel.SetHegelDirectory() to set an explicit path.\n")
 	cwd, err := getwdFn()

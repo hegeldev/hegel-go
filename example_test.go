@@ -43,7 +43,7 @@ func ExampleDraw() {
 	t := &testing.T{}
 	t.Run("multiple_values", hegel.Case(func(ht *hegel.T) {
 		n := hegel.Draw(ht, hegel.Integers(math.MinInt, math.MaxInt))
-		s := hegel.Draw(ht, hegel.Text(0, 50))
+		s := hegel.Draw(ht, hegel.Text().MaxSize(50))
 		_ = n // n is int
 		_ = s // s is string
 	}))

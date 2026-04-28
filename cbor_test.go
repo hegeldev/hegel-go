@@ -177,40 +177,6 @@ func TestExtractCBORIntWrongType(t *testing.T) {
 	}
 }
 
-func TestExtractCBORFloat(t *testing.T) {
-	t.Parallel()
-	decoded := cborDecodeAny(t, cborEncode(t, 3.14))
-	v, err := extractCBORFloat(decoded)
-	if err != nil {
-		t.Fatalf("extractCBORFloat: %v", err)
-	}
-	if v != 3.14 {
-		t.Errorf("extractCBORFloat = %v, want 3.14", v)
-	}
-}
-
-func TestExtractCBORFloatFromInt(t *testing.T) {
-	t.Parallel()
-	// Integers should also be extractable as floats (common protocol pattern)
-	decoded := cborDecodeAny(t, cborEncode(t, int64(7)))
-	v, err := extractCBORFloat(decoded)
-	if err != nil {
-		t.Fatalf("extractCBORFloat from int: %v", err)
-	}
-	if v != 7.0 {
-		t.Errorf("extractCBORFloat from int = %v, want 7.0", v)
-	}
-}
-
-func TestExtractCBORFloatWrongType(t *testing.T) {
-	t.Parallel()
-	decoded := cborDecodeAny(t, cborEncode(t, "not a float"))
-	_, err := extractCBORFloat(decoded)
-	if err == nil {
-		t.Fatal("extractCBORFloat with string: expected error")
-	}
-}
-
 func TestExtractCBORString(t *testing.T) {
 	t.Parallel()
 	decoded := cborDecodeAny(t, cborEncode(t, "hello"))
@@ -322,9 +288,6 @@ func TestExtractCBORNullInput(t *testing.T) {
 	if _, err := extractCBORInt(nil); err == nil {
 		t.Error("extractCBORInt(nil): expected error")
 	}
-	if _, err := extractCBORFloat(nil); err == nil {
-		t.Error("extractCBORFloat(nil): expected error")
-	}
 	if _, err := extractCBORString(nil); err == nil {
 		t.Error("extractCBORString(nil): expected error")
 	}
@@ -391,28 +354,6 @@ func TestExtractCBORIntUint64(t *testing.T) {
 	}
 }
 
-func TestExtractCBORFloatFloat32(t *testing.T) {
-	t.Parallel()
-	v, err := extractCBORFloat(float32(1.5))
-	if err != nil {
-		t.Fatalf("extractCBORFloat(float32): %v", err)
-	}
-	if v != float64(float32(1.5)) {
-		t.Errorf("extractCBORFloat(float32) = %v, want %v", v, float64(float32(1.5)))
-	}
-}
-
-func TestExtractCBORFloatUint64(t *testing.T) {
-	t.Parallel()
-	v, err := extractCBORFloat(uint64(10))
-	if err != nil {
-		t.Fatalf("extractCBORFloat(uint64): %v", err)
-	}
-	if v != 10.0 {
-		t.Errorf("extractCBORFloat(uint64) = %v, want 10.0", v)
-	}
-}
-
 func TestExtractCBORDictStringKeyed(t *testing.T) {
 	t.Parallel()
 	// Directly pass a map[string]any to test that branch.
@@ -439,24 +380,122 @@ func TestExtractCBORIntNegative(t *testing.T) {
 	}
 }
 
-func TestExtractCBORFloatNegativeInt(t *testing.T) {
-	t.Parallel()
-	// Negative integers come as int64 from CBOR decode.
-	// Pass int64 directly to exercise the case int64: branch in extractCBORFloat.
-	v, err := extractCBORFloat(int64(-3))
-	if err != nil {
-		t.Fatalf("extractCBORFloat(int64 negative): %v", err)
-	}
-	if v != -3.0 {
-		t.Errorf("extractCBORFloat(int64 negative) = %v, want -3.0", v)
-	}
-}
-
 func TestEncodeCBORError(t *testing.T) {
 	t.Parallel()
 	// Functions cannot be CBOR-encoded; this exercises the error return path.
 	_, err := encodeCBOR(func() {})
 	if err == nil {
 		t.Fatal("encodeCBOR(func): expected error")
+	}
+}
+
+// --- convertCBOR tests ---
+
+func TestConvertCBORTagWithByteString(t *testing.T) {
+	t.Parallel()
+	tag := cbor.Tag{Number: 91, Content: []byte("hello")}
+	result := convertCBOR(tag)
+	s, ok := result.(string)
+	if !ok {
+		t.Fatalf("convertCBOR(tag(91, bytes)): expected string, got %T", result)
+	}
+	if s != "hello" {
+		t.Errorf("convertCBOR(tag(91, bytes)) = %q, want \"hello\"", s)
+	}
+}
+
+func TestConvertCBORTagWithNonBytesPanics(t *testing.T) {
+	t.Parallel()
+	defer func() {
+		if r := recover(); r == nil {
+			t.Fatal("convertCBOR(tag(91, string)): expected panic")
+		}
+	}()
+	tag := cbor.Tag{Number: 91, Content: "text"}
+	convertCBOR(tag)
+}
+
+func TestConvertCBORNonTag91Passthrough(t *testing.T) {
+	t.Parallel()
+	// A non-91 tag passes through as cbor.Tag.
+	tag := cbor.Tag{Number: 42, Content: []byte("raw")}
+	result := convertCBOR(tag)
+	got, ok := result.(cbor.Tag)
+	if !ok {
+		t.Fatalf("convertCBOR(tag(42, bytes)): expected cbor.Tag, got %T", result)
+	}
+	if got.Number != 42 {
+		t.Errorf("tag number = %d, want 42", got.Number)
+	}
+}
+
+func TestConvertCBORUnrecognizedTagPassthrough(t *testing.T) {
+	t.Parallel()
+	// An unrecognized tag is returned as-is, even if it wraps a tag 91.
+	inner := cbor.Tag{Number: 91, Content: []byte("nested")}
+	outer := cbor.Tag{Number: 42, Content: inner}
+	result := convertCBOR(outer)
+	tag, ok := result.(cbor.Tag)
+	if !ok {
+		t.Fatalf("convertCBOR(tag(42, ...)): expected cbor.Tag, got %T", result)
+	}
+	if tag.Number != 42 {
+		t.Errorf("convertCBOR(tag(42, ...)): tag number = %d, want 42", tag.Number)
+	}
+}
+
+func TestConvertCBORSlice(t *testing.T) {
+	t.Parallel()
+	slice := []any{
+		cbor.Tag{Number: 91, Content: []byte("a")},
+		"b",
+		int64(42),
+	}
+	result := convertCBOR(slice)
+	list, ok := result.([]any)
+	if !ok {
+		t.Fatalf("convertCBOR(slice): expected []any, got %T", result)
+	}
+	if list[0] != "a" {
+		t.Errorf("convertCBOR(slice)[0] = %v, want \"a\"", list[0])
+	}
+	if list[1] != "b" {
+		t.Errorf("convertCBOR(slice)[1] = %v, want \"b\"", list[1])
+	}
+	if list[2] != int64(42) {
+		t.Errorf("convertCBOR(slice)[2] = %v, want 42", list[2])
+	}
+}
+
+func TestConvertCBORPassthrough(t *testing.T) {
+	t.Parallel()
+	// Non-tag, non-slice values pass through unchanged.
+	if convertCBOR("hello") != "hello" {
+		t.Error("string passthrough failed")
+	}
+	if convertCBOR(int64(42)) != int64(42) {
+		t.Error("int64 passthrough failed")
+	}
+	if convertCBOR(nil) != nil {
+		t.Error("nil passthrough failed")
+	}
+}
+
+func TestConvertCBORMap(t *testing.T) {
+	t.Parallel()
+	m := map[any]any{
+		"result": cbor.Tag{Number: 91, Content: []byte("ip-value")},
+		"other":  int64(42),
+	}
+	result := convertCBOR(m)
+	rm, ok := result.(map[any]any)
+	if !ok {
+		t.Fatalf("convertCBOR(map): expected map[any]any, got %T", result)
+	}
+	if rm["result"] != "ip-value" {
+		t.Errorf("convertCBOR(map)[result] = %v, want \"ip-value\"", rm["result"])
+	}
+	if rm["other"] != int64(42) {
+		t.Errorf("convertCBOR(map)[other] = %v, want 42", rm["other"])
 	}
 }

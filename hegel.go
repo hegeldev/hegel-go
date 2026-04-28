@@ -68,7 +68,7 @@
 // Hegel provides a rich library of generators that you can use out of the
 // box. There are primitive generators, such as [Integers], [Floats], and
 // [Text], and combinators that allow you to make generators out of other
-// generators, such as [Lists] and [Dicts].
+// generators, such as [Lists] and [Maps].
 //
 // For example, you can use [Lists] to generate a slice of integers:
 //
@@ -99,7 +99,7 @@
 //		t.Run("person", hegel.Case(func(ht *hegel.T) {
 //			person := Person{
 //				Age:  hegel.Draw(ht, hegel.Integers(0, 120)),
-//				Name: hegel.Draw(ht, hegel.Text(1, 50)),
+//				Name: hegel.Draw(ht, hegel.Text().MinSize(1).MaxSize(50)),
 //			}
 //			_ = person // use person in your test
 //		}))
@@ -117,7 +117,7 @@
 //		}
 //		t.Run("person_with_license", hegel.Case(func(ht *hegel.T) {
 //			age := hegel.Draw(ht, hegel.Integers(0, 120))
-//			name := hegel.Draw(ht, hegel.Text(1, 50))
+//			name := hegel.Draw(ht, hegel.Text().MinSize(1).MaxSize(50))
 //			drivingLicense := false
 //			if age >= 18 {
 //				drivingLicense = hegel.Draw(ht, hegel.Booleans())

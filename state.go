@@ -93,5 +93,5 @@ func (t *T) Logf(format string, args ...any) {
 
 // Run aborts the test — nested sub-tests inside a Hegel property test are not supported.
 func (t *T) Run(_ string, _ func(*testing.T)) bool {
-	panic("hegel: nested t.Run is not supported inside a property test")
+	panic("nested t.Run is not supported inside a property test")
 }
