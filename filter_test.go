@@ -63,44 +63,41 @@ func TestFilteredGeneratorMapReturnsmappedGenerator(t *testing.T) {
 // =============================================================================
 
 // TestCompositeListGeneratorFilterReturnsfilteredGenerator verifies that calling
-// Filter on a compositeListGenerator returns a *filteredGenerator.
+// Filter on a ListGenerator with non-basic elements returns a *filteredGenerator.
 func TestCompositeListGeneratorFilterReturnsfilteredGenerator(t *testing.T) {
 	t.Parallel()
-	// compositeListGenerator is produced when elements are non-basic.
-	// Filter produces a filteredGenerator (non-basic), forcing Lists into composite path.
+	// Filter produces a filteredGenerator (non-basic), forcing Lists into the composite draw path.
 	nonBasic := Filter(Integers[int](0, 10), func(v int) bool { return true })
 	listGen := Lists(nonBasic).MaxSize(5)
 	filtered := Filter(listGen, func(v []int) bool { return true })
 	if _, ok := filtered.(*filteredGenerator[[]int]); !ok {
-		t.Fatalf("Filter(compositeListGenerator) should return *filteredGenerator, got %T", filtered)
+		t.Fatalf("Filter(ListGenerator(non-basic)) should return *filteredGenerator, got %T", filtered)
 	}
 }
 
-// TestCompositeDictGeneratorFilterReturnsfilteredGenerator verifies that calling
-// Filter on a compositeDictGenerator returns a *filteredGenerator.
-func TestCompositeDictGeneratorFilterReturnsfilteredGenerator(t *testing.T) {
+// TestCompositeMapGeneratorFilterReturnsfilteredGenerator verifies that calling
+// Filter on a MapGenerator with non-basic key or value returns a *filteredGenerator.
+func TestCompositeMapGeneratorFilterReturnsfilteredGenerator(t *testing.T) {
 	t.Parallel()
-	// compositeDictGenerator is produced when key or value is non-basic.
-	// Filter produces a filteredGenerator (non-basic), forcing Dicts into composite path.
+	// Filter produces a filteredGenerator (non-basic), forcing Maps into the composite draw path.
 	nonBasic := Filter(Integers[int](0, 10), func(v int) bool { return true })
-	dictGen := Dicts(nonBasic, Integers[int](0, 100))
-	filtered := Filter(dictGen, func(v map[int]int) bool { return true })
+	mapGen := Maps(nonBasic, Integers[int](0, 100))
+	filtered := Filter(mapGen, func(v map[int]int) bool { return true })
 	if _, ok := filtered.(*filteredGenerator[map[int]int]); !ok {
-		t.Fatalf("Filter(compositeDictGenerator) should return *filteredGenerator, got %T", filtered)
+		t.Fatalf("Filter(MapGenerator(non-basic)) should return *filteredGenerator, got %T", filtered)
 	}
 }
 
 // TestCompositeOneOfGeneratorFilterReturnsfilteredGenerator verifies that calling
-// Filter on a compositeOneOfGenerator returns a *filteredGenerator.
+// Filter on a OneOf with non-basic branches returns a *filteredGenerator.
 func TestCompositeOneOfGeneratorFilterReturnsfilteredGenerator(t *testing.T) {
 	t.Parallel()
-	// compositeOneOfGenerator is produced when any branch is non-basic.
-	// Filter produces a filteredGenerator (non-basic), forcing OneOf into composite path.
+	// Filter produces a filteredGenerator (non-basic), forcing OneOf into the composite draw path.
 	nonBasic := Filter(Integers[int](0, 10), func(v int) bool { return true })
 	oneOf := OneOf[int](nonBasic, Integers[int](0, 5))
 	filtered := Filter(oneOf, func(v int) bool { return true })
 	if _, ok := filtered.(*filteredGenerator[int]); !ok {
-		t.Fatalf("Filter(compositeOneOfGenerator) should return *filteredGenerator, got %T", filtered)
+		t.Fatalf("Filter(OneOf(non-basic)) should return *filteredGenerator, got %T", filtered)
 	}
 }
 
@@ -125,7 +122,7 @@ func TestFlatMappedGeneratorFilterReturnsfilteredGenerator(t *testing.T) {
 // predicate passes on the first attempt, the value is returned immediately.
 func TestFilteredGeneratorGeneratePredicatePassesFirstTry(t *testing.T) {
 	t.Parallel()
-	hegelBinPath(t)
+
 	// Filter that always passes: every value is accepted on first try.
 	gen := Filter(Integers[int](0, 100), func(v int) bool { return true })
 	if _err := Run(func(s *TestCase) {
@@ -142,7 +139,7 @@ func TestFilteredGeneratorGeneratePredicatePassesFirstTry(t *testing.T) {
 // filters values: only even numbers should pass.
 func TestFilteredGeneratorGenerateWithRealPredicate(t *testing.T) {
 	t.Parallel()
-	hegelBinPath(t)
+
 	// Filter integers [0,50] keeping only even ones.
 	gen := Filter(Integers[int](0, 50), func(v int) bool {
 		return v%2 == 0
@@ -164,7 +161,7 @@ func TestFilteredGeneratorGenerateWithRealPredicate(t *testing.T) {
 // calls composes the predicates: both must be satisfied.
 func TestFilteredGeneratorGenerateChainedFilters(t *testing.T) {
 	t.Parallel()
-	hegelBinPath(t)
+
 	// First filter: even numbers; second filter: divisible by 4.
 	// Combined: only multiples of 4.
 	gen := Filter(
@@ -182,10 +179,10 @@ func TestFilteredGeneratorGenerateChainedFilters(t *testing.T) {
 }
 
 // TestFilteredGeneratorGenerateThenMap verifies that Filter followed by Map
-// correctly applies the predicate first and then the transform.
+// correctly applies the predicate first and then the mapping function.
 func TestFilteredGeneratorGenerateThenMap(t *testing.T) {
 	t.Parallel()
-	hegelBinPath(t)
+
 	// Filter odd numbers from [1,20], then multiply by 10.
 	gen := Map(
 		Filter(Integers[int](1, 20), func(v int) bool { return v%2 != 0 }),

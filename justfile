@@ -34,7 +34,7 @@ build-conformance:
     go build -o bin/conformance ./internal/conformance/cmd/...
 
 check-conformance: build-conformance
-    uv run --with 'hegel-core==0.4.1' --with pytest --with hypothesis \
+    uv run --with 'hegel-core==0.4.14' --with pytest --with hypothesis \
         pytest tests/conformance/ -v
 
 # these aliases are provided as ux improvements for local developers. CI should use the longer

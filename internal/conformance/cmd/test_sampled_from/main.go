@@ -12,40 +12,21 @@ import (
 )
 
 func main() {
-	params := map[string]any{}
-	if len(os.Args) > 1 {
-		if err := json.Unmarshal([]byte(os.Args[1]), &params); err != nil {
-			panic("test_sampled_from: bad params JSON: " + err.Error())
-		}
+	if len(os.Args) <= 1 {
+		panic("test_sampled_from: missing params JSON argument")
 	}
-	// options is a list of integers
-	var options []any
-	if v, ok := params["options"]; ok {
-		if arr, ok := v.([]any); ok {
-			options = arr
-		}
+	var params struct {
+		Options []int64 `json:"options"`
 	}
-	if len(options) == 0 {
-		// Default fallback: use [0,1,2]
-		options = []any{any(int64(0)), any(int64(1)), any(int64(2))}
+	if err := json.Unmarshal([]byte(os.Args[1]), &params); err != nil {
+		panic("test_sampled_from: bad params JSON: " + err.Error())
 	}
 
-	// Convert to int64 values
-	int64Options := make([]int64, len(options))
-	for i, o := range options {
-		switch x := o.(type) {
-		case float64:
-			int64Options[i] = int64(x)
-		case int64:
-			int64Options[i] = x
-		default:
-			int64Options[i] = 0
-		}
-	}
-
+	gen := hegel.SampledFrom(params.Options)
 	n := conformance.GetTestCases()
 	hegel.MustRun(func(s *hegel.TestCase) {
-		val := hegel.Draw(s, hegel.SampledFrom(int64Options))
+		defer conformance.EnsureMetric()
+		val := hegel.Draw(s, gen)
 		conformance.WriteMetrics(map[string]any{
 			"value": val,
 		})

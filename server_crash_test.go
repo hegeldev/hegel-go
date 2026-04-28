@@ -267,7 +267,6 @@ func TestKillServerNoProcess(t *testing.T) {
 // --- Server restart after kill ---
 
 func TestServerRestartsAfterKill(t *testing.T) {
-	hegelBinPath(t)
 
 	// First run — starts the server and completes successfully.
 	err := Run(func(s *TestCase) {

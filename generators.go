@@ -52,11 +52,15 @@ type Generator[T any] interface {
 	// draw produces a value from the Hegel server using the given state.
 	// Unexported to seal the interface to this package.
 	draw(s *TestCase) T
-}
 
-type builderGenerator[T any] interface {
-	Generator[T]
-	buildGenerator() Generator[T]
+	// asBasic returns the basic-schema form of this generator, when one exists.
+	// The three return values encode three distinct states:
+	//   (bg, true, nil)   — generator is basic; bg holds the schema and parser.
+	//   (nil, false, nil) — generator is composite (e.g. filtered, flat-mapped,
+	//                       or has non-basic element generators); no schema.
+	//   (nil, false, err) — configuration is invalid (e.g. min > max).
+	// Unexported to seal the interface to this package.
+	asBasic() (*basicGenerator[T], bool, error)
 }
 
 // testCase is the test context for a Hegel property test.
@@ -79,26 +83,13 @@ func Draw[T any](tc testCase, g Generator[T]) T {
 	return g.draw(tc.internal())
 }
 
-func unwrapGenerator[T any](g Generator[T]) Generator[T] {
-	if builder, ok := g.(builderGenerator[T]); ok {
-		return builder.buildGenerator()
-	}
-	return g
-}
-
 // --- basicGenerator ---
 
 // basicGenerator is a generator backed by a single JSON-schema sent to the
-// Hegel server. An optional transform function converts the raw CBOR value to T.
+// Hegel server. The parse function converts the raw CBOR value to T.
 type basicGenerator[T any] struct {
-	schema    map[string]any
-	transform func(any) T // nil means the raw CBOR value is T
-}
-
-// isSchemaIdentity reports whether this basicGenerator has no transform,
-// meaning the raw CBOR value is used directly.
-func (g *basicGenerator[T]) isSchemaIdentity() bool {
-	return g.transform == nil
+	schema map[string]any
+	parse  func(any) T
 }
 
 // draw sends a generate command to the server and returns the result.
@@ -107,10 +98,14 @@ func (g *basicGenerator[T]) draw(s *TestCase) T {
 	if err != nil {
 		panic(err)
 	}
-	if g.transform != nil {
-		return g.transform(v)
-	}
-	return v.(T)
+	return g.parse(v)
+}
+
+// asBasic returns the receiver — a basicGenerator is trivially basic.
+//
+//lint:ignore U1000 satisfies Generator interface; staticcheck misses generic dispatch
+func (g *basicGenerator[T]) asBasic() (*basicGenerator[T], bool, error) {
+	return g, true, nil
 }
 
 // --- mappedGenerator ---
@@ -123,12 +118,23 @@ type mappedGenerator[T, U any] struct {
 }
 
 // draw calls the inner generator inside a MAPPED span and applies fn.
+//
+//lint:ignore U1000 satisfies Generator interface; staticcheck misses generic dispatch
 func (g *mappedGenerator[T, U]) draw(s *TestCase) U {
-	var result U
-	group(s, labelMapped, func() {
-		result = g.fn(g.inner.draw(s))
-	})
+	startSpan(s, labelMapped)
+	result := g.fn(g.inner.draw(s))
+	stopSpan(s, false)
 	return result
+}
+
+// asBasic always returns not-basic. Map() composes basic-with-basic at
+// construction time, so a mappedGenerator only exists when wrapping a
+// non-basic source — collapsing it back through here would never match a
+// caller's expectations.
+//
+//lint:ignore U1000 satisfies Generator interface; staticcheck misses generic dispatch
+func (g *mappedGenerator[T, U]) asBasic() (*basicGenerator[U], bool, error) {
+	return nil, false, nil
 }
 
 // --- filteredGenerator ---
@@ -140,9 +146,12 @@ type filteredGenerator[T any] struct {
 	predicate func(T) bool
 }
 
+//lint:ignore U1000 used by filteredGenerator.draw, which is reached via Generator interface
 const maxFilterAttempts = 3
 
 // draw tries up to maxFilterAttempts times to produce a value satisfying predicate.
+//
+//lint:ignore U1000 satisfies Generator interface; staticcheck misses generic dispatch
 func (g *filteredGenerator[T]) draw(s *TestCase) T {
 	for range maxFilterAttempts {
 		startSpan(s, labelFilter)
@@ -157,6 +166,13 @@ func (g *filteredGenerator[T]) draw(s *TestCase) T {
 	// unreachable
 }
 
+// asBasic always returns not-basic — filtering cannot be expressed as a schema.
+//
+//lint:ignore U1000 satisfies Generator interface; staticcheck misses generic dispatch
+func (g *filteredGenerator[T]) asBasic() (*basicGenerator[T], bool, error) {
+	return nil, false, nil
+}
+
 // --- flatMappedGenerator ---
 
 // flatMappedGenerator generates a value from source, passes it to f, and then
@@ -167,32 +183,37 @@ type flatMappedGenerator[T, U any] struct {
 }
 
 // draw generates from source, then from the dependent generator, inside a FLAT_MAP span.
+//
+//lint:ignore U1000 satisfies Generator interface; staticcheck misses generic dispatch
 func (g *flatMappedGenerator[T, U]) draw(s *TestCase) U {
-	var result U
-	discardableGroup(s, labelFlatMap, func() {
-		first := g.source.draw(s)
-		secondGen := g.f(first)
-		result = secondGen.draw(s)
-	})
+	startSpan(s, labelFlatMap)
+	first := g.source.draw(s)
+	secondGen := g.f(first)
+	result := secondGen.draw(s)
+	stopSpan(s, false)
 	return result
+}
+
+// asBasic always returns not-basic — flat-map's dependent generator is dynamic.
+//
+//lint:ignore U1000 satisfies Generator interface; staticcheck misses generic dispatch
+func (g *flatMappedGenerator[T, U]) asBasic() (*basicGenerator[U], bool, error) {
+	return nil, false, nil
 }
 
 // --- Free function combinators ---
 
 // Map returns a new Generator that applies fn to each value from g.
 func Map[T, U any](g Generator[T], fn func(T) U) Generator[U] {
-	g = unwrapGenerator(g)
-	if bg, ok := g.(*basicGenerator[T]); ok {
-		if bg.transform != nil {
-			prev := bg.transform
-			return &basicGenerator[U]{
-				schema:    bg.schema,
-				transform: func(v any) U { return fn(prev(v)) },
-			}
-		}
+	bg, ok, err := g.asBasic()
+	if err != nil {
+		panic(err.Error())
+	}
+	if ok {
+		prev := bg.parse
 		return &basicGenerator[U]{
-			schema:    bg.schema,
-			transform: func(v any) U { return fn(v.(T)) },
+			schema: bg.schema,
+			parse:  func(v any) U { return fn(prev(v)) },
 		}
 	}
 	return &mappedGenerator[T, U]{inner: g, fn: fn}
@@ -211,65 +232,65 @@ func Filter[T any](g Generator[T], pred func(T) bool) Generator[T] {
 	return &filteredGenerator[T]{source: g, predicate: pred}
 }
 
+// doRequest sends a request on gs.stream and returns the decoded reply.
+//
+// Server-side abort signals are translated into the appropriate panic
+// sentinel: StopTest/Overflow becomes [dataExhausted], FlakyStrategyDefinition/
+// FlakyReplay becomes [flakyAbort]. Both also set gs.aborted so that any
+// follow-up calls (deferred or otherwise) are no-ops via the early-return
+// at the top of this function.
+//
+// Connection-level errors panic with a string; these paths are exercised
+// via error-injection elsewhere and marked coverage-ignore here.
+func doRequest(gs *TestCase, payload []byte) any {
+	if gs.aborted {
+		return nil
+	}
+	pending, err := gs.stream.Request(payload)
+	if err != nil { // coverage-ignore
+		panic(fmt.Sprintf("request: %v", err))
+	}
+	v, err := pending.Get()
+	if err == nil {
+		return v
+	}
+	if re, ok := err.(*requestError); ok {
+		switch re.ErrorType {
+		case "StopTest":
+			gs.aborted = true
+			panic(&dataExhausted{msg: "server ran out of data"})
+		case flakyStrategyDefinition, flakyReplay: // coverage-ignore
+			gs.aborted = true
+			panic(flakyAbort{})
+		}
+	}
+	panic(fmt.Sprintf("request error: %v", err)) // coverage-ignore
+}
+
 // --- Span helpers ---
 
 // startSpan notifies the server that a new generation span has started.
 func startSpan(gs *TestCase, label spanLabel) {
-	if gs == nil || gs.aborted {
-		return
-	}
-	st := gs.stream
 	payload, err := encodeCBOR(map[string]any{
 		"command": "start_span",
 		"label":   int64(label),
 	})
 	if err != nil { // coverage-ignore
-		panic(fmt.Sprintf("hegel: startSpan encode: %v", err))
+		panic(fmt.Sprintf("startSpan encode: %v", err))
 	}
-	pending, err := st.Request(payload)
-	if err != nil { // coverage-ignore
-		panic(fmt.Sprintf("hegel: startSpan request: %v", err))
-	}
-	pending.Get() //nolint:errcheck
+	doRequest(gs, payload)
 }
 
 // stopSpan notifies the server that the current generation span has ended.
 func stopSpan(gs *TestCase, discard bool) {
-	if gs == nil || gs.aborted {
-		return
-	}
-	st := gs.stream
 	payload, err := encodeCBOR(map[string]any{
 		"command": "stop_span",
 		"discard": discard,
 	})
 	if err != nil { // coverage-ignore
-		panic(fmt.Sprintf("hegel: stopSpan encode: %v", err))
+		panic(fmt.Sprintf("stopSpan encode: %v", err))
 	}
-	pending, err := st.Request(payload)
-	if err != nil { // coverage-ignore
-		panic(fmt.Sprintf("hegel: stopSpan request: %v", err))
-	}
-	pending.Get() //nolint:errcheck
-}
-
-// group runs fn inside a start_span / stop_span pair with the given label.
-func group(gs *TestCase, label spanLabel, fn func()) {
-	startSpan(gs, label)
-	fn()
-	stopSpan(gs, false)
-}
-
-// discardableGroup runs fn inside a start_span / stop_span pair.
-// If fn panics, the span is ended with discard=true before re-panicking.
-func discardableGroup(gs *TestCase, label spanLabel, fn func()) {
-	startSpan(gs, label)
-	panicked := true
-	defer func() {
-		stopSpan(gs, panicked)
-	}()
-	fn()
-	panicked = false
+	doRequest(gs, payload)
 }
 
 // --- collection protocol ---
@@ -281,35 +302,20 @@ type collection struct {
 }
 
 // newCollection starts a new collection on the server with the given size bounds.
-// Pass maxSize < 0 to indicate an unbounded collection; the max_size field is
-// omitted from the payload and the server treats it as +inf.
-func newCollection(gs *TestCase, minSize, maxSize int) *collection {
-	st := gs.stream
-	payloadMap := map[string]any{
+// A nil maxSize means unbounded (omitted from the payload).
+func newCollection(gs *TestCase, minSize int, maxSize *int) *collection {
+	msg := map[string]any{
 		"command":  "new_collection",
 		"min_size": int64(minSize),
 	}
-	if maxSize >= 0 {
-		payloadMap["max_size"] = int64(maxSize)
+	if maxSize != nil {
+		msg["max_size"] = int64(*maxSize)
 	}
-	payload, err := encodeCBOR(payloadMap)
+	payload, err := encodeCBOR(msg)
 	if err != nil { // coverage-ignore
-		panic(fmt.Sprintf("hegel: newCollection encode: %v", err))
+		panic(fmt.Sprintf("newCollection encode: %v", err))
 	}
-	pending, err := st.Request(payload)
-	if err != nil { // coverage-ignore
-		panic(fmt.Sprintf("hegel: newCollection request: %v", err))
-	}
-	v, err := pending.Get()
-	if err != nil {
-		re, ok := err.(*requestError)
-		if ok && re.ErrorType == "StopTest" {
-			gs.aborted = true
-			panic(&dataExhausted{msg: "server ran out of data (new_collection)"})
-		}
-		panic(fmt.Sprintf("hegel: new_collection error: %v", err)) // coverage-ignore
-	}
-	id, _ := v.(uint64)
+	id, _ := doRequest(gs, payload).(uint64)
 	return &collection{collectionID: id}
 }
 
@@ -318,28 +324,14 @@ func (c *collection) More(gs *TestCase) bool {
 	if c.finished { // coverage-ignore
 		return false
 	}
-	st := gs.stream
 	payload, err := encodeCBOR(map[string]any{
 		"command":       "collection_more",
 		"collection_id": c.collectionID,
 	})
 	if err != nil { // coverage-ignore
-		panic(fmt.Sprintf("hegel: collection.More encode: %v", err))
+		panic(fmt.Sprintf("collection.More encode: %v", err))
 	}
-	pending, err := st.Request(payload)
-	if err != nil { // coverage-ignore
-		panic(fmt.Sprintf("hegel: More request: %v", err))
-	}
-	v, err := pending.Get()
-	if err != nil {
-		re, ok := err.(*requestError)
-		if ok && re.ErrorType == "StopTest" {
-			gs.aborted = true
-			panic(&dataExhausted{msg: "server ran out of data (collection_more)"})
-		}
-		panic(fmt.Sprintf("hegel: collection_more error: %v", err)) // coverage-ignore
-	}
-	more, _ := v.(bool)
+	more, _ := doRequest(gs, payload).(bool)
 	if !more {
 		c.finished = true
 	}
@@ -348,31 +340,26 @@ func (c *collection) More(gs *TestCase) bool {
 
 // Reject tells the server that the last generated element should not count.
 // If the server responds with a StopTest error (e.g. because too many rejections
-// have exhausted the collection's budget), the test case is aborted just like
-// the other collection-protocol commands.
+// have exhausted the collection's budget), the collection is marked finished
+// and the test case is aborted via doRequest's normal abort handling.
 func (c *collection) Reject(gs *TestCase) {
 	if c.finished {
 		return
 	}
-	st := gs.stream
 	payload, err := encodeCBOR(map[string]any{
 		"command":       "collection_reject",
 		"collection_id": c.collectionID,
 	})
 	if err != nil { // coverage-ignore
-		panic(fmt.Sprintf("hegel: collection.Reject encode: %v", err))
+		panic(fmt.Sprintf("collection.Reject encode: %v", err))
 	}
-	pending, err := st.Request(payload)
-	if err != nil { // coverage-ignore
-		panic(fmt.Sprintf("hegel: Reject request: %v", err))
-	}
-	if _, err := pending.Get(); err != nil {
-		re, ok := err.(*requestError)
-		if ok && re.ErrorType == "StopTest" {
-			c.finished = true
-			gs.aborted = true
-			panic(&dataExhausted{msg: "server ran out of data (collection_reject)"})
+	defer func() {
+		if r := recover(); r != nil {
+			if _, ok := r.(*dataExhausted); ok {
+				c.finished = true
+			}
+			panic(r)
 		}
-		panic(fmt.Sprintf("hegel: collection_reject error: %v", err)) // coverage-ignore
-	}
+	}()
+	doRequest(gs, payload)
 }

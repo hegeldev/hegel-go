@@ -218,7 +218,7 @@ func TestTRunPanics(t *testing.T) {
 		if !ok {
 			t.Fatalf("expected string panic, got %T: %v", r, r)
 		}
-		if msg != "hegel: nested t.Run is not supported inside a property test" {
+		if msg != "nested t.Run is not supported inside a property test" {
 			t.Errorf("unexpected panic message: %q", msg)
 		}
 	}()

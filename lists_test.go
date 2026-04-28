@@ -17,7 +17,13 @@ func TestListsBasicElementSchema(t *testing.T) {
 	t.Parallel()
 	elem := Integers[int64](0, 100)
 	gen := Lists(elem).MinSize(2).MaxSize(10)
-	bg := gen.buildGenerator().(*basicGenerator[[]int64])
+	bg, ok, err := gen.asBasic()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !ok {
+		t.Fatal("Lists(Integers) should be basic")
+	}
 	if bg.schema["type"] != "list" {
 		t.Errorf("schema type: expected 'list', got %v", bg.schema["type"])
 	}
@@ -43,88 +49,112 @@ func TestListsBasicElementNoMaxSchema(t *testing.T) {
 	t.Parallel()
 	elem := Integers[int64](0, 100)
 	gen := Lists(elem)
-	bg := gen.buildGenerator().(*basicGenerator[[]int64])
+	bg, ok, err := gen.asBasic()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !ok {
+		t.Fatal("Lists(Integers) should be basic")
+	}
 	if _, hasMax := bg.schema["max_size"]; hasMax {
 		t.Error("max_size should not be present when MaxSize < 0")
 	}
 }
 
-// TestListsBasicElementWithTransformSchema verifies that Lists on a basicGenerator with
-// a transform applies the transform element-wise in the list transform.
-func TestListsBasicElementWithTransformSchema(t *testing.T) {
+// TestListsBasicElementWithParseSchema verifies that Lists on a basicGenerator with
+// a parse function applies it element-wise in the list parse.
+func TestListsBasicElementWithParseSchema(t *testing.T) {
 	t.Parallel()
-	// Integers[int64](0, 100) mapped to double: basicGenerator with transform.
+	// Integers[int64](0, 100) mapped to double: basicGenerator with composed parse.
 	elem := Map(Integers[int64](0, 100), func(n int64) int64 {
 		return n * 2
 	})
 	gen := Lists(elem).MaxSize(5)
-	bg := gen.buildGenerator().(*basicGenerator[[]int64])
+	bg, ok, err := gen.asBasic()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !ok {
+		t.Fatal("Lists(Map(Integers)) should be basic")
+	}
 	if bg.schema["type"] != "list" {
 		t.Errorf("schema type: expected 'list', got %v", bg.schema["type"])
 	}
-	if bg.transform == nil {
-		t.Fatal("transform should not be nil for element with transform")
-	}
-	// Apply the transform to a raw []any and verify element-wise doubling.
+	// Apply the parse to a raw []any and verify element-wise doubling.
 	raw := []any{uint64(3), uint64(7), uint64(0)}
-	result := bg.transform(raw)
+	result := bg.parse(raw)
 	if len(result) != 3 {
-		t.Fatalf("transform result length: expected 3, got %d", len(result))
+		t.Fatalf("parse result length: expected 3, got %d", len(result))
 	}
 	for i, want := range []int64{6, 14, 0} {
 		if result[i] != want {
-			t.Errorf("transform result[%d]: expected %d, got %d", i, want, result[i])
+			t.Errorf("parse result[%d]: expected %d, got %d", i, want, result[i])
 		}
 	}
 }
 
-// TestListsBasicElementWithTransformNonSlicePassthrough verifies that the list transform
-// returns nil for non-slice values (defensive path in transform).
-func TestListsBasicElementWithTransformNonSlicePassthrough(t *testing.T) {
+// TestListsBasicElementParseNonSlicePassthrough verifies that the list parse
+// returns nil for non-slice values (defensive path in parse).
+func TestListsBasicElementParseNonSlicePassthrough(t *testing.T) {
 	t.Parallel()
 	elem := Map(Integers[int64](0, 10), func(n int64) int64 { return n })
 	gen := Lists(elem).MaxSize(5)
-	bg := gen.buildGenerator().(*basicGenerator[[]int64])
-	// Pass a non-slice value to the transform -- should return nil.
-	result := bg.transform("not-a-slice")
+	bg, ok, err := gen.asBasic()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !ok {
+		t.Fatal("Lists should be basic")
+	}
+	// Pass a non-slice value to the parse -- should return nil.
+	result := bg.parse("not-a-slice")
 	if result != nil {
 		t.Errorf("non-slice passthrough: expected nil, got %v", result)
 	}
 }
 
-// TestListsBasicElementNoTransformNonSlicePassthrough verifies that the list transform
-// for a basic element with no transform returns nil for non-slice values.
-func TestListsBasicElementNoTransformNonSlicePassthrough(t *testing.T) {
+// TestListsBasicElementNoParseNonSlicePassthrough verifies that the list parse
+// for a basic element returns nil for non-slice values.
+func TestListsBasicElementNoParseNonSlicePassthrough(t *testing.T) {
 	t.Parallel()
 	elem := Booleans()
 	gen := Lists(elem).MaxSize(5)
-	bg := gen.buildGenerator().(*basicGenerator[[]bool])
-	// Pass a non-slice value to the transform -- should return nil.
-	result := bg.transform("not-a-slice")
+	bg, ok, err := gen.asBasic()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !ok {
+		t.Fatal("Lists(Booleans) should be basic")
+	}
+	// Pass a non-slice value to the parse -- should return nil.
+	result := bg.parse("not-a-slice")
 	if result != nil {
 		t.Errorf("non-slice passthrough: expected nil, got %v", result)
 	}
 }
 
-// TestListsNonBasicElementReturnsComposite verifies that Lists on a non-basic generator
-// builds a compositeListGenerator.
-func TestListsNonBasicElementReturnsComposite(t *testing.T) {
+// TestListsNonBasicElementIsNotBasic verifies that Lists on a non-basic generator
+// returns ok=false from asBasic.
+func TestListsNonBasicElementIsNotBasic(t *testing.T) {
 	t.Parallel()
 	// mappedGenerator is non-basic.
 	inner := Integers[int64](0, 10)
 	nonBasic := &mappedGenerator[int64, int64]{inner: inner, fn: func(v int64) int64 { return v }}
 	gen := Lists(nonBasic).MinSize(1).MaxSize(3)
-	if _, ok := gen.buildGenerator().(*compositeListGenerator[int64]); !ok {
-		t.Fatalf("Lists(non-basic) should build *compositeListGenerator[int64], got %T", gen.buildGenerator())
+	bg, ok, err := gen.asBasic()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if ok || bg != nil {
+		t.Fatal("Lists(non-basic) should not be basic")
 	}
 }
 
-// TestListsNegativeMinSizePanics verifies that a negative MinSize is rejected.
-func TestListsNegativeMinSizePanics(t *testing.T) {
+// TestListsNegativeMinSizeError verifies that a negative MinSize is rejected.
+func TestListsNegativeMinSizeError(t *testing.T) {
 	t.Parallel()
-	assertPanicsWithMessage(t, "min_size", func() {
-		Lists(Integers[int64](0, 100)).MinSize(-5).MaxSize(10).buildGenerator()
-	})
+	_, _, err := Lists(Integers[int64](0, 100)).MinSize(-5).MaxSize(10).asBasic()
+	assertErrorContains(t, "min_size", err)
 }
 
 // =============================================================================
@@ -135,7 +165,7 @@ func TestListsNegativeMinSizePanics(t *testing.T) {
 // a list where every element is in [0, 100].
 func TestListsBasicIntegersE2E(t *testing.T) {
 	t.Parallel()
-	hegelBinPath(t)
+
 	if _err := Run(func(s *TestCase) {
 		xs := Lists(Integers[int](0, 100)).MaxSize(10).draw(s)
 		for _, x := range xs {
@@ -152,7 +182,7 @@ func TestListsBasicIntegersE2E(t *testing.T) {
 // always produces slices whose length is within the specified bounds.
 func TestListsWithSizeBoundsE2E(t *testing.T) {
 	t.Parallel()
-	hegelBinPath(t)
+
 	if _err := Run(func(s *TestCase) {
 		xs := Lists(Booleans()).MinSize(3).MaxSize(5).draw(s)
 		if len(xs) < 3 || len(xs) > 5 {
@@ -167,7 +197,7 @@ func TestListsWithSizeBoundsE2E(t *testing.T) {
 // (mapped integers) always produces elements satisfying the mapped condition.
 func TestListsNonBasicElementE2E(t *testing.T) {
 	t.Parallel()
-	hegelBinPath(t)
+
 	// Mapped generator: integers in [0,100] then round to nearest even.
 	mapped := Map(Integers[int](0, 100), func(n int) int {
 		return (n / 2) * 2
@@ -190,7 +220,7 @@ func TestListsNonBasicElementE2E(t *testing.T) {
 // Lists(Lists(Booleans)) produces a list of lists of booleans.
 func TestListsNestedE2E(t *testing.T) {
 	t.Parallel()
-	hegelBinPath(t)
+
 	if _err := Run(func(s *TestCase) {
 		outer := Lists(Lists(Booleans()).MaxSize(3)).MaxSize(3).draw(s)
 		for i, inner := range outer {
@@ -206,12 +236,12 @@ func TestListsNestedE2E(t *testing.T) {
 	}
 }
 
-// TestListsBasicWithTransformE2E verifies that Lists on a basicGenerator with a transform
-// applies the transform element-wise to the result.
-func TestListsBasicWithTransformE2E(t *testing.T) {
+// TestListsBasicWithParseE2E verifies that Lists on a basicGenerator with a composed
+// parse applies it element-wise to the result.
+func TestListsBasicWithParseE2E(t *testing.T) {
 	t.Parallel()
-	hegelBinPath(t)
-	// Map Integers[int](0,10) -> double. Lists wraps this into a list schema with element transform.
+
+	// Map Integers[int](0,10) -> double. Lists wraps this into a list schema with element parse.
 	doubled := Map(Integers[int](0, 10), func(n int) int {
 		return n * 2
 	})
@@ -219,7 +249,7 @@ func TestListsBasicWithTransformE2E(t *testing.T) {
 		xs := Lists(doubled).MaxSize(5).draw(s)
 		for _, x := range xs {
 			if x%2 != 0 || x < 0 || x > 20 {
-				panic(fmt.Sprintf("Lists(basic+transform): element %d should be even in [0,20]", x))
+				panic(fmt.Sprintf("Lists(basic+parse): element %d should be even in [0,20]", x))
 			}
 		}
 	}, WithTestCases(50)); _err != nil {
@@ -233,20 +263,32 @@ func TestListsUniqueBasicSchema(t *testing.T) {
 	t.Parallel()
 	elem := Integers[int64](0, 100)
 	gen := Lists(elem).MinSize(2).MaxSize(10).Unique(true)
-	bg := gen.buildGenerator().(*basicGenerator[[]int64])
+	bg, ok, err := gen.asBasic()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !ok {
+		t.Fatal("Lists(Integers).Unique should be basic")
+	}
 	u, ok := bg.schema["unique"].(bool)
 	if !ok || !u {
 		t.Errorf("schema unique: expected true, got %v (%T)", bg.schema["unique"], bg.schema["unique"])
 	}
 }
 
-// TestListsUniqueBasicWithTransformSchema verifies that Unique propagates to the
-// list schema even when the element generator has a transform.
-func TestListsUniqueBasicWithTransformSchema(t *testing.T) {
+// TestListsUniqueBasicWithParseSchema verifies that Unique propagates to the
+// list schema even when the element generator has a composed parse.
+func TestListsUniqueBasicWithParseSchema(t *testing.T) {
 	t.Parallel()
 	elem := Map(Integers[int64](0, 100), func(n int64) int64 { return n * 2 })
 	gen := Lists(elem).MinSize(1).MaxSize(5).Unique(true)
-	bg := gen.buildGenerator().(*basicGenerator[[]int64])
+	bg, ok, err := gen.asBasic()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !ok {
+		t.Fatal("Lists(Map(Integers)).Unique should be basic")
+	}
 	u, ok := bg.schema["unique"].(bool)
 	if !ok || !u {
 		t.Errorf("schema unique: expected true, got %v (%T)", bg.schema["unique"], bg.schema["unique"])
@@ -258,17 +300,24 @@ func TestListsUniqueBasicWithTransformSchema(t *testing.T) {
 func TestListsUniqueDefaultFalseSchema(t *testing.T) {
 	t.Parallel()
 	gen := Lists(Integers[int64](0, 100)).MinSize(0).MaxSize(5)
-	bg := gen.buildGenerator().(*basicGenerator[[]int64])
+	bg, ok, err := gen.asBasic()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !ok {
+		t.Fatal("Lists(Integers) should be basic")
+	}
 	if _, has := bg.schema["unique"]; has {
 		t.Error("unique should not be present in schema when Unique not set")
 	}
 }
 
 // TestListsUniqueNonBasicE2E verifies that Lists with Unique(true) and a non-basic
-// element generator (the compositeListGenerator path) produces distinct elements
-// by rejecting duplicates through the collection protocol.
+// element generator produces distinct elements by rejecting duplicates through
+// the collection protocol.
 func TestListsUniqueNonBasicE2E(t *testing.T) {
-	hegelBinPath(t)
+	t.Parallel()
+
 	inner := Integers[int](0, 20)
 	nonBasic := &mappedGenerator[int, int]{inner: inner, fn: func(v int) int { return v }}
 	if _err := Run(func(s *TestCase) {
@@ -288,7 +337,8 @@ func TestListsUniqueNonBasicE2E(t *testing.T) {
 // TestListsCompositeEmptyReturnsEmptySlice verifies that an empty composite list
 // yields an empty (non-nil) slice so CBOR encoding produces `[]` rather than `null`.
 func TestListsCompositeEmptyReturnsEmptySlice(t *testing.T) {
-	hegelBinPath(t)
+	t.Parallel()
+
 	inner := Integers[int](0, 10)
 	nonBasic := &mappedGenerator[int, int]{inner: inner, fn: func(v int) int { return v }}
 	if _err := Run(func(s *TestCase) {

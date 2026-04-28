@@ -1,5 +1,3 @@
-// test_binary is a conformance binary for binary/byte-slice generation.
-// It parses JSON params from argv[1] (min_size, max_size) and writes binary metrics.
 package main
 
 import (
@@ -11,32 +9,29 @@ import (
 )
 
 func main() {
-	params := map[string]any{}
-	if len(os.Args) > 1 {
-		if err := json.Unmarshal([]byte(os.Args[1]), &params); err != nil {
-			panic("test_binary: bad params JSON: " + err.Error())
-		}
+	if len(os.Args) <= 1 {
+		panic("test_binary: missing params JSON argument")
 	}
-	minSize := 0
-	maxSize := -1 // unbounded
-
-	if v, ok := params["min_size"]; ok && v != nil {
-		if x, ok := v.(float64); ok {
-			minSize = int(x)
-		}
+	var params struct {
+		MinSize int  `json:"min_size"`
+		MaxSize *int `json:"max_size"`
 	}
-	if v, ok := params["max_size"]; ok && v != nil {
-		if x, ok := v.(float64); ok {
-			maxSize = int(x)
-		}
+	if err := json.Unmarshal([]byte(os.Args[1]), &params); err != nil {
+		panic("test_binary: bad params JSON: " + err.Error())
 	}
 
+	maxSize := -1
+	if params.MaxSize != nil {
+		maxSize = *params.MaxSize
+	}
+
+	gen := hegel.Binary(params.MinSize, maxSize)
 	n := conformance.GetTestCases()
 	hegel.MustRun(func(s *hegel.TestCase) {
-		v := hegel.Draw(s, hegel.Binary(minSize, maxSize))
-		length := len(v)
+		defer conformance.EnsureMetric()
+		v := hegel.Draw(s, gen)
 		conformance.WriteMetrics(map[string]any{
-			"length": length,
+			"length": len(v),
 		})
 	}, hegel.WithTestCases(n))
 	os.Exit(0)

@@ -7,7 +7,7 @@ just test               # Run tests with coverage (fails if coverage < 100%)
 just format             # Auto-format code
 just lint               # Check formatting + linting
 just docs               # Build API documentation
-just check              # Run lint + docs + test (full CI check)
+just check              # Run lint + check-docs + test (full CI check)
 just build-conformance  # Compile conformance binaries to bin/conformance/
 just conformance        # Build conformance binaries + run Python conformance test suite
 go test -run TestName ./...  # Run a single test
@@ -49,7 +49,19 @@ body.
 
 The `hegel` subprocess is managed by a global session that starts lazily on first
 use and shuts down automatically on process exit. Users never construct connections
-or sessions manually — `run_hegel_test()` is a plain free function.
+or sessions manually — `Case` (and the low-level `RunHegelTestE`) are plain free
+functions.
+
+## Public API
+
+The user-facing surface lives in `hegel.go` (canonical package doc). Entry points:
+
+- `hegel.Case(fn, opts...) func(*testing.T)` — wraps a property test for `t.Run`
+- `hegel.Draw(ht, gen)` — draws a value inside a test body
+- `hegel.T` — passed to the test body; methods include `Note`, `Fatal`, `Fatalf`
+- Generators: `Integers`, `Floats`, `Text`, `Booleans`, `Lists`, `Maps`, ...
+- Options: `WithTestCases(n)` and other `Option` funcs configure runs
+- Low-level: `RunHegelTestE` is the runner Case wraps; useful in error-injection tests
 
 ## Testing Philosophy
 
@@ -109,7 +121,7 @@ Failing to handle StopTest correctly causes `FlakyStrategyDefinition` errors.
 
 - **Module path**: `hegel.dev/go/hegel`
 - **Package name**: `hegel` — single package for the library, users import `hegel.dev/go/hegel`
-- **File naming**: lowercase, multi-word files use underscores (e.g., `test_runner.go`)
+- **File naming**: lowercase, multi-word files use underscores (e.g., `project_root.go`, `log_excerpt.go`)
 - **Test files**: `*_test.go` in the same package (white-box testing for coverage)
 - **Exported symbols**: PascalCase per Go convention
 - **Unexported symbols**: camelCase per Go convention
@@ -146,6 +158,13 @@ Failing to handle StopTest correctly causes `FlakyStrategyDefinition` errors.
 
 - The `run_test` command and server responses use `"stream_id"` for the test stream ID.
 - Always cross-check field names against the published hegel-core server.
+
+### Conformance layout
+
+- `internal/conformance/cmd/test_*/main.go` — one Go test binary per generator family (integers, floats, text, lists, maps, oneof, sampled_from, booleans, binary)
+- `tests/conformance/` — Python pytest harness that runs the binaries
+- `bin/conformance/` — build output from `just build-conformance` (gitignored)
+- `just conformance` builds the binaries then runs the Python suite via `uv`
 
 ### Generator optimization
 
