@@ -1,0 +1,34 @@
+name: Bump hegel-core
+
+on:
+  repository_dispatch:
+    types: [hegel-core-release]
+
+permissions: {}
+
+jobs:
+  bump:
+    name: bump hegel-core
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+      pull-requests: write
+    steps:
+      - name: Generate app token
+        uses: actions/create-github-app-token@f8d387b68d61c58ab83c6c016672934102569859 # v3.0.0
+        id: app-token
+        with:
+          app-id: ${{ vars.HEGEL_RELEASE_APP_ID }}
+          private-key: ${{ secrets.HEGEL_RELEASE_APP_PRIVATE_KEY }}
+          repositories: hegel-go
+
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          token: ${{ steps.app-token.outputs.token }} # zizmor: ignore[artipacked]
+
+      - name: Bump hegel-core version
+        env:
+          GH_TOKEN: ${{ steps.app-token.outputs.token }}
+          NEW_VERSION: ${{ github.event.client_payload.version }}
+          HEGEL_RELEASE_APP_ID: ${{ vars.HEGEL_RELEASE_APP_ID }}
+        run: python .github/scripts/bump_hegel_core.py
