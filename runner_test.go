@@ -820,7 +820,6 @@ func TestRunHegelTestEProtocolModeStartError(t *testing.T) {
 // --- hegelSession.start: handshake error ---
 
 func TestHegelSessionStartHandshakeError(t *testing.T) {
-	t.Parallel()
 	// Write a fake hegel binary that writes garbage to stdout and exits.
 	// This causes SendHandshakeVersion to fail because the data isn't a valid packet.
 	tmp := t.TempDir()
@@ -1116,7 +1115,6 @@ func TestProcessExitedStream(t *testing.T) {
 // =============================================================================
 
 func TestHegelSessionStartTimeout(t *testing.T) {
-	t.Parallel()
 	tmp := t.TempDir()
 	script := filepath.Join(tmp, "fake_hegel.sh")
 	os.WriteFile(script, []byte("#!/bin/sh\nsleep 60\n"), 0o755) //nolint:errcheck
