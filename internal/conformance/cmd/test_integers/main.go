@@ -33,6 +33,7 @@ func main() {
 	gen := hegel.Integers[int](minVal, maxVal)
 	n := conformance.GetTestCases()
 	hegel.MustRun(func(s *hegel.TestCase) {
+		defer conformance.EnsureMetric()
 		val := hegel.Draw(s, gen)
 		conformance.WriteMetrics(map[string]any{
 			"value": val,

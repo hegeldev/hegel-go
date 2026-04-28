@@ -24,13 +24,28 @@ func GetTestCases() int {
 	return n
 }
 
-// conformanceMetricsMu protects concurrent writes to the metrics file.
+// conformanceMetricsMu protects concurrent writes to the metrics file
+// and the metricsWrittenThisCase flag.
 var conformanceMetricsMu sync.Mutex
+
+// metricsWrittenThisCase tracks whether the current test case has called
+// WriteMetrics. EnsureMetric reads and clears it.
+var metricsWrittenThisCase bool
 
 // WriteMetrics appends a JSON line to the conformance metrics file.
 // The metrics file path is read from CONFORMANCE_METRICS_FILE env var.
 // Panics if the env var is not set or the file cannot be written.
 func WriteMetrics(metrics map[string]any) {
+	writeMetricsLine(metrics)
+	conformanceMetricsMu.Lock()
+	metricsWrittenThisCase = true
+	conformanceMetricsMu.Unlock()
+}
+
+// writeMetricsLine appends a JSON line to the metrics file without touching
+// the metricsWrittenThisCase flag. EnsureMetric uses this directly so its
+// synthetic {} write doesn't bleed the flag into the next test case.
+func writeMetricsLine(metrics map[string]any) {
 	path := os.Getenv("CONFORMANCE_METRICS_FILE")
 	if path == "" {
 		panic("CONFORMANCE_METRICS_FILE env var not set")
@@ -48,5 +63,21 @@ func WriteMetrics(metrics map[string]any) {
 	defer f.Close()
 	if _, err := f.Write(append(data, '\n')); err != nil {
 		panic(fmt.Sprintf("unreachable: WriteMetrics write: %v", err))
+	}
+}
+
+// EnsureMetric guarantees that exactly one metrics line is written for the
+// current test case. If the test body already called WriteMetrics, this is a
+// no-op. Otherwise it writes an empty {}.
+//
+// Conformance binaries should `defer conformance.EnsureMetric()` at the top
+// of their test body.
+func EnsureMetric() {
+	conformanceMetricsMu.Lock()
+	written := metricsWrittenThisCase
+	metricsWrittenThisCase = false
+	conformanceMetricsMu.Unlock()
+	if !written {
+		writeMetricsLine(map[string]any{})
 	}
 }

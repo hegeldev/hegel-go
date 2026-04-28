@@ -48,6 +48,7 @@ func main() {
 	gen := g
 	n := conformance.GetTestCases()
 	hegel.MustRun(func(s *hegel.TestCase) {
+		defer conformance.EnsureMetric()
 		val := hegel.Draw(s, gen)
 		isNaN := math.IsNaN(val)
 		isInfinite := math.IsInf(val, 0)

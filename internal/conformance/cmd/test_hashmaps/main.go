@@ -46,6 +46,7 @@ func main() {
 		gen := hegel.Maps(keysGen, valsGen).MinSize(params.MinSize).MaxSize(params.MaxSize)
 
 		hegel.MustRun(func(s *hegel.TestCase) {
+			defer conformance.EnsureMetric()
 			m := hegel.Draw(s, gen)
 			size := len(m)
 
@@ -95,6 +96,7 @@ func main() {
 		gen := hegel.Maps(keysGen, valsGen).MinSize(params.MinSize).MaxSize(params.MaxSize)
 
 		hegel.MustRun(func(s *hegel.TestCase) {
+			defer conformance.EnsureMetric()
 			m := hegel.Draw(s, gen)
 			size := len(m)
 

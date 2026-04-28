@@ -10,6 +10,7 @@ import (
 func main() {
 	n := conformance.GetTestCases()
 	hegel.MustRun(func(s *hegel.TestCase) {
+		defer conformance.EnsureMetric()
 		v := hegel.Draw(s, hegel.Booleans())
 		conformance.WriteMetrics(map[string]any{
 			"value": v,
