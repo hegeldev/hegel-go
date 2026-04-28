@@ -68,7 +68,7 @@
 // Hegel provides a rich library of generators that you can use out of the
 // box. There are primitive generators, such as [Integers], [Floats], and
 // [Text], and combinators that allow you to make generators out of other
-// generators, such as [Lists] and [Dicts].
+// generators, such as [Lists] and [Maps].
 //
 // For example, you can use [Lists] to generate a slice of integers:
 //

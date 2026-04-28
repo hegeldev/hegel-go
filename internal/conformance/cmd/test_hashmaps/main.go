@@ -1,6 +1,3 @@
-// test_hashmaps is a conformance binary for dict/hashmap generation.
-// It parses JSON params from argv[1] (min_size, max_size, key_type,
-// min_key, max_key, min_value, max_value) and writes dict metrics.
 package main
 
 import (
@@ -13,69 +10,43 @@ import (
 )
 
 func main() {
-	params := map[string]any{}
-	if len(os.Args) > 1 {
-		if err := json.Unmarshal([]byte(os.Args[1]), &params); err != nil {
-			panic("test_hashmaps: bad params JSON: " + err.Error())
-		}
+	if len(os.Args) <= 1 {
+		panic("test_hashmaps: missing params JSON argument")
+	}
+	var params struct {
+		MinSize  int    `json:"min_size"`
+		MaxSize  int    `json:"max_size"`
+		KeyType  string `json:"key_type"`
+		MinKey   int    `json:"min_key"`
+		MaxKey   int    `json:"max_key"`
+		MinValue int    `json:"min_value"`
+		MaxValue int    `json:"max_value"`
+		Mode     string `json:"mode"`
+	}
+	if err := json.Unmarshal([]byte(os.Args[1]), &params); err != nil {
+		panic("test_hashmaps: bad params JSON: " + err.Error())
 	}
 
-	minSize := 0
-	maxSize := 10
-
-	if v, ok := params["min_size"]; ok && v != nil {
-		if x, ok := v.(float64); ok {
-			minSize = int(x)
-		}
+	// In non_basic mode, wrap the value generator with a no-op Filter so that
+	// the value generator becomes non-basic, forcing Maps down the
+	// new_collection/collection_more protocol path.
+	intValsGen := hegel.Integers[int](params.MinValue, params.MaxValue)
+	var valsGen hegel.Generator[int] = intValsGen
+	if params.Mode == "non_basic" {
+		valsGen = hegel.Filter(intValsGen, func(v int) bool { return true })
 	}
-	if v, ok := params["max_size"]; ok && v != nil {
-		if x, ok := v.(float64); ok {
-			maxSize = int(x)
-		}
-	}
-
-	// Key type: "string" or "integer"
-	keyType := "integer"
-	if v, ok := params["key_type"]; ok {
-		if s, ok := v.(string); ok {
-			keyType = s
-		}
-	}
-
-	minKey := int(-1000)
-	maxKey := int(1000)
-	minVal := int(-1000)
-	maxVal := int(1000)
-
-	if v, ok := params["min_key"]; ok && v != nil {
-		if x, ok := v.(float64); ok {
-			minKey = int(x)
-		}
-	}
-	if v, ok := params["max_key"]; ok && v != nil {
-		if x, ok := v.(float64); ok {
-			maxKey = int(x)
-		}
-	}
-	if v, ok := params["min_value"]; ok && v != nil {
-		if x, ok := v.(float64); ok {
-			minVal = int(x)
-		}
-	}
-	if v, ok := params["max_value"]; ok && v != nil {
-		if x, ok := v.(float64); ok {
-			maxVal = int(x)
-		}
-	}
-
-	valsGen := hegel.Integers[int](minVal, maxVal)
 	n := conformance.GetTestCases()
 
-	if keyType == "string" {
-		keysGen := hegel.Text()
-		gen := hegel.Dicts(keysGen, valsGen).MinSize(minSize).MaxSize(maxSize)
+	switch params.KeyType {
+	case "string":
+		var keysGen hegel.Generator[string] = hegel.Text()
+		if params.Mode == "non_basic" {
+			keysGen = hegel.Filter(keysGen, func(v string) bool { return true })
+		}
+		gen := hegel.Maps(keysGen, valsGen).MinSize(params.MinSize).MaxSize(params.MaxSize)
 
 		hegel.MustRun(func(s *hegel.TestCase) {
+			defer conformance.EnsureMetric()
 			m := hegel.Draw(s, gen)
 			size := len(m)
 
@@ -117,11 +88,15 @@ func main() {
 				"max_value": maxValueOut,
 			})
 		}, hegel.WithTestCases(n))
-	} else {
-		keysGen := hegel.Integers[int](minKey, maxKey)
-		gen := hegel.Dicts(keysGen, valsGen).MinSize(minSize).MaxSize(maxSize)
+	case "integer":
+		var keysGen hegel.Generator[int] = hegel.Integers[int](params.MinKey, params.MaxKey)
+		if params.Mode == "non_basic" {
+			keysGen = hegel.Filter(keysGen, func(v int) bool { return true })
+		}
+		gen := hegel.Maps(keysGen, valsGen).MinSize(params.MinSize).MaxSize(params.MaxSize)
 
 		hegel.MustRun(func(s *hegel.TestCase) {
+			defer conformance.EnsureMetric()
 			m := hegel.Draw(s, gen)
 			size := len(m)
 
@@ -161,6 +136,8 @@ func main() {
 				"max_value": maxValueOut,
 			})
 		}, hegel.WithTestCases(n))
+	default:
+		panic("test_hashmaps: unknown key_type: " + params.KeyType)
 	}
 	os.Exit(0)
 }

@@ -85,7 +85,6 @@ func TestInstallUVMkdirFails(t *testing.T) {
 }
 
 func TestInstallUVSuccess(t *testing.T) {
-	t.Parallel()
 	tmp := t.TempDir()
 	cacheDir := filepath.Join(tmp, "cache")
 

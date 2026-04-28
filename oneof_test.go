@@ -4,32 +4,34 @@ package hegel
 
 import (
 	"fmt"
-	"net/netip"
 	"testing"
 )
 
 // =============================================================================
-// OneOf — Path 1: all basic, all identity transforms
+// OneOf — all basic generators
 // =============================================================================
 
-// TestOneOfPath1Schema verifies that OneOf with all-identity-transform basic
-// generators produces a simple {"type": "one_of", "generators": [...]} schema.
-func TestOneOfPath1Schema(t *testing.T) {
+// TestOneOfAllBasicSchema verifies that OneOf with all basic generators
+// produces a tagged-tuple {"type": "one_of", "generators": [...]} schema.
+func TestOneOfAllBasicSchema(t *testing.T) {
 	t.Parallel()
 	g1 := Booleans()
 	g2 := Booleans()
 	combined := OneOf(g1, g2)
 
-	bg, ok := combined.(*basicGenerator[bool])
+	bg, ok, err := combined.asBasic()
+	if err != nil {
+		t.Fatal(err)
+	}
 	if !ok {
-		t.Fatalf("OneOf all-identity-basic should return *basicGenerator[bool], got %T", combined)
+		t.Fatalf("OneOf all-basic should be basic")
 	}
 	if bg.schema["type"] != "one_of" {
-		t.Fatalf("OneOf Path 1 schema should have type 'one_of'; got %v", bg.schema)
+		t.Fatalf("OneOf schema should have type 'one_of'; got %v", bg.schema)
 	}
 	generators, hasGenerators := bg.schema["generators"]
 	if !hasGenerators {
-		t.Fatalf("OneOf Path 1 schema should have 'generators' key; got %v", bg.schema)
+		t.Fatalf("OneOf schema should have 'generators' key; got %v", bg.schema)
 	}
 	schemas, ok := generators.([]any)
 	if !ok {
@@ -38,27 +40,23 @@ func TestOneOfPath1Schema(t *testing.T) {
 	if len(schemas) != 2 {
 		t.Errorf("one_of should have 2 branches, got %d", len(schemas))
 	}
-	// No tagged tuples
+	// All branches should be tagged tuples
 	for i, s := range schemas {
 		m, ok := s.(map[string]any)
 		if !ok {
 			t.Errorf("branch %d should be map[string]any, got %T", i, s)
 			continue
 		}
-		if _, hasTupleType := m["type"]; hasTupleType && m["type"] == "tuple" {
-			t.Errorf("branch %d should not be a tagged tuple in path 1", i)
+		if m["type"] != "tuple" {
+			t.Errorf("branch %d should be a tagged tuple, got type %v", i, m["type"])
 		}
-	}
-	// transform must be nil for path 1
-	if bg.transform != nil {
-		t.Error("OneOf Path 1 should have nil transform")
 	}
 }
 
 // TestOneOfPath1E2E verifies that OneOf path 1 generates values from both branches.
 func TestOneOfPath1E2E(t *testing.T) {
 	t.Parallel()
-	hegelBinPath(t)
+
 	sawShort := false
 	sawLong := false
 	combined := OneOf(Text().MinSize(1).MaxSize(3), Text().MinSize(10).MaxSize(15))
@@ -82,7 +80,7 @@ func TestOneOfPath1E2E(t *testing.T) {
 }
 
 // =============================================================================
-// OneOf — Path 2: all basic, some have transforms
+// OneOf — all basic, tagged tuple schema
 // =============================================================================
 
 // TestOneOfPath2Schema verifies that OneOf with mapped basicGenerators produces
@@ -93,9 +91,12 @@ func TestOneOfPath2Schema(t *testing.T) {
 	gen2 := Map(Just(int64(2)), func(v int64) int64 { return v * 3 })
 	combined := OneOf(gen1, gen2)
 
-	bg, ok := combined.(*basicGenerator[int64])
+	bg, ok, err := combined.asBasic()
+	if err != nil {
+		t.Fatal(err)
+	}
 	if !ok {
-		t.Fatalf("OneOf Path 2 should return *basicGenerator[int64], got %T", combined)
+		t.Fatalf("OneOf Path 2 should be basic")
 	}
 	if bg.schema["type"] != "one_of" {
 		t.Fatalf("Path 2 schema should have type 'one_of'; got %v", bg.schema)
@@ -141,7 +142,7 @@ func TestOneOfPath2Schema(t *testing.T) {
 	}
 }
 
-// TestOneOfPath2Transform verifies the tagged transform dispatching logic.
+// TestOneOfPath2Transform verifies the tagged parse dispatching logic.
 func TestOneOfPath2Transform(t *testing.T) {
 	t.Parallel()
 	// just(1).map(*2) -> always 2; just(2).map(*3) -> always 6
@@ -149,69 +150,57 @@ func TestOneOfPath2Transform(t *testing.T) {
 	gen2 := Map(Just(int64(2)), func(v int64) int64 { return v * 3 })
 	combined := OneOf(gen1, gen2)
 
-	bg := combined.(*basicGenerator[int64])
+	bg, _, err := combined.asBasic()
+	if err != nil {
+		t.Fatal(err)
+	}
 
-	// Simulate tag=0, value=int64(1) → transform 0 (*2) → 2
-	result0 := bg.transform([]any{int64(0), int64(1)})
+	// Simulate tag=0, value=int64(1) → parse 0 (*2) → 2
+	result0 := bg.parse([]any{int64(0), int64(1)})
 	if result0 != 2 {
 		t.Errorf("tag=0: expected 2, got %d", result0)
 	}
 
-	// Simulate tag=1, value=int64(2) → transform 1 (*3) → 6
-	result1 := bg.transform([]any{int64(1), int64(2)})
+	// Simulate tag=1, value=int64(2) → parse 1 (*3) → 6
+	result1 := bg.parse([]any{int64(1), int64(2)})
 	if result1 != 6 {
 		t.Errorf("tag=1: expected 6, got %d", result1)
 	}
 }
 
-// TestOneOfPath2TransformNilBranch verifies that when one branch has a nil transform,
-// the tagged dispatcher returns the raw value for that branch.
-func TestOneOfPath2TransformNilBranch(t *testing.T) {
+// TestOneOfParseDispatchMixedBranches verifies that when branches have different
+// parse functions, the tagged dispatcher calls the correct one for each branch.
+func TestOneOfParseDispatchMixedBranches(t *testing.T) {
 	t.Parallel()
-	// Mix: one identity branch (no transform), one with transform.
-	// Booleans has no transform (identity), Just(true) has a transform.
-	gen1 := Booleans()                                       // nil transform
-	gen2 := Map(Just(true), func(v bool) bool { return !v }) // has transform (negate)
+	// Mix: one identity-like branch, one with a composed parse.
+	// Booleans has a simple type-assertion parse, Just(true).Map(!v) has a composed parse.
+	gen1 := Booleans()                                       // identity parse
+	gen2 := Map(Just(true), func(v bool) bool { return !v }) // negating parse
 	combined := OneOf(gen1, gen2)
 
-	bg, ok := combined.(*basicGenerator[bool])
+	bg, ok, err := combined.asBasic()
+	if err != nil {
+		t.Fatal(err)
+	}
 	if !ok {
-		t.Fatalf("expected *basicGenerator[bool], got %T", combined)
+		t.Fatalf("OneOf(all-basic) should be basic")
 	}
 	// tag=0: identity branch — return value as-is
-	result0 := bg.transform([]any{int64(0), true})
+	result0 := bg.parse([]any{int64(0), true})
 	if result0 != true {
 		t.Errorf("tag=0 (identity): expected true, got %v", result0)
 	}
 	// tag=1: mapped branch — negate true → false
-	result1 := bg.transform([]any{int64(1), true})
+	result1 := bg.parse([]any{int64(1), true})
 	if result1 != false {
 		t.Errorf("tag=1 (mapped): expected false, got %v", result1)
 	}
 }
 
-// TestOneOfPath2TransformShortTuple verifies graceful handling of malformed tuple.
-func TestOneOfPath2TransformShortTuple(t *testing.T) {
-	t.Parallel()
-	gen1 := Map(Just(int64(1)), func(v int64) int64 { return v })
-	gen2 := Map(Just(int64(2)), func(v int64) int64 { return v })
-	combined := OneOf(gen1, gen2)
-	bg := combined.(*basicGenerator[int64])
-	// Call with fewer-than-2 elements — should return tagged as-is via .(T) cast.
-	// The short tuple path does tagged.(T), which will be []any{int64(0)}.
-	// Since []any is not int64, this will panic. We verify the panic.
-	defer func() {
-		if r := recover(); r == nil {
-			t.Error("short tuple: expected panic from type assertion")
-		}
-	}()
-	_ = bg.transform([]any{int64(0)})
-}
-
 // TestOneOfPath2E2E verifies that Path 2 generates correctly through the real server.
 func TestOneOfPath2E2E(t *testing.T) {
 	t.Parallel()
-	hegelBinPath(t)
+
 	gen1 := Map(Just(int(1)), func(v int) int { return v * 2 })
 	gen2 := Map(Just(int(2)), func(v int) int { return v * 3 })
 	combined := OneOf(gen1, gen2)
@@ -231,7 +220,7 @@ func TestOneOfPath2E2E(t *testing.T) {
 // =============================================================================
 
 // TestOneOfPath3IsComposite verifies that OneOf with a non-basic generator
-// returns a compositeOneOfGenerator.
+// reports asBasic=false (forcing the composite draw path).
 func TestOneOfPath3IsComposite(t *testing.T) {
 	t.Parallel()
 	// A mappedGenerator is not a basicGenerator.
@@ -241,20 +230,24 @@ func TestOneOfPath3IsComposite(t *testing.T) {
 	}
 	basic := Integers[int64](0, 10)
 	combined := OneOf[int64](nonBasic, basic)
-	if _, ok := combined.(*compositeOneOfGenerator[int64]); !ok {
-		t.Fatalf("OneOf with non-basic should return *compositeOneOfGenerator[int64], got %T", combined)
+	_, ok, err := combined.asBasic()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if ok {
+		t.Fatalf("OneOf with non-basic branch should not be basic")
 	}
 }
 
-// TestOneOfPath3MapReturnsMapGen verifies that mapping a compositeOneOfGenerator
-// returns a mappedGenerator.
+// TestOneOfPath3MapReturnsMapGen verifies that mapping a OneOf with non-basic
+// branches returns a mappedGenerator.
 func TestOneOfPath3MapReturnsMapGen(t *testing.T) {
 	t.Parallel()
 	nonBasic := &mappedGenerator[int64, int64]{inner: Integers[int64](0, 10), fn: func(v int64) int64 { return v }}
 	combined := OneOf[int64](nonBasic, Integers[int64](0, 5))
 	mapped := Map(combined, func(v int64) int64 { return v })
 	if _, ok := mapped.(*mappedGenerator[int64, int64]); !ok {
-		t.Fatalf("Map(compositeOneOfGenerator) should return *mappedGenerator, got %T", mapped)
+		t.Fatalf("Map(OneOf(non-basic)) should return *mappedGenerator, got %T", mapped)
 	}
 }
 
@@ -262,7 +255,7 @@ func TestOneOfPath3MapReturnsMapGen(t *testing.T) {
 // using the real hegel binary.
 func TestOneOfPath3E2E(t *testing.T) {
 	t.Parallel()
-	hegelBinPath(t)
+
 	// nonBasic: a mappedGenerator (not a *basicGenerator)
 	nonBasic := &mappedGenerator[int, int]{
 		inner: Integers[int](0, 1000),
@@ -327,7 +320,7 @@ func TestOptionalSchema(t *testing.T) {
 // TestOptionalE2E verifies that Optional generates both nil and integer values.
 func TestOptionalE2E(t *testing.T) {
 	t.Parallel()
-	hegelBinPath(t)
+
 	sawNil := false
 	sawInt := false
 	g := Optional(Integers[int](0, 100))
@@ -356,7 +349,7 @@ func TestOptionalE2E(t *testing.T) {
 // works correctly (optionalGenerator handles any inner generator).
 func TestOptionalNonBasicE2E(t *testing.T) {
 	t.Parallel()
-	hegelBinPath(t)
+
 	nonBasic := &mappedGenerator[int, int]{inner: Integers[int](0, 10), fn: func(v int) int { return v }}
 	g := Optional[int](nonBasic)
 	if _, ok := g.(*optionalGenerator[int]); !ok {
@@ -390,7 +383,13 @@ func TestOptionalNonBasicE2E(t *testing.T) {
 func TestIPAddressesV4Schema(t *testing.T) {
 	t.Parallel()
 	g := IPAddresses().IPv4()
-	bg := g.buildGenerator().(*basicGenerator[netip.Addr])
+	bg, ok, err := g.asBasic()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !ok {
+		t.Fatal("IPAddresses(v4) should be basic")
+	}
 	if bg.schema["type"] != "ipv4" {
 		t.Errorf("IPAddresses(v4) type: expected ipv4, got %v", bg.schema["type"])
 	}
@@ -400,7 +399,13 @@ func TestIPAddressesV4Schema(t *testing.T) {
 func TestIPAddressesV6Schema(t *testing.T) {
 	t.Parallel()
 	g := IPAddresses().IPv6()
-	bg := g.buildGenerator().(*basicGenerator[netip.Addr])
+	bg, ok, err := g.asBasic()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !ok {
+		t.Fatal("IPAddresses(v6) should be basic")
+	}
 	if bg.schema["type"] != "ipv6" {
 		t.Errorf("IPAddresses(v6) type: expected ipv6, got %v", bg.schema["type"])
 	}
@@ -410,7 +415,13 @@ func TestIPAddressesV6Schema(t *testing.T) {
 func TestIPAddressesDefaultIsOneOf(t *testing.T) {
 	t.Parallel()
 	g := IPAddresses()
-	bg := g.buildGenerator().(*basicGenerator[netip.Addr])
+	bg, ok, err := g.asBasic()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !ok {
+		t.Fatal("IPAddresses() should be basic")
+	}
 	// Should be a one_of of ipv4 and ipv6
 	if bg.schema["type"] != "one_of" {
 		t.Fatalf("IPAddresses(default) schema should have type 'one_of'; got %v", bg.schema)
@@ -428,7 +439,7 @@ func TestIPAddressesDefaultIsOneOf(t *testing.T) {
 // TestIPAddressesV4E2E verifies IPv4 addresses contain dots.
 func TestIPAddressesV4E2E(t *testing.T) {
 	t.Parallel()
-	hegelBinPath(t)
+
 	g := IPAddresses().IPv4()
 	if _err := Run(func(s *TestCase) {
 		v := g.draw(s)
@@ -443,7 +454,7 @@ func TestIPAddressesV4E2E(t *testing.T) {
 // TestIPAddressesV6E2E verifies IPv6 addresses contain colons.
 func TestIPAddressesV6E2E(t *testing.T) {
 	t.Parallel()
-	hegelBinPath(t)
+
 	g := IPAddresses().IPv6()
 	if _err := Run(func(s *TestCase) {
 		v := g.draw(s)
@@ -458,7 +469,7 @@ func TestIPAddressesV6E2E(t *testing.T) {
 // TestIPAddressesDefaultE2E verifies default produces both IPv4 and IPv6.
 func TestIPAddressesDefaultE2E(t *testing.T) {
 	t.Parallel()
-	hegelBinPath(t)
+
 	sawV4 := false
 	sawV6 := false
 	g := IPAddresses()
@@ -484,7 +495,7 @@ func TestIPAddressesDefaultE2E(t *testing.T) {
 // generators produces correct values.
 func TestOneOfWithMapMixedTypesE2E(t *testing.T) {
 	t.Parallel()
-	hegelBinPath(t)
+
 	// Integers[int](0,10).Map(*2): always even numbers; Just(int(0)): always 0
 	gen := OneOf(
 		Map(Integers[int](0, 10), func(v int) int { return v * 2 }),
@@ -507,7 +518,7 @@ func TestOneOfWithMapMixedTypesE2E(t *testing.T) {
 // across enough test cases.
 func TestOneOfAllBranchesAppear(t *testing.T) {
 	t.Parallel()
-	hegelBinPath(t)
+
 	sawA := false
 	sawB := false
 	gen := OneOf(Text().MinSize(1).MaxSize(3), Text().MinSize(4).MaxSize(6))
@@ -531,15 +542,15 @@ func TestOneOfAllBranchesAppear(t *testing.T) {
 }
 
 // TestCompositeOneOfGenerateErrorResponse covers the error path in
-// compositeOneOfGenerator.draw when the server sends a requestError
-// in response to the index generate command.
+// oneOfGenerator.draw when the server sends a requestError in response
+// to the index generate command on the composite path.
 func TestCompositeOneOfGenerateErrorResponse(t *testing.T) {
-	hegelBinPath(t)
+
 	t.Setenv("HEGEL_PROTOCOL_TEST_MODE", "error_response")
-	// Use a compositeOneOfGenerator (non-basic branches -> Path 3).
+	// Non-basic branches force the composite draw path.
 	nonBasic1 := &mappedGenerator[int64, int64]{inner: Integers[int64](0, 5), fn: func(v int64) int64 { return v }}
 	nonBasic2 := &mappedGenerator[int64, int64]{inner: Integers[int64](6, 10), fn: func(v int64) int64 { return v }}
-	gen := &compositeOneOfGenerator[int64]{generators: []Generator[int64]{nonBasic1, nonBasic2}}
+	gen := &oneOfGenerator[int64]{generators: []Generator[int64]{nonBasic1, nonBasic2}}
 	err := Run(func(s *TestCase) {
 		_ = gen.draw(s) // should panic with requestError
 	})

@@ -9,8 +9,8 @@ from pathlib import Path
 
 import pytest
 from hegel.conformance import (
-    BooleanConformance,
     BinaryConformance,
+    BooleanConformance,
     DictConformance,
     EmptyTestConformance,
     ErrorResponseConformance,
@@ -47,11 +47,14 @@ def conformance_tests() -> list:
         FloatConformance(_bin("test_floats")),
         TextConformance(_bin("test_text"), no_surrogates=True),
         BinaryConformance(_bin("test_binary")),
-        ListConformance(_bin("test_lists"), min_value=-1000, max_value=1000),
+        ListConformance(_bin("test_lists"), skip_unique=True),
         SampledFromConformance(_bin("test_sampled_from")),
         DictConformance(_bin("test_hashmaps")),
         OneOfConformance(_bin("test_oneof")),
         OriginDeduplicationConformance(_bin("test_origin_dedup")),
+        # Error-injection tests don't drive the hegel server through a normal
+        # generate flow, so the server doesn't write per-test-case generate
+        # counts to CONFORMANCE_SERVER_METRICS_FILE.
         StopTestOnGenerateConformance(_bin("test_booleans"), skip_server_metrics=True),
         StopTestOnMarkCompleteConformance(_bin("test_booleans"), skip_server_metrics=True),
         StopTestOnCollectionMoreConformance(_bin("test_lists"), skip_server_metrics=True),

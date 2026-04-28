@@ -6,28 +6,38 @@ import (
 	cbor "github.com/fxamacker/cbor/v2"
 )
 
-// decMode is a package-level CBOR decode mode used for all decoding.
-// It is safe for concurrent use.
-var decMode = mustDecMode()
-
-// mustDecMode creates a CBOR decode mode from default options.
-// DecOptions{} is always valid, so this never panics in practice.
-func mustDecMode() cbor.DecMode {
-	m, err := cbor.DecOptions{}.DecMode()
-	if err != nil { // coverage-ignore
-		panic(fmt.Sprintf("hegel: failed to create CBOR decode mode: %v", err))
+func convertCBOR(v any) any {
+	switch x := v.(type) {
+	case cbor.Tag:
+		if x.Number == 91 {
+			b, ok := x.Content.([]byte)
+			if !ok {
+				panic(fmt.Sprintf("tag 91 content: expected []byte, got %T", x.Content))
+			}
+			return string(b)
+		}
+		return v
+	case []any:
+		for i, elem := range x {
+			x[i] = convertCBOR(elem)
+		}
+		return x
+	case map[any]any:
+		for k, val := range x {
+			x[k] = convertCBOR(val)
+		}
+		return x
+	default:
+		return v
 	}
-	return m
 }
 
-// decodeCBOR decodes CBOR-encoded bytes into a generic Go value (any).
-// Maps decode to map[interface{}]interface{} by default.
 func decodeCBOR(data []byte) (any, error) {
 	var v any
-	if err := decMode.Unmarshal(data, &v); err != nil {
+	if err := cbor.Unmarshal(data, &v); err != nil {
 		return nil, fmt.Errorf("CBOR decode: %w", err)
 	}
-	return v, nil
+	return convertCBOR(v), nil
 }
 
 // encodeCBOR encodes a Go value to CBOR bytes.
@@ -37,38 +47,6 @@ func encodeCBOR(v any) ([]byte, error) {
 		return nil, fmt.Errorf("CBOR encode: %w", err)
 	}
 	return b, nil
-}
-
-const hegelStringTag = 91
-
-// unwrapHegelTags recursively unwraps CBOR tag 91 (hegel string tag) values.
-// The server encodes strings as CBORTag(91, WTF-8 bytes) to support surrogate
-// code points. This function converts them back to Go strings and recurses
-// into lists and maps.
-func unwrapHegelTags(v any) any {
-	switch x := v.(type) {
-	case cbor.Tag:
-		if x.Number == hegelStringTag {
-			b, ok := x.Content.([]byte)
-			if ok {
-				return string(b)
-			}
-		}
-		return v
-	case []any:
-		for i, elem := range x {
-			x[i] = unwrapHegelTags(elem)
-		}
-		return x
-	case map[any]any:
-		out := make(map[any]any, len(x))
-		for k, val := range x {
-			out[unwrapHegelTags(k)] = unwrapHegelTags(val)
-		}
-		return out
-	default:
-		return v
-	}
 }
 
 // extractCBORInt extracts an integer value from a CBOR-decoded value.
@@ -82,22 +60,6 @@ func extractCBORInt(v any) (int64, error) {
 		return int64(x), nil
 	default:
 		return 0, fmt.Errorf("expected int, got %T", v)
-	}
-}
-
-// extractCBORFloat extracts a float64 from a CBOR-decoded value.
-func extractCBORFloat(v any) (float64, error) {
-	switch x := v.(type) {
-	case float64:
-		return x, nil
-	case float32:
-		return float64(x), nil
-	case int64:
-		return float64(x), nil
-	case uint64:
-		return float64(x), nil
-	default:
-		return 0, fmt.Errorf("expected float, got %T", v)
 	}
 }
 

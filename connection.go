@@ -378,7 +378,7 @@ func (st *stream) SendReplyError(msgID uint32, errMsg, errType string) error {
 		"type":  errType,
 	})
 	if err != nil { // coverage-ignore
-		panic(fmt.Sprintf("hegel: SendReplyError encode: %v", err))
+		panic(fmt.Sprintf("SendReplyError encode: %v", err))
 	}
 	return st.SendReplyRaw(msgID, payload)
 }

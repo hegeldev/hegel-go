@@ -2,6 +2,7 @@ package main
 
 import (
 	"encoding/json"
+	"math"
 	"os"
 	"strings"
 
@@ -10,69 +11,48 @@ import (
 )
 
 func main() {
-	params := map[string]any{}
-	if len(os.Args) > 1 {
-		if err := json.Unmarshal([]byte(os.Args[1]), &params); err != nil {
-			panic("test_lists: bad params JSON: " + err.Error())
-		}
+	if len(os.Args) <= 1 {
+		panic("test_lists: missing params JSON argument")
 	}
-
-	minSize := 0
-	maxSize := -1
-	elemMinVal := -1000
-	elemMaxVal := 1000
-	unique := false
-
-	if v, ok := params["min_size"]; ok && v != nil {
-		if x, ok := v.(float64); ok {
-			minSize = int(x)
-		}
+	var params struct {
+		MinSize  int    `json:"min_size"`
+		MaxSize  *int   `json:"max_size"`
+		MinValue *int   `json:"min_value"`
+		MaxValue *int   `json:"max_value"`
+		Mode     string `json:"mode"`
+		Unique   bool   `json:"unique"`
 	}
-	if v, ok := params["max_size"]; ok && v != nil {
-		if x, ok := v.(float64); ok {
-			maxSize = int(x)
-		}
-	}
-	if v, ok := params["min_value"]; ok && v != nil {
-		if x, ok := v.(float64); ok {
-			elemMinVal = int(x)
-		}
-	}
-	if v, ok := params["max_value"]; ok && v != nil {
-		if x, ok := v.(float64); ok {
-			elemMaxVal = int(x)
-		}
-	}
-	if v, ok := params["unique"]; ok {
-		if x, ok := v.(bool); ok {
-			unique = x
-		}
-	}
-
-	mode := "basic"
-	if m, ok := params["mode"].(string); ok {
-		mode = m
+	if err := json.Unmarshal([]byte(os.Args[1]), &params); err != nil {
+		panic("test_lists: bad params JSON: " + err.Error())
 	}
 
 	testMode := os.Getenv("HEGEL_PROTOCOL_TEST_MODE")
-	useNonBasic := mode == "non_basic" || strings.Contains(testMode, "collection")
+	useNonBasic := params.Mode == "non_basic" || strings.Contains(testMode, "collection")
 
-	elemGen := hegel.Integers[int](elemMinVal, elemMaxVal)
+	minVal := math.MinInt
+	maxVal := math.MaxInt
+	if params.MinValue != nil {
+		minVal = *params.MinValue
+	}
+	if params.MaxValue != nil {
+		maxVal = *params.MaxValue
+	}
+	elemGen := hegel.Integers[int](minVal, maxVal)
 
 	var gen hegel.Generator[[]int]
-	if useNonBasic && !unique {
+	if useNonBasic && !params.Unique {
 		filtered := hegel.Filter(elemGen, func(v int) bool { return true })
-		builder := hegel.Lists(filtered).MinSize(minSize)
-		if maxSize >= 0 {
-			builder = builder.MaxSize(maxSize)
+		builder := hegel.Lists(filtered).MinSize(params.MinSize)
+		if params.MaxSize != nil {
+			builder = builder.MaxSize(*params.MaxSize)
 		}
 		gen = builder
 	} else {
-		builder := hegel.Lists(elemGen).MinSize(minSize)
-		if maxSize >= 0 {
-			builder = builder.MaxSize(maxSize)
+		builder := hegel.Lists(elemGen).MinSize(params.MinSize)
+		if params.MaxSize != nil {
+			builder = builder.MaxSize(*params.MaxSize)
 		}
-		if unique {
+		if params.Unique {
 			builder = builder.Unique()
 		}
 		gen = builder
@@ -80,6 +60,7 @@ func main() {
 
 	n := conformance.GetTestCases()
 	hegel.MustRun(func(s *hegel.TestCase) {
+		defer conformance.EnsureMetric()
 		items := hegel.Draw(s, gen)
 		elements := make([]any, len(items))
 		for i, v := range items {

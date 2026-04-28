@@ -31,12 +31,11 @@ docs:
     go doc -http .
 
 build-conformance:
-    mkdir -p bin/conformance/go
-    go build -o bin/conformance/go ./internal/conformance/cmd/...
-    bash scripts/gen-conformance-wrappers.sh
+    mkdir -p bin/conformance
+    go build -o bin/conformance ./internal/conformance/cmd/...
 
 conformance: build-conformance
-    uv run --with 'hegel-core==0.4.7' --with pytest --with hypothesis \
+    uv run --with 'hegel-core==0.4.14' --with pytest --with hypothesis \
         pytest tests/conformance/ -v
 
 # Run lint + docs + test (the full CI check).

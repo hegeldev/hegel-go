@@ -1,3 +1,6 @@
+// test_text is a conformance binary for text/string generation.
+// It parses JSON params from argv[1] (min_size, max_size, and character
+// filtering options) and writes codepoint metrics.
 package main
 
 import (
@@ -9,73 +12,58 @@ import (
 )
 
 func main() {
-	params := map[string]any{}
-	if len(os.Args) > 1 {
-		if err := json.Unmarshal([]byte(os.Args[1]), &params); err != nil {
-			panic("test_text: bad params JSON: " + err.Error())
-		}
+	if len(os.Args) <= 1 {
+		panic("test_text: missing params JSON argument")
+	}
+	var params struct {
+		MinSize           int      `json:"min_size"`
+		MaxSize           *int     `json:"max_size"`
+		Codec             *string  `json:"codec"`
+		MinCodepoint      *int     `json:"min_codepoint"`
+		MaxCodepoint      *int     `json:"max_codepoint"`
+		Categories        []string `json:"categories"`
+		ExcludeCategories []string `json:"exclude_categories"`
+		IncludeCharacters *string  `json:"include_characters"`
+		ExcludeCharacters *string  `json:"exclude_characters"`
+	}
+	if err := json.Unmarshal([]byte(os.Args[1]), &params); err != nil {
+		panic("test_text: bad params JSON: " + err.Error())
 	}
 
-	g := hegel.Text()
-
-	if v, ok := params["min_size"]; ok && v != nil {
-		if x, ok := v.(float64); ok {
-			g = g.MinSize(int(x))
-		}
+	g := hegel.Text().MinSize(params.MinSize)
+	if params.MaxSize != nil {
+		g = g.MaxSize(*params.MaxSize)
 	}
-	if v, ok := params["max_size"]; ok && v != nil {
-		if x, ok := v.(float64); ok {
-			g = g.MaxSize(int(x))
-		}
+	if params.Codec != nil {
+		g = g.Codec(*params.Codec)
 	}
-	if v, ok := params["codec"].(string); ok {
-		g = g.Codec(v)
+	if params.MinCodepoint != nil {
+		g = g.MinCodepoint(rune(*params.MinCodepoint))
 	}
-	if v, ok := params["min_codepoint"]; ok && v != nil {
-		if x, ok := v.(float64); ok {
-			g = g.MinCodepoint(int64(x))
-		}
+	if params.MaxCodepoint != nil {
+		g = g.MaxCodepoint(rune(*params.MaxCodepoint))
 	}
-	if v, ok := params["max_codepoint"]; ok && v != nil {
-		if x, ok := v.(float64); ok {
-			g = g.MaxCodepoint(int64(x))
-		}
+	if params.Categories != nil {
+		g = g.Categories(params.Categories)
 	}
-	if v, ok := params["categories"]; ok && v != nil {
-		if arr, ok := v.([]any); ok {
-			cats := make([]string, 0, len(arr))
-			for _, c := range arr {
-				if s, ok := c.(string); ok {
-					cats = append(cats, s)
-				}
-			}
-			g = g.Categories(cats...)
-		}
+	if params.ExcludeCategories != nil {
+		g = g.ExcludeCategories(params.ExcludeCategories)
 	}
-	if v, ok := params["exclude_categories"]; ok && v != nil {
-		if arr, ok := v.([]any); ok {
-			cats := make([]string, 0, len(arr))
-			for _, c := range arr {
-				if s, ok := c.(string); ok {
-					cats = append(cats, s)
-				}
-			}
-			g = g.ExcludeCategories(cats...)
-		}
+	if params.IncludeCharacters != nil {
+		g = g.IncludeCharacters(*params.IncludeCharacters)
 	}
-	if v, ok := params["include_characters"].(string); ok {
-		g = g.IncludeCharacters(v)
-	}
-	if v, ok := params["exclude_characters"].(string); ok {
-		g = g.ExcludeCharacters(v)
+	if params.ExcludeCharacters != nil {
+		g = g.ExcludeCharacters(*params.ExcludeCharacters)
 	}
 
+	gen := g
 	n := conformance.GetTestCases()
 	hegel.MustRun(func(s *hegel.TestCase) {
-		val := hegel.Draw(s, g)
-		codepoints := make([]any, 0, len(val))
+		defer conformance.EnsureMetric()
+		val := hegel.Draw(s, gen)
+		codepoints := make([]int, 0, len(val))
 		for _, r := range val {
-			codepoints = append(codepoints, int64(r))
+			codepoints = append(codepoints, int(r))
 		}
 		conformance.WriteMetrics(map[string]any{
 			"codepoints": codepoints,

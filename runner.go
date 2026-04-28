@@ -71,22 +71,15 @@ func (s *TestCase) Note(message string) {
 
 // Target guides Hegel toward values that maximize the given metric.
 func (s *TestCase) Target(value float64, label string) {
-	st := s.stream
 	payload, err := encodeCBOR(map[string]any{
 		"command": "target",
 		"value":   value,
 		"label":   label,
 	})
 	if err != nil { // coverage-ignore
-		panic(fmt.Sprintf("hegel: Target encode: %v", err))
+		panic(fmt.Sprintf("Target encode: %v", err))
 	}
-	pending, err := st.Request(payload)
-	if err != nil { // coverage-ignore
-		panic(fmt.Sprintf("hegel: Target send: %v", err))
-	}
-	if _, err := pending.Get(); err != nil { // coverage-ignore
-		panic(fmt.Sprintf("hegel: Target response: %v", err))
-	}
+	doRequest(s, payload)
 }
 
 // --- Internal helpers ---
@@ -107,7 +100,7 @@ func generateFromSchema(gs *TestCase, schema map[string]any) (any, error) {
 	st := gs.stream
 	payload, err := encodeCBOR(map[string]any{"command": "generate", "schema": schema})
 	if err != nil { // coverage-ignore
-		panic(fmt.Sprintf("hegel: generateFromSchema encode: %v", err))
+		panic(fmt.Sprintf("generateFromSchema encode: %v", err))
 	}
 	pending, err := st.Request(payload)
 	if err != nil {
@@ -131,7 +124,7 @@ func generateFromSchema(gs *TestCase, schema map[string]any) (any, error) {
 		}
 		return nil, err
 	}
-	return unwrapHegelTags(v), nil
+	return v, nil
 }
 
 // fatalSentinel is panic'd by T.Fatal/Fatalf/FailNow to mark a test case as INTERESTING.
@@ -179,7 +172,7 @@ func (h HealthCheck) String() string {
 	case LargeInitialTestCase:
 		return "large_initial_test_case"
 	default: // coverage-ignore
-		panic("hegel: unreachable: unknown health check")
+		panic("unreachable: unknown health check")
 	}
 }
 
@@ -261,13 +254,13 @@ func runHegel(fn testBody, noteFn func(string), opts []Option) error {
 		s.suppressStderr = true
 		defer s.cleanup()
 		if err := s.start(); err != nil {
-			return fmt.Errorf("hegel: session start: %w", err)
+			return fmt.Errorf("session start: %w", err)
 		}
 		return s.runTest(fn, o, noteFn)
 	}
 
 	if err := globalSession.start(); err != nil {
-		return fmt.Errorf("hegel: session start: %w", err)
+		return fmt.Errorf("session start: %w", err)
 	}
 	return globalSession.runTest(fn, o, noteFn)
 }
@@ -330,11 +323,11 @@ func (c *client) runTest(fn testBody, opts runOptions, noteFn func(string)) erro
 	}
 	payload, err := encodeCBOR(runTestMsg)
 	if err != nil { // coverage-ignore
-		panic(fmt.Sprintf("hegel: runTest encode: %v", err))
+		panic(fmt.Sprintf("runTest encode: %v", err))
 	}
 
 	if _, err := c.conn.SendControlRequest(payload); err != nil {
-		return fmt.Errorf("hegel: run_test send: %w", err)
+		return fmt.Errorf("run_test send: %w", err)
 	}
 
 	// Event loop.
@@ -342,15 +335,15 @@ func (c *client) runTest(fn testBody, opts runOptions, noteFn func(string)) erro
 	for {
 		msgID, raw, err := testSt.RecvRequestRaw(30 * time.Second)
 		if err != nil {
-			return fmt.Errorf("hegel: test event recv: %w", err)
+			return fmt.Errorf("test event recv: %w", err)
 		}
 		decoded, err := decodeCBOR(raw)
 		if err != nil { // coverage-ignore
-			return fmt.Errorf("hegel: test event decode: %w", err)
+			return fmt.Errorf("test event decode: %w", err)
 		}
 		msg, ok := decoded.(map[any]any)
 		if !ok { // coverage-ignore
-			return fmt.Errorf("hegel: test event not a dict")
+			return fmt.Errorf("test event not a dict")
 		}
 		event, _ := msg[any("event")].(string)
 
@@ -359,12 +352,12 @@ func (c *client) runTest(fn testBody, opts runOptions, noteFn func(string)) erro
 			stIDVal := msg[any("stream_id")]
 			stID, ok := toInt64(stIDVal)
 			if !ok { // coverage-ignore
-				return fmt.Errorf("hegel: test_case missing stream_id")
+				return fmt.Errorf("test_case missing stream_id")
 			}
 			testSt.SendReplyValue(msgID, nil) //nolint:errcheck
 			caseSt, err := c.conn.ConnectStream(uint32(stID), "TestCase")
 			if err != nil { // coverage-ignore
-				return fmt.Errorf("hegel: connect test case stream: %w", err)
+				return fmt.Errorf("connect test case stream: %w", err)
 			}
 			if err := c.runTestCase(caseSt, fn, false, noteFn); err != nil {
 				return err
@@ -377,28 +370,28 @@ func (c *client) runTest(fn testBody, opts runOptions, noteFn func(string)) erro
 			goto doneLoop
 
 		default: // coverage-ignore
-			return fmt.Errorf("hegel: unrecognised event %q", event)
+			return fmt.Errorf("unrecognised event %q", event)
 		}
 	}
 
 doneLoop:
 	if resultData == nil { // coverage-ignore
-		panic("hegel: resultData is nil after test_done")
+		panic("resultData is nil after test_done")
 	}
 
 	// Check for server-side error.
 	if errMsg, ok := resultData[any("error")].(string); ok && errMsg != "" { // coverage-ignore
-		return fmt.Errorf("hegel: server error: %s", errMsg)
+		return fmt.Errorf("server error: %s", errMsg)
 	}
 
 	// Check for health check failure.
 	if hcMsg, ok := resultData[any("health_check_failure")].(string); ok && hcMsg != "" {
-		return fmt.Errorf("hegel: health check failure:\n%s", hcMsg)
+		return fmt.Errorf("health check failure:\n%s", hcMsg)
 	}
 
 	// Check for flaky test detection.
 	if flakyMsg, ok := resultData[any("flaky")].(string); ok && flakyMsg != "" {
-		return fmt.Errorf("hegel: flaky test detected: %s", flakyMsg)
+		return fmt.Errorf("flaky test detected: %s", flakyMsg)
 	}
 
 	nInterestingVal := resultData[any("interesting_test_cases")]
@@ -412,7 +405,7 @@ doneLoop:
 	for i := int64(0); i < nInteresting; i++ {
 		msgID, raw, err := testSt.RecvRequestRaw(30 * time.Second)
 		if err != nil { // coverage-ignore
-			return fmt.Errorf("hegel: final case recv: %w", err)
+			return fmt.Errorf("final case recv: %w", err)
 		}
 		decoded, _ := decodeCBOR(raw)
 		msg, _ := decoded.(map[any]any)
@@ -421,7 +414,7 @@ doneLoop:
 		testSt.SendReplyValue(msgID, nil) //nolint:errcheck
 		caseSt, err := c.conn.ConnectStream(uint32(stID), fmt.Sprintf("FinalCase%d", i))
 		if err != nil { // coverage-ignore
-			return fmt.Errorf("hegel: connect final case stream: %w", err)
+			return fmt.Errorf("connect final case stream: %w", err)
 		}
 		caseErr := c.runTestCase(caseSt, fn, true, noteFn)
 		if caseErr != nil {
@@ -513,7 +506,7 @@ func (c *client) runTestCase(st *stream, fn testBody, isFinal bool, noteFn func(
 		}
 		encoded, err := encodeCBOR(markPayload)
 		if err != nil { // coverage-ignore
-			panic(fmt.Sprintf("hegel: mark_complete encode: %v", err))
+			panic(fmt.Sprintf("mark_complete encode: %v", err))
 		}
 		pending, err := st.Request(encoded)
 		if err == nil {
@@ -547,7 +540,7 @@ func openServerLog() *os.File {
 	logPath := filepath.Join(hegelDir, fmt.Sprintf("server.%d.log", os.Getpid()))
 	f, err := os.OpenFile(logPath, os.O_CREATE|os.O_APPEND|os.O_WRONLY, 0o644)
 	if err != nil { // coverage-ignore
-		panic(fmt.Sprintf("hegel: unreachable: failed to open server log: %v", err))
+		panic(fmt.Sprintf("unreachable: failed to open server log: %v", err))
 	}
 	return f
 }
@@ -619,12 +612,12 @@ func (s *hegelSession) start() error {
 	// Build the hegel command.
 	var cmd *exec.Cmd
 	if s.hegelCmd != "" {
-		cmd = exec.Command(s.hegelCmd, "--stdio", "--verbosity", "normal")
+		cmd = exec.Command(s.hegelCmd, "--verbosity", "normal")
 	} else {
 		var err error
 		cmd, err = hegelCommand()
 		if err != nil {
-			return fmt.Errorf("hegel: %w", err)
+			return err
 		}
 	}
 	cmd.Dir = getProjectRoot()
@@ -639,11 +632,11 @@ func (s *hegelSession) start() error {
 
 	stdinPipe, err := cmd.StdinPipe()
 	if err != nil { // coverage-ignore
-		panic(fmt.Sprintf("hegel: unreachable: stdin pipe: %v", err))
+		panic(fmt.Sprintf("unreachable: stdin pipe: %v", err))
 	}
 	stdoutPipe, err := cmd.StdoutPipe()
 	if err != nil { // coverage-ignore
-		panic(fmt.Sprintf("hegel: unreachable: stdout pipe: %v", err))
+		panic(fmt.Sprintf("unreachable: stdout pipe: %v", err))
 	}
 
 	if err := cmd.Start(); err != nil {
@@ -653,7 +646,7 @@ func (s *hegelSession) start() error {
 			logFile.Close()
 		}
 		s.logFile = nil
-		return fmt.Errorf("hegel: spawn: %w", err)
+		return fmt.Errorf("spawn: %w", err)
 	}
 	s.process = cmd
 
@@ -679,7 +672,7 @@ func (s *hegelSession) start() error {
 			s.logFile.Close()
 			s.logFile = nil
 		}
-		return fmt.Errorf("hegel: handshake: %w", err)
+		return fmt.Errorf("handshake: %w", err)
 	}
 	_ = version // we accept any version for now
 
@@ -706,7 +699,7 @@ func (s *hegelSession) cleanupLocked() {
 	}
 
 	if s.process != nil {
-		s.process.Process.Signal(os.Interrupt) //nolint:errcheck
+		s.process.Process.Kill() //nolint:errcheck
 		if s.processExited != nil {
 			<-s.processExited
 		}
