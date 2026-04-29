@@ -35,7 +35,12 @@ build-conformance:
     go build -o bin/conformance ./internal/conformance/cmd/...
 
 conformance: build-conformance
-    uv run --with 'hegel-core==0.4.14' --with pytest --with hypothesis \
+    #!/usr/bin/env bash
+    set -euo pipefail
+    # Single source of truth: read the pinned version from installer.go so
+    # the conformance harness always matches what users get from `uv tool run`.
+    version=$(grep 'hegelServerVersion =' installer.go | cut -d'"' -f2)
+    uv run --with "hegel-core==$version" --with pytest --with hypothesis \
         pytest tests/conformance/ -v
 
 # Run lint + docs + test (the full CI check).
