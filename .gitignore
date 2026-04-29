@@ -10,10 +10,19 @@ __pycache__/
 *.pyc
 
 # Claude Code transient files
-.claude/plan.md
-.claude/settings.local.json
 CLAUDE.local.md
-.claude/local/
+
+# whitelist .claude files, rather than blacklist. Some local claude files
+# (skills, agents) have to live in .claude - as opposed to eg CLAUDE.local.md,
+# which we gitignore at the top level.
+.claude/*
+!.claude/CLAUDE.md
+!.claude/skills/
+.claude/skills/*
+!.claude/skills/changelog/
+!.claude/skills/coverage/
+!.claude/skills/go-concurrency/
+!.claude/skills/self-review/
 
 # Hegelator metadata
 .hegelator/
@@ -43,6 +52,4 @@ vendor/
 *.iml
 .DS_Store
 
-.claude/claude-reliability.yml
-.claude/reliability-config.yaml
 .claude-reliability/
