@@ -1,5 +1,9 @@
 # Changelog
 
+## 0.2.1 - 2026-04-29
+
+Internal refactor of `oneOf`.
+
 ## 0.2.0 - 2026-04-28
 
 This release renames the `hegel.Dicts` generator to `hegel.Maps`.
