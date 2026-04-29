@@ -12,8 +12,12 @@ type oneOfGenerator[T any] struct {
 	generators []Generator[T]
 }
 
-// asBasic returns a basic generator with a tagged-tuple one_of schema when
-// every branch is basic. Returns (nil, false, nil) when any branch is not.
+// asBasic returns a basic generator with a one_of schema when every branch
+// is basic. Returns (nil, false, nil) when any branch is not.
+//
+// The wire shape for one_of responses is [index, value]: the server tells us
+// which branch produced the value, so we dispatch to the matching parse fn
+// without baking a tag into the schema.
 func (g *oneOfGenerator[T]) asBasic() (*basicGenerator[T], bool, error) {
 	basics := make([]*basicGenerator[T], 0, len(g.generators))
 	for _, branch := range g.generators {
@@ -27,30 +31,19 @@ func (g *oneOfGenerator[T]) asBasic() (*basicGenerator[T], bool, error) {
 		basics = append(basics, bg)
 	}
 
-	// Tagged tuples: each branch is [tag, value], dispatch to the right parse fn.
-	taggedSchemas := make([]any, len(basics))
-	for i, bg := range basics {
-		taggedSchemas[i] = map[string]any{
-			"type": "tuple",
-			"elements": []any{
-				map[string]any{"type": "constant", "value": int64(i)},
-				bg.schema,
-			},
-		}
-	}
-
+	schemas := make([]any, len(basics))
 	parseFns := make([]func(any) T, len(basics))
 	for i, bg := range basics {
+		schemas[i] = bg.schema
 		parseFns[i] = bg.parse
 	}
 
 	return &basicGenerator[T]{
-		schema: map[string]any{"type": "one_of", "generators": taggedSchemas},
-		parse: func(tagged any) T {
-			elems := tagged.([]any)
-			tag := extractInt(elems[0])
-			value := elems[1]
-			return parseFns[tag](value)
+		schema: map[string]any{"type": "one_of", "generators": schemas},
+		parse: func(raw any) T {
+			elems := raw.([]any)
+			idx := extractInt(elems[0])
+			return parseFns[idx](elems[1])
 		},
 	}, true, nil
 }
@@ -103,9 +96,13 @@ type optionalGenerator[T any] struct {
 	inner Generator[T]
 }
 
-// asBasic returns a basic generator with a tagged-tuple one_of schema (a null
-// branch and an inner-value branch) when inner is basic. Returns
-// (nil, false, nil) when inner is not.
+// asBasic returns a basic generator with a one_of schema (a null branch and
+// an inner-value branch) when inner is basic. Returns (nil, false, nil) when
+// inner is not.
+//
+// The wire shape for one_of responses is [index, value]: branch 0 is null,
+// branch 1 is the inner value, so we dispatch on the server-supplied index
+// without baking a tag into the schema.
 //
 //lint:ignore U1000 satisfies Generator interface; staticcheck misses generic dispatch
 func (g *optionalGenerator[T]) asBasic() (*basicGenerator[*T], bool, error) {
@@ -121,28 +118,16 @@ func (g *optionalGenerator[T]) asBasic() (*basicGenerator[*T], bool, error) {
 	schema := map[string]any{
 		"type": "one_of",
 		"generators": []any{
-			map[string]any{
-				"type": "tuple",
-				"elements": []any{
-					map[string]any{"type": "constant", "value": int64(0)},
-					map[string]any{"type": "null"},
-				},
-			},
-			map[string]any{
-				"type": "tuple",
-				"elements": []any{
-					map[string]any{"type": "constant", "value": int64(1)},
-					innerBasic.schema,
-				},
-			},
+			map[string]any{"type": "null"},
+			innerBasic.schema,
 		},
 	}
 	return &basicGenerator[*T]{
 		schema: schema,
 		parse: func(raw any) *T {
 			elems := raw.([]any)
-			tag := extractInt(elems[0])
-			if tag == 0 {
+			idx := extractInt(elems[0])
+			if idx == 0 {
 				return nil
 			}
 			v := innerParse(elems[1])
