@@ -6,7 +6,7 @@ import (
 	"os/exec"
 )
 
-const hegelServerVersion = "0.4.14"
+const hegelServerVersion = "0.5.0"
 
 // hegelServerCommandEnv is the environment variable that overrides automatic installation.
 const hegelServerCommandEnv = "HEGEL_SERVER_COMMAND"

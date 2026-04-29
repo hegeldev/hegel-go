@@ -173,6 +173,10 @@ Failing to handle StopTest correctly causes `FlakyStrategyDefinition` errors.
 
 ### OneOf code paths
 
-- Path 1 (all basic, all identity): simple `{"one_of": [...]}` schema.
-- Path 2 (all basic, some transforms): tagged-tuple schema with dispatch.
-- Path 3 (any non-basic): `*CompositeOneOfGenerator` with span wrapping.
+- All basic: a flat `{"type": "one_of", "generators": [...]}` schema. The server
+  returns `[index, value]` and the synthesized parse fn dispatches to the
+  matching per-branch parse using `index`. No tagged-tuple wrapping.
+- Any non-basic: falls back to `oneOfGenerator.draw`, which generates an index
+  via `generateFromSchema` (an integer in `[0, n-1]`) and recursively draws
+  from the chosen branch under a span. The same shape applies to `Optional`,
+  whose schema is a 2-branch one_of (null vs. inner value).
