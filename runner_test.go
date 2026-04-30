@@ -913,15 +913,15 @@ func TestMustRunSuccess(t *testing.T) {
 }
 
 // =============================================================================
-// Public API: Case — via real binary
+// Public API: Test — via real binary
 // =============================================================================
 
-func TestCaseSuccess(t *testing.T) {
+func TestTestSuccess(t *testing.T) {
 
-	t.Run("case_test", Case(func(ht *T) {
+	Test(t, func(ht *T) {
 		_ = Draw[bool](ht, Booleans())
-		ht.Note("test note via Case")
-	}, WithTestCases(1)))
+		ht.Note("test note via Test")
+	}, WithTestCases(1))
 }
 
 // =============================================================================
@@ -955,10 +955,10 @@ func TestFatalSentinelPath(t *testing.T) {
 }
 
 // =============================================================================
-// Case: noteFn (t.Log) is called on final replay
+// Test: noteFn (t.Log) is called on final replay
 // =============================================================================
 
-func TestCaseNoteFnOnFinal(t *testing.T) {
+func TestTestNoteFnOnFinal(t *testing.T) {
 
 	noted := false
 	err := runHegel(func(s *TestCase) {
