@@ -202,17 +202,17 @@ func (g IPAddressGenerator) asBasic() (*basicGenerator[netip.Addr], bool, error)
 	}
 	if g.version != 0 {
 		return &basicGenerator[netip.Addr]{
-			schema: map[string]any{"type": "ip_addresses", "version": g.version},
+			schema: map[string]any{"type": "ip_address", "version": g.version},
 			parse:  addrTransform,
 		}, true, nil
 	}
 	return OneOf(
 		&basicGenerator[netip.Addr]{
-			schema: map[string]any{"type": "ip_addresses", "version": int64(4)},
+			schema: map[string]any{"type": "ip_address", "version": int64(4)},
 			parse:  addrTransform,
 		},
 		&basicGenerator[netip.Addr]{
-			schema: map[string]any{"type": "ip_addresses", "version": int64(6)},
+			schema: map[string]any{"type": "ip_address", "version": int64(6)},
 			parse:  addrTransform,
 		},
 	).asBasic()
