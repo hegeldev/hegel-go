@@ -118,7 +118,7 @@ func (g *optionalGenerator[T]) asBasic() (*basicGenerator[*T], bool, error) {
 	schema := map[string]any{
 		"type": "one_of",
 		"generators": []any{
-			map[string]any{"type": "null"},
+			map[string]any{"type": "constant", "value": nil},
 			innerBasic.schema,
 		},
 	}
@@ -172,7 +172,8 @@ func (g *optionalGenerator[T]) draw(s *TestCase) *T {
 // IPAddressGenerator configures and generates IP addresses.
 // Use [IPAddresses] to create one, then chain builder methods to configure it.
 type IPAddressGenerator struct {
-	version string
+	// version is 0 (unset; both v4 and v6), 4, or 6.
+	version int64
 }
 
 // IPAddresses returns a Generator that produces IP addresses.
@@ -182,13 +183,13 @@ func IPAddresses() IPAddressGenerator {
 
 // IPv4 restricts the generator to IPv4 addresses only.
 func (g IPAddressGenerator) IPv4() IPAddressGenerator {
-	g.version = "ipv4"
+	g.version = 4
 	return g
 }
 
 // IPv6 restricts the generator to IPv6 addresses only.
 func (g IPAddressGenerator) IPv6() IPAddressGenerator {
-	g.version = "ipv6"
+	g.version = 6
 	return g
 }
 
@@ -199,19 +200,19 @@ func (g IPAddressGenerator) asBasic() (*basicGenerator[netip.Addr], bool, error)
 	addrTransform := func(a any) netip.Addr {
 		return netip.MustParseAddr(a.(string))
 	}
-	if g.version != "" {
+	if g.version != 0 {
 		return &basicGenerator[netip.Addr]{
-			schema: map[string]any{"type": g.version},
+			schema: map[string]any{"type": "ip_addresses", "version": g.version},
 			parse:  addrTransform,
 		}, true, nil
 	}
 	return OneOf(
 		&basicGenerator[netip.Addr]{
-			schema: map[string]any{"type": "ipv4"},
+			schema: map[string]any{"type": "ip_addresses", "version": int64(4)},
 			parse:  addrTransform,
 		},
 		&basicGenerator[netip.Addr]{
-			schema: map[string]any{"type": "ipv6"},
+			schema: map[string]any{"type": "ip_addresses", "version": int64(6)},
 			parse:  addrTransform,
 		},
 	).asBasic()

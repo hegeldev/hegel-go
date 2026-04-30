@@ -377,7 +377,8 @@ func TestOptionalNonBasicE2E(t *testing.T) {
 // IPAddresses
 // =============================================================================
 
-// TestIPAddressesV4Schema verifies that IPAddresses(v4) produces {"type":"ipv4"}.
+// TestIPAddressesV4Schema verifies that IPAddresses(v4) produces
+// {"type":"ip_addresses", "version": 4}.
 func TestIPAddressesV4Schema(t *testing.T) {
 	t.Parallel()
 	g := IPAddresses().IPv4()
@@ -388,12 +389,16 @@ func TestIPAddressesV4Schema(t *testing.T) {
 	if !ok {
 		t.Fatal("IPAddresses(v4) should be basic")
 	}
-	if bg.schema["type"] != "ipv4" {
-		t.Errorf("IPAddresses(v4) type: expected ipv4, got %v", bg.schema["type"])
+	if bg.schema["type"] != "ip_addresses" {
+		t.Errorf("IPAddresses(v4) type: expected ip_addresses, got %v", bg.schema["type"])
+	}
+	if bg.schema["version"].(int64) != 4 {
+		t.Errorf("IPAddresses(v4) version: expected 4, got %v", bg.schema["version"])
 	}
 }
 
-// TestIPAddressesV6Schema verifies that IPAddresses(v6) produces {"type":"ipv6"}.
+// TestIPAddressesV6Schema verifies that IPAddresses(v6) produces
+// {"type":"ip_addresses", "version": 6}.
 func TestIPAddressesV6Schema(t *testing.T) {
 	t.Parallel()
 	g := IPAddresses().IPv6()
@@ -404,12 +409,16 @@ func TestIPAddressesV6Schema(t *testing.T) {
 	if !ok {
 		t.Fatal("IPAddresses(v6) should be basic")
 	}
-	if bg.schema["type"] != "ipv6" {
-		t.Errorf("IPAddresses(v6) type: expected ipv6, got %v", bg.schema["type"])
+	if bg.schema["type"] != "ip_addresses" {
+		t.Errorf("IPAddresses(v6) type: expected ip_addresses, got %v", bg.schema["type"])
+	}
+	if bg.schema["version"].(int64) != 6 {
+		t.Errorf("IPAddresses(v6) version: expected 6, got %v", bg.schema["version"])
 	}
 }
 
-// TestIPAddressesDefaultIsOneOf verifies that IPAddresses(no version) returns a OneOf generator.
+// TestIPAddressesDefaultIsOneOf verifies that IPAddresses(no version) returns
+// a one_of of two ip_addresses branches, one per IP version.
 func TestIPAddressesDefaultIsOneOf(t *testing.T) {
 	t.Parallel()
 	g := IPAddresses()
@@ -431,6 +440,19 @@ func TestIPAddressesDefaultIsOneOf(t *testing.T) {
 	schemas, ok := generators.([]any)
 	if !ok || len(schemas) != 2 {
 		t.Fatalf("IPAddresses(default) generators should have 2 branches, got %v", generators)
+	}
+	wantVersions := []int64{4, 6}
+	for i, s := range schemas {
+		m, ok := s.(map[string]any)
+		if !ok {
+			t.Fatalf("branch %d should be map[string]any, got %T", i, s)
+		}
+		if m["type"] != "ip_addresses" {
+			t.Errorf("branch %d type: expected ip_addresses, got %v", i, m["type"])
+		}
+		if m["version"].(int64) != wantVersions[i] {
+			t.Errorf("branch %d version: expected %d, got %v", i, wantVersions[i], m["version"])
+		}
 	}
 }
 
