@@ -49,19 +49,19 @@ body.
 
 The `hegel` subprocess is managed by a global session that starts lazily on first
 use and shuts down automatically on process exit. Users never construct connections
-or sessions manually — `Case` (and the low-level `RunHegelTestE`) are plain free
+or sessions manually — `Test` (and the low-level `Run`) are plain free
 functions.
 
 ## Public API
 
 The user-facing surface lives in `hegel.go` (canonical package doc). Entry points:
 
-- `hegel.Case(fn, opts...) func(*testing.T)` — wraps a property test for `t.Run`
+- `hegel.Test(t, fn, opts...)` — runs a property test as part of `t`
 - `hegel.Draw(ht, gen)` — draws a value inside a test body
 - `hegel.T` — passed to the test body; methods include `Note`, `Fatal`, `Fatalf`
 - Generators: `Integers`, `Floats`, `Text`, `Booleans`, `Lists`, `Maps`, ...
 - Options: `WithTestCases(n)` and other `Option` funcs configure runs
-- Low-level: `RunHegelTestE` is the runner Case wraps; useful in error-injection tests
+- Low-level: `Run` is the bare runner Test wraps; useful in error-injection tests
 
 ## Testing Philosophy
 
@@ -77,7 +77,7 @@ The user-facing surface lives in `hegel.go` (canonical package doc). Entry point
 
 ### HEGEL_PROTOCOL_TEST_MODE — Error Injection
 
-Set the `HEGEL_PROTOCOL_TEST_MODE` environment variable before calling `RunHegelTestE` to
+Set the `HEGEL_PROTOCOL_TEST_MODE` environment variable before calling `Run` to
 trigger server-side error injection:
 
 | Mode                          | What it does                                      |
@@ -151,7 +151,7 @@ Failing to handle StopTest correctly causes `FlakyStrategyDefinition` errors.
 
 ### Test isolation with HEGEL_PROTOCOL_TEST_MODE
 
-- Test-mode hegel handles exactly ONE `run_test` then exits. `RunHegelTestE` creates a fresh temporary session when this env var is set.
+- Test-mode hegel handles exactly ONE `run_test` then exits. `Run` creates a fresh temporary session when this env var is set.
 - Test-mode sessions suppress stderr to avoid Python tracebacks in test output.
 
 ### Protocol field names

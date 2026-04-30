@@ -20,7 +20,7 @@ type TestCase struct {
 	isFinal bool
 	aborted bool
 	failed  bool         // for T.Error/Fail deferred INTERESTING
-	noteFn  func(string) // injected: t.Log for Case, stderr for Run
+	noteFn  func(string) // injected: t.Log for Test, stderr for Run
 }
 
 // --- Sentinel errors ---
@@ -60,7 +60,7 @@ func (s *TestCase) Assume(condition bool) {
 
 // Note prints message, but only during the final (replay) test case.
 //
-// Output is routed to t.Log for [Case], or stderr for [Run].
+// Output is routed to t.Log for [Test], or stderr for [Run].
 func (s *TestCase) Note(message string) {
 	if s.isFinal && s.noteFn != nil {
 		s.noteFn(message)
@@ -182,7 +182,7 @@ type runOptions struct {
 	suppressHealthCheck []HealthCheck
 }
 
-// Option is a functional option for Case and Run.
+// Option is a functional option for Test and Run.
 type Option func(*runOptions)
 
 // WithTestCases sets the number of test cases to run.
@@ -214,21 +214,20 @@ func MustRun(fn func(*TestCase), opts ...Option) {
 	}
 }
 
-// Case returns a test function for use with testing.T.Run.
+// Test runs a property test as part of t.
 //
-// Note output is routed to t.Log.
-func Case(fn func(*T), opts ...Option) func(*testing.T) {
-	return func(t *testing.T) {
-		t.Helper()
+// Note output is routed to t.Log. Use [testing.T.Run] to organize multiple
+// property tests into subtests in the standard Go way.
+func Test(t *testing.T, fn func(*T), opts ...Option) {
+	t.Helper()
 
-		body := func(s *TestCase) {
-			ht := &T{TestCase: s, T: t}
-			fn(ht)
-		}
-		err := runHegel(body, func(msg string) { t.Log(msg) }, opts) // coverage-ignore
-		if err != nil {                                              // coverage-ignore
-			t.Fatal(err)
-		}
+	body := func(s *TestCase) {
+		ht := &T{TestCase: s, T: t}
+		fn(ht)
+	}
+	err := runHegel(body, func(msg string) { t.Log(msg) }, opts) // coverage-ignore
+	if err != nil {                                              // coverage-ignore
+		t.Fatal(err)
 	}
 }
 
@@ -237,7 +236,7 @@ func stderrNoteFn(msg string) {
 	fmt.Fprintln(os.Stderr, msg)
 }
 
-// runHegel is the shared implementation for Run, MustRun, and Case.
+// runHegel is the shared implementation for Run, MustRun, and Test.
 func runHegel(fn testBody, noteFn func(string), opts []Option) error {
 	o := runOptions{testCases: 100}
 	for _, opt := range opts {
