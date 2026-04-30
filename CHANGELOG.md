@@ -1,5 +1,9 @@
 # Changelog
 
+## 0.3.1 - 2026-04-30
+
+Internal refactor.
+
 ## 0.3.0 - 2026-04-30
 
 This release removes `hegel.Case` in favor of a new `hegel.Test`. `hegel.Test` is now the recommended way to write Hegel tests.
