@@ -166,16 +166,14 @@ func TestListsNegativeMinSizeError(t *testing.T) {
 func TestListsBasicIntegersE2E(t *testing.T) {
 	t.Parallel()
 
-	if _err := Run(func(s *TestCase) {
-		xs := Lists(Integers[int](0, 100)).MaxSize(10).draw(s)
+	Test(t, func(ht *T) {
+		xs := Lists(Integers[int](0, 100)).MaxSize(10).draw(ht.TestCase)
 		for _, x := range xs {
 			if x < 0 || x > 100 {
 				panic(fmt.Sprintf("Lists: element %d out of range [0, 100]", x))
 			}
 		}
-	}, WithTestCases(50)); _err != nil {
-		panic(_err)
-	}
+	}, WithTestCases(50))
 }
 
 // TestListsWithSizeBoundsE2E verifies that Lists with min_size and max_size constraints
@@ -183,14 +181,12 @@ func TestListsBasicIntegersE2E(t *testing.T) {
 func TestListsWithSizeBoundsE2E(t *testing.T) {
 	t.Parallel()
 
-	if _err := Run(func(s *TestCase) {
-		xs := Lists(Booleans()).MinSize(3).MaxSize(5).draw(s)
+	Test(t, func(ht *T) {
+		xs := Lists(Booleans()).MinSize(3).MaxSize(5).draw(ht.TestCase)
 		if len(xs) < 3 || len(xs) > 5 {
 			panic(fmt.Sprintf("Lists: length %d out of [3, 5]", len(xs)))
 		}
-	}, WithTestCases(50)); _err != nil {
-		panic(_err)
-	}
+	}, WithTestCases(50))
 }
 
 // TestListsNonBasicElementE2E verifies that Lists with a non-basic element generator
@@ -204,16 +200,14 @@ func TestListsNonBasicElementE2E(t *testing.T) {
 	})
 	nonBasic := &mappedGenerator[int, int]{inner: mapped, fn: func(v int) int { return v }}
 
-	if _err := Run(func(s *TestCase) {
-		xs := Lists(nonBasic).MaxSize(5).draw(s)
+	Test(t, func(ht *T) {
+		xs := Lists(nonBasic).MaxSize(5).draw(ht.TestCase)
 		for _, x := range xs {
 			if x%2 != 0 {
 				panic(fmt.Sprintf("Lists(non-basic): expected even element, got %d", x))
 			}
 		}
-	}, WithTestCases(50)); _err != nil {
-		panic(_err)
-	}
+	}, WithTestCases(50))
 }
 
 // TestListsNestedE2E verifies that nested lists work correctly:
@@ -221,8 +215,8 @@ func TestListsNonBasicElementE2E(t *testing.T) {
 func TestListsNestedE2E(t *testing.T) {
 	t.Parallel()
 
-	if _err := Run(func(s *TestCase) {
-		outer := Lists(Lists(Booleans()).MaxSize(3)).MaxSize(3).draw(s)
+	Test(t, func(ht *T) {
+		outer := Lists(Lists(Booleans()).MaxSize(3)).MaxSize(3).draw(ht.TestCase)
 		for i, inner := range outer {
 			for j, b := range inner {
 				// b is already bool due to typed generators; verify it is true or false.
@@ -231,9 +225,7 @@ func TestListsNestedE2E(t *testing.T) {
 				}
 			}
 		}
-	}, WithTestCases(50)); _err != nil {
-		panic(_err)
-	}
+	}, WithTestCases(50))
 }
 
 // TestListsBasicWithParseE2E verifies that Lists on a basicGenerator with a composed
@@ -245,14 +237,12 @@ func TestListsBasicWithParseE2E(t *testing.T) {
 	doubled := Map(Integers[int](0, 10), func(n int) int {
 		return n * 2
 	})
-	if _err := Run(func(s *TestCase) {
-		xs := Lists(doubled).MaxSize(5).draw(s)
+	Test(t, func(ht *T) {
+		xs := Lists(doubled).MaxSize(5).draw(ht.TestCase)
 		for _, x := range xs {
 			if x%2 != 0 || x < 0 || x > 20 {
 				panic(fmt.Sprintf("Lists(basic+parse): element %d should be even in [0,20]", x))
 			}
 		}
-	}, WithTestCases(50)); _err != nil {
-		panic(_err)
-	}
+	}, WithTestCases(50))
 }

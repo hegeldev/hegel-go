@@ -65,17 +65,15 @@ func TestOneOfPath1E2E(t *testing.T) {
 	sawShort := false
 	sawLong := false
 	combined := OneOf(Text().MinSize(1).MaxSize(3), Text().MinSize(10).MaxSize(15))
-	if _err := Run(func(s *TestCase) {
-		v := combined.draw(s)
+	Test(t, func(ht *T) {
+		v := combined.draw(ht.TestCase)
 		n := len([]rune(v))
 		if n >= 1 && n <= 3 {
 			sawShort = true
 		} else if n >= 10 && n <= 15 {
 			sawLong = true
 		}
-	}, WithTestCases(100)); _err != nil {
-		panic(_err)
-	}
+	})
 	if !sawShort {
 		t.Error("OneOf: never generated a short string")
 	}
@@ -203,14 +201,12 @@ func TestOneOfWithTransformsE2E(t *testing.T) {
 	gen2 := Map(Just(int(2)), func(v int) int { return v * 3 })
 	combined := OneOf(gen1, gen2)
 
-	if _err := Run(func(s *TestCase) {
-		v := combined.draw(s)
+	Test(t, func(ht *T) {
+		v := combined.draw(ht.TestCase)
 		if v != 2 && v != 6 {
 			panic(fmt.Sprintf("OneOf with transforms: expected 2 or 6, got %d", v))
 		}
-	}, WithTestCases(50)); _err != nil {
-		panic(_err)
-	}
+	}, WithTestCases(50))
 }
 
 // =============================================================================
@@ -267,8 +263,8 @@ func TestOneOfPath3E2E(t *testing.T) {
 
 	sawInt := false
 	sawStr := false
-	if _err := Run(func(s *TestCase) {
-		v := combined.draw(s)
+	Test(t, func(ht *T) {
+		v := combined.draw(ht.TestCase)
 		switch v.(type) {
 		case int:
 			sawInt = true
@@ -277,9 +273,7 @@ func TestOneOfPath3E2E(t *testing.T) {
 		default:
 			panic(fmt.Sprintf("OneOf Path3: unexpected type %T", v))
 		}
-	}, WithTestCases(100)); _err != nil {
-		panic(_err)
-	}
+	})
 	if !sawInt {
 		t.Error("OneOf Path3: never generated an integer")
 	}
@@ -322,8 +316,8 @@ func TestOptionalE2E(t *testing.T) {
 	sawNil := false
 	sawInt := false
 	g := Optional(Integers[int](0, 100))
-	if _err := Run(func(s *TestCase) {
-		v := g.draw(s)
+	Test(t, func(ht *T) {
+		v := g.draw(ht.TestCase)
 		if v == nil {
 			sawNil = true
 		} else {
@@ -332,9 +326,7 @@ func TestOptionalE2E(t *testing.T) {
 				panic(fmt.Sprintf("Optional: expected [0,100], got %d", *v))
 			}
 		}
-	}, WithTestCases(100)); _err != nil {
-		panic(_err)
-	}
+	})
 	if !sawNil {
 		t.Error("Optional: nil value never appeared")
 	}
@@ -355,16 +347,14 @@ func TestOptionalNonBasicE2E(t *testing.T) {
 	}
 	sawNil := false
 	sawVal := false
-	if _err := Run(func(s *TestCase) {
-		v := g.draw(s)
+	Test(t, func(ht *T) {
+		v := g.draw(ht.TestCase)
 		if v == nil {
 			sawNil = true
 		} else {
 			sawVal = true
 		}
-	}, WithTestCases(100)); _err != nil {
-		panic(_err)
-	}
+	})
 	if !sawNil {
 		t.Error("Optional(nonBasic): nil value never appeared")
 	}
@@ -461,14 +451,12 @@ func TestIPAddressesV4E2E(t *testing.T) {
 	t.Parallel()
 
 	g := IPAddresses().IPv4()
-	if _err := Run(func(s *TestCase) {
-		v := g.draw(s)
+	Test(t, func(ht *T) {
+		v := g.draw(ht.TestCase)
 		if !v.Is4() {
 			panic(fmt.Sprintf("IPv4 address should be v4: %v", v))
 		}
-	}, WithTestCases(50)); _err != nil {
-		panic(_err)
-	}
+	}, WithTestCases(50))
 }
 
 // TestIPAddressesV6E2E verifies IPv6 addresses contain colons.
@@ -476,14 +464,12 @@ func TestIPAddressesV6E2E(t *testing.T) {
 	t.Parallel()
 
 	g := IPAddresses().IPv6()
-	if _err := Run(func(s *TestCase) {
-		v := g.draw(s)
+	Test(t, func(ht *T) {
+		v := g.draw(ht.TestCase)
 		if !v.Is6() {
 			panic(fmt.Sprintf("IPv6 address should be v6: %v", v))
 		}
-	}, WithTestCases(50)); _err != nil {
-		panic(_err)
-	}
+	}, WithTestCases(50))
 }
 
 // TestIPAddressesDefaultE2E verifies default produces both IPv4 and IPv6.
@@ -493,16 +479,14 @@ func TestIPAddressesDefaultE2E(t *testing.T) {
 	sawV4 := false
 	sawV6 := false
 	g := IPAddresses()
-	if _err := Run(func(s *TestCase) {
-		v := g.draw(s)
+	Test(t, func(ht *T) {
+		v := g.draw(ht.TestCase)
 		if v.Is4() {
 			sawV4 = true
 		} else if v.Is6() {
 			sawV6 = true
 		}
-	}, WithTestCases(100)); _err != nil {
-		panic(_err)
-	}
+	})
 	if !sawV4 {
 		t.Error("IPAddresses default: no IPv4 address generated")
 	}
@@ -521,17 +505,15 @@ func TestOneOfWithMapMixedTypesE2E(t *testing.T) {
 		Map(Integers[int](0, 10), func(v int) int { return v * 2 }),
 		Just(int(0)),
 	)
-	if _err := Run(func(s *TestCase) {
-		v := gen.draw(s)
+	Test(t, func(ht *T) {
+		v := gen.draw(ht.TestCase)
 		if v%2 != 0 {
 			panic(fmt.Sprintf("OneOf map: expected even, got %d", v))
 		}
 		if v < 0 || v > 20 {
 			panic(fmt.Sprintf("OneOf map: expected [0,20], got %d", v))
 		}
-	}, WithTestCases(100)); _err != nil {
-		panic(_err)
-	}
+	})
 }
 
 // TestOneOfAllBranchesAppear verifies that both branches of OneOf appear
@@ -542,17 +524,15 @@ func TestOneOfAllBranchesAppear(t *testing.T) {
 	sawA := false
 	sawB := false
 	gen := OneOf(Text().MinSize(1).MaxSize(3), Text().MinSize(4).MaxSize(6))
-	if _err := Run(func(s *TestCase) {
-		v := gen.draw(s)
+	Test(t, func(ht *T) {
+		v := gen.draw(ht.TestCase)
 		n := len([]rune(v))
 		if n >= 1 && n <= 3 {
 			sawA = true
 		} else if n >= 4 && n <= 6 {
 			sawB = true
 		}
-	}, WithTestCases(200)); _err != nil {
-		panic(_err)
-	}
+	}, WithTestCases(200))
 	if !sawA {
 		t.Error("OneOf: Text(1,3) branch never appeared")
 	}
@@ -565,15 +545,16 @@ func TestOneOfAllBranchesAppear(t *testing.T) {
 // oneOfGenerator.draw when the server sends a requestError in response
 // to the index generate command on the composite path.
 func TestCompositeOneOfGenerateErrorResponse(t *testing.T) {
-
 	t.Setenv("HEGEL_PROTOCOL_TEST_MODE", "error_response")
-	// Non-basic branches force the composite draw path.
-	nonBasic1 := &mappedGenerator[int64, int64]{inner: Integers[int64](0, 5), fn: func(v int64) int64 { return v }}
-	nonBasic2 := &mappedGenerator[int64, int64]{inner: Integers[int64](6, 10), fn: func(v int64) int64 { return v }}
-	gen := &oneOfGenerator[int64]{generators: []Generator[int64]{nonBasic1, nonBasic2}}
-	err := Run(func(s *TestCase) {
-		_ = gen.draw(s) // should panic with requestError
-	})
-	// error_response makes the test appear interesting (failing).
-	_ = err
+	// Filter wrappers force each branch to be non-basic, which forces the
+	// composite (oneOfGenerator.draw) path rather than the flat-schema path.
+	// The error-response triggers a panic during the index draw, then the
+	// test-mode server exits before a final replay — assert on the resulting
+	// "server exited" diagnostic so we know the composite path was reached.
+	newTempGoProject(t).
+		testBody(`g1 := hegel.Filter(hegel.Integers[int64](0, 5), func(int64) bool { return true })
+g2 := hegel.Filter(hegel.Integers[int64](6, 10), func(int64) bool { return true })
+_ = hegel.Draw[int64](ht, hegel.OneOf(g1, g2))`).
+		expectFailure(`server process exited`).
+		goTest()
 }

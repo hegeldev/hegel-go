@@ -125,14 +125,12 @@ func TestFilteredGeneratorGeneratePredicatePassesFirstTry(t *testing.T) {
 
 	// Filter that always passes: every value is accepted on first try.
 	gen := Filter(Integers[int](0, 100), func(v int) bool { return true })
-	if _err := Run(func(s *TestCase) {
-		n := gen.draw(s)
+	Test(t, func(ht *T) {
+		n := gen.draw(ht.TestCase)
 		if n < 0 || n > 100 {
 			panic(fmt.Sprintf("Filter: expected [0,100], got %d", n))
 		}
-	}, WithTestCases(30)); _err != nil {
-		panic(_err)
-	}
+	}, WithTestCases(30))
 }
 
 // TestFilteredGeneratorGenerateWithRealPredicate verifies that Filter correctly
@@ -144,17 +142,15 @@ func TestFilteredGeneratorGenerateWithRealPredicate(t *testing.T) {
 	gen := Filter(Integers[int](0, 50), func(v int) bool {
 		return v%2 == 0
 	})
-	if _err := Run(func(s *TestCase) {
-		n := gen.draw(s)
+	Test(t, func(ht *T) {
+		n := gen.draw(ht.TestCase)
 		if n%2 != 0 {
 			panic(fmt.Sprintf("Filter even: expected even number, got %d", n))
 		}
 		if n < 0 || n > 50 {
 			panic(fmt.Sprintf("Filter even: expected [0,50], got %d", n))
 		}
-	}, WithTestCases(50)); _err != nil {
-		panic(_err)
-	}
+	}, WithTestCases(50))
 }
 
 // TestFilteredGeneratorGenerateChainedFilters verifies that chaining two Filter
@@ -168,14 +164,12 @@ func TestFilteredGeneratorGenerateChainedFilters(t *testing.T) {
 		Filter(Integers[int](0, 100), func(v int) bool { return v%2 == 0 }),
 		func(v int) bool { return v%4 == 0 },
 	)
-	if _err := Run(func(s *TestCase) {
-		n := gen.draw(s)
+	Test(t, func(ht *T) {
+		n := gen.draw(ht.TestCase)
 		if n%4 != 0 {
 			panic(fmt.Sprintf("chained filter: expected multiple of 4, got %d", n))
 		}
-	}, WithTestCases(30)); _err != nil {
-		panic(_err)
-	}
+	}, WithTestCases(30))
 }
 
 // TestFilteredGeneratorGenerateThenMap verifies that Filter followed by Map
@@ -191,8 +185,8 @@ func TestFilteredGeneratorGenerateThenMap(t *testing.T) {
 	if _, ok := gen.(*mappedGenerator[int, int]); !ok {
 		t.Fatalf("Map(Filter(...)) should return *mappedGenerator, got %T", gen)
 	}
-	if _err := Run(func(s *TestCase) {
-		n := gen.draw(s)
+	Test(t, func(ht *T) {
+		n := gen.draw(ht.TestCase)
 		// result must be odd*10, so divisible by 10 but result/10 must be odd
 		quotient := n / 10
 		if quotient*10 != n {
@@ -201,7 +195,5 @@ func TestFilteredGeneratorGenerateThenMap(t *testing.T) {
 		if quotient%2 == 0 {
 			panic(fmt.Sprintf("filter+map: expected odd*10, got %d (quotient=%d is even)", n, quotient))
 		}
-	}, WithTestCases(30)); _err != nil {
-		panic(_err)
-	}
+	}, WithTestCases(30))
 }

@@ -18,16 +18,14 @@ import (
 func TestRunHegelTestPasses(t *testing.T) {
 
 	called := false
-	if _err := Run(func(s *TestCase) {
+	Test(t, func(ht *T) {
 		called = true
-		b := Draw[bool](s, Booleans())
+		b := Draw[bool](ht, Booleans())
 		// A valid assertion: b is either true or false.
 		if b != true && b != false {
 			t.Errorf("expected bool, got %v", b)
 		}
-	}, WithTestCases(5)); _err != nil {
-		panic(_err)
-	}
+	}, WithTestCases(5))
 	if !called {
 		t.Error("test function was never called")
 	}
@@ -36,17 +34,15 @@ func TestRunHegelTestPasses(t *testing.T) {
 // --- RunHegelTest: failing test raises error ---
 
 func TestRunHegelTestFails(t *testing.T) {
+	t.Parallel()
 
-	err := Run(func(s *TestCase) {
-		x := Draw[int](s, Integers[int](0, 100))
-		// This always fails: no integer < 0 in [0,100]
-		if x >= 0 {
-			panic(fmt.Sprintf("assertion failed: %d >= 0", x))
-		}
-	}, WithTestCases(10))
-	if err == nil {
-		t.Error("expected RunHegelTestE to return an error for always-failing test")
-	}
+	newTempGoProject(t).
+		testBody(`x := hegel.Draw[int](ht, hegel.Integers[int](0, 100))
+if x >= 0 {
+	panic(fmt.Sprintf("assertion failed: %d >= 0", x))
+}`, "hegel.WithTestCases(10)").
+		expectFailure(`assertion failed`).
+		goTest()
 }
 
 // --- RunHegelTest: assume(false) -> INVALID, test continues ---
@@ -54,11 +50,9 @@ func TestRunHegelTestFails(t *testing.T) {
 func TestRunHegelTestAllInvalid(t *testing.T) {
 
 	// A test that always calls Assume(false) should pass (all cases rejected).
-	if _err := Run(func(s *TestCase) {
-		s.Assume(false)
-	}, WithTestCases(5)); _err != nil {
-		panic(_err)
-	}
+	Test(t, func(ht *T) {
+		ht.Assume(false)
+	}, WithTestCases(5))
 }
 
 // --- RunHegelTest: assume(true) -> no effect ---
@@ -66,16 +60,14 @@ func TestRunHegelTestAllInvalid(t *testing.T) {
 func TestAssumeTrue(t *testing.T) {
 	t.Parallel()
 
-	if _err := Run(func(s *TestCase) {
-		s.Assume(true)
-		b := Draw[bool](s, Booleans())
+	Test(t, func(ht *T) {
+		ht.Assume(true)
+		b := Draw[bool](ht, Booleans())
 		_ = b // use the value
 		if b != true && b != false {
-			panic("expected bool")
+			ht.Fatal("expected bool")
 		}
-	}, WithTestCases(5)); _err != nil {
-		panic(_err)
-	}
+	}, WithTestCases(5))
 }
 
 // --- note(): not printed when not final ---
@@ -84,12 +76,10 @@ func TestNoteNotFinal(t *testing.T) {
 	t.Parallel()
 
 	// note() should not panic or error when called outside final run
-	if _err := Run(func(s *TestCase) {
-		s.Note("should not appear")
-		_ = Draw[bool](s, Booleans())
-	}, WithTestCases(3)); _err != nil {
-		panic(_err)
-	}
+	Test(t, func(ht *T) {
+		ht.Note("should not appear")
+		_ = Draw[bool](ht, Booleans())
+	}, WithTestCases(3))
 }
 
 // --- target(): sends target command ---
@@ -97,15 +87,13 @@ func TestNoteNotFinal(t *testing.T) {
 func TestTargetSendsCommand(t *testing.T) {
 	t.Parallel()
 
-	if _err := Run(func(s *TestCase) {
-		x := Draw[int](s, Integers[int](0, 100))
-		s.Target(float64(x), "my_target")
+	Test(t, func(ht *T) {
+		x := Draw[int](ht, Integers[int](0, 100))
+		ht.Target(float64(x), "my_target")
 		if x < 0 || x > 100 {
-			panic("out of range")
+			ht.Fatal("out of range")
 		}
-	}, WithTestCases(5)); _err != nil {
-		panic(_err)
-	}
+	}, WithTestCases(5))
 }
 
 // --- HEGEL_PROTOCOL_TEST_MODE=stop_test_on_generate ---
@@ -114,11 +102,9 @@ func TestStopTestOnGenerate(t *testing.T) {
 
 	t.Setenv("HEGEL_PROTOCOL_TEST_MODE", "stop_test_on_generate")
 	// Should complete without error: client handles StopTest cleanly.
-	if _err := Run(func(s *TestCase) {
-		Draw[bool](s, Booleans())
-	}, WithTestCases(5)); _err != nil {
-		panic(_err)
-	}
+	Test(t, func(ht *T) {
+		Draw[bool](ht, Booleans())
+	}, WithTestCases(5))
 }
 
 // --- HEGEL_PROTOCOL_TEST_MODE=stop_test_on_mark_complete ---
@@ -126,11 +112,9 @@ func TestStopTestOnGenerate(t *testing.T) {
 func TestStopTestOnMarkComplete(t *testing.T) {
 
 	t.Setenv("HEGEL_PROTOCOL_TEST_MODE", "stop_test_on_mark_complete")
-	if _err := Run(func(s *TestCase) {
-		Draw[bool](s, Booleans())
-	}, WithTestCases(5)); _err != nil {
-		panic(_err)
-	}
+	Test(t, func(ht *T) {
+		Draw[bool](ht, Booleans())
+	}, WithTestCases(5))
 }
 
 // --- HEGEL_PROTOCOL_TEST_MODE=empty_test ---
@@ -138,11 +122,9 @@ func TestStopTestOnMarkComplete(t *testing.T) {
 func TestEmptyTest(t *testing.T) {
 
 	t.Setenv("HEGEL_PROTOCOL_TEST_MODE", "empty_test")
-	if _err := Run(func(_ *TestCase) {
+	Test(t, func(_ *T) {
 		panic("should not be called")
-	}, WithTestCases(5)); _err != nil {
-		panic(_err)
-	}
+	}, WithTestCases(5))
 }
 
 // --- HEGEL_PROTOCOL_TEST_MODE=error_response ---
@@ -159,9 +141,9 @@ func TestErrorResponse(t *testing.T) {
 				gotErr = fmt.Errorf("%v", r)
 			}
 		}()
-		gotErr = Run(func(s *TestCase) {
+		gotErr = runHegel(func(s *TestCase) {
 			Draw[bool](s, Booleans()) // server sends error_response here
-		}, WithTestCases(3))
+		}, stdoutNoteFn, []Option{WithTestCases(3)})
 	}()
 	// The error from the server causes INTERESTING status -> re-raised on final run.
 	// Either a panic or a non-nil error is acceptable.
@@ -295,15 +277,13 @@ func TestHegelSessionConcurrentStart(t *testing.T) {
 func TestRunHegelTestSingleCase(t *testing.T) {
 
 	count := 0
-	if _err := Run(func(s *TestCase) {
+	Test(t, func(ht *T) {
 		count++
-		b := Draw[bool](s, Booleans())
+		b := Draw[bool](ht, Booleans())
 		if b != true && b != false {
-			panic("not a bool")
+			ht.Fatal("not a bool")
 		}
-	}, WithTestCases(1)); _err != nil {
-		panic(_err)
-	}
+	}, WithTestCases(1))
 	if count == 0 {
 		t.Error("expected at least one test case to run")
 	}
@@ -318,14 +298,12 @@ func TestConcurrentRunHegelTest(t *testing.T) {
 		wg.Add(1)
 		go func(idx int) {
 			defer wg.Done()
-			if _err := Run(func(s *TestCase) {
-				b := Draw[bool](s, Booleans())
+			Test(t, func(ht *T) {
+				b := Draw[bool](ht, Booleans())
 				if b != true && b != false {
-					panic("not a bool")
+					ht.Fatal("not a bool")
 				}
-			}, WithTestCases(3)); _err != nil {
-				panic(_err)
-			}
+			}, WithTestCases(3))
 		}(i)
 	}
 	wg.Wait()
@@ -335,12 +313,9 @@ func TestConcurrentRunHegelTest(t *testing.T) {
 
 func TestRunHegelTestESuccess(t *testing.T) {
 
-	err := Run(func(s *TestCase) {
-		_ = Draw[bool](s, Booleans())
+	Test(t, func(ht *T) {
+		_ = Draw[bool](ht, Booleans())
 	}, WithTestCases(3))
-	if err != nil {
-		t.Errorf("RunHegelTestE: unexpected error: %v", err)
-	}
 }
 
 // --- WithTestCases option ---
@@ -349,12 +324,10 @@ func TestWithTestCasesOption(t *testing.T) {
 	t.Parallel()
 
 	count := 0
-	if _err := Run(func(s *TestCase) {
+	Test(t, func(ht *T) {
 		count++
-		Draw[bool](s, Booleans())
-	}, WithTestCases(10)); _err != nil {
-		panic(_err)
-	}
+		Draw[bool](ht, Booleans())
+	}, WithTestCases(10))
 	// count should be >= 10 (at least the requested cases)
 	if count < 1 {
 		t.Error("expected test cases to run")
@@ -366,11 +339,11 @@ func TestWithTestCasesOption(t *testing.T) {
 func TestStopTestOnCollectionMore(t *testing.T) {
 
 	t.Setenv("HEGEL_PROTOCOL_TEST_MODE", "stop_test_on_collection_more")
-	err := Run(func(s *TestCase) {
+	err := runHegel(func(s *TestCase) {
 		max := 10
 		coll := newCollection(s, 0, &max)
 		_ = coll.More(s)
-	})
+	}, stdoutNoteFn, nil)
 	_ = err // StopTest causes abort, not necessarily an error return
 }
 
@@ -379,37 +352,12 @@ func TestStopTestOnCollectionMore(t *testing.T) {
 func TestStopTestOnNewCollection(t *testing.T) {
 
 	t.Setenv("HEGEL_PROTOCOL_TEST_MODE", "stop_test_on_new_collection")
-	err := Run(func(s *TestCase) {
+	err := runHegel(func(s *TestCase) {
 		max := 10
 		coll := newCollection(s, 0, &max)
 		_ = coll.More(s)
-	})
+	}, stdoutNoteFn, nil)
 	_ = err // StopTest causes abort, not necessarily an error return
-}
-
-// --- isFinal: Note prints on final run ---
-// We test this by running a failing test so the final replay happens.
-// We capture whether isFinal was true via the state in the closure.
-
-func TestNoteOnFinalRun(t *testing.T) {
-	t.Parallel()
-
-	noted := false
-	noteFunc := func(s *TestCase) {
-		if s.isFinal {
-			noted = true
-		}
-		s.Note("final note")
-		// Always fail so we get a final replay.
-		panic("intentional failure for final replay test")
-	}
-	func() {
-		defer func() { recover() }()    //nolint:errcheck
-		Run(noteFunc, WithTestCases(3)) //nolint:errcheck
-	}()
-	if !noted {
-		t.Error("expected isFinal to be true during final replay")
-	}
 }
 
 // --- runTest: connection error in test function is re-raised ---
@@ -417,9 +365,9 @@ func TestNoteOnFinalRun(t *testing.T) {
 func TestConnectionErrorInTestFunction(t *testing.T) {
 	t.Parallel()
 
-	err := Run(func(_ *TestCase) {
+	err := runHegel(func(_ *TestCase) {
 		panic(&connectionError{msg: "test connection lost"})
-	}, WithTestCases(1))
+	}, stdoutNoteFn, []Option{WithTestCases(1)})
 	if err == nil {
 		t.Fatal("expected error to be raised for connection error")
 	}
@@ -581,7 +529,7 @@ func TestExtractPanicOriginError(t *testing.T) {
 
 func TestNoteIsFinalTrue(t *testing.T) {
 	t.Parallel()
-	state := &TestCase{isFinal: true, noteFn: stderrNoteFn}
+	state := &TestCase{isFinal: true, noteFn: stdoutNoteFn}
 	// Should not panic.
 	state.Note("test note on final")
 }
@@ -649,7 +597,7 @@ func TestRunHegelTestESessionError(t *testing.T) {
 	globalSession = newHegelSession()
 	globalSession.hegelCmd = "/nonexistent/hegel"
 
-	err := Run(func(_ *TestCase) {}, WithTestCases(1))
+	err := runHegel(func(_ *TestCase) {}, stdoutNoteFn, []Option{WithTestCases(1)})
 	if err == nil {
 		t.Error("expected error when session cannot start")
 	}
@@ -675,7 +623,7 @@ func TestRunHegelTestPanicsOnFailure(t *testing.T) {
 	fake.hegelCmd = "/nonexistent/hegel"
 	globalSession = fake
 
-	if _err := Run(func(_ *TestCase) {}, WithTestCases(1)); _err != nil {
+	if _err := runHegel(func(_ *TestCase) {}, stdoutNoteFn, []Option{WithTestCases(1)}); _err != nil {
 		panic(_err)
 	}
 }
@@ -685,13 +633,10 @@ func TestRunHegelTestPanicsOnFailure(t *testing.T) {
 func TestRunHegelTestECallsRunTest(t *testing.T) {
 
 	called := false
-	err := Run(func(s *TestCase) {
+	Test(t, func(ht *T) {
 		called = true
-		Draw[bool](s, Booleans())
+		Draw[bool](ht, Booleans())
 	}, WithTestCases(1))
-	if err != nil {
-		t.Errorf("unexpected error: %v", err)
-	}
 	if !called {
 		t.Error("test body was never called")
 	}
@@ -709,7 +654,7 @@ func TestHegelSessionRunTest(t *testing.T) {
 	}
 	err := s.runTest(func(st *TestCase) {
 		Draw[bool](st, Booleans())
-	}, runOptions{testCases: 2}, stderrNoteFn)
+	}, runOptions{testCases: 2}, stdoutNoteFn)
 	if err != nil {
 		t.Errorf("session.runTest: %v", err)
 	}
@@ -798,7 +743,7 @@ func TestRunHegelTestEProtocolModeStartError(t *testing.T) {
 	t.Setenv("HOME", "/nonexistent")
 	t.Setenv("XDG_CACHE_HOME", filepath.Join(tmp, "cache"))
 
-	err := Run(func(_ *TestCase) {}, WithTestCases(1))
+	err := runHegel(func(_ *TestCase) {}, stdoutNoteFn, []Option{WithTestCases(1)})
 	if err == nil {
 		t.Error("expected error when session cannot start in protocol test mode")
 	}
@@ -930,10 +875,10 @@ func TestTestSuccess(t *testing.T) {
 
 func TestStateFailedPath(t *testing.T) {
 
-	err := Run(func(s *TestCase) {
+	err := runHegel(func(s *TestCase) {
 		_ = Draw[bool](s, Booleans())
 		s.failed = true // simulates T.Error/T.Fail
-	}, WithTestCases(1))
+	}, stdoutNoteFn, []Option{WithTestCases(1)})
 	if err == nil {
 		t.Error("expected error when state.failed is true")
 	}
@@ -945,33 +890,32 @@ func TestStateFailedPath(t *testing.T) {
 
 func TestFatalSentinelPath(t *testing.T) {
 
-	err := Run(func(s *TestCase) {
+	err := runHegel(func(s *TestCase) {
 		_ = Draw[bool](s, Booleans())
 		panic(fatalSentinel{msg: "test fatal"})
-	}, WithTestCases(1))
+	}, stdoutNoteFn, []Option{WithTestCases(1)})
 	if err == nil {
 		t.Error("expected error when fatalSentinel is raised")
 	}
 }
 
 // =============================================================================
-// Test: noteFn (t.Log) is called on final replay
+// Test: notes printed on final replay reach the process's real stdout
 // =============================================================================
 
-func TestTestNoteFnOnFinal(t *testing.T) {
+// Verifies the full path ht.Note -> noteFn (t.Log) -> go test output by
+// spawning a real `go test` subprocess that calls hegel.Test. The body
+// emits a note on final replay; we assert it shows up in the captured
+// test output.
+func TestNoteFnOnFinal(t *testing.T) {
+	t.Parallel()
 
-	noted := false
-	err := runHegel(func(s *TestCase) {
-		_ = Draw[bool](s, Booleans())
-		s.Note("note for final")
-		panic("always fail for final replay")
-	}, func(msg string) { noted = true }, []Option{WithTestCases(1)})
-	if err == nil {
-		t.Error("expected error from failing test")
-	}
-	if !noted {
-		t.Error("expected noteFn to be called on final replay")
-	}
+	newTempGoProject(t).
+		testBody(`_ = hegel.Draw[bool](ht, hegel.Booleans())
+ht.Note("note for final")
+panic("always fail for final replay")`, "hegel.WithTestCases(1)").
+		expectFailure(`note for final`).
+		goTest()
 }
 
 // --- hegelCommand: covered in installer_test.go ---
@@ -984,7 +928,7 @@ func TestRunTestSendControlRequestError(t *testing.T) {
 	remote.Close()
 
 	cl := newClient(conn)
-	err := cl.runTest(func(_ *TestCase) {}, runOptions{testCases: 1}, stderrNoteFn)
+	err := cl.runTest(func(_ *TestCase) {}, runOptions{testCases: 1}, stdoutNoteFn)
 	if err == nil {
 		t.Fatal("expected error from runTest on closed conn")
 	}
@@ -1048,24 +992,18 @@ func TestSuppressHealthCheckOption(t *testing.T) {
 func TestSuppressHealthCheckIntegration(t *testing.T) {
 
 	// Exercise the suppress_health_check protocol path.
-	err := Run(func(s *TestCase) {
-		n := Draw[int](s, Integers[int](0, 100))
-		s.Assume(n < 90)
+	Test(t, func(ht *T) {
+		n := Draw[int](ht, Integers[int](0, 100))
+		ht.Assume(n < 90)
 	}, SuppressHealthCheck(FilterTooMuch, TooSlow), WithTestCases(5))
-	if err != nil {
-		t.Errorf("expected test to pass with suppressed health check: %v", err)
-	}
 }
 
 func TestSuppressAllHealthChecksIntegration(t *testing.T) {
 
-	err := Run(func(s *TestCase) {
-		n := Draw[int](s, Integers[int](0, 100))
-		s.Assume(n < 90)
+	Test(t, func(ht *T) {
+		n := Draw[int](ht, Integers[int](0, 100))
+		ht.Assume(n < 90)
 	}, SuppressHealthCheck(AllHealthChecks()...), WithTestCases(5))
-	if err != nil {
-		t.Errorf("expected test to pass with all health checks suppressed: %v", err)
-	}
 }
 
 // =============================================================================
@@ -1121,17 +1059,15 @@ func TestHegelSessionStartTimeout(t *testing.T) {
 // =============================================================================
 
 func TestHealthCheckFailureFilterTooMuch(t *testing.T) {
+	t.Parallel()
 
 	// Filtering based on a tiny range triggers FilterTooMuch: the server sees
 	// almost all test cases rejected and raises a health check failure.
-	err := Run(func(s *TestCase) {
-		n := Draw[int](s, Integers[int](0, 1000))
-		s.Assume(n == 0) // reject ~99.9% of test cases
-	}, WithTestCases(200))
-	if err == nil {
-		t.Fatal("expected health check failure")
-	}
-	mustContainStr(t, err.Error(), "health check failure")
+	newTempGoProject(t).
+		testBody(`n := hegel.Draw[int](ht, hegel.Integers[int](0, 1000))
+ht.Assume(n == 0)`, "hegel.WithTestCases(200)").
+		expectFailure(`health check failure`).
+		goTest()
 }
 
 // =============================================================================
@@ -1143,11 +1079,11 @@ var flakyCounter atomic.Int64
 func TestFlakyGlobalState(t *testing.T) {
 
 	flakyCounter.Store(0)
-	err := Run(func(s *TestCase) {
+	err := runHegel(func(s *TestCase) {
 		min := int(flakyCounter.Load())
 		_ = Draw[int](s, Integers[int](min, min+100))
 		flakyCounter.Add(1)
-	}, WithTestCases(100))
+	}, stdoutNoteFn, nil)
 	if err == nil {
 		t.Fatal("expected error for flaky test")
 	}
@@ -1257,7 +1193,105 @@ func TestProcessOneMessageServerCrash(t *testing.T) {
 	mustContainStr(t, err.Error(), "server process exited unexpectedly")
 }
 
+// processExited is non-nil but never closes — the wait times out and we fall
+// through to the generic "connection closed" error.
+func TestProcessOneMessageConnectionClosedTimeout(t *testing.T) {
+	t.Parallel()
+	s, c := socketPair(t)
+	conn := newConnection(s, s, "C")
+	conn.state = stateClient
+	st := conn.NewStream("Test")
+
+	conn.processExited = make(chan struct{})
+	c.Close()
+
+	<-conn.done
+
+	_, _, err := st.RecvRequestRaw(1 * time.Second)
+	if err == nil {
+		t.Fatal("expected error")
+	}
+	mustContainStr(t, err.Error(), "connection closed")
+}
+
+// =============================================================================
+// buildRunTestMessage: wire-format base fields
+// =============================================================================
+
+func TestBuildRunTestMessageBaseFields(t *testing.T) {
+	t.Parallel()
+	msg := buildRunTestMessage(7, runOptions{testCases: 42, derandomize: true})
+	if msg["command"] != "run_test" {
+		t.Errorf("command = %v", msg["command"])
+	}
+	if msg["test_cases"] != int64(42) {
+		t.Errorf("test_cases = %v", msg["test_cases"])
+	}
+	if msg["stream_id"] != int64(7) {
+		t.Errorf("stream_id = %v", msg["stream_id"])
+	}
+	if msg["derandomize"] != true {
+		t.Errorf("derandomize = %v", msg["derandomize"])
+	}
+}
+
+func TestDatabaseDisabledSetting(t *testing.T) {
+	t.Parallel()
+	s := DatabaseDisabled()
+	if s.state != databaseDisabled {
+		t.Errorf("state = %v, want databaseDisabled", s.state)
+	}
+}
+
+func TestBuildRunTestMessageDatabaseDisabled(t *testing.T) {
+	t.Parallel()
+	msg := buildRunTestMessage(1, runOptions{
+		testCases:   1,
+		database:    DatabaseDisabled(),
+		databaseKey: []byte("k"),
+	})
+	v, ok := msg["database"]
+	if !ok {
+		t.Fatal("expected database field to be present")
+	}
+	if v != nil {
+		t.Errorf("database = %v, want nil", v)
+	}
+	if msg["database_key"] != nil {
+		t.Errorf("database_key = %v, want nil when disabled", msg["database_key"])
+	}
+}
+
+// In CI, runHegel disables the database regardless of the user's option.
+func TestRunHegelDisablesDatabaseInCI(t *testing.T) {
+	clearCIEnv(t)
+	t.Setenv("CI", "true")
+	t.Setenv("HEGEL_PROTOCOL_TEST_MODE", "empty_test")
+	err := runHegel(func(_ *TestCase) {}, stdoutNoteFn, nil)
+	if err != nil {
+		t.Fatalf("runHegel: %v", err)
+	}
+}
+
+func TestWithDerandomizeIntegration(t *testing.T) {
+	clearCIEnv(t)
+	// Just exercise the wire path — full determinism is enforced server-side.
+	Test(t, func(ht *T) {
+		_ = Draw[bool](ht, Booleans())
+	}, WithDerandomize(true), WithTestCases(3))
+}
+
 // --- helpers ---
+
+func clearCIEnv(t *testing.T) {
+	t.Helper()
+	for _, v := range ciEnvVars {
+		if old, ok := os.LookupEnv(v.name); ok {
+			os.Unsetenv(v.name)
+			t.Cleanup(func() { os.Setenv(v.name, old) })
+		}
+	}
+}
 
 func mustContainStr(t *testing.T, s, sub string) {
 	t.Helper()

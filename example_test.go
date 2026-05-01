@@ -29,14 +29,28 @@ func ExampleTest_withTestCases() {
 	}, hegel.WithTestCases(500))
 }
 
-func ExampleRun() {
-	err := hegel.Run(func(s *hegel.TestCase) {
-		n := hegel.Draw(s, hegel.Integers(0, 100))
-		if n < 0 || n > 100 {
-			panic("out of range")
+func ExampleTest_withDatabase() {
+	t := &testing.T{}
+	hegel.Test(t, func(ht *hegel.T) {
+		n := hegel.Draw(ht, hegel.Integers(0, 100))
+		if n < 0 {
+			ht.Fatal("negative integer should not be generated")
 		}
-	}, hegel.WithTestCases(50))
-	_ = err
+	}, hegel.WithDatabase(hegel.Database("my_hegel_database")))
+}
+
+func ExampleTest_disableDatabase() {
+	t := &testing.T{}
+	hegel.Test(t, func(ht *hegel.T) {
+		_ = hegel.Draw(ht, hegel.Booleans())
+	}, hegel.WithDatabase(hegel.DatabaseDisabled()))
+}
+
+func ExampleTest_withDerandomize() {
+	t := &testing.T{}
+	hegel.Test(t, func(ht *hegel.T) {
+		_ = hegel.Draw(ht, hegel.Integers(0, 100))
+	}, hegel.WithDerandomize(true))
 }
 
 func ExampleDraw() {
