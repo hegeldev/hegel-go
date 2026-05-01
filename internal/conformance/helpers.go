@@ -7,6 +7,8 @@ import (
 	"os"
 	"strconv"
 	"sync"
+
+	hegel "hegel.dev/go/hegel"
 )
 
 // GetTestCases returns the number of conformance test cases to run,
@@ -80,4 +82,10 @@ func EnsureMetric() {
 	if !written {
 		writeMetricsLine(map[string]any{})
 	}
+}
+
+// MakeNonBasic wraps a generator in a trivial filter so as_basic() returns nil,
+// forcing the compositional fallback path.
+func MakeNonBasic[T any](gen hegel.Generator[T]) hegel.Generator[T] {
+	return hegel.Filter(gen, func(v T) bool { return true })
 }

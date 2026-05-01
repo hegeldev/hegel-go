@@ -246,3 +246,100 @@ func TestListsBasicWithParseE2E(t *testing.T) {
 		}
 	}, WithTestCases(50))
 }
+
+// TestListsUniqueBasicSchema verifies that Lists(...).Unique(true) with a basic
+// element generator sets "unique": true in the list schema.
+func TestListsUniqueBasicSchema(t *testing.T) {
+	t.Parallel()
+	elem := Integers[int64](0, 100)
+	gen := Lists(elem).MinSize(2).MaxSize(10).Unique(true)
+	bg, ok, err := gen.asBasic()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !ok {
+		t.Fatal("Lists(Integers).Unique should be basic")
+	}
+	u, ok := bg.schema["unique"].(bool)
+	if !ok || !u {
+		t.Errorf("schema unique: expected true, got %v (%T)", bg.schema["unique"], bg.schema["unique"])
+	}
+}
+
+// TestListsUniqueBasicWithParseSchema verifies that Unique propagates to the
+// list schema even when the element generator has a composed parse.
+func TestListsUniqueBasicWithParseSchema(t *testing.T) {
+	t.Parallel()
+	elem := Map(Integers[int64](0, 100), func(n int64) int64 { return n * 2 })
+	gen := Lists(elem).MinSize(1).MaxSize(5).Unique(true)
+	bg, ok, err := gen.asBasic()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !ok {
+		t.Fatal("Lists(Map(Integers)).Unique should be basic")
+	}
+	u, ok := bg.schema["unique"].(bool)
+	if !ok || !u {
+		t.Errorf("schema unique: expected true, got %v (%T)", bg.schema["unique"], bg.schema["unique"])
+	}
+}
+
+// TestListsUniqueDefaultFalseSchema verifies that Unique is not set in the schema
+// when the builder was not configured with Unique(true).
+func TestListsUniqueDefaultFalseSchema(t *testing.T) {
+	t.Parallel()
+	gen := Lists(Integers[int64](0, 100)).MinSize(0).MaxSize(5)
+	bg, ok, err := gen.asBasic()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !ok {
+		t.Fatal("Lists(Integers) should be basic")
+	}
+	if _, has := bg.schema["unique"]; has {
+		t.Error("unique should not be present in schema when Unique not set")
+	}
+}
+
+// TestListsUniqueNonBasicE2E verifies that Lists with Unique(true) and a non-basic
+// element generator produces distinct elements by rejecting duplicates through
+// the collection protocol.
+func TestListsUniqueNonBasicE2E(t *testing.T) {
+	t.Parallel()
+
+	inner := Integers[int](0, 20)
+	nonBasic := &mappedGenerator[int, int]{inner: inner, fn: func(v int) int { return v }}
+	if _err := Run(func(s *TestCase) {
+		xs := Lists(nonBasic).MinSize(3).MaxSize(10).Unique(true).draw(s)
+		seen := map[int]struct{}{}
+		for _, x := range xs {
+			if _, exists := seen[x]; exists {
+				panic(fmt.Sprintf("Lists(non-basic).Unique: duplicate element %d in %v", x, xs))
+			}
+			seen[x] = struct{}{}
+		}
+	}, WithTestCases(20)); _err != nil {
+		panic(_err)
+	}
+}
+
+// TestListsCompositeEmptyReturnsEmptySlice verifies that an empty composite list
+// yields an empty (non-nil) slice so CBOR encoding produces `[]` rather than `null`.
+func TestListsCompositeEmptyReturnsEmptySlice(t *testing.T) {
+	t.Parallel()
+
+	inner := Integers[int](0, 10)
+	nonBasic := &mappedGenerator[int, int]{inner: inner, fn: func(v int) int { return v }}
+	if _err := Run(func(s *TestCase) {
+		xs := Lists(nonBasic).MaxSize(0).draw(s)
+		if xs == nil {
+			panic("Lists(non-basic) with MaxSize(0) returned nil; expected empty slice")
+		}
+		if len(xs) != 0 {
+			panic(fmt.Sprintf("expected empty slice, got %v", xs))
+		}
+	}, WithTestCases(5)); _err != nil {
+		panic(_err)
+	}
+}

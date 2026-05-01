@@ -339,6 +339,9 @@ func (c *collection) More(gs *TestCase) bool {
 }
 
 // Reject tells the server that the last generated element should not count.
+// If the server responds with a StopTest error (e.g. because too many rejections
+// have exhausted the collection's budget), the collection is marked finished
+// and the test case is aborted via doRequest's normal abort handling.
 func (c *collection) Reject(gs *TestCase) {
 	if c.finished {
 		return
@@ -350,5 +353,13 @@ func (c *collection) Reject(gs *TestCase) {
 	if err != nil { // coverage-ignore
 		panic(fmt.Sprintf("collection.Reject encode: %v", err))
 	}
+	defer func() {
+		if r := recover(); r != nil {
+			if _, ok := r.(*dataExhausted); ok {
+				c.finished = true
+			}
+			panic(r)
+		}
+	}()
 	doRequest(gs, payload)
 }
