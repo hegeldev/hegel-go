@@ -20,7 +20,7 @@ type TestCase struct {
 	isFinal bool
 	aborted bool
 	failed  bool         // for T.Error/Fail deferred INTERESTING
-	noteFn  func(string) // injected: t.Log for Case, stderr for Run
+	noteFn  func(string) // injected: t.Log for Test, stdout for Run
 }
 
 // --- Sentinel errors ---
@@ -60,7 +60,7 @@ func (s *TestCase) Assume(condition bool) {
 
 // Note prints message, but only during the final (replay) test case.
 //
-// Output is routed to t.Log for [Case], or stderr for [Run].
+// Output is routed to t.Log for [Test], or stdout for [Run].
 func (s *TestCase) Note(message string) {
 	if s.isFinal && s.noteFn != nil {
 		s.noteFn(message)
@@ -176,13 +176,54 @@ func (h HealthCheck) String() string {
 
 // --- Test runner options ---
 
+// databaseState distinguishes between "user has not set the database" (default
+// server behavior applies), "user disabled the database", and "user supplied a
+// path". The first state corresponds to omitting the field on the wire; the
+// other two send null and a string respectively.
+type databaseState int
+
+const (
+	databaseUnset databaseState = iota
+	databaseDisabled
+	databasePath
+)
+
+// DatabaseSetting configures example-database persistence for a test run.
+// Construct one with [Database] (a path) or [DatabaseDisabled] (no
+// persistence) and pass it to [WithDatabase].
+type DatabaseSetting struct {
+	state databaseState
+	path  string
+}
+
+// Database returns a [DatabaseSetting] that persists failing examples to the
+// given directory. Failing test cases are saved there and replayed on
+// subsequent runs of the same test.
+func Database(path string) DatabaseSetting {
+	return DatabaseSetting{state: databasePath, path: path}
+}
+
+// DatabaseDisabled returns a [DatabaseSetting] that disables example-database
+// persistence. No failing examples are saved or replayed.
+//
+// In CI environments, the database is disabled by default; this setting is
+// useful when you want to disable it explicitly outside of CI.
+func DatabaseDisabled() DatabaseSetting {
+	return DatabaseSetting{state: databaseDisabled}
+}
+
 // runOptions holds options for property tests.
 type runOptions struct {
 	testCases           int
 	suppressHealthCheck []HealthCheck
+	database            DatabaseSetting
+	derandomize         bool
+	// databaseKey identifies the test for example-database lookups. Set by
+	// [Test] from t.Name(); nil for [Run]/[MustRun] (no test name available).
+	databaseKey []byte
 }
 
-// Option is a functional option for Case and Run.
+// Option is a functional option for Test and Run.
 type Option func(*runOptions)
 
 // WithTestCases sets the number of test cases to run.
@@ -198,13 +239,71 @@ func SuppressHealthCheck(checks ...HealthCheck) Option {
 	return func(o *runOptions) { o.suppressHealthCheck = append(o.suppressHealthCheck, checks...) }
 }
 
-// --- Public API ---
+// WithDatabase configures example-database persistence for this test.
+// Construct the setting with [Database] (a path) or [DatabaseDisabled].
+//
+// The default behavior (when WithDatabase is not specified) is to use the
+// server's default database location, except in CI environments where the
+// database is automatically disabled.
+func WithDatabase(db DatabaseSetting) Option {
+	return func(o *runOptions) { o.database = db }
+}
+
+// WithDerandomize sets whether to use a fixed seed for reproducible runs.
+func WithDerandomize(derandomize bool) Option {
+	return func(o *runOptions) { o.derandomize = derandomize }
+}
+
+// withDatabaseKey sets the example-database key. Unexported: only [Test]
+// supplies a key, deriving it from t.Name(). User-facing code controls the
+// database via [WithDatabase] only.
+func withDatabaseKey(key []byte) Option {
+	return func(o *runOptions) { o.databaseKey = key }
+}
+
+// ciEnvVar describes a single CI-detection env var. If matchAny is true, the
+// var counts as a CI signal whenever it is present in the environment, even
+// with an empty value. Otherwise it must equal expected exactly.
+type ciEnvVar struct {
+	name     string
+	expected string
+	matchAny bool
+}
+
+var ciEnvVars = []ciEnvVar{
+	{name: "CI", matchAny: true},
+	{name: "__TOX_ENVIRONMENT_VARIABLE_ORIGINAL_CI", matchAny: true},
+	{name: "TF_BUILD", expected: "true"},
+	{name: "bamboo.buildKey", matchAny: true},
+	{name: "BUILDKITE", expected: "true"},
+	{name: "CIRCLECI", expected: "true"},
+	{name: "CIRRUS_CI", expected: "true"},
+	{name: "CODEBUILD_BUILD_ID", matchAny: true},
+	{name: "GITHUB_ACTIONS", expected: "true"},
+	{name: "GITLAB_CI", matchAny: true},
+	{name: "HEROKU_TEST_RUN_ID", matchAny: true},
+	{name: "TEAMCITY_VERSION", matchAny: true},
+}
+
+// isCI reports whether any well-known CI environment variable is set.
+func isCI() bool {
+	for _, v := range ciEnvVars {
+		val, ok := os.LookupEnv(v.name)
+		if !ok {
+			continue
+		}
+		if v.matchAny || val == v.expected { // coverage-ignore
+			return true
+		}
+	}
+	return false
+}
 
 // Run runs a property test and returns any error.
 //
-// Note output goes to stderr. For use in standalone binaries and conformance tests.
+// Note output goes to stdout. For use in standalone binaries and conformance tests.
 func Run(fn func(*TestCase), opts ...Option) error {
-	return runHegel(fn, stderrNoteFn, opts)
+	return runHegel(fn, stdoutNoteFn, opts)
 }
 
 // MustRun runs a property test and panics if it fails.
@@ -214,32 +313,39 @@ func MustRun(fn func(*TestCase), opts ...Option) {
 	}
 }
 
-// Case returns a test function for use with testing.T.Run.
-//
-// Note output is routed to t.Log.
-func Case(fn func(*T), opts ...Option) func(*testing.T) {
-	return func(t *testing.T) {
-		t.Helper()
+// Test runs a property test against t.
+func Test(t *testing.T, fn func(*T), opts ...Option) {
+	t.Helper()
 
-		body := func(s *TestCase) {
-			ht := &T{TestCase: s, T: t}
-			fn(ht)
-		}
-		err := runHegel(body, func(msg string) { t.Log(msg) }, opts) // coverage-ignore
-		if err != nil {                                              // coverage-ignore
-			t.Fatal(err)
-		}
+	body := func(s *TestCase) {
+		ht := &T{TestCase: s, T: t}
+		fn(ht)
+	}
+	allOpts := append(opts, withDatabaseKey([]byte(t.Name())))
+	err := runHegel(body, func(msg string) { t.Log(msg) }, allOpts) // coverage-ignore
+	if err != nil {                                                 // coverage-ignore
+		t.Fatal(err)
 	}
 }
 
-// stderrNoteFn is the noteFn for Run/MustRun: writes to stderr.
-func stderrNoteFn(msg string) {
-	fmt.Fprintln(os.Stderr, msg)
+// stdoutNoteFn is the noteFn for Run/MustRun: writes to stdout.
+func stdoutNoteFn(msg string) {
+	fmt.Println(msg)
 }
 
-// runHegel is the shared implementation for Run, MustRun, and Case.
+// runHegel is the shared implementation for Run, MustRun, and Test.
+//
+// The example-database key is supplied (when applicable) by [Test];
+// non-test entry points leave it nil.
 func runHegel(fn testBody, noteFn func(string), opts []Option) error {
-	o := runOptions{testCases: 100}
+	inCI := isCI()
+	o := runOptions{
+		testCases:   100,
+		derandomize: inCI,
+	}
+	if inCI {
+		o.database = DatabaseSetting{state: databaseDisabled}
+	}
 	for _, opt := range opts {
 		opt(&o)
 	}
@@ -303,22 +409,39 @@ func newClient(conn *connection) *client {
 	return &client{conn: conn}
 }
 
-// runTest executes one property test against the server.
-func (c *client) runTest(fn testBody, opts runOptions, noteFn func(string)) error {
-	testSt := c.conn.NewStream("Test")
-
-	runTestMsg := map[string]any{
-		"command":    "run_test",
-		"test_cases": int64(opts.testCases),
-		"stream_id":  int64(testSt.StreamID()),
+func buildRunTestMessage(streamID uint32, opts runOptions) map[string]any {
+	msg := map[string]any{
+		"command":     "run_test",
+		"test_cases":  int64(opts.testCases),
+		"stream_id":   int64(streamID),
+		"derandomize": opts.derandomize,
+	}
+	if opts.database.state == databaseDisabled || opts.databaseKey == nil {
+		msg["database_key"] = nil
+	} else {
+		msg["database_key"] = opts.databaseKey
+	}
+	switch opts.database.state {
+	case databaseDisabled:
+		msg["database"] = nil
+	case databasePath:
+		msg["database"] = opts.database.path
 	}
 	if len(opts.suppressHealthCheck) > 0 {
 		names := make([]string, len(opts.suppressHealthCheck))
 		for i, hc := range opts.suppressHealthCheck {
 			names[i] = hc.String()
 		}
-		runTestMsg["suppress_health_check"] = names
+		msg["suppress_health_check"] = names
 	}
+	return msg
+}
+
+// runTest executes one property test against the server.
+func (c *client) runTest(fn testBody, opts runOptions, noteFn func(string)) error {
+	testSt := c.conn.NewStream("Test")
+
+	runTestMsg := buildRunTestMessage(testSt.StreamID(), opts)
 	payload, err := encodeCBOR(runTestMsg)
 	if err != nil { // coverage-ignore
 		panic(fmt.Sprintf("runTest encode: %v", err))
@@ -332,7 +455,8 @@ func (c *client) runTest(fn testBody, opts runOptions, noteFn func(string)) erro
 	var resultData map[any]any
 	for {
 		msgID, raw, err := testSt.RecvRequestRaw(30 * time.Second)
-		if err != nil {
+		// covered by TempGoProject
+		if err != nil { // coverage-ignore
 			return fmt.Errorf("test event recv: %w", err)
 		}
 		decoded, err := decodeCBOR(raw)
@@ -383,7 +507,8 @@ doneLoop:
 	}
 
 	// Check for health check failure.
-	if hcMsg, ok := resultData[any("health_check_failure")].(string); ok && hcMsg != "" {
+	// covered by TempGoProject
+	if hcMsg, ok := resultData[any("health_check_failure")].(string); ok && hcMsg != "" { // coverage-ignore
 		return fmt.Errorf("health check failure:\n%s", hcMsg)
 	}
 

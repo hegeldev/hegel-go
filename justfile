@@ -1,5 +1,7 @@
 set ignore-comments := true
 
+export PATH := "/usr/local/go/bin:" + env("HOME") + "/go/bin:" + env("PATH")
+
 check-format:
     #!/usr/bin/env bash
     set -euo pipefail
@@ -10,8 +12,8 @@ check-format:
         exit 1
     fi
 
-check-tests:
-    go test -race -coverprofile=coverage.out -covermode=atomic \
+check-tests *args:
+    go test -race {{args}} -coverprofile=coverage.out -covermode=atomic \
         -coverpkg=hegel.dev/go/hegel ./...
     python3 scripts/check-coverage.py
 
@@ -39,7 +41,7 @@ check-conformance: build-conformance
 
 # these aliases are provided as ux improvements for local developers. CI should use the longer
 # forms.
-test: check-tests
+test *args: (check-tests args)
 lint: check-lint
 conformance: check-conformance
 check: check-lint check-docs check-tests

@@ -42,14 +42,14 @@ func mySort(ls []int) []int {
 }
 
 func TestMatchesBuiltin(t *testing.T) {
-	t.Run("matches builtin", hegel.Case(func(ht *hegel.T) {
+	hegel.Test(t, func(ht *hegel.T) {
 		slice1 := hegel.Draw(ht, hegel.Lists(hegel.Integers(math.MinInt, math.MaxInt)))
 		slice2 := mySort(slice1)
 		slices.Sort(slice1)
 		if !slices.Equal(slice1, slice2) {
 			ht.Fatalf("slices not equal: %v != %v", slice1, slice2)
 		}
-	}))
+	})
 }
 ```
 

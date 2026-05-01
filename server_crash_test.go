@@ -228,7 +228,7 @@ func TestServerCrashIncludesLogContent(t *testing.T) {
 
 	err := s.runTest(func(tc *TestCase) {
 		Draw[bool](tc, Booleans())
-	}, runOptions{testCases: 1}, stderrNoteFn)
+	}, runOptions{testCases: 1}, stdoutNoteFn)
 	if err == nil {
 		t.Fatal("expected error from fake crash server")
 	}
@@ -247,7 +247,7 @@ func TestServerCrashEmptyLog(t *testing.T) {
 
 	err := s.runTest(func(tc *TestCase) {
 		Draw[bool](tc, Booleans())
-	}, runOptions{testCases: 1}, stderrNoteFn)
+	}, runOptions{testCases: 1}, stdoutNoteFn)
 	if err == nil {
 		t.Fatal("expected error from fake crash server")
 	}
@@ -269,21 +269,15 @@ func TestKillServerNoProcess(t *testing.T) {
 func TestServerRestartsAfterKill(t *testing.T) {
 
 	// First run — starts the server and completes successfully.
-	err := Run(func(s *TestCase) {
-		Draw[bool](s, Booleans())
+	Test(t, func(ht *T) {
+		Draw[bool](ht, Booleans())
 	}, WithTestCases(1))
-	if err != nil {
-		t.Fatalf("first run: %v", err)
-	}
 
 	// Kill the server and wait for the connection to detect it has exited.
 	testKillServer()
 
 	// Second run — should detect the dead session, restart the server, and succeed.
-	err = Run(func(s *TestCase) {
-		Draw[bool](s, Booleans())
+	Test(t, func(ht *T) {
+		Draw[bool](ht, Booleans())
 	}, WithTestCases(1))
-	if err != nil {
-		t.Fatalf("second run after restart: %v", err)
-	}
 }

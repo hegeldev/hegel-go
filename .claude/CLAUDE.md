@@ -13,8 +13,6 @@ just conformance        # Build conformance binaries + run Python conformance te
 go test -run TestName ./...  # Run a single test
 ```
 
-Tests must use `PATH="$(pwd)/.venv/bin:$PATH"` (absolute path) so the `hegel` binary is found.
-
 ## What This Is
 
 A Go implementation of the Hegel property-based testing library. Hegel is a
@@ -49,19 +47,24 @@ body.
 
 The `hegel` subprocess is managed by a global session that starts lazily on first
 use and shuts down automatically on process exit. Users never construct connections
-or sessions manually — `Case` (and the low-level `RunHegelTestE`) are plain free
-functions.
+or sessions manually — `Test`, `Run`, and `MustRun` are plain free functions.
 
 ## Public API
 
 The user-facing surface lives in `hegel.go` (canonical package doc). Entry points:
 
-- `hegel.Case(fn, opts...) func(*testing.T)` — wraps a property test for `t.Run`
+- `hegel.Test(t, fn, opts...)` — runs a property test against a `*testing.T`
+- `hegel.Run(fn, opts...) error` — runs a property test outside `*testing.T`
+  (conformance binaries, standalone tools); returns an error
+- `hegel.MustRun(fn, opts...)` — like Run, but panics on failure
 - `hegel.Draw(ht, gen)` — draws a value inside a test body
-- `hegel.T` — passed to the test body; methods include `Note`, `Fatal`, `Fatalf`
+- `hegel.T` — passed to the [Test] body; methods include `Note`, `Fatal`, `Fatalf`
 - Generators: `Integers`, `Floats`, `Text`, `Booleans`, `Lists`, `Maps`, ...
-- Options: `WithTestCases(n)` and other `Option` funcs configure runs
-- Low-level: `RunHegelTestE` is the runner Case wraps; useful in error-injection tests
+- Options: `WithTestCases(n)`, `WithDatabase(Database(path))`,
+  `WithDatabase(DatabaseDisabled())`, `WithDerandomize(bool)`,
+  `SuppressHealthCheck(...)`
+- Low-level: the unexported `runHegel` is what `Test`, `Run`, and `MustRun`
+  delegate to; useful in error-injection tests via direct call
 
 ## Testing Philosophy
 
@@ -77,8 +80,8 @@ The user-facing surface lives in `hegel.go` (canonical package doc). Entry point
 
 ### HEGEL_PROTOCOL_TEST_MODE — Error Injection
 
-Set the `HEGEL_PROTOCOL_TEST_MODE` environment variable before calling `RunHegelTestE` to
-trigger server-side error injection:
+Set the `HEGEL_PROTOCOL_TEST_MODE` environment variable before calling `Run` (or
+`runHegel` directly in tests) to trigger server-side error injection:
 
 | Mode                          | What it does                                      |
 |-------------------------------|---------------------------------------------------|
@@ -128,7 +131,6 @@ Failing to handle StopTest correctly causes `FlakyStrategyDefinition` errors.
 - **Error handling**: Return `error` for failable operations; `panic()` for truly unreachable code paths
 - **Doc comments**: Every exported symbol must have a doc comment starting with the symbol name
 - **Coverage**: 100% enforced via `go-test-coverage` with `// coverage-ignore` for exclusions; annotation count ratcheted in `.github/coverage-ratchet.json`
-- **Test execution**: Tests use `PATH="$(pwd)/.venv/bin:$PATH"` (absolute path) to find the `hegel` binary — relative paths don't work with `exec.LookPath`
 
 ## Developer Notes
 
@@ -151,7 +153,7 @@ Failing to handle StopTest correctly causes `FlakyStrategyDefinition` errors.
 
 ### Test isolation with HEGEL_PROTOCOL_TEST_MODE
 
-- Test-mode hegel handles exactly ONE `run_test` then exits. `RunHegelTestE` creates a fresh temporary session when this env var is set.
+- Test-mode hegel handles exactly ONE `run_test` then exits. `Run` creates a fresh temporary session when this env var is set.
 - Test-mode sessions suppress stderr to avoid Python tracebacks in test output.
 
 ### Protocol field names
