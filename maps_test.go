@@ -255,16 +255,15 @@ func TestPairsToMapNonSlicePair(t *testing.T) {
 func TestMapsStopTestOnNewCollection(t *testing.T) {
 
 	t.Setenv("HEGEL_PROTOCOL_TEST_MODE", "stop_test_on_new_collection")
-	err := Run(func(s *TestCase) {
+	// StopTest causes test to be skipped or aborted, not fail
+	Test(t, func(ht *T) {
 		nonBasicKeys := &mappedGenerator[int64, int64]{
 			inner: Integers[int64](0, 10),
 			fn:    func(v int64) int64 { return v },
 		}
 		gen := Maps(nonBasicKeys, Integers[int64](0, 100)).MaxSize(3)
-		_ = gen.draw(s)
+		_ = gen.draw(ht.TestCase)
 	})
-	// StopTest causes test to be skipped or aborted, not fail
-	_ = err
 }
 
 // TestMapsStopTestOnCollectionMore verifies that StopTest during collection_more
@@ -272,15 +271,14 @@ func TestMapsStopTestOnNewCollection(t *testing.T) {
 func TestMapsStopTestOnCollectionMore(t *testing.T) {
 
 	t.Setenv("HEGEL_PROTOCOL_TEST_MODE", "stop_test_on_collection_more")
-	err := Run(func(s *TestCase) {
+	Test(t, func(ht *T) {
 		nonBasicKeys := &mappedGenerator[int64, int64]{
 			inner: Integers[int64](0, 10),
 			fn:    func(v int64) int64 { return v },
 		}
 		gen := Maps(nonBasicKeys, Integers[int64](0, 100)).MaxSize(3)
-		_ = gen.draw(s)
+		_ = gen.draw(ht.TestCase)
 	})
-	_ = err
 }
 
 // =============================================================================
@@ -292,9 +290,9 @@ func TestMapsStopTestOnCollectionMore(t *testing.T) {
 func TestMapsBasicE2E(t *testing.T) {
 	t.Parallel()
 
-	if _err := Run(func(s *TestCase) {
+	Test(t, func(ht *T) {
 		gen := Maps(Text().MaxSize(5), Integers[int](0, 100)).MaxSize(3)
-		m := gen.draw(s)
+		m := gen.draw(ht.TestCase)
 		if len(m) > 3 {
 			panic(fmt.Sprintf("Maps: expected at most 3 entries, got %d", len(m)))
 		}
@@ -306,9 +304,7 @@ func TestMapsBasicE2E(t *testing.T) {
 				panic(fmt.Sprintf("Maps: value %d out of [0,100]", val))
 			}
 		}
-	}, WithTestCases(50)); _err != nil {
-		panic(_err)
-	}
+	}, WithTestCases(50))
 }
 
 // TestMapsBasicWithBoundsE2E verifies that Maps with min_size/max_size constraints
@@ -316,9 +312,9 @@ func TestMapsBasicE2E(t *testing.T) {
 func TestMapsBasicWithBoundsE2E(t *testing.T) {
 	t.Parallel()
 
-	if _err := Run(func(s *TestCase) {
+	Test(t, func(ht *T) {
 		gen := Maps(Integers[int](0, 10), Booleans()).MinSize(1).MaxSize(3)
-		m := gen.draw(s)
+		m := gen.draw(ht.TestCase)
 		if len(m) < 1 || len(m) > 3 {
 			panic(fmt.Sprintf("Maps bounded: expected 1-3 entries, got %d", len(m)))
 		}
@@ -327,27 +323,23 @@ func TestMapsBasicWithBoundsE2E(t *testing.T) {
 				panic(fmt.Sprintf("Maps bounded: key %d out of [0,10]", k))
 			}
 		}
-	}, WithTestCases(50)); _err != nil {
-		panic(_err)
-	}
+	}, WithTestCases(50))
 }
 
 // TestMapsCompositeNoMaxE2E verifies the composite Maps generator with no max_size
 // uses the default (min_size + 10).
 func TestMapsCompositeNoMaxE2E(t *testing.T) {
 
-	if _err := Run(func(s *TestCase) {
+	Test(t, func(ht *T) {
 		nonBasicKeys := &mappedGenerator[int64, int64]{
 			inner: Integers[int64](0, 100),
 			fn:    func(n int64) int64 { return n },
 		}
 		// Omit MaxSize to trigger the !g.hasMax branch.
 		gen := Maps(nonBasicKeys, Just("v"))
-		m := gen.draw(s)
+		m := gen.draw(ht.TestCase)
 		_ = m // just verify it doesn't panic
-	}, WithTestCases(30)); _err != nil {
-		panic(_err)
-	}
+	}, WithTestCases(30))
 }
 
 // TestMapsCompositeE2E verifies the composite Maps generator (non-basic keys)
@@ -355,7 +347,7 @@ func TestMapsCompositeNoMaxE2E(t *testing.T) {
 func TestMapsCompositeE2E(t *testing.T) {
 	t.Parallel()
 
-	if _err := Run(func(s *TestCase) {
+	Test(t, func(ht *T) {
 		// mappedGenerator makes this non-basic -> composite path
 		nonBasicKeys := &mappedGenerator[int64, int64]{
 			inner: Integers[int64](0, 10),
@@ -367,16 +359,14 @@ func TestMapsCompositeE2E(t *testing.T) {
 			},
 		}
 		gen := Maps(nonBasicKeys, Just("val")).MaxSize(3)
-		m := gen.draw(s)
+		m := gen.draw(ht.TestCase)
 		// All values must be "val"
 		for k, val := range m {
 			if val != "val" {
 				panic(fmt.Sprintf("Maps composite: expected value 'val', got %v for key %v", val, k))
 			}
 		}
-	}, WithTestCases(50)); _err != nil {
-		panic(_err)
-	}
+	}, WithTestCases(50))
 }
 
 func TestMapsNonBasicCollisions(t *testing.T) {
@@ -386,9 +376,7 @@ func TestMapsNonBasicCollisions(t *testing.T) {
 	vals := Integers[int](0, 100)
 	gen := Maps(keys, vals).MinSize(3).MaxSize(5)
 
-	if _err := Run(func(s *TestCase) {
-		_ = gen.draw(s)
-	}, WithTestCases(50)); _err != nil {
-		panic(_err)
-	}
+	Test(t, func(ht *T) {
+		_ = gen.draw(ht.TestCase)
+	}, WithTestCases(50))
 }

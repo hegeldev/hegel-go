@@ -19,19 +19,17 @@ import (
 
 func TestIntegersFullRangeE2E(t *testing.T) {
 
-	if _err := Run(func(s *TestCase) {
+	Test(t, func(ht *T) {
 		// Full-range integers: just verify the draw completes without error.
-		_ = Draw[int](s, Integers[int](math.MinInt, math.MaxInt))
-	}, WithTestCases(20)); _err != nil {
-		panic(_err)
-	}
+		_ = Draw[int](ht, Integers[int](math.MinInt, math.MaxInt))
+	}, WithTestCases(20))
 }
 
 func TestFloatsE2E_WithBounds(t *testing.T) {
 	t.Parallel()
 
-	if _err := Run(func(s *TestCase) {
-		fv := Draw[float64](s, Floats[float64]().Min(0.0).Max(1.0).AllowNaN(false).AllowInfinity(false))
+	Test(t, func(ht *T) {
+		fv := Draw[float64](ht, Floats[float64]().Min(0.0).Max(1.0).AllowNaN(false).AllowInfinity(false))
 		if math.IsNaN(fv) {
 			panic("floats: NaN not allowed when allow_nan=false")
 		}
@@ -41,121 +39,101 @@ func TestFloatsE2E_WithBounds(t *testing.T) {
 		if fv < 0.0 || fv > 1.0 {
 			panic("floats: out of range [0.0, 1.0]")
 		}
-	}, WithTestCases(50)); _err != nil {
-		panic(_err)
-	}
+	}, WithTestCases(50))
 }
 
 func TestFloatsE2E_Unbounded(t *testing.T) {
 	t.Parallel()
 
-	if _err := Run(func(s *TestCase) {
+	Test(t, func(ht *T) {
 		// Unbounded floats may produce NaN or Inf -- any float64 is valid.
-		_ = Draw(s, Floats[float64]())
-	}, WithTestCases(50)); _err != nil {
-		panic(_err)
-	}
+		_ = Draw(ht, Floats[float64]())
+	}, WithTestCases(50))
 }
 
 func TestFloatsE2E_OnlyMin(t *testing.T) {
 	t.Parallel()
 
-	if _err := Run(func(s *TestCase) {
-		fv := Draw(s, Floats[float64]().Min(0.0))
+	Test(t, func(ht *T) {
+		fv := Draw(ht, Floats[float64]().Min(0.0))
 		// allow_nan is false (has min), allow_infinity is true (no max)
 		// Value should be >= 0.0 or Inf; NaN not allowed.
 		if math.IsNaN(fv) {
 			panic("floats: NaN not expected when min set")
 		}
-	}, WithTestCases(50)); _err != nil {
-		panic(_err)
-	}
+	}, WithTestCases(50))
 }
 
 func TestFloatsE2E_Float32(t *testing.T) {
 	t.Parallel()
 
-	if _err := Run(func(s *TestCase) {
-		fv := Draw(s, Floats[float32]().Min(0.0).Max(1.0).AllowNaN(false).AllowInfinity(false))
+	Test(t, func(ht *T) {
+		fv := Draw(ht, Floats[float32]().Min(0.0).Max(1.0).AllowNaN(false).AllowInfinity(false))
 		if fv < 0.0 || fv > 1.0 {
 			panic("float32: out of range [0.0, 1.0]")
 		}
-	}, WithTestCases(50)); _err != nil {
-		panic(_err)
-	}
+	}, WithTestCases(50))
 }
 
 func TestFloatsGenerateErrorResponse(t *testing.T) {
-
 	t.Setenv("HEGEL_PROTOCOL_TEST_MODE", "error_response")
-	err := Run(func(s *TestCase) {
-		_ = Floats[float64]().draw(s)
-	})
-	_ = err
+	newTempGoProject(t).
+		testBody(`_ = hegel.Draw[float64](ht, hegel.Floats[float64]())`).
+		goTest()
 }
 
 func TestBooleansE2E(t *testing.T) {
 	t.Parallel()
 
-	if _err := Run(func(s *TestCase) {
-		b := Draw[bool](s, Booleans())
+	Test(t, func(ht *T) {
+		b := Draw[bool](ht, Booleans())
 		// A valid assertion: b is either true or false.
 		if b != true && b != false {
 			panic("booleans: expected bool")
 		}
-	}, WithTestCases(50)); _err != nil {
-		panic(_err)
-	}
+	}, WithTestCases(50))
 }
 
 func TestTextE2E(t *testing.T) {
 	t.Parallel()
 
-	if _err := Run(func(s *TestCase) {
-		sv := Draw[string](s, Text().MinSize(2).MaxSize(8))
+	Test(t, func(ht *T) {
+		sv := Draw[string](ht, Text().MinSize(2).MaxSize(8))
 		count := utf8.RuneCountInString(sv)
 		if count < 2 || count > 8 {
 			panic("text: codepoint count out of range [2, 8]")
 		}
-	}, WithTestCases(50)); _err != nil {
-		panic(_err)
-	}
+	}, WithTestCases(50))
 }
 
 func TestTextE2E_Unbounded(t *testing.T) {
 	t.Parallel()
 
-	if _err := Run(func(s *TestCase) {
-		sv := Draw[string](s, Text())
+	Test(t, func(ht *T) {
+		sv := Draw[string](ht, Text())
 		if !utf8.ValidString(sv) {
 			panic("text: invalid UTF-8 string")
 		}
-	}, WithTestCases(50)); _err != nil {
-		panic(_err)
-	}
+	}, WithTestCases(50))
 }
 
 func TestBinaryE2E(t *testing.T) {
 	t.Parallel()
 
-	if _err := Run(func(s *TestCase) {
-		bv := Draw[[]byte](s, Binary(1, 10))
+	Test(t, func(ht *T) {
+		bv := Draw[[]byte](ht, Binary(1, 10))
 		if len(bv) < 1 || len(bv) > 10 {
 			panic("binary: byte length out of range [1, 10]")
 		}
-	}, WithTestCases(50)); _err != nil {
-		panic(_err)
-	}
+	}, WithTestCases(50))
 }
 
 func TestBinaryE2E_Unbounded(t *testing.T) {
 	t.Parallel()
 
-	if _err := Run(func(s *TestCase) {
-		_ = Draw[[]byte](s, Binary(0, -1))
-	}, WithTestCases(50)); _err != nil {
-		panic(_err)
-	}
+	Test(t, func(ht *T) {
+		_ = Draw[[]byte](ht, Binary(0, -1))
+	}, WithTestCases(50))
 }
 
 func TestFloatGeneratorBuildsBasicGenerator(t *testing.T) {
@@ -385,14 +363,12 @@ func TestTextAsBasic(t *testing.T) {
 func TestCharactersE2E(t *testing.T) {
 	t.Parallel()
 
-	if _err := runHegel(func(s *TestCase) {
-		v := Draw[string](s, Characters().Codec("ascii"))
+	Test(t, func(ht *T) {
+		v := Draw[string](ht, Characters().Codec("ascii"))
 		if utf8.RuneCountInString(v) != 1 {
 			panic("Characters: expected exactly one character")
 		}
-	}, stderrNoteFn, []Option{WithTestCases(30)}); _err != nil {
-		panic(_err)
-	}
+	}, WithTestCases(30))
 }
 
 // =============================================================================
@@ -402,122 +378,106 @@ func TestCharactersE2E(t *testing.T) {
 func TestTextCodecE2E(t *testing.T) {
 	t.Parallel()
 
-	if _err := runHegel(func(s *TestCase) {
-		v := Draw[string](s, Text().MinSize(1).MaxSize(10).Codec("ascii"))
+	Test(t, func(ht *T) {
+		v := Draw[string](ht, Text().MinSize(1).MaxSize(10).Codec("ascii"))
 		for _, r := range v {
 			if r > 127 {
 				panic("Text with Codec(ascii): non-ASCII character found")
 			}
 		}
-	}, stderrNoteFn, []Option{WithTestCases(30)}); _err != nil {
-		panic(_err)
-	}
+	}, WithTestCases(30))
 }
 
 func TestTextAlphabetE2E(t *testing.T) {
 	t.Parallel()
 
-	if _err := runHegel(func(s *TestCase) {
-		v := Draw[string](s, Text().MinSize(1).MaxSize(5).Alphabet("abc"))
+	Test(t, func(ht *T) {
+		v := Draw[string](ht, Text().MinSize(1).MaxSize(5).Alphabet("abc"))
 		for _, r := range v {
 			if r != 'a' && r != 'b' && r != 'c' {
 				panic("Text with Alphabet(abc): unexpected character")
 			}
 		}
-	}, stderrNoteFn, []Option{WithTestCases(30)}); _err != nil {
-		panic(_err)
-	}
+	}, WithTestCases(30))
 }
 
 func TestTextSingleCharAlphabetE2E(t *testing.T) {
 	t.Parallel()
 
-	if _err := runHegel(func(s *TestCase) {
-		v := Draw[string](s, Text().MinSize(1).MaxSize(5).Alphabet("x"))
+	Test(t, func(ht *T) {
+		v := Draw[string](ht, Text().MinSize(1).MaxSize(5).Alphabet("x"))
 		for _, r := range v {
 			if r != 'x' {
 				panic(fmt.Sprintf("Text with Alphabet(x): expected 'x', got %q", r))
 			}
 		}
-	}, stderrNoteFn, []Option{WithTestCases(30)}); _err != nil {
-		panic(_err)
-	}
+	}, WithTestCases(30))
 }
 
 func TestTextCodepointRangeE2E(t *testing.T) {
 	t.Parallel()
 
-	if _err := runHegel(func(s *TestCase) {
-		v := Draw[string](s, Text().MinSize(1).MaxSize(20).MinCodepoint(0x41).MaxCodepoint(0x5A))
+	Test(t, func(ht *T) {
+		v := Draw[string](ht, Text().MinSize(1).MaxSize(20).MinCodepoint(0x41).MaxCodepoint(0x5A))
 		for _, r := range v {
 			if r < 0x41 || r > 0x5A {
 				panic(fmt.Sprintf("Text codepoint range: %U outside [U+0041, U+005A]", r))
 			}
 		}
-	}, stderrNoteFn, []Option{WithTestCases(30)}); _err != nil {
-		panic(_err)
-	}
+	}, WithTestCases(30))
 }
 
 func TestTextCategoriesE2E(t *testing.T) {
 	t.Parallel()
 
-	if _err := runHegel(func(s *TestCase) {
-		v := Draw[string](s, Text().MinSize(1).MaxSize(20).Categories([]string{"Lu"}))
+	Test(t, func(ht *T) {
+		v := Draw[string](ht, Text().MinSize(1).MaxSize(20).Categories([]string{"Cc"}))
 		for _, r := range v {
-			if !unicode.In(r, unicode.Lu) {
-				panic(fmt.Sprintf("Text with Categories([Lu]): %q is not in category Lu", r))
+			if !unicode.In(r, unicode.Cc) {
+				panic(fmt.Sprintf("Text with Categories([Cc]): %q is not in category Cc", r))
 			}
 		}
-	}, stderrNoteFn, []Option{WithTestCases(30)}); _err != nil {
-		panic(_err)
-	}
+	}, WithTestCases(30))
 }
 
 func TestTextExcludeCategoriesE2E(t *testing.T) {
 	t.Parallel()
 
-	if _err := runHegel(func(s *TestCase) {
-		v := Draw[string](s, Text().MinSize(1).MaxSize(20).ExcludeCategories([]string{"Lu"}))
+	Test(t, func(ht *T) {
+		v := Draw[string](ht, Text().MinSize(1).MaxSize(20).ExcludeCategories([]string{"Cc"}))
 		for _, r := range v {
-			if unicode.In(r, unicode.Lu) {
-				panic(fmt.Sprintf("Text with ExcludeCategories([Lu]): %q is in category Lu", r))
+			if unicode.In(r, unicode.Cc) {
+				panic(fmt.Sprintf("Text with ExcludeCategories([Cc]): %q is in category Cc", r))
 			}
 		}
-	}, stderrNoteFn, []Option{WithTestCases(30)}); _err != nil {
-		panic(_err)
-	}
+	}, WithTestCases(30))
 }
 
 func TestTextIncludeCharactersE2E(t *testing.T) {
 	t.Parallel()
 
-	if _err := runHegel(func(s *TestCase) {
-		v := Draw[string](s, Text().MinSize(1).MaxSize(20).Categories([]string{}).IncludeCharacters("xyz"))
+	Test(t, func(ht *T) {
+		v := Draw[string](ht, Text().MinSize(1).MaxSize(20).Categories([]string{}).IncludeCharacters("xyz"))
 		for _, r := range v {
 			if !strings.ContainsRune("xyz", r) {
 				panic(fmt.Sprintf("Text with IncludeCharacters(xyz): %q not in allowed set", r))
 			}
 		}
-	}, stderrNoteFn, []Option{WithTestCases(30)}); _err != nil {
-		panic(_err)
-	}
+	}, WithTestCases(30))
 }
 
 func TestTextExcludeCharactersE2E(t *testing.T) {
 	t.Parallel()
 
-	if _err := runHegel(func(s *TestCase) {
+	Test(t, func(ht *T) {
 		excluded := "aeiou"
-		v := Draw[string](s, Text().MinSize(1).MaxSize(20).Codec("ascii").ExcludeCharacters(excluded))
+		v := Draw[string](ht, Text().MinSize(1).MaxSize(20).Codec("ascii").ExcludeCharacters(excluded))
 		for _, r := range v {
 			if strings.ContainsRune(excluded, r) {
 				panic(fmt.Sprintf("Text with ExcludeCharacters: %q should be excluded", r))
 			}
 		}
-	}, stderrNoteFn, []Option{WithTestCases(30)}); _err != nil {
-		panic(_err)
-	}
+	}, WithTestCases(30))
 }
 
 // =============================================================================
@@ -527,70 +487,60 @@ func TestTextExcludeCharactersE2E(t *testing.T) {
 func TestCharactersCodepointRangeE2E(t *testing.T) {
 	t.Parallel()
 
-	if _err := runHegel(func(s *TestCase) {
-		v := Draw[string](s, Characters().MinCodepoint(0x41).MaxCodepoint(0x5A))
+	Test(t, func(ht *T) {
+		v := Draw[string](ht, Characters().MinCodepoint(0x41).MaxCodepoint(0x5A))
 		r, _ := utf8.DecodeRuneInString(v)
 		if r < 0x41 || r > 0x5A {
 			panic(fmt.Sprintf("Characters codepoint range: %U outside [U+0041, U+005A]", r))
 		}
-	}, stderrNoteFn, []Option{WithTestCases(30)}); _err != nil {
-		panic(_err)
-	}
+	}, WithTestCases(30))
 }
 
-func TestCharactersCategoriesLuE2E(t *testing.T) {
+func TestCharactersCategoriesCcE2E(t *testing.T) {
 	t.Parallel()
 
-	if _err := runHegel(func(s *TestCase) {
-		v := Draw[string](s, Characters().Categories([]string{"Lu"}))
+	Test(t, func(ht *T) {
+		v := Draw[string](ht, Characters().Categories([]string{"Cc"}))
 		r, _ := utf8.DecodeRuneInString(v)
-		if !unicode.In(r, unicode.Lu) {
-			panic(fmt.Sprintf("Characters with Categories([Lu]): %q is not in category Lu", r))
+		if !unicode.In(r, unicode.Cc) {
+			panic(fmt.Sprintf("Characters with Categories([Cc]): %q is not in category Cc", r))
 		}
-	}, stderrNoteFn, []Option{WithTestCases(30)}); _err != nil {
-		panic(_err)
-	}
+	}, WithTestCases(30))
 }
 
 func TestCharactersExcludeCategoriesE2E(t *testing.T) {
 	t.Parallel()
 
-	if _err := runHegel(func(s *TestCase) {
-		v := Draw[string](s, Characters().ExcludeCategories([]string{"Lu"}))
+	Test(t, func(ht *T) {
+		v := Draw[string](ht, Characters().ExcludeCategories([]string{"Cc"}))
 		r, _ := utf8.DecodeRuneInString(v)
-		if unicode.In(r, unicode.Lu) {
-			panic(fmt.Sprintf("Characters with ExcludeCategories([Lu]): %q is in category Lu", r))
+		if unicode.In(r, unicode.Cc) {
+			panic(fmt.Sprintf("Characters with ExcludeCategories([Cc]): %q is in category Cc", r))
 		}
-	}, stderrNoteFn, []Option{WithTestCases(30)}); _err != nil {
-		panic(_err)
-	}
+	}, WithTestCases(30))
 }
 
 func TestCharactersIncludeCharactersE2E(t *testing.T) {
 	t.Parallel()
 
-	if _err := runHegel(func(s *TestCase) {
-		v := Draw[string](s, Characters().Categories([]string{}).IncludeCharacters("xyz"))
+	Test(t, func(ht *T) {
+		v := Draw[string](ht, Characters().Categories([]string{}).IncludeCharacters("xyz"))
 		r, _ := utf8.DecodeRuneInString(v)
 		if !strings.ContainsRune("xyz", r) {
 			panic(fmt.Sprintf("Characters with IncludeCharacters(xyz): %q not in allowed set", r))
 		}
-	}, stderrNoteFn, []Option{WithTestCases(30)}); _err != nil {
-		panic(_err)
-	}
+	}, WithTestCases(30))
 }
 
 func TestCharactersExcludeCharactersE2E(t *testing.T) {
 	t.Parallel()
 
-	if _err := runHegel(func(s *TestCase) {
+	Test(t, func(ht *T) {
 		excluded := "aeiou"
-		v := Draw[string](s, Characters().Codec("ascii").ExcludeCharacters(excluded))
+		v := Draw[string](ht, Characters().Codec("ascii").ExcludeCharacters(excluded))
 		r, _ := utf8.DecodeRuneInString(v)
 		if strings.ContainsRune(excluded, r) {
 			panic(fmt.Sprintf("Characters with ExcludeCharacters: %q should be excluded", r))
 		}
-	}, stderrNoteFn, []Option{WithTestCases(30)}); _err != nil {
-		panic(_err)
-	}
+	}, WithTestCases(30))
 }

@@ -129,28 +129,24 @@ func TestDatetimesSchema(t *testing.T) {
 func TestEmailsE2E(t *testing.T) {
 	t.Parallel()
 
-	if _err := Run(func(s *TestCase) {
-		v := Draw(s, Emails())
+	Test(t, func(ht *T) {
+		v := Draw(ht, Emails())
 		if !strings.Contains(v, "@") {
 			panic("email does not contain '@': " + v)
 		}
-	}, WithTestCases(30)); _err != nil {
-		panic(_err)
-	}
+	}, WithTestCases(30))
 }
 
 // TestURLsE2E verifies that generated URLs start with "http://" or "https://".
 func TestURLsE2E(t *testing.T) {
 	t.Parallel()
 
-	if _err := Run(func(s *TestCase) {
-		v := Draw(s, URLs())
+	Test(t, func(ht *T) {
+		v := Draw(ht, URLs())
 		if !strings.HasPrefix(v, "http://") && !strings.HasPrefix(v, "https://") {
 			panic("url does not start with http:// or https://: " + v)
 		}
-	}, WithTestCases(30)); _err != nil {
-		panic(_err)
-	}
+	}, WithTestCases(30))
 }
 
 // isValidDomainChar returns true if r is a valid character in a domain label.
@@ -162,16 +158,14 @@ func isValidDomainChar(r rune) bool {
 func TestDomainsE2E(t *testing.T) {
 	t.Parallel()
 
-	if _err := Run(func(s *TestCase) {
-		v := Draw(s, Domains())
+	Test(t, func(ht *T) {
+		v := Draw(ht, Domains())
 		for _, r := range v {
 			if !isValidDomainChar(r) {
 				panic("domain contains invalid character '" + string(r) + "': " + v)
 			}
 		}
-	}, WithTestCases(30)); _err != nil {
-		panic(_err)
-	}
+	}, WithTestCases(30))
 }
 
 // TestDomainsMaxLengthE2E verifies that generated domains respect the max_length constraint.
@@ -179,40 +173,34 @@ func TestDomainsMaxLengthE2E(t *testing.T) {
 	t.Parallel()
 
 	const maxLen = 20
-	if _err := Run(func(s *TestCase) {
-		v := Draw(s, Domains().MaxLength(maxLen))
+	Test(t, func(ht *T) {
+		v := Draw(ht, Domains().MaxLength(maxLen))
 		if len(v) > maxLen {
 			panic("domain exceeds max_length constraint: " + v)
 		}
-	}, WithTestCases(30)); _err != nil {
-		panic(_err)
-	}
+	}, WithTestCases(30))
 }
 
 // TestDatesE2E verifies that generated dates are valid time.Time values.
 func TestDatesE2E(t *testing.T) {
 	t.Parallel()
 
-	if _err := Run(func(s *TestCase) {
-		v := Draw(s, Dates())
+	Test(t, func(ht *T) {
+		v := Draw(ht, Dates())
 		if v.IsZero() {
 			panic("date is zero value")
 		}
-	}, WithTestCases(30)); _err != nil {
-		panic(_err)
-	}
+	}, WithTestCases(30))
 }
 
 // TestDatetimesE2E verifies that generated datetimes are valid time.Time values.
 func TestDatetimesE2E(t *testing.T) {
 	t.Parallel()
 
-	if _err := Run(func(s *TestCase) {
-		v := Draw(s, Datetimes())
+	Test(t, func(ht *T) {
+		v := Draw(ht, Datetimes())
 		if v.IsZero() {
 			panic("datetime is zero value")
 		}
-	}, WithTestCases(30)); _err != nil {
-		panic(_err)
-	}
+	}, WithTestCases(30))
 }

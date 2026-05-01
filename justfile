@@ -2,8 +2,8 @@ export PATH := "/usr/local/go/bin:" + env("HOME") + "/go/bin:" + env("PATH")
 
 # Run tests with coverage.
 # We measure coverage only on the library package (not cmd/ binaries).
-test:
-    go test -race -coverprofile=coverage.out -covermode=atomic \
+test *args:
+    go test -race {{args}} -coverprofile=coverage.out -covermode=atomic \
         -coverpkg=hegel.dev/go/hegel \
         ./...
     python3 scripts/check-coverage.py
