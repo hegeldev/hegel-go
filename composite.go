@@ -1,39 +1,20 @@
 package hegel
 
-// labelComposite marks a user-defined composite generation span.
-//
-// Composites are imperative: the user's function may call Draw any number of
-// times, in any order, possibly recursively. The server treats every composite
-// span as opaque for shrinking purposes — the structure inside is whatever the
-// user's function decides on this run.
-const labelComposite spanLabel = 16
-
-// compositeGenerator is a user-defined generator built from an imperative
-// function that calls Draw on other generators.
+// compositeGenerator is a Generator built from an imperative function that
+// composes other generators via [Draw]. It has no schema and always falls
+// back to compositional generation.
 type compositeGenerator[T any] struct {
-	label string
-	fn    func(*TestCase) T
+	fn func(*TestCase) T
 }
 
-// draw runs the user's function inside a COMPOSITE span. The label string is
-// emitted via Note so it appears in replay output for shrunk failures, but the
-// span itself uses the fixed labelComposite int so the server's shrinker
-// treats every composite uniformly without protocol changes.
+// draw invokes the composed function with the given TestCase.
 //
 //lint:ignore U1000 satisfies Generator interface; staticcheck misses generic dispatch
 func (g *compositeGenerator[T]) draw(s *TestCase) T {
-	startSpan(s, labelComposite)
-	if g.label != "" {
-		s.Note("composite: " + g.label)
-	}
-	result := g.fn(s)
-	stopSpan(s, false)
-	return result
+	return g.fn(s)
 }
 
-// asBasic always returns not-basic. A composite is imperative by definition —
-// it may issue an unbounded number of generate requests, branch on intermediate
-// values, and recurse. None of that fits a single JSON schema.
+// asBasic always returns not-basic — composite generators have no schema.
 //
 //lint:ignore U1000 satisfies Generator interface; staticcheck misses generic dispatch
 func (g *compositeGenerator[T]) asBasic() (*basicGenerator[T], bool, error) {
@@ -43,17 +24,9 @@ func (g *compositeGenerator[T]) asBasic() (*basicGenerator[T], bool, error) {
 // Composite returns a Generator backed by an imperative function.
 //
 // Inside fn, call [Draw] on other generators to assemble the value. The
-// function may call Draw any number of times, branch on intermediate results,
-// and recurse — Hegel records each draw in a span tree so shrinking still
-// works. The label string appears in replay output and aids debugging shrunk
-// failures; it does not affect generation or shrinking.
+// function may call Draw any number of times.
 //
-// Composite is the analog of Hypothesis's @composite. Reach for it when the
-// shape of generation is genuinely state-dependent — the number of draws
-// depends on a previously drawn value, fields appear conditionally on a
-// discriminator, or the structure recurses. For independent fixed-shape
-// values, prefer the declarative combinators ([Lists], [Maps], [OneOf],
-// [Optional]); they give the shrinker more structural visibility.
+// The function receives the same *TestCase that test bodies receive.
 //
 // Example: a generator for a Person whose driving license field only appears
 // when age >= 18.
@@ -64,9 +37,9 @@ func (g *compositeGenerator[T]) asBasic() (*basicGenerator[T], bool, error) {
 //	    DrivingLicense bool
 //	}
 //
-//	personGen := hegel.Composite("person", func(tc *hegel.TestCase) Person {
+//	personGen := hegel.Composite(func(tc *hegel.TestCase) Person {
 //	    age := hegel.Draw(tc, hegel.Integers(0, 120))
-//	    name := hegel.Draw(tc, hegel.Text().MinSize(1).MaxSize(50))
+//	    name := hegel.Draw(tc, hegel.Text())
 //	    p := Person{Age: age, Name: name}
 //	    if age >= 18 {
 //	        p.DrivingLicense = hegel.Draw(tc, hegel.Booleans())
@@ -78,9 +51,6 @@ func (g *compositeGenerator[T]) asBasic() (*basicGenerator[T], bool, error) {
 //	    p := hegel.Draw(ht, personGen)
 //	    // assert properties of p
 //	})
-func Composite[T any](label string, fn func(*TestCase) T) Generator[T] {
-	if fn == nil {
-		panic("Composite requires a non-nil function")
-	}
-	return &compositeGenerator[T]{label: label, fn: fn}
+func Composite[T any](fn func(*TestCase) T) Generator[T] {
+	return &compositeGenerator[T]{fn: fn}
 }

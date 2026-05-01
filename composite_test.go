@@ -3,91 +3,140 @@ package hegel
 // composite_test.go tests the Composite function and compositeGenerator type.
 
 import (
+	"fmt"
 	"testing"
 )
 
 // =============================================================================
-// Composite — return-type and asBasic checks
+// Composite function unit tests — verify return types
 // =============================================================================
 
 // TestCompositeReturnsCompositeGenerator verifies that Composite returns a
-// *compositeGenerator[T].
+// *compositeGenerator.
 func TestCompositeReturnsCompositeGenerator(t *testing.T) {
 	t.Parallel()
-	g := Composite("test", func(*TestCase) int { return 0 })
-	if _, ok := g.(*compositeGenerator[int]); !ok {
-		t.Fatalf("Composite should return *compositeGenerator[int], got %T", g)
+	gen := Composite(func(s *TestCase) int {
+		return Draw(s, Integers[int](0, 10))
+	})
+	if _, ok := gen.(*compositeGenerator[int]); !ok {
+		t.Fatalf("Composite should return *compositeGenerator[int], got %T", gen)
 	}
 }
 
-// TestCompositeAsBasicAlwaysFalse verifies that a compositeGenerator never
-// reduces to a basic schema — its body is imperative and may issue an unbounded
-// number of draws.
-func TestCompositeAsBasicAlwaysFalse(t *testing.T) {
+// TestCompositeGeneratorAsBasicReturnsNotBasic verifies that compositeGenerator
+// is never basic — composite generators have no schema.
+func TestCompositeGeneratorAsBasicReturnsNotBasic(t *testing.T) {
 	t.Parallel()
-	g := Composite("test", func(*TestCase) int { return 0 })
-	bg, ok, err := g.(*compositeGenerator[int]).asBasic()
-	if bg != nil || ok || err != nil {
-		t.Fatalf("Composite.asBasic should return (nil, false, nil); got (%v, %v, %v)", bg, ok, err)
+	gen := Composite(func(s *TestCase) int {
+		return Draw(s, Integers[int](0, 10))
+	})
+	bg, ok, err := gen.(*compositeGenerator[int]).asBasic()
+	if err != nil {
+		t.Fatalf("asBasic returned error: %v", err)
+	}
+	if ok {
+		t.Fatal("compositeGenerator should never be basic")
+	}
+	if bg != nil {
+		t.Fatal("compositeGenerator.asBasic should return nil bg")
 	}
 }
 
-// TestCompositeNilFunctionPanics verifies that Composite panics when given a
-// nil function — silent acceptance would yield a generator that nil-panics on
-// first draw, far from the bug site.
-func TestCompositeNilFunctionPanics(t *testing.T) {
+// TestCompositeGeneratorMapReturnsMappedGenerator verifies that Map on a
+// composite generator returns a *mappedGenerator (the non-basic path).
+func TestCompositeGeneratorMapReturnsMappedGenerator(t *testing.T) {
 	t.Parallel()
-	defer func() {
-		if r := recover(); r == nil {
-			t.Fatal("Composite(nil) should panic")
-		}
-	}()
-	_ = Composite[int]("x", nil)
+	gen := Composite(func(s *TestCase) int {
+		return Draw(s, Integers[int](0, 10))
+	})
+	mapped := Map(gen, func(v int) string { return fmt.Sprintf("%d", v) })
+	if _, ok := mapped.(*mappedGenerator[int, string]); !ok {
+		t.Fatalf("Map(compositeGenerator) should return *mappedGenerator, got %T", mapped)
+	}
 }
 
 // =============================================================================
-// Composite — end-to-end via Run, against the real hegel-core server
+// compositeGenerator.draw tests using real hegel binary
 // =============================================================================
 
-// TestCompositeMultipleDrawsE2E exercises the basic composite use case: a
-// function that draws several values and combines them. Verifies both that
-// generation actually runs and that drawn values stay within their declared
-// bounds.
-func TestCompositeMultipleDrawsE2E(t *testing.T) {
+// TestCompositeDrawsSubGenerators verifies that a Composite generator correctly
+// draws values from its sub-generators and combines them.
+func TestCompositeDrawsSubGenerators(t *testing.T) {
 	t.Parallel()
-
-	type point struct{ x, y int }
-	pointGen := Composite("point", func(tc *TestCase) point {
+	type point struct {
+		x int
+		y int
+	}
+	gen := Composite(func(s *TestCase) point {
 		return point{
-			x: Draw(tc, Integers[int](-100, 100)),
-			y: Draw(tc, Integers[int](-100, 100)),
+			x: Draw(s, Integers[int](0, 100)),
+			y: Draw(s, Integers[int](-100, 0)),
 		}
 	})
-
-	cases := 0
-	if err := Run(func(s *TestCase) {
-		p := pointGen.(*compositeGenerator[point]).draw(s)
-		cases++
-		if p.x < -100 || p.x > 100 || p.y < -100 || p.y > 100 {
-			t.Errorf("point %+v out of bounds", p)
+	Test(t, func(ht *T) {
+		p := Draw(ht, gen)
+		if p.x < 0 || p.x > 100 {
+			ht.Fatalf("x=%d out of range [0,100]", p.x)
 		}
-	}, WithTestCases(50)); err != nil {
-		t.Fatalf("Run failed: %v", err)
+		if p.y < -100 || p.y > 0 {
+			ht.Fatalf("y=%d out of range [-100,0]", p.y)
+		}
+	}, WithTestCases(30))
+}
+
+// TestCompositeNestedInLists verifies that a Composite generator works when
+// used as the element generator for Lists — exercising the compositional draw
+// path through the collection protocol.
+func TestCompositeNestedInLists(t *testing.T) {
+	t.Parallel()
+	type pair struct {
+		a int
+		b int
 	}
-	if cases == 0 {
-		t.Fatal("Composite: no test cases ran")
-	}
+	pairGen := Composite(func(s *TestCase) pair {
+		return pair{
+			a: Draw(s, Integers[int](0, 10)),
+			b: Draw(s, Integers[int](0, 10)),
+		}
+	})
+	listGen := Lists(pairGen).MaxSize(5)
+	Test(t, func(ht *T) {
+		ps := Draw(ht, listGen)
+		if len(ps) > 5 {
+			ht.Fatalf("len=%d > 5", len(ps))
+		}
+		for _, p := range ps {
+			if p.a < 0 || p.a > 10 || p.b < 0 || p.b > 10 {
+				ht.Fatalf("pair out of range: %+v", p)
+			}
+		}
+	}, WithTestCases(30))
+}
+
+// TestCompositeUsesAssume verifies that Assume works inside a composite
+// generator body — exercising the same TestCase methods test bodies use.
+func TestCompositeUsesAssume(t *testing.T) {
+	t.Parallel()
+	gen := Composite(func(s *TestCase) int {
+		v := Draw(s, Integers[int](0, 100))
+		s.Assume(v%2 == 0)
+		return v
+	})
+	Test(t, func(ht *T) {
+		v := Draw(ht, gen)
+		if v%2 != 0 {
+			ht.Fatalf("expected even, got %d", v)
+		}
+	}, WithTestCases(30))
 }
 
 // TestCompositeDataDependentDrawsE2E exercises the use case Composite exists
 // for: the number of draws depends on a previously drawn value. This is the
-// pattern that FlatMap cascades cannot express cleanly. It mirrors the proto-
-// generator shape in resource-manager: pick a field count, then draw that many
-// fields.
+// pattern that FlatMap cascades cannot express cleanly.
 func TestCompositeDataDependentDrawsE2E(t *testing.T) {
 	t.Parallel()
 
-	listGen := Composite("variable_list", func(tc *TestCase) []int {
+	listGen := Composite(func(tc *TestCase) []int {
 		n := Draw(tc, Integers[int](0, 10))
 		out := make([]int, n)
 		for i := range n {
@@ -133,7 +182,7 @@ func TestCompositeRecursiveE2E(t *testing.T) {
 	type pair struct {
 		a, b int
 	}
-	pairGen := Composite("pair", func(tc *TestCase) pair {
+	pairGen := Composite(func(tc *TestCase) pair {
 		return pair{
 			a: Draw(tc, Integers[int](0, 10)),
 			b: Draw(tc, Integers[int](0, 10)),
@@ -142,7 +191,7 @@ func TestCompositeRecursiveE2E(t *testing.T) {
 
 	// listOfPairs draws a length, then draws that many pairs — proving that
 	// pairGen can be composed inside another composite without restructuring.
-	listOfPairs := Composite("list_of_pairs", func(tc *TestCase) []pair {
+	listOfPairs := Composite(func(tc *TestCase) []pair {
 		n := Draw(tc, Integers[int](0, 5))
 		out := make([]pair, n)
 		for i := range n {
@@ -168,18 +217,15 @@ func TestCompositeRecursiveE2E(t *testing.T) {
 	}
 }
 
-// TestCompositeShrinksToFailingCase verifies that the span machinery is wired
-// correctly: when a composite-generated value triggers a failure, the engine
-// shrinks toward a minimal failing input. Without start_span/stop_span around
-// the composite body, shrinking would treat the draws as unrelated and
-// produce garbage minimal cases.
+// TestCompositeShrinksToFailingCase verifies that when a composite-generated
+// value triggers a failure, the engine shrinks toward a minimal failing input.
 func TestCompositeShrinksToFailingCase(t *testing.T) {
 	t.Parallel()
 
 	// Generator: a struct with two ints. Property under test: a + b < 100.
 	// Smallest counterexample: a=0, b=100 (or a=100, b=0).
 	type pair struct{ a, b int }
-	pairGen := Composite("pair", func(tc *TestCase) pair {
+	pairGen := Composite(func(tc *TestCase) pair {
 		return pair{
 			a: Draw(tc, Integers[int](0, 1000)),
 			b: Draw(tc, Integers[int](0, 1000)),
@@ -195,13 +241,13 @@ func TestCompositeShrinksToFailingCase(t *testing.T) {
 		}
 	}, WithTestCases(200))
 	if err == nil {
-		t.Skip("never found a failing case — try again or raise WithTestCases")
+		t.Fatal("never found a failing case")
 	}
 
-	// We don't assert exact equality (shrinking may land on any minimal pair),
-	// but the sum should be near the boundary, not arbitrarily large.
-	if minimalA+minimalB > 200 {
-		t.Errorf("shrinker did not minimize: got a=%d b=%d (sum=%d), expected sum near 100",
-			minimalA, minimalB, minimalA+minimalB)
+	// The shrinker minimizes left-to-right: it drives a to 0, then finds the
+	// smallest b satisfying a+b >= 100, which is 100.
+	if minimalA != 0 || minimalB != 100 {
+		t.Errorf("shrinker did not minimize: got a=%d b=%d, want a=0 b=100",
+			minimalA, minimalB)
 	}
 }

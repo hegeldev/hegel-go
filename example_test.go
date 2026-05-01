@@ -163,9 +163,9 @@ func ExampleComposite() {
 		Age  int
 	}
 
-	personGen := hegel.Composite("person", func(tc *hegel.TestCase) person {
+	personGen := hegel.Composite(func(tc *hegel.TestCase) person {
 		return person{
-			Name: hegel.Draw(tc, hegel.Text().MinSize(1).MaxSize(50)),
+			Name: hegel.Draw(tc, hegel.Text()),
 			Age:  hegel.Draw(tc, hegel.Integers(0, 120)),
 		}
 	})
@@ -180,10 +180,7 @@ func ExampleComposite() {
 }
 
 func ExampleComposite_dataDependentDrawCount() {
-	// The number of element draws depends on n, drawn moments earlier.
-	// FlatMap can express this for fixed depth; Composite scales to
-	// arbitrary, schema-driven shapes.
-	variableList := hegel.Composite("variable_list", func(tc *hegel.TestCase) []int {
+	variableList := hegel.Composite(func(tc *hegel.TestCase) []int {
 		n := hegel.Draw(tc, hegel.Integers(0, 10))
 		out := make([]int, n)
 		for i := range n {
@@ -220,7 +217,7 @@ func ExampleComposite_recursive() {
 	const maxDepth = 5
 	depth := 0
 	var nodeGen hegel.Generator[*Node]
-	nodeGen = hegel.Composite("node", func(tc *hegel.TestCase) *Node {
+	nodeGen = hegel.Composite(func(tc *hegel.TestCase) *Node {
 		n := &Node{Value: hegel.Draw(tc, hegel.Integers(0, 100))}
 		if depth < maxDepth && hegel.Draw(tc, hegel.Booleans()) {
 			depth++
