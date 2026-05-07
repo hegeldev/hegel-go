@@ -41,6 +41,9 @@ const (
 	labelSampledFrom spanLabel = 14
 	// labelEnumVariant marks an enum variant generation span.
 	labelEnumVariant spanLabel = 15
+	// labelStateful marks a single rule or invariant call inside a stateful
+	// test, letting the shrinker treat each step as an atomic unit.
+	labelStateful spanLabel = 16
 )
 
 // --- Generator interface ---
