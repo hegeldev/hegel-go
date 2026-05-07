@@ -8,6 +8,21 @@ import (
 // Compile-time check that T satisfies testing.TB.
 var _ testing.TB = (*T)(nil)
 
+// Compile-time checks that *TestCase satisfies the TestingT interfaces used by
+// popular assertion libraries (testify, gotest.tools, gomega). This lets
+// assertions be used directly inside [Composite] callbacks and [Run] bodies,
+// where only a *TestCase is available.
+var _ interface {
+	Errorf(format string, args ...any)
+	FailNow()
+} = (*TestCase)(nil)
+
+var _ interface {
+	Fail()
+	FailNow()
+	Log(args ...any)
+} = (*TestCase)(nil)
+
 // T is the test context for property tests run via [Test].
 //
 // It embeds *[testing.T] and overrides methods like Fatal and Skip so they
@@ -35,7 +50,7 @@ func (t *T) Fatalf(format string, args ...any) {
 
 // FailNow marks the test case as failed and stops the test body.
 func (t *T) FailNow() {
-	panic(fatalSentinel{msg: "FailNow called"})
+	t.TestCase.FailNow()
 }
 
 // Skip discards the current test case.
@@ -66,14 +81,12 @@ func (t *T) Error(args ...any) {
 
 // Errorf logs the formatted message via [TestCase.Note] and sets the failed flag.
 func (t *T) Errorf(format string, args ...any) {
-	msg := fmt.Sprintf(format, args...)
-	t.Note(msg)
-	t.TestCase.failed = true
+	t.TestCase.Errorf(format, args...)
 }
 
 // Fail sets the failed flag without stopping the test case.
 func (t *T) Fail() {
-	t.TestCase.failed = true
+	t.TestCase.Fail()
 }
 
 // Failed reports whether the test case has been marked as failed.
@@ -83,7 +96,7 @@ func (t *T) Failed() bool {
 
 // Log routes the message through [TestCase.Note] (only emitted on final replay).
 func (t *T) Log(args ...any) {
-	t.Note(fmt.Sprint(args...))
+	t.TestCase.Log(args...)
 }
 
 // Logf routes the formatted message through [TestCase.Note].
