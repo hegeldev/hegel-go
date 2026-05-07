@@ -15,6 +15,8 @@ import (
 )
 
 // TestCase holds the per-test-case context.
+//
+// It is compatible with most popular TestingT interfaces from assert libraries.
 type TestCase struct {
 	stream  *stream
 	isFinal bool
@@ -65,6 +67,31 @@ func (s *TestCase) Note(message string) {
 	if s.isFinal && s.noteFn != nil {
 		s.noteFn(message)
 	}
+}
+
+// Errorf logs the formatted message via [TestCase.Note] and marks the test case
+// as failed.
+//
+// The test case continues running but will be treated as a failure after return.
+func (s *TestCase) Errorf(format string, args ...any) {
+	s.Note(fmt.Sprintf(format, args...))
+	s.failed = true
+}
+
+// Fail marks the test case as failed without stopping it.
+func (s *TestCase) Fail() {
+	s.failed = true
+}
+
+// FailNow marks the test case as failed and stops the test body.
+func (s *TestCase) FailNow() {
+	s.failed = true
+	panic(fatalSentinel{msg: "FailNow called"})
+}
+
+// Log routes the message through [TestCase.Note].
+func (s *TestCase) Log(args ...any) {
+	s.Note(fmt.Sprint(args...))
 }
 
 // Target guides Hegel toward values that maximize the given metric.
