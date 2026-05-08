@@ -199,16 +199,13 @@ func (g MapGenerator[K, V]) draw(s *TestCase) map[K]V {
 	result := map[K]V{}
 	coll := newCollection(s, g.minSize, maxSize)
 	for coll.More(s) {
-		startSpan(s, labelMapEntry)
 		k := g.keys.draw(s)
 		if _, exists := result[k]; exists {
-			stopSpan(s, false)
 			coll.Reject(s)
 			continue
 		}
 		v := g.values.draw(s)
 		result[k] = v
-		stopSpan(s, false)
 	}
 	stopSpan(s, false)
 	return result
