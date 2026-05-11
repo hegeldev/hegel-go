@@ -60,7 +60,7 @@ func (g *oneOfGenerator[T]) draw(s *TestCase) (T, error) {
 	}
 	return withSpan(s, labelOneOf, func() (T, error) {
 		n := len(g.generators)
-		idx, err := generateFromSchema(s, map[string]any{
+		idx, err := s.generateFromSchema(map[string]any{
 			"type":      "integer",
 			"min_value": int64(0),
 			"max_value": int64(n - 1),
@@ -143,7 +143,7 @@ func (g *optionalGenerator[T]) draw(s *TestCase) (*T, error) {
 		return bg.draw(s)
 	}
 	return withSpan(s, labelOneOf, func() (*T, error) {
-		idx, err := generateFromSchema(s, map[string]any{
+		idx, err := s.generateFromSchema(map[string]any{
 			"type":      "integer",
 			"min_value": int64(0),
 			"max_value": int64(1),

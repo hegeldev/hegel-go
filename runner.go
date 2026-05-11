@@ -1,6 +1,7 @@
 package hegel
 
 import (
+	"errors"
 	"fmt"
 	"io"
 	"os"
@@ -43,6 +44,12 @@ func (e *dataExhausted) Error() string { return e.msg }
 type flakyAbort struct{}
 
 func (flakyAbort) Error() string { return "flaky test detected" }
+
+// errTestCaseAborted is returned by doRequest when the test case has already
+// been aborted by a prior StopTest or flaky response. Deferred or cleanup
+// callers can ignore it; everyone else should propagate it normally and rely
+// on the original abort sentinel having already unwound the test body.
+var errTestCaseAborted = errors.New("test case aborted")
 
 // Wire protocol error types for flaky test detection.
 const (
@@ -96,15 +103,11 @@ func (s *TestCase) Log(args ...any) {
 
 // Target guides Hegel toward values that maximize the given metric.
 func (s *TestCase) Target(value float64, label string) {
-	payload, err := encodeCBOR(map[string]any{
+	if _, err := s.doRequest(map[string]any{
 		"command": "target",
 		"value":   value,
 		"label":   label,
-	})
-	if err != nil { // coverage-ignore
-		panic(fmt.Sprintf("Target encode: %v", err))
-	}
-	if _, err := doRequest(s, payload); err != nil {
+	}); err != nil {
 		panic(err)
 	}
 }
@@ -123,35 +126,53 @@ func toInt64(v any) (int64, bool) {
 	}
 }
 
-func generateFromSchema(gs *TestCase, schema map[string]any) (any, error) {
-	st := gs.stream
-	payload, err := encodeCBOR(map[string]any{"command": "generate", "schema": schema})
-	if err != nil { // coverage-ignore
-		panic(fmt.Sprintf("generateFromSchema encode: %v", err))
+// doRequest encodes msg as CBOR, sends it on s.stream, and returns the decoded
+// reply. Server-side abort signals are translated to sentinel errors: StopTest
+// becomes [*dataExhausted], FlakyStrategyDefinition / FlakyReplay become
+// [flakyAbort]. Both also set s.aborted, after which further calls short-
+// circuit with [errTestCaseAborted].
+//
+// Connection-level errors from the underlying stream are returned as
+// [*connectionError].
+//
+// Panics if msg cannot be CBOR-encoded — unreachable for the fixed-shape maps
+// constructed inside this package.
+func (s *TestCase) doRequest(msg map[string]any) (any, error) {
+	if s.aborted {
+		return nil, errTestCaseAborted
 	}
-	pending, err := st.Request(payload)
+	payload, err := encodeCBOR(msg)
+	if err != nil { // coverage-ignore
+		panic(fmt.Sprintf("doRequest encode: %v", err))
+	}
+	pending, err := s.stream.Request(payload)
 	if err != nil {
-		// Request returns *connectionError for server crashes.
-		// Other write errors are also connection-level.
 		if _, ok := err.(*connectionError); ok {
 			return nil, err
 		}
 		return nil, &connectionError{msg: err.Error()}
 	}
 	v, err := pending.Get()
-	if err != nil {
-		re, ok := err.(*requestError)
-		if ok && re.ErrorType == "StopTest" {
-			gs.aborted = true
+	if err == nil {
+		return v, nil
+	}
+	if re, ok := err.(*requestError); ok {
+		switch re.ErrorType {
+		case "StopTest":
+			s.aborted = true
 			return nil, &dataExhausted{msg: "server ran out of data"}
-		}
-		if ok && (re.ErrorType == flakyStrategyDefinition || re.ErrorType == flakyReplay) {
-			gs.aborted = true
+		case flakyStrategyDefinition, flakyReplay: // coverage-ignore
+			s.aborted = true
 			return nil, flakyAbort{}
 		}
-		return nil, err
 	}
-	return v, nil
+	return nil, err
+}
+
+// generateFromSchema sends a generate command for schema and returns the
+// decoded value.
+func (s *TestCase) generateFromSchema(schema map[string]any) (any, error) {
+	return s.doRequest(map[string]any{"command": "generate", "schema": schema})
 }
 
 // fatalSentinel is panic'd by T.Fatal/Fatalf/FailNow to mark a test case as INTERESTING.
@@ -642,28 +663,15 @@ func (c *client) runTestCase(st *stream, fn testBody, isFinal bool, noteFn func(
 	}
 
 	if !alreadyComplete {
-		var markPayload map[string]any
+		var originVal any
 		if origin != "" {
-			markPayload = map[string]any{
-				"command": "mark_complete",
-				"status":  status,
-				"origin":  origin,
-			}
-		} else {
-			markPayload = map[string]any{
-				"command": "mark_complete",
-				"status":  status,
-				"origin":  nil,
-			}
+			originVal = origin
 		}
-		encoded, err := encodeCBOR(markPayload)
-		if err != nil { // coverage-ignore
-			panic(fmt.Sprintf("mark_complete encode: %v", err))
-		}
-		pending, err := st.Request(encoded)
-		if err == nil {
-			pending.Get() //nolint:errcheck
-		}
+		_, _ = state.doRequest(map[string]any{
+			"command": "mark_complete",
+			"status":  status,
+			"origin":  originVal,
+		})
 	}
 	st.Close()
 	return nil

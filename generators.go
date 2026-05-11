@@ -1,9 +1,5 @@
 package hegel
 
-import (
-	"fmt"
-)
-
 // --- Span label constants ---
 
 // spanLabel identifies the kind of generation span being tracked.
@@ -105,7 +101,7 @@ type basicGenerator[T any] struct {
 
 // draw sends a generate command to the server and returns the result.
 func (g *basicGenerator[T]) draw(s *TestCase) (T, error) {
-	v, err := generateFromSchema(s, g.schema)
+	v, err := s.generateFromSchema(g.schema)
 	if err != nil {
 		var zero T
 		return zero, err
@@ -259,65 +255,23 @@ func Filter[T any](g Generator[T], pred func(T) bool) Generator[T] {
 	return &filteredGenerator[T]{source: g, predicate: pred}
 }
 
-// doRequest sends a request on gs.stream and returns the decoded reply.
-//
-// Server-side abort signals are returned as the appropriate sentinel error:
-// StopTest becomes [*dataExhausted], FlakyStrategyDefinition / FlakyReplay
-// become [flakyAbort]. Both also set gs.aborted so that any follow-up calls
-// (deferred or otherwise) become no-ops via the early-return at the top.
-//
-// Connection-level errors are returned as [*connectionError] from the
-// underlying stream.
-func doRequest(gs *TestCase, payload []byte) (any, error) {
-	if gs.aborted {
-		return nil, nil
-	}
-	pending, err := gs.stream.Request(payload)
-	if err != nil { // coverage-ignore
-		return nil, fmt.Errorf("request: %w", err)
-	}
-	v, err := pending.Get()
-	if err == nil {
-		return v, nil
-	}
-	if re, ok := err.(*requestError); ok {
-		switch re.ErrorType {
-		case "StopTest":
-			gs.aborted = true
-			return nil, &dataExhausted{msg: "server ran out of data"}
-		case flakyStrategyDefinition, flakyReplay: // coverage-ignore
-			gs.aborted = true
-			return nil, flakyAbort{}
-		}
-	}
-	return nil, fmt.Errorf("request error: %w", err) // coverage-ignore
-}
-
 // --- Span helpers ---
 
 // startSpan notifies the server that a new generation span has started.
 func startSpan(gs *TestCase, label spanLabel) error {
-	payload, err := encodeCBOR(map[string]any{
+	_, err := gs.doRequest(map[string]any{
 		"command": "start_span",
 		"label":   int64(label),
 	})
-	if err != nil { // coverage-ignore
-		panic(fmt.Sprintf("startSpan encode: %v", err))
-	}
-	_, err = doRequest(gs, payload)
 	return err
 }
 
 // stopSpan notifies the server that the current generation span has ended.
 func stopSpan(gs *TestCase, discard bool) error {
-	payload, err := encodeCBOR(map[string]any{
+	_, err := gs.doRequest(map[string]any{
 		"command": "stop_span",
 		"discard": discard,
 	})
-	if err != nil { // coverage-ignore
-		panic(fmt.Sprintf("stopSpan encode: %v", err))
-	}
-	_, err = doRequest(gs, payload)
 	return err
 }
 
@@ -371,11 +325,7 @@ func newCollection(gs *TestCase, minSize int, maxSize *int) (*collection, error)
 	if maxSize != nil {
 		msg["max_size"] = int64(*maxSize)
 	}
-	payload, err := encodeCBOR(msg)
-	if err != nil { // coverage-ignore
-		panic(fmt.Sprintf("newCollection encode: %v", err))
-	}
-	v, err := doRequest(gs, payload)
+	v, err := gs.doRequest(msg)
 	if err != nil {
 		return nil, err
 	}
@@ -391,14 +341,10 @@ func (c *collection) More(gs *TestCase) bool {
 	if c.finished || c.err != nil {
 		return false
 	}
-	payload, err := encodeCBOR(map[string]any{
+	v, err := gs.doRequest(map[string]any{
 		"command":       "collection_more",
 		"collection_id": c.collectionID,
 	})
-	if err != nil { // coverage-ignore
-		panic(fmt.Sprintf("collection.More encode: %v", err))
-	}
-	v, err := doRequest(gs, payload)
 	if err != nil {
 		c.err = err
 		return false
@@ -417,14 +363,10 @@ func (c *collection) Reject(gs *TestCase) {
 	if c.finished || c.err != nil {
 		return
 	}
-	payload, err := encodeCBOR(map[string]any{
+	if _, err := gs.doRequest(map[string]any{
 		"command":       "collection_reject",
 		"collection_id": c.collectionID,
-	})
-	if err != nil { // coverage-ignore
-		panic(fmt.Sprintf("collection.Reject encode: %v", err))
-	}
-	if _, err := doRequest(gs, payload); err != nil {
+	}); err != nil {
 		c.err = err
 	}
 }
