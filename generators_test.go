@@ -1,6 +1,7 @@
 package hegel
 
 import (
+	"errors"
 	"fmt"
 	"math"
 	"math/big"
@@ -1116,24 +1117,22 @@ func TestExtractFloatAsFloat64(t *testing.T) {
 }
 
 // =============================================================================
-// startSpan/stopSpan: aborted path (no-op)
+// startSpan/stopSpan: aborted path returns errTestCaseAborted
 // =============================================================================
 
 func TestStartSpanAborted(t *testing.T) {
 	t.Parallel()
 	s := &TestCase{aborted: true}
-	// Should be a no-op, returning nil error.
-	if err := startSpan(s, labelOneOf); err != nil {
-		t.Fatalf("startSpan on aborted: %v", err)
+	if err := startSpan(s, labelOneOf); !errors.Is(err, errTestCaseAborted) {
+		t.Fatalf("startSpan on aborted: got %v, want errTestCaseAborted", err)
 	}
 }
 
 func TestStopSpanAborted(t *testing.T) {
 	t.Parallel()
 	s := &TestCase{aborted: true}
-	// Should be a no-op, returning nil error.
-	if err := stopSpan(s, false); err != nil {
-		t.Fatalf("stopSpan on aborted: %v", err)
+	if err := stopSpan(s, false); !errors.Is(err, errTestCaseAborted) {
+		t.Fatalf("stopSpan on aborted: got %v, want errTestCaseAborted", err)
 	}
 }
 
