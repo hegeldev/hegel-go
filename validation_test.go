@@ -200,26 +200,30 @@ func TestOptionalInnerErrorPropagates(t *testing.T) {
 	assertErrorContains(t, "allow_nan", err)
 }
 
-// --- draw() panics when asBasic errors ---
+// --- draw() returns the asBasic error ---
 
-func TestListsDrawInvalidConfigPanics(t *testing.T) {
+func TestListsDrawInvalidConfigReturnsError(t *testing.T) {
 	gen := Lists(Booleans()).MinSize(-1)
-	assertPanicsWithMessage(t, "min_size", func() { gen.draw(nil) })
+	_, err := gen.draw(nil)
+	assertErrorContains(t, "min_size", err)
 }
 
-func TestMapsDrawInvalidConfigPanics(t *testing.T) {
+func TestMapsDrawInvalidConfigReturnsError(t *testing.T) {
 	gen := Maps(Integers(0, 1), Integers(0, 1)).MinSize(-1)
-	assertPanicsWithMessage(t, "min_size", func() { gen.draw(nil) })
+	_, err := gen.draw(nil)
+	assertErrorContains(t, "min_size", err)
 }
 
-func TestOneOfDrawInvalidBranchPanics(t *testing.T) {
+func TestOneOfDrawInvalidBranchReturnsError(t *testing.T) {
 	gen := OneOf(invalidFloats()).(*oneOfGenerator[float64])
-	assertPanicsWithMessage(t, "allow_nan", func() { gen.draw(nil) })
+	_, err := gen.draw(nil)
+	assertErrorContains(t, "allow_nan", err)
 }
 
-func TestOptionalDrawInvalidInnerPanics(t *testing.T) {
+func TestOptionalDrawInvalidInnerReturnsError(t *testing.T) {
 	gen := Optional(invalidFloats()).(*optionalGenerator[float64])
-	assertPanicsWithMessage(t, "allow_nan", func() { gen.draw(nil) })
+	_, err := gen.draw(nil)
+	assertErrorContains(t, "allow_nan", err)
 }
 
 func TestMapInvalidSourcePanics(t *testing.T) {
@@ -228,22 +232,26 @@ func TestMapInvalidSourcePanics(t *testing.T) {
 	})
 }
 
-func TestFloatsDrawInvalidConfigPanics(t *testing.T) {
+func TestFloatsDrawInvalidConfigReturnsError(t *testing.T) {
 	gen := Floats[float64]().Min(10.0).Max(5.0)
-	assertPanicsWithMessage(t, "max_value", func() { gen.draw(nil) })
+	_, err := gen.draw(nil)
+	assertErrorContains(t, "max_value", err)
 }
 
-func TestTextDrawInvalidConfigPanics(t *testing.T) {
+func TestTextDrawInvalidConfigReturnsError(t *testing.T) {
 	gen := Text().MinSize(-1).MaxSize(5)
-	assertPanicsWithMessage(t, "min_size", func() { gen.draw(nil) })
+	_, err := gen.draw(nil)
+	assertErrorContains(t, "min_size", err)
 }
 
-func TestCharactersDrawInvalidConfigPanics(t *testing.T) {
+func TestCharactersDrawInvalidConfigReturnsError(t *testing.T) {
 	gen := Characters().Categories([]string{"Cs"})
-	assertPanicsWithMessage(t, "surrogate", func() { gen.draw(nil) })
+	_, err := gen.draw(nil)
+	assertErrorContains(t, "surrogate", err)
 }
 
-func TestDomainsDrawInvalidConfigPanics(t *testing.T) {
+func TestDomainsDrawInvalidConfigReturnsError(t *testing.T) {
 	gen := Domains().MaxLength(0)
-	assertPanicsWithMessage(t, "max_length", func() { gen.draw(nil) })
+	_, err := gen.draw(nil)
+	assertErrorContains(t, "max_length", err)
 }

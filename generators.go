@@ -54,7 +54,11 @@ const (
 type Generator[T any] interface {
 	// draw produces a value from the Hegel server using the given state.
 	// Unexported to seal the interface to this package.
-	draw(s *TestCase) T
+	//
+	// Returns the sentinel errors [*dataExhausted] / [flakyAbort] when the
+	// server aborts the test case, [*connectionError] for transport
+	// failures, and [assumeRejected] when a Filter exhausts its retries.
+	draw(s *TestCase) (T, error)
 
 	// asBasic returns the basic-schema form of this generator, when one exists.
 	// The three return values encode three distinct states:
@@ -83,7 +87,11 @@ type testCase interface {
 
 // Draw produces a value from a Generator using the given State context.
 func Draw[T any](tc testCase, g Generator[T]) T {
-	return g.draw(tc.internal())
+	v, err := g.draw(tc.internal())
+	if err != nil {
+		panic(err)
+	}
+	return v
 }
 
 // --- basicGenerator ---
@@ -96,12 +104,13 @@ type basicGenerator[T any] struct {
 }
 
 // draw sends a generate command to the server and returns the result.
-func (g *basicGenerator[T]) draw(s *TestCase) T {
+func (g *basicGenerator[T]) draw(s *TestCase) (T, error) {
 	v, err := generateFromSchema(s, g.schema)
 	if err != nil {
-		panic(err)
+		var zero T
+		return zero, err
 	}
-	return g.parse(v)
+	return g.parse(v), nil
 }
 
 // asBasic returns the receiver — a basicGenerator is trivially basic.
@@ -123,11 +132,15 @@ type mappedGenerator[T, U any] struct {
 // draw calls the inner generator inside a MAPPED span and applies fn.
 //
 //lint:ignore U1000 satisfies Generator interface; staticcheck misses generic dispatch
-func (g *mappedGenerator[T, U]) draw(s *TestCase) U {
-	startSpan(s, labelMapped)
-	result := g.fn(g.inner.draw(s))
-	stopSpan(s, false)
-	return result
+func (g *mappedGenerator[T, U]) draw(s *TestCase) (U, error) {
+	return withSpan(s, labelMapped, func() (U, error) {
+		var zero U
+		v, err := g.inner.draw(s)
+		if err != nil {
+			return zero, err
+		}
+		return g.fn(v), nil
+	})
 }
 
 // asBasic always returns not-basic. Map() composes basic-with-basic at
@@ -155,18 +168,27 @@ const maxFilterAttempts = 3
 // draw tries up to maxFilterAttempts times to produce a value satisfying predicate.
 //
 //lint:ignore U1000 satisfies Generator interface; staticcheck misses generic dispatch
-func (g *filteredGenerator[T]) draw(s *TestCase) T {
+func (g *filteredGenerator[T]) draw(s *TestCase) (T, error) {
+	var zero T
 	for range maxFilterAttempts {
-		startSpan(s, labelFilter)
-		value := g.source.draw(s)
-		if g.predicate(value) {
-			stopSpan(s, false)
-			return value
+		if err := startSpan(s, labelFilter); err != nil {
+			return zero, err
 		}
-		stopSpan(s, true)
+		value, err := g.source.draw(s)
+		if err != nil {
+			return zero, err
+		}
+		if g.predicate(value) {
+			if err := stopSpan(s, false); err != nil { // coverage-ignore
+				return zero, err
+			}
+			return value, nil
+		}
+		if err := stopSpan(s, true); err != nil { // coverage-ignore
+			return zero, err
+		}
 	}
-	panic(assumeRejected{})
-	// unreachable
+	return zero, assumeRejected{}
 }
 
 // asBasic always returns not-basic — filtering cannot be expressed as a schema.
@@ -188,13 +210,15 @@ type flatMappedGenerator[T, U any] struct {
 // draw generates from source, then from the dependent generator, inside a FLAT_MAP span.
 //
 //lint:ignore U1000 satisfies Generator interface; staticcheck misses generic dispatch
-func (g *flatMappedGenerator[T, U]) draw(s *TestCase) U {
-	startSpan(s, labelFlatMap)
-	first := g.source.draw(s)
-	secondGen := g.f(first)
-	result := secondGen.draw(s)
-	stopSpan(s, false)
-	return result
+func (g *flatMappedGenerator[T, U]) draw(s *TestCase) (U, error) {
+	return withSpan(s, labelFlatMap, func() (U, error) {
+		var zero U
+		first, err := g.source.draw(s)
+		if err != nil {
+			return zero, err
+		}
+		return g.f(first).draw(s)
+	})
 }
 
 // asBasic always returns not-basic — flat-map's dependent generator is dynamic.
@@ -237,43 +261,42 @@ func Filter[T any](g Generator[T], pred func(T) bool) Generator[T] {
 
 // doRequest sends a request on gs.stream and returns the decoded reply.
 //
-// Server-side abort signals are translated into the appropriate panic
-// sentinel: StopTest/Overflow becomes [dataExhausted], FlakyStrategyDefinition/
-// FlakyReplay becomes [flakyAbort]. Both also set gs.aborted so that any
-// follow-up calls (deferred or otherwise) are no-ops via the early-return
-// at the top of this function.
+// Server-side abort signals are returned as the appropriate sentinel error:
+// StopTest becomes [*dataExhausted], FlakyStrategyDefinition / FlakyReplay
+// become [flakyAbort]. Both also set gs.aborted so that any follow-up calls
+// (deferred or otherwise) become no-ops via the early-return at the top.
 //
-// Connection-level errors panic with a string; these paths are exercised
-// via error-injection elsewhere and marked coverage-ignore here.
-func doRequest(gs *TestCase, payload []byte) any {
+// Connection-level errors are returned as [*connectionError] from the
+// underlying stream.
+func doRequest(gs *TestCase, payload []byte) (any, error) {
 	if gs.aborted {
-		return nil
+		return nil, nil
 	}
 	pending, err := gs.stream.Request(payload)
 	if err != nil { // coverage-ignore
-		panic(fmt.Sprintf("request: %v", err))
+		return nil, fmt.Errorf("request: %w", err)
 	}
 	v, err := pending.Get()
 	if err == nil {
-		return v
+		return v, nil
 	}
 	if re, ok := err.(*requestError); ok {
 		switch re.ErrorType {
 		case "StopTest":
 			gs.aborted = true
-			panic(&dataExhausted{msg: "server ran out of data"})
+			return nil, &dataExhausted{msg: "server ran out of data"}
 		case flakyStrategyDefinition, flakyReplay: // coverage-ignore
 			gs.aborted = true
-			panic(flakyAbort{})
+			return nil, flakyAbort{}
 		}
 	}
-	panic(fmt.Sprintf("request error: %v", err)) // coverage-ignore
+	return nil, fmt.Errorf("request error: %w", err) // coverage-ignore
 }
 
 // --- Span helpers ---
 
 // startSpan notifies the server that a new generation span has started.
-func startSpan(gs *TestCase, label spanLabel) {
+func startSpan(gs *TestCase, label spanLabel) error {
 	payload, err := encodeCBOR(map[string]any{
 		"command": "start_span",
 		"label":   int64(label),
@@ -281,11 +304,12 @@ func startSpan(gs *TestCase, label spanLabel) {
 	if err != nil { // coverage-ignore
 		panic(fmt.Sprintf("startSpan encode: %v", err))
 	}
-	doRequest(gs, payload)
+	_, err = doRequest(gs, payload)
+	return err
 }
 
 // stopSpan notifies the server that the current generation span has ended.
-func stopSpan(gs *TestCase, discard bool) {
+func stopSpan(gs *TestCase, discard bool) error {
 	payload, err := encodeCBOR(map[string]any{
 		"command": "stop_span",
 		"discard": discard,
@@ -293,20 +317,53 @@ func stopSpan(gs *TestCase, discard bool) {
 	if err != nil { // coverage-ignore
 		panic(fmt.Sprintf("stopSpan encode: %v", err))
 	}
-	doRequest(gs, payload)
+	_, err = doRequest(gs, payload)
+	return err
+}
+
+// withSpan brackets body in a span that always commits (discard=false).
+//
+// On body error the span is left open: every error path here is a sentinel
+// that aborts the test case (dataExhausted, flakyAbort, connectionError,
+// assumeRejected), and the runner tears down server-side state regardless.
+//
+// Use the inline startSpan/stopSpan pair when the discard decision depends
+// on the body's outcome (see filteredGenerator.draw).
+func withSpan[T any](s *TestCase, label spanLabel, body func() (T, error)) (T, error) {
+	var zero T
+	if err := startSpan(s, label); err != nil {
+		return zero, err
+	}
+	v, err := body()
+	if err != nil {
+		return zero, err
+	}
+	if err := stopSpan(s, false); err != nil { // coverage-ignore
+		return zero, err
+	}
+	return v, nil
 }
 
 // --- collection protocol ---
 
 // collection manages a server-side collection (list/set/map) generation session.
+//
+// Errors from More and Reject are stashed on err. Callers iterate with
+// `for coll.More(s) { ... }` and check `coll.Err()` once after the loop.
 type collection struct {
 	collectionID uint64
 	finished     bool
+	err          error
+}
+
+// Err returns the first error encountered by More or Reject, or nil.
+func (c *collection) Err() error {
+	return c.err
 }
 
 // newCollection starts a new collection on the server with the given size bounds.
 // A nil maxSize means unbounded (omitted from the payload).
-func newCollection(gs *TestCase, minSize int, maxSize *int) *collection {
+func newCollection(gs *TestCase, minSize int, maxSize *int) (*collection, error) {
 	msg := map[string]any{
 		"command":  "new_collection",
 		"min_size": int64(minSize),
@@ -318,13 +375,20 @@ func newCollection(gs *TestCase, minSize int, maxSize *int) *collection {
 	if err != nil { // coverage-ignore
 		panic(fmt.Sprintf("newCollection encode: %v", err))
 	}
-	id, _ := doRequest(gs, payload).(uint64)
-	return &collection{collectionID: id}
+	v, err := doRequest(gs, payload)
+	if err != nil {
+		return nil, err
+	}
+	id, _ := v.(uint64)
+	return &collection{collectionID: id}, nil
 }
 
 // More asks the server whether another element should be generated.
+//
+// Returns false once the collection is finished or an error has been
+// recorded; check Err after the loop to distinguish those cases.
 func (c *collection) More(gs *TestCase) bool {
-	if c.finished { // coverage-ignore
+	if c.finished || c.err != nil {
 		return false
 	}
 	payload, err := encodeCBOR(map[string]any{
@@ -334,7 +398,12 @@ func (c *collection) More(gs *TestCase) bool {
 	if err != nil { // coverage-ignore
 		panic(fmt.Sprintf("collection.More encode: %v", err))
 	}
-	more, _ := doRequest(gs, payload).(bool)
+	v, err := doRequest(gs, payload)
+	if err != nil {
+		c.err = err
+		return false
+	}
+	more, _ := v.(bool)
 	if !more {
 		c.finished = true
 	}
@@ -342,8 +411,10 @@ func (c *collection) More(gs *TestCase) bool {
 }
 
 // Reject tells the server that the last generated element should not count.
+//
+// Errors are recorded on the collection and surfaced via Err.
 func (c *collection) Reject(gs *TestCase) {
-	if c.finished {
+	if c.finished || c.err != nil {
 		return
 	}
 	payload, err := encodeCBOR(map[string]any{
@@ -353,5 +424,7 @@ func (c *collection) Reject(gs *TestCase) {
 	if err != nil { // coverage-ignore
 		panic(fmt.Sprintf("collection.Reject encode: %v", err))
 	}
-	doRequest(gs, payload)
+	if _, err := doRequest(gs, payload); err != nil {
+		c.err = err
+	}
 }

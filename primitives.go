@@ -200,10 +200,11 @@ func (g FloatGenerator[T]) asBasic() (*basicGenerator[T], bool, error) {
 }
 
 // draw produces a floating-point value from the Hegel server.
-func (g FloatGenerator[T]) draw(s *TestCase) T {
+func (g FloatGenerator[T]) draw(s *TestCase) (T, error) {
 	bg, _, err := g.asBasic()
 	if err != nil {
-		panic(err.Error())
+		var zero T
+		return zero, err
 	}
 	return bg.draw(s)
 }
@@ -423,10 +424,10 @@ func (g TextGenerator) asBasic() (*basicGenerator[string], bool, error) {
 	return &basicGenerator[string]{schema: schema, parse: extractString}, true, nil
 }
 
-func (g TextGenerator) draw(s *TestCase) string {
+func (g TextGenerator) draw(s *TestCase) (string, error) {
 	bg, _, err := g.asBasic()
 	if err != nil {
-		panic(err.Error())
+		return "", err
 	}
 	return bg.draw(s)
 }
@@ -504,10 +505,10 @@ func (g CharactersGenerator) asBasic() (*basicGenerator[string], bool, error) {
 	return &basicGenerator[string]{schema: schema, parse: extractString}, true, nil
 }
 
-func (g CharactersGenerator) draw(s *TestCase) string {
+func (g CharactersGenerator) draw(s *TestCase) (string, error) {
 	bg, _, err := g.asBasic()
 	if err != nil {
-		panic(err.Error())
+		return "", err
 	}
 	return bg.draw(s)
 }
@@ -591,10 +592,10 @@ func (g DomainGenerator) asBasic() (*basicGenerator[string], bool, error) {
 	}, true, nil
 }
 
-func (g DomainGenerator) draw(s *TestCase) string {
+func (g DomainGenerator) draw(s *TestCase) (string, error) {
 	bg, _, err := g.asBasic()
 	if err != nil {
-		panic(err.Error())
+		return "", err
 	}
 	return bg.draw(s)
 }
