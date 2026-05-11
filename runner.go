@@ -104,7 +104,9 @@ func (s *TestCase) Target(value float64, label string) {
 	if err != nil { // coverage-ignore
 		panic(fmt.Sprintf("Target encode: %v", err))
 	}
-	doRequest(s, payload)
+	if _, err := doRequest(s, payload); err != nil {
+		panic(err)
+	}
 }
 
 // --- Internal helpers ---

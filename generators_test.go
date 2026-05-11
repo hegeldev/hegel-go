@@ -81,8 +81,14 @@ func TestCollectionStopTestOnNewCollection(t *testing.T) {
 	// Should not error -- the test was stopped, not failed.
 	Test(t, func(ht *T) {
 		max := 5
-		coll := newCollection(ht.TestCase, 0, &max)
-		_ = coll.More(ht.TestCase)
+		coll, err := newCollection(ht.TestCase, 0, &max)
+		if err != nil {
+			panic(err)
+		}
+		coll.More(ht.TestCase)
+		if err := coll.Err(); err != nil {
+			panic(err)
+		}
 	})
 }
 
@@ -93,8 +99,14 @@ func TestCollectionStopTestOnCollectionMore(t *testing.T) {
 	t.Setenv("HEGEL_PROTOCOL_TEST_MODE", "stop_test_on_collection_more")
 	Test(t, func(ht *T) {
 		max := 5
-		coll := newCollection(ht.TestCase, 0, &max)
-		_ = coll.More(ht.TestCase)
+		coll, err := newCollection(ht.TestCase, 0, &max)
+		if err != nil {
+			panic(err)
+		}
+		coll.More(ht.TestCase)
+		if err := coll.Err(); err != nil {
+			panic(err)
+		}
 	})
 }
 
@@ -1110,15 +1122,19 @@ func TestExtractFloatAsFloat64(t *testing.T) {
 func TestStartSpanAborted(t *testing.T) {
 	t.Parallel()
 	s := &TestCase{aborted: true}
-	// Should be a no-op, not panic.
-	startSpan(s, labelOneOf)
+	// Should be a no-op, returning nil error.
+	if err := startSpan(s, labelOneOf); err != nil {
+		t.Fatalf("startSpan on aborted: %v", err)
+	}
 }
 
 func TestStopSpanAborted(t *testing.T) {
 	t.Parallel()
 	s := &TestCase{aborted: true}
-	// Should be a no-op, not panic.
-	stopSpan(s, false)
+	// Should be a no-op, returning nil error.
+	if err := stopSpan(s, false); err != nil {
+		t.Fatalf("stopSpan on aborted: %v", err)
+	}
 }
 
 // =============================================================================
@@ -1131,6 +1147,9 @@ func TestRejectFinishedCollection(t *testing.T) {
 	s := &TestCase{}
 	// Should be a no-op since finished = true.
 	c.Reject(s)
+	if err := c.Err(); err != nil {
+		t.Fatalf("Reject on finished: %v", err)
+	}
 }
 
 // TestRejectE2E verifies that Reject sends collection_reject to the server
@@ -1140,13 +1159,19 @@ func TestRejectE2E(t *testing.T) {
 
 	Test(t, func(ht *T) {
 		max := 5
-		coll := newCollection(ht.TestCase, 0, &max)
+		coll, err := newCollection(ht.TestCase, 0, &max)
+		if err != nil {
+			panic(err)
+		}
 		if coll.More(ht.TestCase) {
 			// Reject the first element — tells the server it doesn't count.
 			coll.Reject(ht.TestCase)
 		}
 		// Drain remaining elements.
 		for coll.More(ht.TestCase) {
+		}
+		if err := coll.Err(); err != nil {
+			panic(err)
 		}
 	}, WithTestCases(10))
 }
@@ -1164,6 +1189,37 @@ func TestListsNegativeMinSizeSchema(t *testing.T) {
 // =============================================================================
 // Map on basicGenerator (compose parse functions)
 // =============================================================================
+
+// TestFlatMappedGeneratorSourceError covers the source.draw err path in
+// flatMappedGenerator.draw. The source Filter always rejects, so after
+// maxFilterAttempts it returns assumeRejected, which flatMappedGenerator.draw
+// propagates from inside its withSpan body.
+func TestFlatMappedGeneratorSourceError(t *testing.T) {
+	t.Parallel()
+	source := Filter(Booleans(), func(bool) bool { return false })
+	gen := FlatMap[bool, bool](source, func(bool) Generator[bool] {
+		return Booleans()
+	})
+	Test(t, func(ht *T) {
+		_ = Draw(ht, gen)
+	}, WithTestCases(20))
+}
+
+// TestListsStopTestOnNewCollection covers the err path in Lists.draw when
+// newCollection itself returns the dataExhausted sentinel (server sent
+// StopTest in response to new_collection). The non-basic element generator
+// forces Lists onto the composite (withSpan + newCollection) draw path.
+func TestListsStopTestOnNewCollection(t *testing.T) {
+	t.Setenv("HEGEL_PROTOCOL_TEST_MODE", "stop_test_on_new_collection")
+	Test(t, func(ht *T) {
+		nonBasic := &mappedGenerator[int64, int64]{
+			inner: Integers[int64](0, 10),
+			fn:    func(v int64) int64 { return v },
+		}
+		gen := Lists(nonBasic).MaxSize(3)
+		_ = Draw(ht, gen)
+	})
+}
 
 // TestMapOnBasicGeneratorE2E exercises Map on a basicGenerator. Booleans()
 // has a simple parse (type assertion), so Map composes it with the user function.

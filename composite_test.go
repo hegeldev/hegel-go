@@ -148,7 +148,7 @@ func TestCompositeDataDependentDrawsE2E(t *testing.T) {
 	sawEmpty := false
 	sawNonEmpty := false
 	if err := Run(func(s *TestCase) {
-		v := listGen.(*compositeGenerator[[]int]).draw(s)
+		v := Draw(s, listGen)
 		if len(v) > 10 {
 			t.Errorf("length %d exceeds bound", len(v))
 		}
@@ -202,7 +202,7 @@ func TestCompositeRecursiveE2E(t *testing.T) {
 
 	cases := 0
 	if err := Run(func(s *TestCase) {
-		v := listOfPairs.(*compositeGenerator[[]pair]).draw(s)
+		v := Draw(s, listOfPairs)
 		cases++
 		for _, p := range v {
 			if p.a < 0 || p.a > 10 || p.b < 0 || p.b > 10 {
@@ -234,7 +234,7 @@ func TestCompositeShrinksToFailingCase(t *testing.T) {
 
 	var minimalA, minimalB int
 	err := Run(func(s *TestCase) {
-		p := pairGen.(*compositeGenerator[pair]).draw(s)
+		p := Draw(s, pairGen)
 		if p.a+p.b >= 100 {
 			minimalA, minimalB = p.a, p.b
 			panic(fatalSentinel{msg: "property violated"})

@@ -197,6 +197,36 @@ func TestRunStatefulRulePanicPropagates(t *testing.T) {
 	assertErrorContains(t, "rule panic propagated", err)
 }
 
+// TestStatefulInitialInvariantConnectionError covers the err-from-callInvariant
+// path inside stateMachine.Run's initial-invariant loop. With the underlying
+// conn closed, the very first withSpan(labelStateful) startSpan request fails,
+// propagating up through callInvariant and panicking out of Run.
+func TestStatefulInitialInvariantConnectionError(t *testing.T) {
+	t.Parallel()
+	s, c := socketPair(t)
+	conn := newConnection(s, s, "C")
+	c.Close()
+	conn.state = stateClient
+	st := &stream{conn: conn, streamID: 1, inbox: make(chan any, 1), nextMessageID: 1}
+	conn.streams[1] = st
+	s.Close()
+
+	state := &TestCase{stream: st}
+	sm, err := newStateMachine(&goodCounter{})
+	if err != nil {
+		t.Fatalf("newStateMachine: %v", err)
+	}
+
+	var caught any
+	func() {
+		defer func() { caught = recover() }()
+		sm.Run(state)
+	}()
+	if caught == nil {
+		t.Fatal("expected panic from sm.Run on connection error")
+	}
+}
+
 func TestRunStatefulInvariantViolationFails(t *testing.T) {
 	t.Parallel()
 	err := Run(func(tc *TestCase) {

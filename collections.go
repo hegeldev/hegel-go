@@ -81,10 +81,10 @@ func (g ListGenerator[T]) asBasic() (*basicGenerator[[]T], bool, error) {
 
 // draw produces a list by dispatching to the basic schema when possible,
 // falling back to the collection protocol otherwise.
-func (g ListGenerator[T]) draw(s *TestCase) []T {
+func (g ListGenerator[T]) draw(s *TestCase) ([]T, error) {
 	bg, ok, err := g.asBasic()
 	if err != nil {
-		panic(err.Error())
+		return nil, err
 	}
 	if ok {
 		return bg.draw(s)
@@ -94,14 +94,24 @@ func (g ListGenerator[T]) draw(s *TestCase) []T {
 		m := g.maxSize
 		maxSize = &m
 	}
-	startSpan(s, labelList)
-	var result []T
-	coll := newCollection(s, g.minSize, maxSize)
-	for coll.More(s) {
-		result = append(result, g.elements.draw(s))
-	}
-	stopSpan(s, false)
-	return result
+	return withSpan(s, labelList, func() ([]T, error) {
+		var result []T
+		coll, err := newCollection(s, g.minSize, maxSize)
+		if err != nil {
+			return nil, err
+		}
+		for coll.More(s) {
+			v, err := g.elements.draw(s)
+			if err != nil {
+				return nil, err
+			}
+			result = append(result, v)
+		}
+		if err := coll.Err(); err != nil {
+			return nil, err
+		}
+		return result, nil
+	})
 }
 
 // --- Maps generator ---
@@ -182,10 +192,10 @@ func (g MapGenerator[K, V]) asBasic() (*basicGenerator[map[K]V], bool, error) {
 
 // draw produces a map by dispatching to the basic schema when possible,
 // falling back to the collection protocol otherwise.
-func (g MapGenerator[K, V]) draw(s *TestCase) map[K]V {
+func (g MapGenerator[K, V]) draw(s *TestCase) (map[K]V, error) {
 	bg, ok, err := g.asBasic()
 	if err != nil {
-		panic(err.Error())
+		return nil, err
 	}
 	if ok {
 		return bg.draw(s)
@@ -195,20 +205,32 @@ func (g MapGenerator[K, V]) draw(s *TestCase) map[K]V {
 		m := g.maxSize
 		maxSize = &m
 	}
-	startSpan(s, labelMap)
-	result := map[K]V{}
-	coll := newCollection(s, g.minSize, maxSize)
-	for coll.More(s) {
-		k := g.keys.draw(s)
-		if _, exists := result[k]; exists {
-			coll.Reject(s)
-			continue
+	return withSpan(s, labelMap, func() (map[K]V, error) {
+		result := map[K]V{}
+		coll, err := newCollection(s, g.minSize, maxSize)
+		if err != nil {
+			return nil, err
 		}
-		v := g.values.draw(s)
-		result[k] = v
-	}
-	stopSpan(s, false)
-	return result
+		for coll.More(s) {
+			k, err := g.keys.draw(s)
+			if err != nil {
+				return nil, err
+			}
+			if _, exists := result[k]; exists {
+				coll.Reject(s)
+				continue
+			}
+			v, err := g.values.draw(s)
+			if err != nil {
+				return nil, err
+			}
+			result[k] = v
+		}
+		if err := coll.Err(); err != nil {
+			return nil, err
+		}
+		return result, nil
+	})
 }
 
 // pairsToMap converts a CBOR-decoded pair list [[k,v], ...] to a map[K]V.

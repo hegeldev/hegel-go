@@ -92,7 +92,9 @@ func (sm *stateMachine) Run(tc testCase) {
 	s := tc.internal()
 	s.Note("Initial invariant check.")
 	for _, inv := range sm.invariants {
-		callInvariant(s, inv.fn)
+		if err := callInvariant(s, inv.fn); err != nil {
+			panic(err)
+		}
 	}
 
 	nSteps := Draw(tc, Integers(1, statefulMaxSteps))
@@ -108,45 +110,52 @@ func (sm *stateMachine) Run(tc testCase) {
 		rule := sm.rules[idx]
 		s.Note(fmt.Sprintf("Step %d: %s", step, rule.name))
 
-		ok := callRule(s, rule.fn)
+		ok, err := callRule(s, rule.fn)
+		if err != nil { // coverage-ignore
+			panic(err)
+		}
 		stepsAttempted++
 		if !ok {
 			continue
 		}
 		stepsSucceeded++
 		for _, inv := range sm.invariants {
-			callInvariant(s, inv.fn)
+			if err := callInvariant(s, inv.fn); err != nil { // coverage-ignore
+				panic(err)
+			}
 		}
 	}
 }
 
 // callInvariant brackets fn(s) in a labelStateful span. Panics propagate
 // to the caller; invariant failures must surface as test failures.
-func callInvariant(s *TestCase, fn func(*TestCase)) {
-	startSpan(s, labelStateful)
-	defer stopSpan(s, false)
-	fn(s)
+func callInvariant(s *TestCase, fn func(*TestCase)) error {
+	_, err := withSpan(s, labelStateful, func() (struct{}, error) {
+		fn(s)
+		return struct{}{}, nil
+	})
+	return err
 }
 
 // callRule brackets fn(s) in a labelStateful span and recovers from
 // [TestCase.Assume] rejections so the caller can try a different rule.
 // It returns true if fn ran to completion, false if it rejected via
 // Assume. Other panics propagate to the caller.
-func callRule(s *TestCase, fn func(*TestCase)) bool {
-	startSpan(s, labelStateful)
-	defer func() {
-		stopSpan(s, false)
-		r := recover()
-		if r == nil {
-			return
-		}
-		if _, isAssume := r.(assumeRejected); isAssume {
-			return
-		}
-		panic(r)
-	}()
-	fn(s)
-	return true
+func callRule(s *TestCase, fn func(*TestCase)) (bool, error) {
+	return withSpan(s, labelStateful, func() (ok bool, err error) {
+		defer func() {
+			r := recover()
+			if r == nil {
+				return
+			}
+			if _, isAssume := r.(assumeRejected); isAssume {
+				return
+			}
+			panic(r)
+		}()
+		fn(s)
+		return true, nil
+	})
 }
 
 // RunStateful enables model-based testing.

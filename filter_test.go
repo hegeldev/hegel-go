@@ -126,7 +126,7 @@ func TestFilteredGeneratorGeneratePredicatePassesFirstTry(t *testing.T) {
 	// Filter that always passes: every value is accepted on first try.
 	gen := Filter(Integers[int](0, 100), func(v int) bool { return true })
 	Test(t, func(ht *T) {
-		n := gen.draw(ht.TestCase)
+		n := Draw(ht, gen)
 		if n < 0 || n > 100 {
 			panic(fmt.Sprintf("Filter: expected [0,100], got %d", n))
 		}
@@ -143,7 +143,7 @@ func TestFilteredGeneratorGenerateWithRealPredicate(t *testing.T) {
 		return v%2 == 0
 	})
 	Test(t, func(ht *T) {
-		n := gen.draw(ht.TestCase)
+		n := Draw(ht, gen)
 		if n%2 != 0 {
 			panic(fmt.Sprintf("Filter even: expected even number, got %d", n))
 		}
@@ -165,11 +165,37 @@ func TestFilteredGeneratorGenerateChainedFilters(t *testing.T) {
 		func(v int) bool { return v%4 == 0 },
 	)
 	Test(t, func(ht *T) {
-		n := gen.draw(ht.TestCase)
+		n := Draw(ht, gen)
 		if n%4 != 0 {
 			panic(fmt.Sprintf("chained filter: expected multiple of 4, got %d", n))
 		}
 	}, WithTestCases(30))
+}
+
+// TestFilteredGeneratorStartSpanConnectionError covers the startSpan-err path
+// in filteredGenerator.draw: when the underlying conn is closed before the
+// first request, startSpan fails and Draw panics with the wrapped error.
+func TestFilteredGeneratorStartSpanConnectionError(t *testing.T) {
+	t.Parallel()
+	s, c := socketPair(t)
+	conn := newConnection(s, s, "C")
+	c.Close()
+	conn.state = stateClient
+	st := &stream{conn: conn, streamID: 1, inbox: make(chan any, 1), nextMessageID: 1}
+	conn.streams[1] = st
+	s.Close()
+
+	state := &TestCase{stream: st}
+	gen := Filter(Booleans(), func(bool) bool { return true })
+
+	var caught any
+	func() {
+		defer func() { caught = recover() }()
+		Draw[bool](state, gen)
+	}()
+	if caught == nil {
+		t.Fatal("expected panic from Draw on connection error")
+	}
 }
 
 // TestFilteredGeneratorGenerateThenMap verifies that Filter followed by Map
@@ -186,7 +212,7 @@ func TestFilteredGeneratorGenerateThenMap(t *testing.T) {
 		t.Fatalf("Map(Filter(...)) should return *mappedGenerator, got %T", gen)
 	}
 	Test(t, func(ht *T) {
-		n := gen.draw(ht.TestCase)
+		n := Draw(ht, gen)
 		// result must be odd*10, so divisible by 10 but result/10 must be odd
 		quotient := n / 10
 		if quotient*10 != n {

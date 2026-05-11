@@ -341,8 +341,14 @@ func TestStopTestOnCollectionMore(t *testing.T) {
 	t.Setenv("HEGEL_PROTOCOL_TEST_MODE", "stop_test_on_collection_more")
 	err := runHegel(func(s *TestCase) {
 		max := 10
-		coll := newCollection(s, 0, &max)
-		_ = coll.More(s)
+		coll, err := newCollection(s, 0, &max)
+		if err != nil {
+			panic(err)
+		}
+		coll.More(s)
+		if err := coll.Err(); err != nil {
+			panic(err)
+		}
 	}, stdoutNoteFn, nil)
 	_ = err // StopTest causes abort, not necessarily an error return
 }
@@ -354,8 +360,14 @@ func TestStopTestOnNewCollection(t *testing.T) {
 	t.Setenv("HEGEL_PROTOCOL_TEST_MODE", "stop_test_on_new_collection")
 	err := runHegel(func(s *TestCase) {
 		max := 10
-		coll := newCollection(s, 0, &max)
-		_ = coll.More(s)
+		coll, err := newCollection(s, 0, &max)
+		if err != nil {
+			panic(err)
+		}
+		coll.More(s)
+		if err := coll.Err(); err != nil {
+			panic(err)
+		}
 	}, stdoutNoteFn, nil)
 	_ = err // StopTest causes abort, not necessarily an error return
 }
