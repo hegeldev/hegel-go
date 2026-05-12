@@ -6,6 +6,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"reflect"
 	"strings"
 	"sync"
 	"sync/atomic"
@@ -1245,6 +1246,35 @@ func TestBuildRunTestMessageBaseFields(t *testing.T) {
 	if msg["derandomize"] != true {
 		t.Errorf("derandomize = %v", msg["derandomize"])
 	}
+	// seed is omitted entirely when unset.
+	if _, ok := msg["seed"]; ok {
+		t.Errorf("seed should be absent when unset, got %v", msg["seed"])
+	}
+}
+
+func TestBuildRunTestMessageSeedSet(t *testing.T) {
+	t.Parallel()
+	seed := int64(42)
+	msg := buildRunTestMessage(1, runOptions{testCases: 1, seed: &seed})
+	v, ok := msg["seed"]
+	if !ok {
+		t.Fatal("expected seed field to be present")
+	}
+	if v != int64(42) {
+		t.Errorf("seed = %v, want 42", v)
+	}
+}
+
+func TestWithSeedOption(t *testing.T) {
+	t.Parallel()
+	var o runOptions
+	WithSeed(123)(&o)
+	if o.seed == nil {
+		t.Fatal("seed was not set")
+	}
+	if *o.seed != 123 {
+		t.Errorf("seed = %d, want 123", *o.seed)
+	}
 }
 
 func TestDatabaseDisabledSetting(t *testing.T) {
@@ -1291,6 +1321,31 @@ func TestWithDerandomizeIntegration(t *testing.T) {
 	Test(t, func(ht *T) {
 		_ = Draw[bool](ht, Booleans())
 	}, WithDerandomize(true), WithTestCases(3))
+}
+
+// TestWithSeedIntegration verifies that the same seed produces the same
+// sequence of drawn values across two runs.
+//
+// The example database is disabled so the test asserts seed-only determinism;
+// otherwise the database's replay phases could prepend saved examples that
+// are not derived from the seed.
+func TestWithSeedIntegration(t *testing.T) {
+	clearCIEnv(t)
+	run := func() []int {
+		var drawn []int
+		Test(t, func(ht *T) {
+			drawn = append(drawn, Draw[int](ht, Integers[int](0, 1_000_000)))
+		}, WithSeed(42), WithDatabase(DatabaseDisabled()), WithTestCases(20))
+		return drawn
+	}
+	first := run()
+	second := run()
+	if len(first) == 0 {
+		t.Fatal("no values drawn")
+	}
+	if !reflect.DeepEqual(first, second) {
+		t.Errorf("WithSeed(42) was not deterministic:\n  first  = %v\n  second = %v", first, second)
+	}
 }
 
 // --- helpers ---

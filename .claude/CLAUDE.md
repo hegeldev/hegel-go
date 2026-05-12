@@ -61,7 +61,7 @@ The user-facing surface lives in `hegel.go` (canonical package doc). Entry point
 - `hegel.T` — passed to the [Test] body; methods include `Note`, `Fatal`, `Fatalf`
 - Generators: `Integers`, `Floats`, `Text`, `Booleans`, `Lists`, `Maps`, ...
 - Options: `WithTestCases(n)`, `WithDatabase(Database(path))`,
-  `WithDatabase(DatabaseDisabled())`, `WithDerandomize(bool)`,
+  `WithDatabase(DatabaseDisabled())`, `WithDerandomize(bool)`, `WithSeed(n)`,
   `SuppressHealthCheck(...)`
 - Low-level: the unexported `runHegel` is what `Test`, `Run`, and `MustRun`
   delegate to; useful in error-injection tests via direct call

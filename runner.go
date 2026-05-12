@@ -268,6 +268,7 @@ type runOptions struct {
 	suppressHealthCheck []HealthCheck
 	database            DatabaseSetting
 	derandomize         bool
+	seed                *int64
 	// databaseKey identifies the test for example-database lookups. Set by
 	// [Test] from t.Name(); nil for [Run]/[MustRun] (no test name available).
 	databaseKey []byte
@@ -302,6 +303,19 @@ func WithDatabase(db DatabaseSetting) Option {
 // WithDerandomize sets whether to use a fixed seed for reproducible runs.
 func WithDerandomize(derandomize bool) Option {
 	return func(o *runOptions) { o.derandomize = derandomize }
+}
+
+// WithSeed sets a fixed seed for the test. The seed pins the generator's RNG;
+// for fully reproducible runs you also want to disable the example database
+// (via [WithDatabase] with [DatabaseDisabled]), since its replay phases can
+// inject saved examples that are not derived from the seed.
+//
+// If unset, the server picks a seed (deterministic when WithDerandomize is
+// true, random otherwise). When both WithSeed and WithDerandomize are
+// provided, WithSeed takes precedence — this matches Hypothesis's
+// @seed semantics.
+func WithSeed(seed int64) Option {
+	return func(o *runOptions) { o.seed = &seed }
 }
 
 // withDatabaseKey sets the example-database key. Unexported: only [Test]
@@ -465,6 +479,9 @@ func buildRunTestMessage(streamID uint32, opts runOptions) map[string]any {
 		"test_cases":  int64(opts.testCases),
 		"stream_id":   int64(streamID),
 		"derandomize": opts.derandomize,
+	}
+	if opts.seed != nil {
+		msg["seed"] = *opts.seed
 	}
 	if opts.database.state == databaseDisabled || opts.databaseKey == nil {
 		msg["database_key"] = nil
