@@ -233,3 +233,9 @@ func ExampleComposite_recursive() {
 		_ = hegel.Draw(ht, nodeGen)
 	})
 }
+
+func ExampleWorkload() {
+	hegel.Workload(func(tc *hegel.TestCase) {
+		_ = hegel.Draw(tc, hegel.Integers(0, 100))
+	})
+}

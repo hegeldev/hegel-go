@@ -158,12 +158,21 @@
 //		}, hegel.WithTestCases(500))
 //	}
 //
+// # Run as a standalone binary
+//
+// To run a property test outside of go test — for example as a workload
+// in a soak run or fuzzing harness — use [Workload]. It parses the usual
+// CLI flags (--test-cases, --derandomize, --database,
+// --suppress-health-check) and runs the body unbounded by default.
+//
 // # Learning more
 //
 //   - Browse the function documentation for the full list of available
 //     generators.
 //   - See [WithTestCases] and other [Option] functions for more
 //     configuration settings to customize how your test runs.
+//   - See [Workload] for running a property test as a standalone CLI
+//     binary outside of go test.
 //
 // [Hypothesis]: https://github.com/hypothesisworks/hypothesis
 // [Hegel]: https://hegel.dev/
