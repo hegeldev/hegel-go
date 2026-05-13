@@ -82,11 +82,11 @@ func TestCollectionStopTestOnNewCollection(t *testing.T) {
 	// Should not error -- the test was stopped, not failed.
 	Test(t, func(ht *T) {
 		max := 5
-		coll, err := newCollection(ht.TestCase, 0, &max)
+		coll, err := newCollection(ht.testCase, 0, &max)
 		if err != nil {
 			panic(err)
 		}
-		coll.More(ht.TestCase)
+		coll.More(ht.testCase)
 		if err := coll.Err(); err != nil {
 			panic(err)
 		}
@@ -100,11 +100,11 @@ func TestCollectionStopTestOnCollectionMore(t *testing.T) {
 	t.Setenv("HEGEL_PROTOCOL_TEST_MODE", "stop_test_on_collection_more")
 	Test(t, func(ht *T) {
 		max := 5
-		coll, err := newCollection(ht.TestCase, 0, &max)
+		coll, err := newCollection(ht.testCase, 0, &max)
 		if err != nil {
 			panic(err)
 		}
-		coll.More(ht.TestCase)
+		coll.More(ht.testCase)
 		if err := coll.Err(); err != nil {
 			panic(err)
 		}
@@ -1122,7 +1122,7 @@ func TestExtractFloatAsFloat64(t *testing.T) {
 
 func TestStartSpanAborted(t *testing.T) {
 	t.Parallel()
-	s := &TestCase{aborted: true}
+	s := &testCase{aborted: true}
 	if err := startSpan(s, labelOneOf); !errors.Is(err, errTestCaseAborted) {
 		t.Fatalf("startSpan on aborted: got %v, want errTestCaseAborted", err)
 	}
@@ -1130,7 +1130,7 @@ func TestStartSpanAborted(t *testing.T) {
 
 func TestStopSpanAborted(t *testing.T) {
 	t.Parallel()
-	s := &TestCase{aborted: true}
+	s := &testCase{aborted: true}
 	if err := stopSpan(s, false); !errors.Is(err, errTestCaseAborted) {
 		t.Fatalf("stopSpan on aborted: got %v, want errTestCaseAborted", err)
 	}
@@ -1143,7 +1143,7 @@ func TestStopSpanAborted(t *testing.T) {
 func TestRejectFinishedCollection(t *testing.T) {
 	t.Parallel()
 	c := &collection{finished: true}
-	s := &TestCase{}
+	s := &testCase{}
 	// Should be a no-op since finished = true.
 	c.Reject(s)
 	if err := c.Err(); err != nil {
@@ -1158,16 +1158,16 @@ func TestRejectE2E(t *testing.T) {
 
 	Test(t, func(ht *T) {
 		max := 5
-		coll, err := newCollection(ht.TestCase, 0, &max)
+		coll, err := newCollection(ht.testCase, 0, &max)
 		if err != nil {
 			panic(err)
 		}
-		if coll.More(ht.TestCase) {
+		if coll.More(ht.testCase) {
 			// Reject the first element — tells the server it doesn't count.
-			coll.Reject(ht.TestCase)
+			coll.Reject(ht.testCase)
 		}
 		// Drain remaining elements.
-		for coll.More(ht.TestCase) {
+		for coll.More(ht.testCase) {
 		}
 		if err := coll.Err(); err != nil {
 			panic(err)
@@ -1206,7 +1206,7 @@ func TestRejectStopTestError(t *testing.T) {
 	}()
 
 	c := &collection{collectionID: 42}
-	tc := &TestCase{stream: st}
+	tc := &testCase{stream: st}
 
 	c.Reject(tc)
 	<-ready

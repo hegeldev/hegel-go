@@ -7,9 +7,9 @@ import (
 
 type goodCounter struct{ n int }
 
-func (c *goodCounter) RuleIncrement(_ *TestCase) { c.n++ }
-func (c *goodCounter) RuleDecrement(_ *TestCase) { c.n-- }
-func (c *goodCounter) InvariantSensible(_ *TestCase) {
+func (c *goodCounter) RuleIncrement(_ TestCase) { c.n++ }
+func (c *goodCounter) RuleDecrement(_ TestCase) { c.n-- }
+func (c *goodCounter) InvariantSensible(_ TestCase) {
 	if c.n < -10000 || c.n > 10000 {
 		panic("counter out of sensible range")
 	}
@@ -17,34 +17,34 @@ func (c *goodCounter) InvariantSensible(_ *TestCase) {
 
 type singleRuleMachine struct{ n int }
 
-func (m *singleRuleMachine) RuleStep(_ *TestCase) { m.n++ }
+func (m *singleRuleMachine) RuleStep(_ TestCase) { m.n++ }
 
 type helperMachine struct{ n int }
 
-func (m *helperMachine) RuleBump(_ *TestCase) { m.n++ }
-func (m *helperMachine) Helper() int          { return m.n } //nolint:unused
+func (m *helperMachine) RuleBump(_ TestCase) { m.n++ }
+func (m *helperMachine) Helper() int         { return m.n } //nolint:unused
 
 type noRulesMachine struct{}
 
-func (noRulesMachine) InvariantTrue(_ *TestCase) {}
+func (noRulesMachine) InvariantTrue(_ TestCase) {}
 
 type badRuleSig struct{}
 
-func (badRuleSig) RuleBad(_ *TestCase, _ string) {}
+func (badRuleSig) RuleBad(_ TestCase, _ string) {}
 
 type badInvariantSig struct{}
 
-func (badInvariantSig) RuleOK(_ *TestCase)    {}
+func (badInvariantSig) RuleOK(_ TestCase)     {}
 func (badInvariantSig) InvariantBad(_ string) {}
 
 type strayTestCaseMachine struct{}
 
-func (strayTestCaseMachine) RuleOK(_ *TestCase)  {}
-func (strayTestCaseMachine) DoStuff(_ *TestCase) {}
+func (strayTestCaseMachine) RuleOK(_ TestCase)  {}
+func (strayTestCaseMachine) DoStuff(_ TestCase) {}
 
 type assumeRejecting struct{}
 
-func (assumeRejecting) RuleReject(tc *TestCase) { tc.Assume(false) }
+func (assumeRejecting) RuleReject(tc TestCase) { tc.Assume(false) }
 
 // gatedMachine.RuleGated rejects via Assume until RuleOpen has run, so
 // the test exercises that an Assume rejection retries with a different
@@ -54,21 +54,21 @@ type gatedMachine struct {
 	gateCount int
 }
 
-func (m *gatedMachine) RuleOpen(_ *TestCase) { m.opened = true }
+func (m *gatedMachine) RuleOpen(_ TestCase) { m.opened = true }
 
-func (m *gatedMachine) RuleGated(tc *TestCase) {
+func (m *gatedMachine) RuleGated(tc TestCase) {
 	tc.Assume(m.opened)
 	m.gateCount++
 }
 
 type rulePanicker struct{}
 
-func (rulePanicker) RuleBoom(_ *TestCase) { panic("rule panic propagated") }
+func (rulePanicker) RuleBoom(_ TestCase) { panic("rule panic propagated") }
 
 type invariantViolator struct{ n int }
 
-func (m *invariantViolator) RuleStep(_ *TestCase) { m.n++ }
-func (m *invariantViolator) InvariantSmall(_ *TestCase) {
+func (m *invariantViolator) RuleStep(_ TestCase) { m.n++ }
+func (m *invariantViolator) InvariantSmall(_ TestCase) {
 	if m.n >= 3 {
 		panic(fmt.Sprintf("counter reached %d", m.n))
 	}
@@ -95,7 +95,7 @@ func TestNewStateMachineValidationErrors(t *testing.T) {
 		{
 			name:        "BadRuleSignature",
 			newMachine:  func() (*stateMachine, error) { return newStateMachine(&badRuleSig{}) },
-			wantSubstrs: []string{"RuleBad", "func(*TestCase)"},
+			wantSubstrs: []string{"RuleBad", "func(TestCase)"},
 		},
 		{
 			name:        "BadInvariantSignature",
@@ -162,7 +162,7 @@ func TestRunStatefulSingleRule(t *testing.T) {
 func TestRunStatefulPanicsOnValidationError(t *testing.T) {
 	t.Parallel()
 	assertPanicsWithMessage(t, "no rules", func() {
-		RunStateful(&TestCase{}, &noRulesMachine{})
+		RunStateful(&testCase{}, &noRulesMachine{})
 	})
 }
 
@@ -176,7 +176,7 @@ func TestRunStatefulRuleAssumeFalse(t *testing.T) {
 func TestRunStatefulAssumeRejectionRetries(t *testing.T) {
 	t.Parallel()
 	totalGateRuns := 0
-	err := Run(func(tc *TestCase) {
+	err := Run(func(tc TestCase) {
 		m := &gatedMachine{}
 		RunStateful(tc, m)
 		totalGateRuns += m.gateCount
@@ -191,7 +191,7 @@ func TestRunStatefulAssumeRejectionRetries(t *testing.T) {
 
 func TestRunStatefulRulePanicPropagates(t *testing.T) {
 	t.Parallel()
-	err := Run(func(tc *TestCase) {
+	err := Run(func(tc TestCase) {
 		RunStateful(tc, &rulePanicker{})
 	})
 	assertErrorContains(t, "rule panic propagated", err)
@@ -211,7 +211,7 @@ func TestStatefulInitialInvariantConnectionError(t *testing.T) {
 	conn.streams[1] = st
 	s.Close()
 
-	state := &TestCase{stream: st}
+	state := &testCase{stream: st}
 	sm, err := newStateMachine(&goodCounter{})
 	if err != nil {
 		t.Fatalf("newStateMachine: %v", err)
@@ -229,7 +229,7 @@ func TestStatefulInitialInvariantConnectionError(t *testing.T) {
 
 func TestRunStatefulInvariantViolationFails(t *testing.T) {
 	t.Parallel()
-	err := Run(func(tc *TestCase) {
+	err := Run(func(tc TestCase) {
 		RunStateful(tc, &invariantViolator{})
 	}, WithTestCases(10))
 	assertErrorContains(t, "counter reached", err)

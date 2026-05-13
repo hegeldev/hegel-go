@@ -29,17 +29,17 @@ func main() {
 
 	n := conformance.GetTestCases()
 
-	var body func(s *hegel.TestCase)
+	var body func(s hegel.TestCase)
 	switch params.Mode {
 	case "value_in_error_message":
-		body = func(s *hegel.TestCase) {
+		body = func(s hegel.TestCase) {
 			v := hegel.Draw(s, hegel.Integers[int](0, 1000))
 			conformance.WriteMetrics(map[string]any{"value": v})
 			panic(fmt.Sprintf("failing with value %d", v))
 		}
 
 	case "multiple_call_sites":
-		body = func(s *hegel.TestCase) {
+		body = func(s hegel.TestCase) {
 			v := hegel.Draw(s, hegel.Integers[int](1, 1000))
 			conformance.WriteMetrics(map[string]any{"value": v})
 			if v%2 == 0 {
@@ -53,7 +53,7 @@ func main() {
 		panic("test_origin_dedup: unknown mode: " + params.Mode)
 	}
 
-	_ = hegel.Run(func(s *hegel.TestCase) {
+	_ = hegel.Run(func(s hegel.TestCase) {
 		defer conformance.EnsureMetric()
 		body(s)
 	}, hegel.WithTestCases(n))

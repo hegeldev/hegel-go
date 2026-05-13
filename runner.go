@@ -15,10 +15,10 @@ import (
 	"time"
 )
 
-// TestCase holds the per-test-case context.
+// testCase holds the per-test-case context.
 //
 // It is compatible with most popular TestingT interfaces from assert libraries.
-type TestCase struct {
+type testCase struct {
 	stream  *stream
 	isFinal bool
 	aborted bool
@@ -57,52 +57,37 @@ const (
 	flakyReplay             = "FlakyReplay"
 )
 
-// internal returns the underlying TestCase, satisfying the State interface.
-func (s *TestCase) internal() *TestCase { return s }
-
-// Assume rejects the current test case if condition is false.
-func (s *TestCase) Assume(condition bool) {
+func (s *testCase) Assume(condition bool) {
 	if !condition {
 		panic(assumeRejected{})
 	}
 }
 
-// Note prints message, but only during the final (replay) test case.
-//
-// Output is routed to t.Log for [Test], or stdout for [Run].
-func (s *TestCase) Note(message string) {
+func (s *testCase) Note(message string) {
 	if s.isFinal && s.noteFn != nil {
 		s.noteFn(message)
 	}
 }
 
-// Errorf logs the formatted message via [TestCase.Note] and marks the test case
-// as failed.
-//
-// The test case continues running but will be treated as a failure after return.
-func (s *TestCase) Errorf(format string, args ...any) {
+func (s *testCase) Errorf(format string, args ...any) {
 	s.Note(fmt.Sprintf(format, args...))
 	s.failed = true
 }
 
-// Fail marks the test case as failed without stopping it.
-func (s *TestCase) Fail() {
+func (s *testCase) Fail() {
 	s.failed = true
 }
 
-// FailNow marks the test case as failed and stops the test body.
-func (s *TestCase) FailNow() {
+func (s *testCase) FailNow() {
 	s.failed = true
 	panic(fatalSentinel{msg: "FailNow called"})
 }
 
-// Log routes the message through [TestCase.Note].
-func (s *TestCase) Log(args ...any) {
+func (s *testCase) Log(args ...any) {
 	s.Note(fmt.Sprint(args...))
 }
 
-// Target guides Hegel toward values that maximize the given metric.
-func (s *TestCase) Target(value float64, label string) {
+func (s *testCase) Target(value float64, label string) {
 	if _, err := s.doRequest(map[string]any{
 		"command": "target",
 		"value":   value,
@@ -137,7 +122,7 @@ func toInt64(v any) (int64, bool) {
 //
 // Panics if msg cannot be CBOR-encoded — unreachable for the fixed-shape maps
 // constructed inside this package.
-func (s *TestCase) doRequest(msg map[string]any) (any, error) {
+func (s *testCase) doRequest(msg map[string]any) (any, error) {
 	if s.aborted {
 		return nil, errTestCaseAborted
 	}
@@ -171,7 +156,7 @@ func (s *TestCase) doRequest(msg map[string]any) (any, error) {
 
 // generateFromSchema sends a generate command for schema and returns the
 // decoded value.
-func (s *TestCase) generateFromSchema(schema map[string]any) (any, error) {
+func (s *testCase) generateFromSchema(schema map[string]any) (any, error) {
 	return s.doRequest(map[string]any{"command": "generate", "schema": schema})
 }
 
@@ -181,8 +166,8 @@ type fatalSentinel struct{ msg string }
 func (f fatalSentinel) Error() string { return f.msg }
 
 // testBody is the internal representation of a test function.
-// It receives the TestCase for the current test case.
-type testBody func(s *TestCase)
+// It receives the [TestCase] for the current test case.
+type testBody func(TestCase)
 
 // --- Health checks ---
 
@@ -352,12 +337,12 @@ func isCI() bool {
 // Run runs a property test and returns any error.
 //
 // Note output goes to stdout. For use in standalone binaries and conformance tests.
-func Run(fn func(*TestCase), opts ...Option) error {
+func Run(fn func(TestCase), opts ...Option) error {
 	return runHegel(fn, stdoutNoteFn, opts)
 }
 
 // MustRun runs a property test and panics if it fails.
-func MustRun(fn func(*TestCase), opts ...Option) {
+func MustRun(fn func(TestCase), opts ...Option) {
 	if err := Run(fn, opts...); err != nil {
 		panic(err)
 	}
@@ -367,8 +352,8 @@ func MustRun(fn func(*TestCase), opts ...Option) {
 func Test(t *testing.T, fn func(*T), opts ...Option) {
 	t.Helper()
 
-	body := func(s *TestCase) {
-		ht := &T{TestCase: s, T: t}
+	body := func(tc TestCase) {
+		ht := &T{testCase: tc.(*testCase), T: t}
 		fn(ht)
 	}
 	allOpts := append(opts, withDatabaseKey([]byte(t.Name())))
@@ -605,7 +590,7 @@ doneLoop:
 
 // runTestCase executes one test case and sends mark_complete to the server.
 func (c *client) runTestCase(st *stream, fn testBody, isFinal bool, noteFn func(string)) (finalErr error) {
-	state := &TestCase{
+	state := &testCase{
 		stream:  st,
 		isFinal: isFinal,
 		aborted: false,

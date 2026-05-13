@@ -185,7 +185,7 @@ func TestFilteredGeneratorStartSpanConnectionError(t *testing.T) {
 	conn.streams[1] = st
 	s.Close()
 
-	state := &TestCase{stream: st}
+	state := &testCase{stream: st}
 	gen := Filter(Booleans(), func(bool) bool { return true })
 
 	var caught any

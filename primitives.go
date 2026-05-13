@@ -200,13 +200,13 @@ func (g FloatGenerator[T]) asBasic() (*basicGenerator[T], bool, error) {
 }
 
 // draw produces a floating-point value from the Hegel server.
-func (g FloatGenerator[T]) draw(s *TestCase) (T, error) {
+func (g FloatGenerator[T]) draw(tc TestCase) (T, error) {
 	bg, _, err := g.asBasic()
 	if err != nil {
 		var zero T
 		return zero, err
 	}
-	return bg.draw(s)
+	return bg.draw(tc)
 }
 
 // Booleans returns a Generator that produces boolean values.
@@ -424,12 +424,12 @@ func (g TextGenerator) asBasic() (*basicGenerator[string], bool, error) {
 	return &basicGenerator[string]{schema: schema, parse: extractString}, true, nil
 }
 
-func (g TextGenerator) draw(s *TestCase) (string, error) {
+func (g TextGenerator) draw(tc TestCase) (string, error) {
 	bg, _, err := g.asBasic()
 	if err != nil {
 		return "", err
 	}
-	return bg.draw(s)
+	return bg.draw(tc)
 }
 
 // CharactersGenerator configures and generates single-character strings.
@@ -505,12 +505,12 @@ func (g CharactersGenerator) asBasic() (*basicGenerator[string], bool, error) {
 	return &basicGenerator[string]{schema: schema, parse: extractString}, true, nil
 }
 
-func (g CharactersGenerator) draw(s *TestCase) (string, error) {
+func (g CharactersGenerator) draw(tc TestCase) (string, error) {
 	bg, _, err := g.asBasic()
 	if err != nil {
 		return "", err
 	}
-	return bg.draw(s)
+	return bg.draw(tc)
 }
 
 // Binary returns a Generator that produces byte slices with length in [minSize, maxSize].
@@ -592,12 +592,12 @@ func (g DomainGenerator) asBasic() (*basicGenerator[string], bool, error) {
 	}, true, nil
 }
 
-func (g DomainGenerator) draw(s *TestCase) (string, error) {
+func (g DomainGenerator) draw(tc TestCase) (string, error) {
 	bg, _, err := g.asBasic()
 	if err != nil {
 		return "", err
 	}
-	return bg.draw(s)
+	return bg.draw(tc)
 }
 
 // Dates returns a Generator that produces time.Time values from ISO 8601 date strings (YYYY-MM-DD).

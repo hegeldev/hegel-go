@@ -99,27 +99,27 @@ func (g ListGenerator[T]) asBasic() (*basicGenerator[[]T], bool, error) {
 // falling back to the collection protocol otherwise. When unique is set on
 // the compositional path, duplicates are rejected via the collection protocol
 // so the server can retry until min_size distinct elements have been drawn.
-func (g ListGenerator[T]) draw(s *TestCase) ([]T, error) {
+func (g ListGenerator[T]) draw(tc TestCase) ([]T, error) {
 	bg, ok, err := g.asBasic()
 	if err != nil {
 		return nil, err
 	}
 	if ok {
-		return bg.draw(s)
+		return bg.draw(tc)
 	}
 	var maxSize *int
 	if g.hasMax {
 		m := g.maxSize
 		maxSize = &m
 	}
-	return withSpan(s, labelList, func() ([]T, error) {
+	return withSpan(tc, labelList, func() ([]T, error) {
 		result := []T{}
-		coll, err := newCollection(s, g.minSize, maxSize)
+		coll, err := newCollection(tc, g.minSize, maxSize)
 		if err != nil {
 			return nil, err
 		}
-		for coll.More(s) {
-			v, err := g.elements.draw(s)
+		for coll.More(tc) {
+			v, err := g.elements.draw(tc)
 			if err != nil {
 				return nil, err
 			}
@@ -132,7 +132,7 @@ func (g ListGenerator[T]) draw(s *TestCase) ([]T, error) {
 					}
 				}
 				if duplicate {
-					coll.Reject(s)
+					coll.Reject(tc)
 					continue
 				}
 			}
@@ -223,35 +223,35 @@ func (g MapGenerator[K, V]) asBasic() (*basicGenerator[map[K]V], bool, error) {
 
 // draw produces a map by dispatching to the basic schema when possible,
 // falling back to the collection protocol otherwise.
-func (g MapGenerator[K, V]) draw(s *TestCase) (map[K]V, error) {
+func (g MapGenerator[K, V]) draw(tc TestCase) (map[K]V, error) {
 	bg, ok, err := g.asBasic()
 	if err != nil {
 		return nil, err
 	}
 	if ok {
-		return bg.draw(s)
+		return bg.draw(tc)
 	}
 	var maxSize *int
 	if g.hasMax {
 		m := g.maxSize
 		maxSize = &m
 	}
-	return withSpan(s, labelMap, func() (map[K]V, error) {
+	return withSpan(tc, labelMap, func() (map[K]V, error) {
 		result := map[K]V{}
-		coll, err := newCollection(s, g.minSize, maxSize)
+		coll, err := newCollection(tc, g.minSize, maxSize)
 		if err != nil {
 			return nil, err
 		}
-		for coll.More(s) {
-			k, err := g.keys.draw(s)
+		for coll.More(tc) {
+			k, err := g.keys.draw(tc)
 			if err != nil {
 				return nil, err
 			}
 			if _, exists := result[k]; exists {
-				coll.Reject(s)
+				coll.Reject(tc)
 				continue
 			}
-			v, err := g.values.draw(s)
+			v, err := g.values.draw(tc)
 			if err != nil {
 				return nil, err
 			}

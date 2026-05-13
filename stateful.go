@@ -24,7 +24,7 @@ type stateMachine struct {
 // a bound function value with the receiver pre-applied at discovery time.
 type stateMachineRule struct {
 	name string
-	fn   func(*TestCase)
+	fn   func(TestCase)
 }
 
 // newStateMachine inspects machine's method set and returns a runner.
@@ -36,7 +36,7 @@ func newStateMachine[M any, T interface{ *M }](machine T) (*stateMachine, error)
 
 	rt := reflect.TypeOf(machine)
 	rv := reflect.ValueOf(machine)
-	tcType := reflect.TypeFor[*TestCase]()
+	tcType := reflect.TypeFor[TestCase]()
 
 	for i := range rt.NumMethod() {
 		m := rt.Method(i)
@@ -56,14 +56,14 @@ func newStateMachine[M any, T interface{ *M }](machine T) (*stateMachine, error)
 
 		if !isRule && !isInvariant {
 			if takesTestCase {
-				return nil, fmt.Errorf("method %s takes *TestCase but is not prefixed with Rule or Invariant", name)
+				return nil, fmt.Errorf("method %s takes TestCase but is not prefixed with Rule or Invariant", name)
 			}
 			continue
 		}
 
-		fn, ok := rv.Method(i).Interface().(func(*TestCase))
+		fn, ok := rv.Method(i).Interface().(func(TestCase))
 		if !ok {
-			return nil, fmt.Errorf("method %s: rules and invariants must have signature func(*TestCase) with no return", name)
+			return nil, fmt.Errorf("method %s: rules and invariants must have signature func(TestCase) with no return", name)
 		}
 
 		r := stateMachineRule{name: name, fn: fn}
@@ -88,11 +88,10 @@ func newStateMachine[M any, T interface{ *M }](machine T) (*stateMachine, error)
 //
 // Rules that reject the current pre-state via [TestCase.Assume] are
 // skipped and another rule is drawn, up to a retry budget.
-func (sm *stateMachine) Run(tc testCase) {
-	s := tc.internal()
-	s.Note("Initial invariant check.")
+func (sm *stateMachine) Run(tc TestCase) {
+	tc.Note("Initial invariant check.")
 	for _, inv := range sm.invariants {
-		if err := callInvariant(s, inv.fn); err != nil {
+		if err := callInvariant(tc, inv.fn); err != nil {
 			panic(err)
 		}
 	}
@@ -108,9 +107,9 @@ func (sm *stateMachine) Run(tc testCase) {
 			idx = Draw(tc, Integers(0, len(sm.rules)-1))
 		}
 		rule := sm.rules[idx]
-		s.Note(fmt.Sprintf("Step %d: %s", step, rule.name))
+		tc.Note(fmt.Sprintf("Step %d: %s", step, rule.name))
 
-		ok, err := callRule(s, rule.fn)
+		ok, err := callRule(tc, rule.fn)
 		if err != nil { // coverage-ignore
 			panic(err)
 		}
@@ -120,29 +119,29 @@ func (sm *stateMachine) Run(tc testCase) {
 		}
 		stepsSucceeded++
 		for _, inv := range sm.invariants {
-			if err := callInvariant(s, inv.fn); err != nil { // coverage-ignore
+			if err := callInvariant(tc, inv.fn); err != nil { // coverage-ignore
 				panic(err)
 			}
 		}
 	}
 }
 
-// callInvariant brackets fn(s) in a labelStateful span. Panics propagate
+// callInvariant brackets fn(tc) in a labelStateful span. Panics propagate
 // to the caller; invariant failures must surface as test failures.
-func callInvariant(s *TestCase, fn func(*TestCase)) error {
-	_, err := withSpan(s, labelStateful, func() (struct{}, error) {
-		fn(s)
+func callInvariant(tc TestCase, fn func(TestCase)) error {
+	_, err := withSpan(tc, labelStateful, func() (struct{}, error) {
+		fn(tc)
 		return struct{}{}, nil
 	})
 	return err
 }
 
-// callRule brackets fn(s) in a labelStateful span and recovers from
+// callRule brackets fn(tc) in a labelStateful span and recovers from
 // [TestCase.Assume] rejections so the caller can try a different rule.
 // It returns true if fn ran to completion, false if it rejected via
 // Assume. Other panics propagate to the caller.
-func callRule(s *TestCase, fn func(*TestCase)) (bool, error) {
-	return withSpan(s, labelStateful, func() (ok bool, err error) {
+func callRule(tc TestCase, fn func(TestCase)) (bool, error) {
+	return withSpan(tc, labelStateful, func() (ok bool, err error) {
 		defer func() {
 			r := recover()
 			if r == nil {
@@ -153,7 +152,7 @@ func callRule(s *TestCase, fn func(*TestCase)) (bool, error) {
 			}
 			panic(r)
 		}()
-		fn(s)
+		fn(tc)
 		return true, nil
 	})
 }
@@ -164,14 +163,14 @@ func callRule(s *TestCase, fn func(*TestCase)) (bool, error) {
 // of rules and invariants.
 //
 // Methods whose name starts with "Rule" and whose signature is
-// func(*TestCase) are registered as rules. Methods whose name
+// func(TestCase) are registered as rules. Methods whose name
 // starts with "Invariant" with the same signature are registered as
 // invariants.
 //
-// It panics if a method takes *TestCase but is not prefixed
+// It panics if a method takes TestCase but is not prefixed
 // with Rule or Invariant, if a Rule- or Invariant-prefixed method has
 // the wrong signature, or if the machine has no rules.
-func RunStateful[M any, T interface{ *M }](tc testCase, machine T) {
+func RunStateful[M any, T interface{ *M }](tc TestCase, machine T) {
 	sm, err := newStateMachine(machine)
 	if err != nil {
 		panic(err)

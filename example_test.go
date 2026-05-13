@@ -163,7 +163,7 @@ func ExampleComposite() {
 		Age  int
 	}
 
-	personGen := hegel.Composite(func(tc *hegel.TestCase) person {
+	personGen := hegel.Composite(func(tc hegel.TestCase) person {
 		return person{
 			Name: hegel.Draw(tc, hegel.Text()),
 			Age:  hegel.Draw(tc, hegel.Integers(0, 120)),
@@ -180,7 +180,7 @@ func ExampleComposite() {
 }
 
 func ExampleComposite_dataDependentDrawCount() {
-	variableList := hegel.Composite(func(tc *hegel.TestCase) []int {
+	variableList := hegel.Composite(func(tc hegel.TestCase) []int {
 		n := hegel.Draw(tc, hegel.Integers(0, 10))
 		out := make([]int, n)
 		for i := range n {
@@ -217,7 +217,7 @@ func ExampleComposite_recursive() {
 	const maxDepth = 5
 	depth := 0
 	var nodeGen hegel.Generator[*Node]
-	nodeGen = hegel.Composite(func(tc *hegel.TestCase) *Node {
+	nodeGen = hegel.Composite(func(tc hegel.TestCase) *Node {
 		n := &Node{Value: hegel.Draw(tc, hegel.Integers(0, 100))}
 		if depth < maxDepth && hegel.Draw(tc, hegel.Booleans()) {
 			depth++
@@ -231,5 +231,11 @@ func ExampleComposite_recursive() {
 	t := &testing.T{}
 	hegel.Test(t, func(ht *hegel.T) {
 		_ = hegel.Draw(ht, nodeGen)
+	})
+}
+
+func ExampleWorkload() {
+	hegel.Workload(func(tc hegel.TestCase) {
+		_ = hegel.Draw(tc, hegel.Integers(0, 100))
 	})
 }

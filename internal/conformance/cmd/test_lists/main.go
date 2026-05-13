@@ -56,7 +56,7 @@ func main() {
 	}
 
 	n := conformance.GetTestCases()
-	hegel.MustRun(func(s *hegel.TestCase) {
+	hegel.MustRun(func(s hegel.TestCase) {
 		defer conformance.EnsureMetric()
 		items := hegel.Draw(s, gen)
 		elements := make([]any, len(items))
