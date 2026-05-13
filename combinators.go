@@ -49,18 +49,18 @@ func (g *oneOfGenerator[T]) asBasic() (*basicGenerator[T], bool, error) {
 
 // draw produces a value by dispatching to the basic schema when possible,
 // falling back to a server-side index draw otherwise.
-func (g *oneOfGenerator[T]) draw(s *TestCase) (T, error) {
+func (g *oneOfGenerator[T]) draw(tc TestCase) (T, error) {
 	var zero T
 	bg, ok, err := g.asBasic()
 	if err != nil {
 		return zero, err
 	}
 	if ok {
-		return bg.draw(s)
+		return bg.draw(tc)
 	}
-	return withSpan(s, labelOneOf, func() (T, error) {
+	return withSpan(tc, labelOneOf, func() (T, error) {
 		n := len(g.generators)
-		idx, err := s.generateFromSchema(map[string]any{
+		idx, err := tc.generateFromSchema(map[string]any{
 			"type":      "integer",
 			"min_value": int64(0),
 			"max_value": int64(n - 1),
@@ -68,7 +68,7 @@ func (g *oneOfGenerator[T]) draw(s *TestCase) (T, error) {
 		if err != nil { // coverage-ignore
 			return zero, err
 		}
-		return g.generators[extractInt(idx)].draw(s)
+		return g.generators[extractInt(idx)].draw(tc)
 	})
 }
 
@@ -134,16 +134,16 @@ func (g *optionalGenerator[T]) asBasic() (*basicGenerator[*T], bool, error) {
 
 // draw generates either nil or a value by dispatching to the basic schema
 // when inner is basic, falling back to a server-side index draw otherwise.
-func (g *optionalGenerator[T]) draw(s *TestCase) (*T, error) {
+func (g *optionalGenerator[T]) draw(tc TestCase) (*T, error) {
 	bg, ok, err := g.asBasic()
 	if err != nil {
 		return nil, err
 	}
 	if ok {
-		return bg.draw(s)
+		return bg.draw(tc)
 	}
-	return withSpan(s, labelOneOf, func() (*T, error) {
-		idx, err := s.generateFromSchema(map[string]any{
+	return withSpan(tc, labelOneOf, func() (*T, error) {
+		idx, err := tc.generateFromSchema(map[string]any{
 			"type":      "integer",
 			"min_value": int64(0),
 			"max_value": int64(1),
@@ -154,7 +154,7 @@ func (g *optionalGenerator[T]) draw(s *TestCase) (*T, error) {
 		if extractInt(idx) == 0 {
 			return nil, nil
 		}
-		v, err := g.inner.draw(s)
+		v, err := g.inner.draw(tc)
 		if err != nil {
 			return nil, err
 		}
@@ -216,10 +216,10 @@ func (g IPAddressGenerator) asBasic() (*basicGenerator[netip.Addr], bool, error)
 }
 
 // draw produces an IP address by dispatching to the basic schema returned by asBasic.
-func (g IPAddressGenerator) draw(s *TestCase) (netip.Addr, error) {
+func (g IPAddressGenerator) draw(tc TestCase) (netip.Addr, error) {
 	bg, _, err := g.asBasic()
 	if err != nil { // coverage-ignore
 		return netip.Addr{}, err
 	}
-	return bg.draw(s)
+	return bg.draw(tc)
 }

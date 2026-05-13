@@ -4,10 +4,10 @@ package hegel
 // composes other generators via [Draw]. It has no schema and always falls
 // back to compositional generation.
 type compositeGenerator[T any] struct {
-	fn func(*TestCase) T
+	fn func(TestCase) T
 }
 
-// draw invokes the composed function with the given TestCase.
+// draw invokes the composed function with the given test case.
 //
 // The user fn calls [Draw], which panics at the exported boundary with the
 // sentinel error types. Those panics propagate up to the runner's recover,
@@ -18,8 +18,8 @@ type compositeGenerator[T any] struct {
 // point at the user's code rather than this defer site.
 //
 //lint:ignore U1000 satisfies Generator interface; staticcheck misses generic dispatch
-func (g *compositeGenerator[T]) draw(s *TestCase) (T, error) {
-	return g.fn(s), nil
+func (g *compositeGenerator[T]) draw(tc TestCase) (T, error) {
+	return g.fn(tc), nil
 }
 
 // asBasic always returns not-basic — composite generators have no schema.
@@ -34,8 +34,6 @@ func (g *compositeGenerator[T]) asBasic() (*basicGenerator[T], bool, error) {
 // Inside fn, call [Draw] on other generators to assemble the value. The
 // function may call Draw any number of times.
 //
-// The function receives the same *TestCase that test bodies receive.
-//
 // Example: a generator for a Person whose driving license field only appears
 // when age >= 18.
 //
@@ -45,7 +43,7 @@ func (g *compositeGenerator[T]) asBasic() (*basicGenerator[T], bool, error) {
 //	    DrivingLicense bool
 //	}
 //
-//	personGen := hegel.Composite(func(tc *hegel.TestCase) Person {
+//	personGen := hegel.Composite(func(tc hegel.TestCase) Person {
 //	    age := hegel.Draw(tc, hegel.Integers(0, 120))
 //	    name := hegel.Draw(tc, hegel.Text())
 //	    p := Person{Age: age, Name: name}
@@ -59,6 +57,6 @@ func (g *compositeGenerator[T]) asBasic() (*basicGenerator[T], bool, error) {
 //	    p := hegel.Draw(ht, personGen)
 //	    // assert properties of p
 //	})
-func Composite[T any](fn func(*TestCase) T) Generator[T] {
+func Composite[T any](fn func(TestCase) T) Generator[T] {
 	return &compositeGenerator[T]{fn: fn}
 }

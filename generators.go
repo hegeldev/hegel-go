@@ -48,13 +48,13 @@ const (
 //
 // It is a sealed interface — only types within this package can implement it.
 type Generator[T any] interface {
-	// draw produces a value from the Hegel server using the given state.
+	// draw produces a value from the Hegel server using the given test case.
 	// Unexported to seal the interface to this package.
 	//
 	// Returns the sentinel errors [*dataExhausted] / [flakyAbort] when the
 	// server aborts the test case, [*connectionError] for transport
 	// failures, and [assumeRejected] when a Filter exhausts its retries.
-	draw(s *TestCase) (T, error)
+	draw(tc TestCase) (T, error)
 
 	// asBasic returns the basic-schema form of this generator, when one exists.
 	// The three return values encode three distinct states:
@@ -66,8 +66,12 @@ type Generator[T any] interface {
 	asBasic() (*basicGenerator[T], bool, error)
 }
 
-// testCase is the test context for a Hegel property test.
-type testCase interface {
+// TestCase is the test context for a Hegel property test.
+//
+// It is passed to [Run] bodies and [Composite] callbacks directly, and is
+// embedded in the *[T] passed to [Test] bodies, so generator code written
+// against TestCase works under either entry point.
+type TestCase interface {
 	// Assume rejects the current test case if condition is false.
 	Assume(condition bool)
 
@@ -77,13 +81,32 @@ type testCase interface {
 	// Target sends a target value to guide test generation.
 	Target(value float64, label string)
 
-	// internal returns the underlying TestCase. Unexported to seal the interface.
-	internal() *TestCase
+	// Errorf logs the formatted message via Note and marks the test case as
+	// failed. The test case continues running but is treated as a failure
+	// after return.
+	Errorf(format string, args ...any)
+
+	// Fail marks the test case as failed without stopping it.
+	Fail()
+
+	// FailNow marks the test case as failed and stops the test body.
+	FailNow()
+
+	// Log routes the message through Note (only emitted on final replay).
+	Log(args ...any)
+
+	// doRequest sends a CBOR-encoded request to the server and returns the
+	// decoded reply. Unexported to seal the interface to this package.
+	doRequest(msg map[string]any) (any, error)
+
+	// generateFromSchema sends a generate command for schema and returns the
+	// decoded value. Unexported to seal the interface to this package.
+	generateFromSchema(schema map[string]any) (any, error)
 }
 
 // Draw produces a value from a Generator using the given State context.
-func Draw[T any](tc testCase, g Generator[T]) T {
-	v, err := g.draw(tc.internal())
+func Draw[T any](tc TestCase, g Generator[T]) T {
+	v, err := g.draw(tc)
 	if err != nil {
 		panic(err)
 	}
@@ -100,8 +123,8 @@ type basicGenerator[T any] struct {
 }
 
 // draw sends a generate command to the server and returns the result.
-func (g *basicGenerator[T]) draw(s *TestCase) (T, error) {
-	v, err := s.generateFromSchema(g.schema)
+func (g *basicGenerator[T]) draw(tc TestCase) (T, error) {
+	v, err := tc.generateFromSchema(g.schema)
 	if err != nil {
 		var zero T
 		return zero, err
@@ -128,10 +151,10 @@ type mappedGenerator[T, U any] struct {
 // draw calls the inner generator inside a MAPPED span and applies fn.
 //
 //lint:ignore U1000 satisfies Generator interface; staticcheck misses generic dispatch
-func (g *mappedGenerator[T, U]) draw(s *TestCase) (U, error) {
-	return withSpan(s, labelMapped, func() (U, error) {
+func (g *mappedGenerator[T, U]) draw(tc TestCase) (U, error) {
+	return withSpan(tc, labelMapped, func() (U, error) {
 		var zero U
-		v, err := g.inner.draw(s)
+		v, err := g.inner.draw(tc)
 		if err != nil {
 			return zero, err
 		}
@@ -164,23 +187,23 @@ const maxFilterAttempts = 3
 // draw tries up to maxFilterAttempts times to produce a value satisfying predicate.
 //
 //lint:ignore U1000 satisfies Generator interface; staticcheck misses generic dispatch
-func (g *filteredGenerator[T]) draw(s *TestCase) (T, error) {
+func (g *filteredGenerator[T]) draw(tc TestCase) (T, error) {
 	var zero T
 	for range maxFilterAttempts {
-		if err := startSpan(s, labelFilter); err != nil {
+		if err := startSpan(tc, labelFilter); err != nil {
 			return zero, err
 		}
-		value, err := g.source.draw(s)
+		value, err := g.source.draw(tc)
 		if err != nil {
 			return zero, err
 		}
 		if g.predicate(value) {
-			if err := stopSpan(s, false); err != nil { // coverage-ignore
+			if err := stopSpan(tc, false); err != nil { // coverage-ignore
 				return zero, err
 			}
 			return value, nil
 		}
-		if err := stopSpan(s, true); err != nil { // coverage-ignore
+		if err := stopSpan(tc, true); err != nil { // coverage-ignore
 			return zero, err
 		}
 	}
@@ -206,14 +229,14 @@ type flatMappedGenerator[T, U any] struct {
 // draw generates from source, then from the dependent generator, inside a FLAT_MAP span.
 //
 //lint:ignore U1000 satisfies Generator interface; staticcheck misses generic dispatch
-func (g *flatMappedGenerator[T, U]) draw(s *TestCase) (U, error) {
-	return withSpan(s, labelFlatMap, func() (U, error) {
+func (g *flatMappedGenerator[T, U]) draw(tc TestCase) (U, error) {
+	return withSpan(tc, labelFlatMap, func() (U, error) {
 		var zero U
-		first, err := g.source.draw(s)
+		first, err := g.source.draw(tc)
 		if err != nil {
 			return zero, err
 		}
-		return g.f(first).draw(s)
+		return g.f(first).draw(tc)
 	})
 }
 
@@ -258,8 +281,8 @@ func Filter[T any](g Generator[T], pred func(T) bool) Generator[T] {
 // --- Span helpers ---
 
 // startSpan notifies the server that a new generation span has started.
-func startSpan(gs *TestCase, label spanLabel) error {
-	_, err := gs.doRequest(map[string]any{
+func startSpan(tc TestCase, label spanLabel) error {
+	_, err := tc.doRequest(map[string]any{
 		"command": "start_span",
 		"label":   int64(label),
 	})
@@ -267,8 +290,8 @@ func startSpan(gs *TestCase, label spanLabel) error {
 }
 
 // stopSpan notifies the server that the current generation span has ended.
-func stopSpan(gs *TestCase, discard bool) error {
-	_, err := gs.doRequest(map[string]any{
+func stopSpan(tc TestCase, discard bool) error {
+	_, err := tc.doRequest(map[string]any{
 		"command": "stop_span",
 		"discard": discard,
 	})
@@ -283,16 +306,16 @@ func stopSpan(gs *TestCase, discard bool) error {
 //
 // Use the inline startSpan/stopSpan pair when the discard decision depends
 // on the body's outcome (see filteredGenerator.draw).
-func withSpan[T any](s *TestCase, label spanLabel, body func() (T, error)) (T, error) {
+func withSpan[T any](tc TestCase, label spanLabel, body func() (T, error)) (T, error) {
 	var zero T
-	if err := startSpan(s, label); err != nil {
+	if err := startSpan(tc, label); err != nil {
 		return zero, err
 	}
 	v, err := body()
 	if err != nil {
 		return zero, err
 	}
-	if err := stopSpan(s, false); err != nil { // coverage-ignore
+	if err := stopSpan(tc, false); err != nil { // coverage-ignore
 		return zero, err
 	}
 	return v, nil
@@ -317,7 +340,7 @@ func (c *collection) Err() error {
 
 // newCollection starts a new collection on the server with the given size bounds.
 // A nil maxSize means unbounded (omitted from the payload).
-func newCollection(gs *TestCase, minSize int, maxSize *int) (*collection, error) {
+func newCollection(tc TestCase, minSize int, maxSize *int) (*collection, error) {
 	msg := map[string]any{
 		"command":  "new_collection",
 		"min_size": int64(minSize),
@@ -325,7 +348,7 @@ func newCollection(gs *TestCase, minSize int, maxSize *int) (*collection, error)
 	if maxSize != nil {
 		msg["max_size"] = int64(*maxSize)
 	}
-	v, err := gs.doRequest(msg)
+	v, err := tc.doRequest(msg)
 	if err != nil {
 		return nil, err
 	}
@@ -337,11 +360,11 @@ func newCollection(gs *TestCase, minSize int, maxSize *int) (*collection, error)
 //
 // Returns false once the collection is finished or an error has been
 // recorded; check Err after the loop to distinguish those cases.
-func (c *collection) More(gs *TestCase) bool {
+func (c *collection) More(tc TestCase) bool {
 	if c.finished || c.err != nil {
 		return false
 	}
-	v, err := gs.doRequest(map[string]any{
+	v, err := tc.doRequest(map[string]any{
 		"command":       "collection_more",
 		"collection_id": c.collectionID,
 	})
@@ -359,11 +382,11 @@ func (c *collection) More(gs *TestCase) bool {
 // Reject tells the server that the last generated element should not count.
 //
 // Errors are recorded on the collection and surfaced via Err.
-func (c *collection) Reject(gs *TestCase) {
+func (c *collection) Reject(tc TestCase) {
 	if c.finished || c.err != nil {
 		return
 	}
-	if _, err := gs.doRequest(map[string]any{
+	if _, err := tc.doRequest(map[string]any{
 		"command":       "collection_reject",
 		"collection_id": c.collectionID,
 	}); err != nil {

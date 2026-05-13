@@ -226,7 +226,7 @@ func TestServerCrashIncludesLogContent(t *testing.T) {
 		t.Fatalf("start: %v", err)
 	}
 
-	err := s.runTest(func(tc *TestCase) {
+	err := s.runTest(func(tc TestCase) {
 		Draw[bool](tc, Booleans())
 	}, runOptions{testCases: 1}, stdoutNoteFn)
 	if err == nil {
@@ -245,7 +245,7 @@ func TestServerCrashEmptyLog(t *testing.T) {
 		t.Fatalf("start: %v", err)
 	}
 
-	err := s.runTest(func(tc *TestCase) {
+	err := s.runTest(func(tc TestCase) {
 		Draw[bool](tc, Booleans())
 	}, runOptions{testCases: 1}, stdoutNoteFn)
 	if err == nil {

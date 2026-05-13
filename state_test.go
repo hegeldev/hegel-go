@@ -4,11 +4,11 @@ import (
 	"testing"
 )
 
-// makeFakeT creates a *T with a zero TestCase and a real *testing.T
+// makeFakeT creates a *T with a zero testCase and a real *testing.T
 // for unit testing T methods in state.go.
 func makeFakeT(t *testing.T) *T {
 	return &T{
-		TestCase: &TestCase{},
+		testCase: &testCase{},
 		T:        t,
 	}
 }
@@ -131,11 +131,11 @@ func TestTErrorSetsFailedAndCallsNote(t *testing.T) {
 	t.Parallel()
 	ht := makeFakeT(t)
 	// Make state final so Note actually fires (verify no panic).
-	ht.TestCase.isFinal = true
+	ht.testCase.isFinal = true
 	noted := false
-	ht.TestCase.noteFn = func(msg string) { noted = true }
+	ht.testCase.noteFn = func(msg string) { noted = true }
 	ht.Error("something went wrong")
-	if !ht.TestCase.failed {
+	if !ht.testCase.failed {
 		t.Error("expected failed to be true after Error()")
 	}
 	if !noted {
@@ -146,11 +146,11 @@ func TestTErrorSetsFailedAndCallsNote(t *testing.T) {
 func TestTErrorfSetsFailedAndCallsNote(t *testing.T) {
 	t.Parallel()
 	ht := makeFakeT(t)
-	ht.TestCase.isFinal = true
+	ht.testCase.isFinal = true
 	noted := false
-	ht.TestCase.noteFn = func(msg string) { noted = true }
+	ht.testCase.noteFn = func(msg string) { noted = true }
 	ht.Errorf("error: %d", 99)
-	if !ht.TestCase.failed {
+	if !ht.testCase.failed {
 		t.Error("expected failed to be true after Errorf()")
 	}
 	if !noted {
@@ -181,9 +181,9 @@ func TestTFailSetsFailed(t *testing.T) {
 func TestTLogCallsNote(t *testing.T) {
 	t.Parallel()
 	ht := makeFakeT(t)
-	ht.TestCase.isFinal = true
+	ht.testCase.isFinal = true
 	var gotMsg string
-	ht.TestCase.noteFn = func(msg string) { gotMsg = msg }
+	ht.testCase.noteFn = func(msg string) { gotMsg = msg }
 	ht.Log("hello", " world")
 	if gotMsg != "hello world" {
 		t.Errorf("expected %q, got %q", "hello world", gotMsg)
@@ -193,9 +193,9 @@ func TestTLogCallsNote(t *testing.T) {
 func TestTLogfCallsNote(t *testing.T) {
 	t.Parallel()
 	ht := makeFakeT(t)
-	ht.TestCase.isFinal = true
+	ht.testCase.isFinal = true
 	var gotMsg string
-	ht.TestCase.noteFn = func(msg string) { gotMsg = msg }
+	ht.testCase.noteFn = func(msg string) { gotMsg = msg }
 	ht.Logf("value=%d", 42)
 	if gotMsg != "value=42" {
 		t.Errorf("expected %q, got %q", "value=42", gotMsg)

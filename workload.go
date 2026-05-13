@@ -21,7 +21,7 @@ var workloadExit = os.Exit
 // Runs for an unbounded amount of time unless overridden via an option or flag.
 //
 // opts are overridden by flags.
-func Workload(fn func(*TestCase), opts ...Option) {
+func Workload(fn func(TestCase), opts ...Option) {
 	err := workload(os.Args, os.Stderr, fn, opts)
 	if err == nil {
 		return
@@ -34,7 +34,7 @@ func Workload(fn func(*TestCase), opts ...Option) {
 // output (parse errors, usage, --help) to stderr and returns nil on success
 // (including --help) or a non-nil error for flag-parse problems and
 // property-test failures.
-func workload(args []string, stderr io.Writer, fn func(*TestCase), opts []Option) error {
+func workload(args []string, stderr io.Writer, fn func(TestCase), opts []Option) error {
 	fs := flag.NewFlagSet(args[0], flag.ContinueOnError)
 	fs.SetOutput(stderr)
 
