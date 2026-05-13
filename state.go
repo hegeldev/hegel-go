@@ -8,27 +8,35 @@ import (
 // Compile-time check that T satisfies testing.TB.
 var _ testing.TB = (*T)(nil)
 
-// Compile-time checks that *TestCase satisfies the TestingT interfaces used by
+// Compile-time checks that *testCase and *T both satisfy [TestCase]. This
+// is what lets a [Composite] callback typed `func(TestCase) T` be invoked
+// from either entry point.
+var (
+	_ TestCase = (*testCase)(nil)
+	_ TestCase = (*T)(nil)
+)
+
+// Compile-time checks that *testCase satisfies the TestingT interfaces used by
 // popular assertion libraries (testify, gotest.tools, gomega). This lets
 // assertions be used directly inside [Composite] callbacks and [Run] bodies,
-// where only a *TestCase is available.
+// where only a *testCase is available.
 var _ interface {
 	Errorf(format string, args ...any)
 	FailNow()
-} = (*TestCase)(nil)
+} = (*testCase)(nil)
 
 var _ interface {
 	Fail()
 	FailNow()
 	Log(args ...any)
-} = (*TestCase)(nil)
+} = (*testCase)(nil)
 
 // T is the test context for property tests run via [Test].
 //
 // It embeds *[testing.T] and overrides methods like Fatal and Skip so they
 // work correctly inside a Hegel test body.
 type T struct {
-	*TestCase
+	*testCase
 	*testing.T
 }
 
@@ -46,11 +54,6 @@ func (t *T) Fatalf(format string, args ...any) {
 	msg := fmt.Sprintf(format, args...)
 	t.Note(msg)
 	panic(fatalSentinel{msg: msg})
-}
-
-// FailNow marks the test case as failed and stops the test body.
-func (t *T) FailNow() {
-	t.TestCase.FailNow()
 }
 
 // Skip discards the current test case.
@@ -76,27 +79,12 @@ func (t *T) SkipNow() {
 func (t *T) Error(args ...any) {
 	msg := fmt.Sprint(args...)
 	t.Note(msg)
-	t.TestCase.failed = true
-}
-
-// Errorf logs the formatted message via [TestCase.Note] and sets the failed flag.
-func (t *T) Errorf(format string, args ...any) {
-	t.TestCase.Errorf(format, args...)
-}
-
-// Fail sets the failed flag without stopping the test case.
-func (t *T) Fail() {
-	t.TestCase.Fail()
+	t.testCase.Fail()
 }
 
 // Failed reports whether the test case has been marked as failed.
 func (t *T) Failed() bool {
-	return t.TestCase.failed
-}
-
-// Log routes the message through [TestCase.Note] (only emitted on final replay).
-func (t *T) Log(args ...any) {
-	t.TestCase.Log(args...)
+	return t.testCase.failed
 }
 
 // Logf routes the formatted message through [TestCase.Note].

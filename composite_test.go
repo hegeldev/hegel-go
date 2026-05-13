@@ -15,7 +15,7 @@ import (
 // *compositeGenerator.
 func TestCompositeReturnsCompositeGenerator(t *testing.T) {
 	t.Parallel()
-	gen := Composite(func(s *TestCase) int {
+	gen := Composite(func(s TestCase) int {
 		return Draw(s, Integers[int](0, 10))
 	})
 	if _, ok := gen.(*compositeGenerator[int]); !ok {
@@ -27,7 +27,7 @@ func TestCompositeReturnsCompositeGenerator(t *testing.T) {
 // is never basic — composite generators have no schema.
 func TestCompositeGeneratorAsBasicReturnsNotBasic(t *testing.T) {
 	t.Parallel()
-	gen := Composite(func(s *TestCase) int {
+	gen := Composite(func(s TestCase) int {
 		return Draw(s, Integers[int](0, 10))
 	})
 	bg, ok, err := gen.(*compositeGenerator[int]).asBasic()
@@ -46,7 +46,7 @@ func TestCompositeGeneratorAsBasicReturnsNotBasic(t *testing.T) {
 // composite generator returns a *mappedGenerator (the non-basic path).
 func TestCompositeGeneratorMapReturnsMappedGenerator(t *testing.T) {
 	t.Parallel()
-	gen := Composite(func(s *TestCase) int {
+	gen := Composite(func(s TestCase) int {
 		return Draw(s, Integers[int](0, 10))
 	})
 	mapped := Map(gen, func(v int) string { return fmt.Sprintf("%d", v) })
@@ -67,7 +67,7 @@ func TestCompositeDrawsSubGenerators(t *testing.T) {
 		x int
 		y int
 	}
-	gen := Composite(func(s *TestCase) point {
+	gen := Composite(func(s TestCase) point {
 		return point{
 			x: Draw(s, Integers[int](0, 100)),
 			y: Draw(s, Integers[int](-100, 0)),
@@ -93,7 +93,7 @@ func TestCompositeNestedInLists(t *testing.T) {
 		a int
 		b int
 	}
-	pairGen := Composite(func(s *TestCase) pair {
+	pairGen := Composite(func(s TestCase) pair {
 		return pair{
 			a: Draw(s, Integers[int](0, 10)),
 			b: Draw(s, Integers[int](0, 10)),
@@ -114,10 +114,10 @@ func TestCompositeNestedInLists(t *testing.T) {
 }
 
 // TestCompositeUsesAssume verifies that Assume works inside a composite
-// generator body — exercising the same TestCase methods test bodies use.
+// generator body — exercising the same testCase methods test bodies use.
 func TestCompositeUsesAssume(t *testing.T) {
 	t.Parallel()
-	gen := Composite(func(s *TestCase) int {
+	gen := Composite(func(s TestCase) int {
 		v := Draw(s, Integers[int](0, 100))
 		s.Assume(v%2 == 0)
 		return v
@@ -136,7 +136,7 @@ func TestCompositeUsesAssume(t *testing.T) {
 func TestCompositeDataDependentDrawsE2E(t *testing.T) {
 	t.Parallel()
 
-	listGen := Composite(func(tc *TestCase) []int {
+	listGen := Composite(func(tc TestCase) []int {
 		n := Draw(tc, Integers[int](0, 10))
 		out := make([]int, n)
 		for i := range n {
@@ -147,7 +147,7 @@ func TestCompositeDataDependentDrawsE2E(t *testing.T) {
 
 	sawEmpty := false
 	sawNonEmpty := false
-	if err := Run(func(s *TestCase) {
+	if err := Run(func(s TestCase) {
 		v := Draw(s, listGen)
 		if len(v) > 10 {
 			t.Errorf("length %d exceeds bound", len(v))
@@ -182,7 +182,7 @@ func TestCompositeRecursiveE2E(t *testing.T) {
 	type pair struct {
 		a, b int
 	}
-	pairGen := Composite(func(tc *TestCase) pair {
+	pairGen := Composite(func(tc TestCase) pair {
 		return pair{
 			a: Draw(tc, Integers[int](0, 10)),
 			b: Draw(tc, Integers[int](0, 10)),
@@ -191,7 +191,7 @@ func TestCompositeRecursiveE2E(t *testing.T) {
 
 	// listOfPairs draws a length, then draws that many pairs — proving that
 	// pairGen can be composed inside another composite without restructuring.
-	listOfPairs := Composite(func(tc *TestCase) []pair {
+	listOfPairs := Composite(func(tc TestCase) []pair {
 		n := Draw(tc, Integers[int](0, 5))
 		out := make([]pair, n)
 		for i := range n {
@@ -201,7 +201,7 @@ func TestCompositeRecursiveE2E(t *testing.T) {
 	})
 
 	cases := 0
-	if err := Run(func(s *TestCase) {
+	if err := Run(func(s TestCase) {
 		v := Draw(s, listOfPairs)
 		cases++
 		for _, p := range v {
@@ -225,7 +225,7 @@ func TestCompositeShrinksToFailingCase(t *testing.T) {
 	// Generator: a struct with two ints. Property under test: a + b < 100.
 	// Smallest counterexample: a=0, b=100 (or a=100, b=0).
 	type pair struct{ a, b int }
-	pairGen := Composite(func(tc *TestCase) pair {
+	pairGen := Composite(func(tc TestCase) pair {
 		return pair{
 			a: Draw(tc, Integers[int](0, 1000)),
 			b: Draw(tc, Integers[int](0, 1000)),
@@ -233,7 +233,7 @@ func TestCompositeShrinksToFailingCase(t *testing.T) {
 	})
 
 	var minimalA, minimalB int
-	err := Run(func(s *TestCase) {
+	err := Run(func(s TestCase) {
 		p := Draw(s, pairGen)
 		if p.a+p.b >= 100 {
 			minimalA, minimalB = p.a, p.b

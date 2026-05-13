@@ -163,7 +163,7 @@ func TestParseHealthCheckRoundTrip(t *testing.T) {
 
 func TestWorkloadEmptyTestSucceeds(t *testing.T) {
 	t.Setenv("HEGEL_PROTOCOL_TEST_MODE", "empty_test")
-	err := workload([]string{"prog"}, io.Discard, func(*TestCase) {
+	err := workload([]string{"prog"}, io.Discard, func(TestCase) {
 		t.Fatal("body should not run under empty_test")
 	}, nil)
 	if err != nil {
@@ -182,7 +182,7 @@ func TestWorkloadParsesFlags(t *testing.T) {
 			"--suppress-health-check=filter_too_much",
 		},
 		io.Discard,
-		func(*TestCase) {}, nil,
+		func(TestCase) {}, nil,
 	)
 	if err != nil {
 		t.Fatalf("workload: %v", err)
@@ -192,7 +192,7 @@ func TestWorkloadParsesFlags(t *testing.T) {
 func TestWorkloadHelpReturnsNil(t *testing.T) {
 	t.Parallel()
 	var buf bytes.Buffer
-	err := workload([]string{"myprog", "--help"}, &buf, func(*TestCase) {}, nil)
+	err := workload([]string{"myprog", "--help"}, &buf, func(TestCase) {}, nil)
 	if err != nil {
 		t.Errorf("expected nil error on --help, got %v", err)
 	}
@@ -207,7 +207,7 @@ func TestWorkloadHelpReturnsNil(t *testing.T) {
 func TestWorkloadBadFlagReturnsError(t *testing.T) {
 	t.Parallel()
 	var buf bytes.Buffer
-	err := workload([]string{"prog", "--bogus"}, &buf, func(*TestCase) {}, nil)
+	err := workload([]string{"prog", "--bogus"}, &buf, func(TestCase) {}, nil)
 	if err == nil {
 		t.Fatal("expected error for unknown flag")
 	}
@@ -222,7 +222,7 @@ func TestWorkloadBadHealthCheckReturnsError(t *testing.T) {
 	err := workload(
 		[]string{"prog", "--suppress-health-check=nonsense"},
 		io.Discard,
-		func(*TestCase) {}, nil,
+		func(TestCase) {}, nil,
 	)
 	if err == nil || !strings.Contains(err.Error(), "nonsense") {
 		t.Errorf("expected error mentioning %q, got %v", "nonsense", err)
@@ -273,7 +273,7 @@ func TestWorkloadPublicSuccess(t *testing.T) {
 	withArgs(t, []string{"prog"})
 	code := captureWorkloadExit(t)
 
-	Workload(func(*TestCase) {})
+	Workload(func(TestCase) {})
 	if *code != 0 {
 		t.Errorf("workloadExit should not be called on success (got %d)", *code)
 	}
@@ -283,7 +283,7 @@ func TestWorkloadPublicExitsOnFlagError(t *testing.T) {
 	withArgs(t, []string{"prog", "--bogus"})
 	code := captureWorkloadExit(t)
 
-	Workload(func(*TestCase) {})
+	Workload(func(TestCase) {})
 	if *code != 1 {
 		t.Errorf("expected exit code 1, got %d", *code)
 	}
@@ -300,7 +300,7 @@ func TestWorkloadPublicExitsOnRunError(t *testing.T) {
 	withArgs(t, []string{"prog"})
 	code := captureWorkloadExit(t)
 
-	Workload(func(*TestCase) {})
+	Workload(func(TestCase) {})
 	if *code != 1 {
 		t.Errorf("expected exit code 1, got %d", *code)
 	}
