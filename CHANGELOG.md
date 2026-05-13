@@ -1,5 +1,42 @@
 # Changelog
 
+## 0.3.5 - 2026-05-11
+
+This patch bumps our pinned hegel-core from [0.6.0](https://github.com/hegeldev/hegel-core/releases/tag/v0.6.0) to [0.8.2](https://github.com/hegeldev/hegel-core/releases/tag/v0.8.2).
+
+## 0.3.4 - 2026-05-08
+
+This release adds support for stateful property testing via `hegel.RunStateful`.
+
+This release also makes `*hegel.TestCase` compatible with the `TestingT` interfaces used by popular assertion libraries (testify, gotest.tools, gomega). Assertions from those libraries can now be used directly inside `Composite` callbacks, `Run` bodies, and stateful rules, where only a `*TestCase` is available.
+
+## 0.3.3 - 2026-05-01
+
+This release adds `hegel.Composite`, for defining custom generators:
+
+```go
+type Person struct {
+    Name           string
+    Age            int
+    DrivingLicense bool
+}
+
+personGen := hegel.Composite(func(tc *hegel.TestCase) Person {
+    age := hegel.Draw(tc, hegel.Integers(0, 120))
+    name := hegel.Draw(tc, hegel.Text())
+    p := Person{Age: age, Name: name}
+    if age >= 18 {
+        p.DrivingLicense = hegel.Draw(tc, hegel.Booleans())
+    }
+    return p
+})
+
+hegel.Test(t, func(ht *hegel.T) {
+    p := hegel.Draw(ht, personGen)
+    // ...
+})
+```
+
 ## 0.3.2 - 2026-05-01
 
 This release adds the `WithDatabase` option, which controls the location of the test case database:

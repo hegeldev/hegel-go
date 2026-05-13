@@ -99,10 +99,10 @@ func (g ListGenerator[T]) asBasic() (*basicGenerator[[]T], bool, error) {
 // falling back to the collection protocol otherwise. When unique is set on
 // the compositional path, duplicates are rejected via the collection protocol
 // so the server can retry until min_size distinct elements have been drawn.
-func (g ListGenerator[T]) draw(s *TestCase) []T {
+func (g ListGenerator[T]) draw(s *TestCase) ([]T, error) {
 	bg, ok, err := g.asBasic()
 	if err != nil {
-		panic(err.Error())
+		return nil, err
 	}
 	if ok {
 		return bg.draw(s)
@@ -112,28 +112,37 @@ func (g ListGenerator[T]) draw(s *TestCase) []T {
 		m := g.maxSize
 		maxSize = &m
 	}
-	startSpan(s, labelList)
-	result := []T{}
-	coll := newCollection(s, g.minSize, maxSize)
-	for coll.More(s) {
-		element := g.elements.draw(s)
-		if g.unique {
-			duplicate := false
-			for _, existing := range result {
-				if reflect.DeepEqual(existing, element) {
-					duplicate = true
-					break
+	return withSpan(s, labelList, func() ([]T, error) {
+		result := []T{}
+		coll, err := newCollection(s, g.minSize, maxSize)
+		if err != nil {
+			return nil, err
+		}
+		for coll.More(s) {
+			v, err := g.elements.draw(s)
+			if err != nil {
+				return nil, err
+			}
+			if g.unique {
+				duplicate := false
+				for _, existing := range result {
+					if reflect.DeepEqual(existing, v) {
+						duplicate = true
+						break
+					}
+				}
+				if duplicate {
+					coll.Reject(s)
+					continue
 				}
 			}
-			if duplicate {
-				coll.Reject(s)
-				continue
-			}
+			result = append(result, v)
 		}
-		result = append(result, element)
-	}
-	stopSpan(s, false)
-	return result
+		if err := coll.Err(); err != nil {
+			return nil, err
+		}
+		return result, nil
+	})
 }
 
 // --- Maps generator ---
@@ -214,10 +223,10 @@ func (g MapGenerator[K, V]) asBasic() (*basicGenerator[map[K]V], bool, error) {
 
 // draw produces a map by dispatching to the basic schema when possible,
 // falling back to the collection protocol otherwise.
-func (g MapGenerator[K, V]) draw(s *TestCase) map[K]V {
+func (g MapGenerator[K, V]) draw(s *TestCase) (map[K]V, error) {
 	bg, ok, err := g.asBasic()
 	if err != nil {
-		panic(err.Error())
+		return nil, err
 	}
 	if ok {
 		return bg.draw(s)
@@ -227,23 +236,32 @@ func (g MapGenerator[K, V]) draw(s *TestCase) map[K]V {
 		m := g.maxSize
 		maxSize = &m
 	}
-	startSpan(s, labelMap)
-	result := map[K]V{}
-	coll := newCollection(s, g.minSize, maxSize)
-	for coll.More(s) {
-		startSpan(s, labelMapEntry)
-		k := g.keys.draw(s)
-		if _, exists := result[k]; exists {
-			stopSpan(s, false)
-			coll.Reject(s)
-			continue
+	return withSpan(s, labelMap, func() (map[K]V, error) {
+		result := map[K]V{}
+		coll, err := newCollection(s, g.minSize, maxSize)
+		if err != nil {
+			return nil, err
 		}
-		v := g.values.draw(s)
-		result[k] = v
-		stopSpan(s, false)
-	}
-	stopSpan(s, false)
-	return result
+		for coll.More(s) {
+			k, err := g.keys.draw(s)
+			if err != nil {
+				return nil, err
+			}
+			if _, exists := result[k]; exists {
+				coll.Reject(s)
+				continue
+			}
+			v, err := g.values.draw(s)
+			if err != nil {
+				return nil, err
+			}
+			result[k] = v
+		}
+		if err := coll.Err(); err != nil {
+			return nil, err
+		}
+		return result, nil
+	})
 }
 
 // pairsToMap converts a CBOR-decoded pair list [[k,v], ...] to a map[K]V.

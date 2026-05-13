@@ -128,7 +128,7 @@ Failing to handle StopTest correctly causes `FlakyStrategyDefinition` errors.
 - **Test files**: `*_test.go` in the same package (white-box testing for coverage)
 - **Exported symbols**: PascalCase per Go convention
 - **Unexported symbols**: camelCase per Go convention
-- **Error handling**: Return `error` for failable operations; `panic()` for truly unreachable code paths
+- **Error handling**: Unexported functions should return `error` for failable operations. Reserve `panic()` for two cases: (1) truly unreachable code paths (e.g. encoding a fixed-shape CBOR map), and (2) the boundary of an exported API where the caller's contract is misuse — e.g. `Map()` panics on construction with a malformed source generator, and `Draw()` panics to unwind the test body when the underlying `draw` returns a sentinel error. Internally, propagate errors with `fmt.Errorf("...: %w", err)` rather than re-panicking.
 - **Doc comments**: Every exported symbol must have a doc comment starting with the symbol name
 - **Coverage**: 100% enforced via `go-test-coverage` with `// coverage-ignore` for exclusions; annotation count ratcheted in `.github/coverage-ratchet.json`
 

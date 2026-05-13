@@ -262,7 +262,7 @@ func TestMapsStopTestOnNewCollection(t *testing.T) {
 			fn:    func(v int64) int64 { return v },
 		}
 		gen := Maps(nonBasicKeys, Integers[int64](0, 100)).MaxSize(3)
-		_ = gen.draw(ht.TestCase)
+		_ = Draw(ht, gen)
 	})
 }
 
@@ -277,7 +277,7 @@ func TestMapsStopTestOnCollectionMore(t *testing.T) {
 			fn:    func(v int64) int64 { return v },
 		}
 		gen := Maps(nonBasicKeys, Integers[int64](0, 100)).MaxSize(3)
-		_ = gen.draw(ht.TestCase)
+		_ = Draw(ht, gen)
 	})
 }
 
@@ -292,7 +292,7 @@ func TestMapsBasicE2E(t *testing.T) {
 
 	Test(t, func(ht *T) {
 		gen := Maps(Text().MaxSize(5), Integers[int](0, 100)).MaxSize(3)
-		m := gen.draw(ht.TestCase)
+		m := Draw(ht, gen)
 		if len(m) > 3 {
 			panic(fmt.Sprintf("Maps: expected at most 3 entries, got %d", len(m)))
 		}
@@ -314,7 +314,7 @@ func TestMapsBasicWithBoundsE2E(t *testing.T) {
 
 	Test(t, func(ht *T) {
 		gen := Maps(Integers[int](0, 10), Booleans()).MinSize(1).MaxSize(3)
-		m := gen.draw(ht.TestCase)
+		m := Draw(ht, gen)
 		if len(m) < 1 || len(m) > 3 {
 			panic(fmt.Sprintf("Maps bounded: expected 1-3 entries, got %d", len(m)))
 		}
@@ -337,7 +337,7 @@ func TestMapsCompositeNoMaxE2E(t *testing.T) {
 		}
 		// Omit MaxSize to trigger the !g.hasMax branch.
 		gen := Maps(nonBasicKeys, Just("v"))
-		m := gen.draw(ht.TestCase)
+		m := Draw(ht, gen)
 		_ = m // just verify it doesn't panic
 	}, WithTestCases(30))
 }
@@ -359,7 +359,7 @@ func TestMapsCompositeE2E(t *testing.T) {
 			},
 		}
 		gen := Maps(nonBasicKeys, Just("val")).MaxSize(3)
-		m := gen.draw(ht.TestCase)
+		m := Draw(ht, gen)
 		// All values must be "val"
 		for k, val := range m {
 			if val != "val" {
@@ -377,6 +377,6 @@ func TestMapsNonBasicCollisions(t *testing.T) {
 	gen := Maps(keys, vals).MinSize(3).MaxSize(5)
 
 	Test(t, func(ht *T) {
-		_ = gen.draw(ht.TestCase)
+		_ = Draw(ht, gen)
 	}, WithTestCases(50))
 }

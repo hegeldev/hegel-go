@@ -1,7 +1,6 @@
 package hegel
 
 import (
-	"fmt"
 	"net/netip"
 )
 
@@ -50,28 +49,27 @@ func (g *oneOfGenerator[T]) asBasic() (*basicGenerator[T], bool, error) {
 
 // draw produces a value by dispatching to the basic schema when possible,
 // falling back to a server-side index draw otherwise.
-func (g *oneOfGenerator[T]) draw(s *TestCase) T {
+func (g *oneOfGenerator[T]) draw(s *TestCase) (T, error) {
+	var zero T
 	bg, ok, err := g.asBasic()
 	if err != nil {
-		panic(err.Error())
+		return zero, err
 	}
 	if ok {
 		return bg.draw(s)
 	}
-	startSpan(s, labelOneOf)
-	n := len(g.generators)
-	idx, err := generateFromSchema(s, map[string]any{
-		"type":      "integer",
-		"min_value": int64(0),
-		"max_value": int64(n - 1),
+	return withSpan(s, labelOneOf, func() (T, error) {
+		n := len(g.generators)
+		idx, err := s.generateFromSchema(map[string]any{
+			"type":      "integer",
+			"min_value": int64(0),
+			"max_value": int64(n - 1),
+		})
+		if err != nil { // coverage-ignore
+			return zero, err
+		}
+		return g.generators[extractInt(idx)].draw(s)
 	})
-	if err != nil { // coverage-ignore
-		panic(fmt.Sprintf("OneOf generateFromSchema: %v", err))
-	}
-	i := extractInt(idx)
-	result := g.generators[i].draw(s)
-	stopSpan(s, false)
-	return result
 }
 
 // OneOf returns a Generator that produces values from one of the given generators.
@@ -103,8 +101,6 @@ type optionalGenerator[T any] struct {
 // The wire shape for one_of responses is [index, value]: branch 0 is null,
 // branch 1 is the inner value, so we dispatch on the server-supplied index
 // without baking a tag into the schema.
-//
-//lint:ignore U1000 satisfies Generator interface; staticcheck misses generic dispatch
 func (g *optionalGenerator[T]) asBasic() (*basicGenerator[*T], bool, error) {
 	innerBasic, ok, err := g.inner.asBasic()
 	if err != nil {
@@ -138,33 +134,32 @@ func (g *optionalGenerator[T]) asBasic() (*basicGenerator[*T], bool, error) {
 
 // draw generates either nil or a value by dispatching to the basic schema
 // when inner is basic, falling back to a server-side index draw otherwise.
-//
-//lint:ignore U1000 satisfies Generator interface; staticcheck misses generic dispatch
-func (g *optionalGenerator[T]) draw(s *TestCase) *T {
+func (g *optionalGenerator[T]) draw(s *TestCase) (*T, error) {
 	bg, ok, err := g.asBasic()
 	if err != nil {
-		panic(err.Error())
+		return nil, err
 	}
 	if ok {
 		return bg.draw(s)
 	}
-	startSpan(s, labelOneOf)
-	idx, err := generateFromSchema(s, map[string]any{
-		"type":      "integer",
-		"min_value": int64(0),
-		"max_value": int64(1),
+	return withSpan(s, labelOneOf, func() (*T, error) {
+		idx, err := s.generateFromSchema(map[string]any{
+			"type":      "integer",
+			"min_value": int64(0),
+			"max_value": int64(1),
+		})
+		if err != nil { // coverage-ignore
+			return nil, err
+		}
+		if extractInt(idx) == 0 {
+			return nil, nil
+		}
+		v, err := g.inner.draw(s)
+		if err != nil {
+			return nil, err
+		}
+		return &v, nil
 	})
-	if err != nil { // coverage-ignore
-		panic(fmt.Sprintf("Optional generateFromSchema: %v", err))
-	}
-	i := extractInt(idx)
-	var result *T
-	if i != 0 {
-		v := g.inner.draw(s)
-		result = &v
-	}
-	stopSpan(s, false)
-	return result
 }
 
 // --- IPAddresses generator ---
@@ -175,6 +170,8 @@ type IPAddressGenerator struct {
 	// version is 0 (unset; both v4 and v6), 4, or 6.
 	version int64
 }
+
+var _ Generator[netip.Addr] = IPAddressGenerator{}
 
 // IPAddresses returns a Generator that produces IP addresses.
 func IPAddresses() IPAddressGenerator {
@@ -218,10 +215,11 @@ func (g IPAddressGenerator) asBasic() (*basicGenerator[netip.Addr], bool, error)
 	).asBasic()
 }
 
-func (g IPAddressGenerator) draw(s *TestCase) netip.Addr {
+// draw produces an IP address by dispatching to the basic schema returned by asBasic.
+func (g IPAddressGenerator) draw(s *TestCase) (netip.Addr, error) {
 	bg, _, err := g.asBasic()
 	if err != nil { // coverage-ignore
-		panic(err.Error())
+		return netip.Addr{}, err
 	}
 	return bg.draw(s)
 }

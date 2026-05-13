@@ -1,6 +1,7 @@
 package hegel
 
 import (
+	"errors"
 	"fmt"
 	"math"
 	"math/big"
@@ -81,8 +82,14 @@ func TestCollectionStopTestOnNewCollection(t *testing.T) {
 	// Should not error -- the test was stopped, not failed.
 	Test(t, func(ht *T) {
 		max := 5
-		coll := newCollection(ht.TestCase, 0, &max)
-		_ = coll.More(ht.TestCase)
+		coll, err := newCollection(ht.TestCase, 0, &max)
+		if err != nil {
+			panic(err)
+		}
+		coll.More(ht.TestCase)
+		if err := coll.Err(); err != nil {
+			panic(err)
+		}
 	})
 }
 
@@ -93,8 +100,14 @@ func TestCollectionStopTestOnCollectionMore(t *testing.T) {
 	t.Setenv("HEGEL_PROTOCOL_TEST_MODE", "stop_test_on_collection_more")
 	Test(t, func(ht *T) {
 		max := 5
-		coll := newCollection(ht.TestCase, 0, &max)
-		_ = coll.More(ht.TestCase)
+		coll, err := newCollection(ht.TestCase, 0, &max)
+		if err != nil {
+			panic(err)
+		}
+		coll.More(ht.TestCase)
+		if err := coll.Err(); err != nil {
+			panic(err)
+		}
 	})
 }
 
@@ -1104,21 +1117,23 @@ func TestExtractFloatAsFloat64(t *testing.T) {
 }
 
 // =============================================================================
-// startSpan/stopSpan: aborted path (no-op)
+// startSpan/stopSpan: aborted path returns errTestCaseAborted
 // =============================================================================
 
 func TestStartSpanAborted(t *testing.T) {
 	t.Parallel()
 	s := &TestCase{aborted: true}
-	// Should be a no-op, not panic.
-	startSpan(s, labelOneOf)
+	if err := startSpan(s, labelOneOf); !errors.Is(err, errTestCaseAborted) {
+		t.Fatalf("startSpan on aborted: got %v, want errTestCaseAborted", err)
+	}
 }
 
 func TestStopSpanAborted(t *testing.T) {
 	t.Parallel()
 	s := &TestCase{aborted: true}
-	// Should be a no-op, not panic.
-	stopSpan(s, false)
+	if err := stopSpan(s, false); !errors.Is(err, errTestCaseAborted) {
+		t.Fatalf("stopSpan on aborted: got %v, want errTestCaseAborted", err)
+	}
 }
 
 // =============================================================================
@@ -1131,6 +1146,9 @@ func TestRejectFinishedCollection(t *testing.T) {
 	s := &TestCase{}
 	// Should be a no-op since finished = true.
 	c.Reject(s)
+	if err := c.Err(); err != nil {
+		t.Fatalf("Reject on finished: %v", err)
+	}
 }
 
 // TestRejectE2E verifies that Reject sends collection_reject to the server
@@ -1140,7 +1158,10 @@ func TestRejectE2E(t *testing.T) {
 
 	Test(t, func(ht *T) {
 		max := 5
-		coll := newCollection(ht.TestCase, 0, &max)
+		coll, err := newCollection(ht.TestCase, 0, &max)
+		if err != nil {
+			panic(err)
+		}
 		if coll.More(ht.TestCase) {
 			// Reject the first element — tells the server it doesn't count.
 			coll.Reject(ht.TestCase)
@@ -1148,13 +1169,16 @@ func TestRejectE2E(t *testing.T) {
 		// Drain remaining elements.
 		for coll.More(ht.TestCase) {
 		}
+		if err := coll.Err(); err != nil {
+			panic(err)
+		}
 	}, WithTestCases(10))
 }
 
 // TestRejectStopTestError verifies that a StopTest error in response to
-// collection_reject panics with *dataExhausted and marks the test as aborted.
-// We set up a client stream whose peer swallows the outbound request and
-// immediately injects a StopTest error reply.
+// collection_reject is recorded on the collection (via Err) and marks the
+// test case aborted. We set up a client stream whose peer drains the
+// outbound request and immediately injects a StopTest error reply.
 func TestRejectStopTestError(t *testing.T) {
 	t.Parallel()
 	clientConn, peer := clientConnPair(t)
@@ -1184,20 +1208,19 @@ func TestRejectStopTestError(t *testing.T) {
 	c := &collection{collectionID: 42}
 	tc := &TestCase{stream: st}
 
-	var caught any
-	func() {
-		defer func() { caught = recover() }()
-		c.Reject(tc)
-	}()
+	c.Reject(tc)
 	<-ready
-	if _, ok := caught.(*dataExhausted); !ok {
-		t.Fatalf("expected *dataExhausted panic, got %T: %v", caught, caught)
+
+	if _, ok := c.Err().(*dataExhausted); !ok {
+		t.Fatalf("expected c.Err() == *dataExhausted, got %T: %v", c.Err(), c.Err())
 	}
 	if !tc.aborted {
 		t.Error("expected TestCase.aborted=true after StopTest during Reject")
 	}
-	if !c.finished {
-		t.Error("expected collection.finished=true after StopTest during Reject")
+	// After the recorded error, More() must short-circuit without sending a
+	// request: the err != nil branch returns false immediately.
+	if c.More(tc) {
+		t.Error("expected More() to return false after StopTest during Reject")
 	}
 }
 
@@ -1214,6 +1237,37 @@ func TestListsNegativeMinSizeSchema(t *testing.T) {
 // =============================================================================
 // Map on basicGenerator (compose parse functions)
 // =============================================================================
+
+// TestFlatMappedGeneratorSourceError covers the source.draw err path in
+// flatMappedGenerator.draw. The source Filter always rejects, so after
+// maxFilterAttempts it returns assumeRejected, which flatMappedGenerator.draw
+// propagates from inside its withSpan body.
+func TestFlatMappedGeneratorSourceError(t *testing.T) {
+	t.Parallel()
+	source := Filter(Booleans(), func(bool) bool { return false })
+	gen := FlatMap[bool, bool](source, func(bool) Generator[bool] {
+		return Booleans()
+	})
+	Test(t, func(ht *T) {
+		_ = Draw(ht, gen)
+	}, WithTestCases(20))
+}
+
+// TestListsStopTestOnNewCollection covers the err path in Lists.draw when
+// newCollection itself returns the dataExhausted sentinel (server sent
+// StopTest in response to new_collection). The non-basic element generator
+// forces Lists onto the composite (withSpan + newCollection) draw path.
+func TestListsStopTestOnNewCollection(t *testing.T) {
+	t.Setenv("HEGEL_PROTOCOL_TEST_MODE", "stop_test_on_new_collection")
+	Test(t, func(ht *T) {
+		nonBasic := &mappedGenerator[int64, int64]{
+			inner: Integers[int64](0, 10),
+			fn:    func(v int64) int64 { return v },
+		}
+		gen := Lists(nonBasic).MaxSize(3)
+		_ = Draw(ht, gen)
+	})
+}
 
 // TestMapOnBasicGeneratorE2E exercises Map on a basicGenerator. Booleans()
 // has a simple parse (type assertion), so Map composes it with the user function.
