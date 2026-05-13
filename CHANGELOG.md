@@ -1,5 +1,17 @@
 # Changelog
 
+## 0.5.0 - 2026-05-13
+
+This release changes `hegel.TestCase` from a struct to an interface. Code that previously named the type as `*hegel.TestCase` should now use `hegel.TestCase`:
+
+```go
+// before
+personGen := hegel.Composite(func(tc *hegel.TestCase) Person { ... })
+
+// after
+personGen := hegel.Composite(func(tc hegel.TestCase) Person { ... })
+```
+
 ## 0.4.0 - 2026-05-13
 
 This release adds `hegel.Workload`, for running a property test as a standalone CLI binary outside of `go test` — for example as a workload in a soak run or fuzzing harness.
