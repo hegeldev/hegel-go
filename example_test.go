@@ -53,6 +53,13 @@ func ExampleTest_withDerandomize() {
 	}, hegel.WithDerandomize(true))
 }
 
+func ExampleTest_withSeed() {
+	t := &testing.T{}
+	hegel.Test(t, func(ht *hegel.T) {
+		_ = hegel.Draw(ht, hegel.Integers(0, 100))
+	}, hegel.WithSeed(42))
+}
+
 func ExampleDraw() {
 	t := &testing.T{}
 	hegel.Test(t, func(ht *hegel.T) {

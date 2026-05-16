@@ -33,7 +33,7 @@ jobs:
       - name: Lint
         run: just lint
       - name: Install zizmor
-        run: pip install zizmor
+        run: pip install zizmor==1.23.1
       - name: Run zizmor
         run: zizmor --format plain .github/
 
