@@ -305,15 +305,7 @@ func WithDerandomize(derandomize bool) Option {
 	return func(o *runOptions) { o.derandomize = derandomize }
 }
 
-// WithSeed sets a fixed seed for the test. The seed pins the generator's RNG;
-// for fully reproducible runs you also want to disable the example database
-// (via [WithDatabase] with [DatabaseDisabled]), since its replay phases can
-// inject saved examples that are not derived from the seed.
-//
-// If unset, the server picks a seed (deterministic when WithDerandomize is
-// true, random otherwise). When both WithSeed and WithDerandomize are
-// provided, WithSeed takes precedence — this matches Hypothesis's
-// @seed semantics.
+// WithSeed sets a fixed random seed for the test, making it deterministic.
 func WithSeed(seed int64) Option {
 	return func(o *runOptions) { o.seed = &seed }
 }

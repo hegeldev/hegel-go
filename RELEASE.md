@@ -1,6 +1,8 @@
-RELEASE_TYPE: minor
+RELEASE_TYPE: patch
 
-Add `WithSeed(seed int64)` option to pin a fixed seed for property test
-runs, analogous to Hypothesis's `@seed(N)`. When both `WithSeed` and
-`WithDerandomize` are set, `WithSeed` takes precedence (matching
-Hypothesis).
+Add a `WithSeed(seed int64)` option to set a fixed seed for a test:
+
+```go
+hegel.Test(t, func(ht *hegel.T) {
+    ...
+}, hegel.WithSeed(42))
