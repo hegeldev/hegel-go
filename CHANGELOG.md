@@ -1,5 +1,14 @@
 # Changelog
 
+## 0.5.1 - 2026-05-16
+
+Add a `WithSeed(seed int64)` option to set a fixed seed for a test:
+
+```go
+hegel.Test(t, func(ht *hegel.T) {
+    ...
+}, hegel.WithSeed(42))
+
 ## 0.5.0 - 2026-05-13
 
 This release changes `hegel.TestCase` from a struct to an interface. Code that previously named the type as `*hegel.TestCase` should now use `hegel.TestCase`:
