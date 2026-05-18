@@ -382,8 +382,8 @@ func Test(t *testing.T, fn func(*T), opts ...Option) {
 		fn(ht)
 	}
 	allOpts := append(opts, withDatabaseKey([]byte(t.Name())))
-	err := runHegel(body, func(msg string) { t.Log(msg) }, allOpts) // coverage-ignore
-	if err != nil {                                                 // coverage-ignore
+	err := runHegel(body, func(msg string) { t.Helper(); t.Log(msg) }, allOpts) // coverage-ignore
+	if err != nil {                                                             // coverage-ignore
 		t.Fatal(err)
 	}
 }

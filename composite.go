@@ -19,6 +19,9 @@ type compositeGenerator[T any] struct {
 //
 //lint:ignore U1000 satisfies Generator interface; staticcheck misses generic dispatch
 func (g *compositeGenerator[T]) draw(tc TestCase) (T, error) {
+	if h, ok := tc.(interface{ Helper() }); ok {
+		h.Helper()
+	}
 	return g.fn(tc), nil
 }
 

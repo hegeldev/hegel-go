@@ -116,6 +116,7 @@ func (p *tempGoProject) expectFailure(pattern string) *tempGoProject {
 // output is flushed regardless of pass/fail, so callers can grep for
 // note/log sentinels emitted by the test body.
 func (p *tempGoProject) goTest(args ...string) runOutput {
+	p.t.Helper()
 	return p.run(append([]string{"test", "-v", "./..."}, args...))
 }
 

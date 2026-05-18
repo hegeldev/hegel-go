@@ -36,6 +36,20 @@ func TestTFatalPanicsWithSentinel(t *testing.T) {
 	ht.Fatal("fatal message")
 }
 
+func TestTFatalCallsNoteFn(t *testing.T) {
+	t.Parallel()
+	ht := makeFakeT(t)
+	var gotMsg string
+	ht.testCase.noteFn = func(msg string) { gotMsg = msg }
+	defer func() {
+		_ = recover()
+		if gotMsg != "fatal message" {
+			t.Errorf("expected note %q, got %q", "fatal message", gotMsg)
+		}
+	}()
+	ht.Fatal("fatal message")
+}
+
 func TestTFatalfPanicsWithSentinel(t *testing.T) {
 	t.Parallel()
 	ht := makeFakeT(t)
@@ -53,6 +67,20 @@ func TestTFatalfPanicsWithSentinel(t *testing.T) {
 		}
 	}()
 	ht.Fatalf("fatal: %d", 42)
+}
+
+func TestTFatalfCallsNoteFn(t *testing.T) {
+	t.Parallel()
+	ht := makeFakeT(t)
+	var gotMsg string
+	ht.testCase.noteFn = func(msg string) { gotMsg = msg }
+	defer func() {
+		_ = recover()
+		if gotMsg != "fatal: 99" {
+			t.Errorf("expected note %q, got %q", "fatal: 99", gotMsg)
+		}
+	}()
+	ht.Fatalf("fatal: %d", 99)
 }
 
 func TestTFailNowPanicsWithSentinel(t *testing.T) {
@@ -194,6 +222,17 @@ func TestTLogfCallsNote(t *testing.T) {
 	ht.Logf("value=%d", 42)
 	if gotMsg != "value=42" {
 		t.Errorf("expected %q, got %q", "value=42", gotMsg)
+	}
+}
+
+func TestTNoteCallsNoteFn(t *testing.T) {
+	t.Parallel()
+	ht := makeFakeT(t)
+	var gotMsg string
+	ht.testCase.noteFn = func(msg string) { gotMsg = msg }
+	ht.Note("a note")
+	if gotMsg != "a note" {
+		t.Errorf("expected %q, got %q", "a note", gotMsg)
 	}
 }
 
