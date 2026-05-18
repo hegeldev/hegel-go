@@ -113,6 +113,15 @@ type TestCase interface {
 
 // Draw produces a value from a Generator using the given State context.
 func Draw[T any](tc TestCase, g Generator[T]) T {
+	// Mark Draw as a t.Helper so the noteFn-driven t.Log decoration points
+	// at the user's call site rather than this function. The interface
+	// check avoids referring to *T by name (which would collide with the
+	// type parameter) and gracefully skips the *testCase branch, where
+	// notes route through stdout without file:line decoration.
+	if h, ok := tc.(interface{ Helper() }); ok {
+		h.Helper()
+	}
+
 	v, err := g.draw(tc)
 	if err != nil {
 		panic(err)
