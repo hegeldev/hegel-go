@@ -19,11 +19,11 @@ import (
 //
 // It is compatible with most popular TestingT interfaces from assert libraries.
 type testCase struct {
-	stream  *stream
-	isFinal bool
-	aborted bool
-	failed  bool         // for T.Error/Fail deferred INTERESTING
-	noteFn  func(string) // injected: t.Log for Test, stdout for Run
+	stream         *stream
+	singleTestCase bool // set when this case runs under WithSingleTestCase
+	aborted        bool
+	failed         bool         // for T.Error/Fail deferred INTERESTING
+	noteFn         func(string) // nil for exploratory cases; t.Log/stdout for final replay / single-case
 }
 
 // --- Sentinel errors ---
@@ -64,7 +64,7 @@ func (s *testCase) Assume(condition bool) {
 }
 
 func (s *testCase) Note(message string) {
-	if s.isFinal && s.noteFn != nil {
+	if s.noteFn != nil {
 		s.noteFn(message)
 	}
 }
@@ -158,6 +158,10 @@ func (s *testCase) doRequest(msg map[string]any) (any, error) {
 // decoded value.
 func (s *testCase) generateFromSchema(schema map[string]any) (any, error) {
 	return s.doRequest(map[string]any{"command": "generate", "schema": schema})
+}
+
+func (s *testCase) isSingleTestCase() bool {
+	return s.singleTestCase
 }
 
 // fatalSentinel is panic'd by T.Fatal/Fatalf/FailNow to mark a test case as INTERESTING.
@@ -254,6 +258,7 @@ type runOptions struct {
 	database            DatabaseSetting
 	derandomize         bool
 	seed                *int64
+	singleTestCase      bool
 	// databaseKey identifies the test for example-database lookups. Set by
 	// [Test] from t.Name(); nil for [Run]/[MustRun] (no test name available).
 	databaseKey []byte
@@ -293,6 +298,20 @@ func WithDerandomize(derandomize bool) Option {
 // WithSeed sets a fixed random seed for the test, making it deterministic.
 func WithSeed(seed int64) Option {
 	return func(o *runOptions) { o.seed = &seed }
+}
+
+// WithSingleTestCase runs exactly one test case with no shrinking, replay, or
+// example database. Use it for long-running workloads or tests whose body is
+// not safely re-runnable on the same inputs — for example, code with external
+// side effects, time-dependent behavior, or execution under Antithesis where
+// the surrounding state evolves between iterations.
+//
+// In this mode [WithTestCases], [WithDatabase], [WithDerandomize], and
+// [SuppressHealthCheck] are ignored. [RunStateful] loops indefinitely (until
+// a rule or invariant fails, or the process is terminated externally) rather
+// than capping at the usual step count.
+func WithSingleTestCase() Option {
+	return func(o *runOptions) { o.singleTestCase = true }
 }
 
 // withDatabaseKey sets the example-database key. Unexported: only [Test]
@@ -450,6 +469,13 @@ func newClient(conn *connection) *client {
 	return &client{conn: conn}
 }
 
+func buildSingleTestCaseMessage(streamID uint32) map[string]any {
+	return map[string]any{
+		"command":   "single_test_case",
+		"stream_id": int64(streamID),
+	}
+}
+
 func buildRunTestMessage(streamID uint32, opts runOptions) map[string]any {
 	msg := map[string]any{
 		"command":     "run_test",
@@ -482,21 +508,35 @@ func buildRunTestMessage(streamID uint32, opts runOptions) map[string]any {
 }
 
 // runTest executes one property test against the server.
+//
+// In single-test-case mode (opts.singleTestCase) the server runs exactly one
+// case via the single_test_case command — no shrinking, replay, or example
+// database. Otherwise it sends run_test and replays any interesting failures
+// after the exploratory phase.
 func (c *client) runTest(fn testBody, opts runOptions, noteFn func(string)) error {
 	testSt := c.conn.NewStream("Test")
 
-	runTestMsg := buildRunTestMessage(testSt.StreamID(), opts)
-	payload, err := encodeCBOR(runTestMsg)
+	cmdName := "run_test"
+	var cmdMsg map[string]any
+	if opts.singleTestCase {
+		cmdName = "single_test_case"
+		cmdMsg = buildSingleTestCaseMessage(testSt.StreamID())
+	} else {
+		cmdMsg = buildRunTestMessage(testSt.StreamID(), opts)
+	}
+	payload, err := encodeCBOR(cmdMsg)
 	if err != nil { // coverage-ignore
 		panic(fmt.Sprintf("runTest encode: %v", err))
 	}
 
 	if _, err := c.conn.SendControlRequest(payload); err != nil {
-		return fmt.Errorf("run_test send: %w", err)
+		return fmt.Errorf("%s send: %w", cmdName, err)
 	}
 
 	// Event loop.
 	var resultData map[any]any
+	var lastErr error
+testCase:
 	for {
 		msgID, raw, err := testSt.RecvRequestRaw(30 * time.Second)
 		// covered by TempGoProject
@@ -525,22 +565,28 @@ func (c *client) runTest(fn testBody, opts runOptions, noteFn func(string)) erro
 			if err != nil { // coverage-ignore
 				return fmt.Errorf("connect test case stream: %w", err)
 			}
-			if err := c.runTestCase(caseSt, fn, false, noteFn); err != nil {
-				return err
+
+			var caseNoteFn func(string)
+			if opts.singleTestCase {
+				caseNoteFn = noteFn
+			}
+
+			lastErr = c.runTestCase(caseSt, fn, opts.singleTestCase, caseNoteFn)
+			if lastErr != nil && !errors.Is(lastErr, errPropTestFailed) {
+				return lastErr
 			}
 
 		case "test_done":
 			testSt.SendReplyValue(msgID, true) //nolint:errcheck
 			resultsVal := msg[any("results")]
 			resultData, _ = resultsVal.(map[any]any)
-			goto doneLoop
+			break testCase
 
 		default: // coverage-ignore
 			return fmt.Errorf("unrecognised event %q", event)
 		}
 	}
 
-doneLoop:
 	if resultData == nil { // coverage-ignore
 		panic("resultData is nil after test_done")
 	}
@@ -561,15 +607,15 @@ doneLoop:
 		return fmt.Errorf("flaky test detected: %s", flakyMsg)
 	}
 
-	nInterestingVal := resultData[any("interesting_test_cases")]
-	nInteresting, _ := toInt64(nInterestingVal)
-	if nInteresting == 0 {
-		return nil
+	if opts.singleTestCase {
+		return lastErr
 	}
 
 	// Replay interesting (failing) test cases.
+	nInterestingVal := resultData[any("interesting_test_cases")]
+	nInteresting, _ := toInt64(nInterestingVal)
 	var errs []error
-	for i := int64(0); i < nInteresting; i++ {
+	for i := range nInteresting {
 		msgID, raw, err := testSt.RecvRequestRaw(30 * time.Second)
 		if err != nil { // coverage-ignore
 			return fmt.Errorf("final case recv: %w", err)
@@ -583,34 +629,32 @@ doneLoop:
 		if err != nil { // coverage-ignore
 			return fmt.Errorf("connect final case stream: %w", err)
 		}
-		caseErr := c.runTestCase(caseSt, fn, true, noteFn)
+		caseErr := c.runTestCase(caseSt, fn, false, noteFn)
 		if caseErr != nil {
 			errs = append(errs, caseErr)
 		}
 	}
-	if len(errs) == 0 { // coverage-ignore
-		return nil
-	}
-	if len(errs) == 1 {
-		return errs[0]
-	}
-	return fmt.Errorf("multiple failures: %v", errs) // coverage-ignore
+	return errors.Join(errs...) // coverage-ignore
 }
 
+var errPropTestFailed = errors.New("property test failed")
+
 // runTestCase executes one test case and sends mark_complete to the server.
-func (c *client) runTestCase(st *stream, fn testBody, isFinal bool, noteFn func(string)) (finalErr error) {
+//
+// Returns errPropTestFailed if the test case caused an abort.
+func (c *client) runTestCase(st *stream, fn testBody, singleTestCase bool, noteFn func(string)) error {
 	state := &testCase{
-		stream:  st,
-		isFinal: isFinal,
-		aborted: false,
-		noteFn:  noteFn,
+		stream:         st,
+		singleTestCase: singleTestCase,
+		aborted:        false,
+		noteFn:         noteFn,
 	}
 
-	alreadyComplete := false
+	sendComplete := true
 	status := "VALID"
 	origin := ""
 
-	func() {
+	err := func() (finalErr error) {
 		defer func() {
 			r := recover()
 			if r == nil {
@@ -618,9 +662,7 @@ func (c *client) runTestCase(st *stream, fn testBody, isFinal bool, noteFn func(
 				if state.failed {
 					status = "INTERESTING"
 					origin = "test failed (via t.Error/t.Fail)"
-					if isFinal {
-						finalErr = fmt.Errorf("property test failed: test failed")
-					}
+					finalErr = fmt.Errorf("%w: test failed", errPropTestFailed)
 				}
 				return
 			}
@@ -628,35 +670,28 @@ func (c *client) runTestCase(st *stream, fn testBody, isFinal bool, noteFn func(
 			case assumeRejected:
 				status = "INVALID"
 			case *dataExhausted:
-				alreadyComplete = true
+				sendComplete = false
 			case flakyAbort:
-				alreadyComplete = true
+				sendComplete = false
 			case *connectionError:
-				finalErr = fmt.Errorf("%s", v.msg)
+				// Connection is dead — sending mark_complete would just error.
+				sendComplete = false
+				finalErr = v
 			case fatalSentinel:
 				status = "INTERESTING"
 				origin = extractPanicOrigin(v)
-				if isFinal {
-					finalErr = fmt.Errorf("property test failed: %s", v.msg)
-				}
+				finalErr = fmt.Errorf("%w: %s", errPropTestFailed, v.msg)
 			default:
 				status = "INTERESTING"
 				origin = extractPanicOrigin(v)
-				if isFinal {
-					finalErr = fmt.Errorf("property test failed: %v", v)
-				}
+				finalErr = fmt.Errorf("%w: %v", errPropTestFailed, v)
 			}
 		}()
 		fn(state)
+		return
 	}()
 
-	if finalErr != nil {
-		// connection error or re-raised final failure: close stream and return.
-		st.Close()
-		return finalErr
-	}
-
-	if !alreadyComplete {
+	if sendComplete {
 		var originVal any
 		if origin != "" {
 			originVal = origin
@@ -668,7 +703,7 @@ func (c *client) runTestCase(st *stream, fn testBody, isFinal bool, noteFn func(
 		})
 	}
 	st.Close()
-	return nil
+	return err
 }
 
 // --- Session: manages the hegel subprocess ---

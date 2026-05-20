@@ -130,8 +130,6 @@ func TestTSkipNowPanicsWithAssumeRejected(t *testing.T) {
 func TestTErrorSetsFailedAndCallsNote(t *testing.T) {
 	t.Parallel()
 	ht := makeFakeT(t)
-	// Make state final so Note actually fires (verify no panic).
-	ht.testCase.isFinal = true
 	noted := false
 	ht.testCase.noteFn = func(msg string) { noted = true }
 	ht.Error("something went wrong")
@@ -146,7 +144,6 @@ func TestTErrorSetsFailedAndCallsNote(t *testing.T) {
 func TestTErrorfSetsFailedAndCallsNote(t *testing.T) {
 	t.Parallel()
 	ht := makeFakeT(t)
-	ht.testCase.isFinal = true
 	noted := false
 	ht.testCase.noteFn = func(msg string) { noted = true }
 	ht.Errorf("error: %d", 99)
@@ -181,7 +178,6 @@ func TestTFailSetsFailed(t *testing.T) {
 func TestTLogCallsNote(t *testing.T) {
 	t.Parallel()
 	ht := makeFakeT(t)
-	ht.testCase.isFinal = true
 	var gotMsg string
 	ht.testCase.noteFn = func(msg string) { gotMsg = msg }
 	ht.Log("hello", " world")
@@ -193,7 +189,6 @@ func TestTLogCallsNote(t *testing.T) {
 func TestTLogfCallsNote(t *testing.T) {
 	t.Parallel()
 	ht := makeFakeT(t)
-	ht.testCase.isFinal = true
 	var gotMsg string
 	ht.testCase.noteFn = func(msg string) { gotMsg = msg }
 	ht.Logf("value=%d", 42)

@@ -180,11 +180,11 @@ func TestAssumeOutsideContext(t *testing.T) {
 	s.Assume(false)
 }
 
-// --- Note outside context is no-op (isFinal defaults false) ---
+// --- Note outside context is no-op (noteFn nil) ---
 
 func TestNoteOutsideContext(t *testing.T) {
 	t.Parallel()
-	// Note() on a zero-value *testCase should not panic (isFinal=false).
+	// Note() on a zero-value *testCase should not panic (noteFn=nil).
 	s := &testCase{}
 	s.Note("outside context -- safe")
 }
@@ -538,11 +538,11 @@ func TestExtractPanicOriginError(t *testing.T) {
 	}
 }
 
-// --- Note: isFinal=true prints to stderr ---
+// --- Note: non-nil noteFn prints ---
 
-func TestNoteIsFinalTrue(t *testing.T) {
+func TestNoteWithNoteFn(t *testing.T) {
 	t.Parallel()
-	state := &testCase{isFinal: true, noteFn: stdoutNoteFn}
+	state := &testCase{noteFn: stdoutNoteFn}
 	// Should not panic.
 	state.Note("test note on final")
 }
