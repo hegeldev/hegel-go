@@ -2,6 +2,7 @@ package hegel
 
 import (
 	"fmt"
+	"math"
 	"reflect"
 	"strings"
 )
@@ -96,11 +97,20 @@ func (sm *stateMachine) Run(tc TestCase) {
 		}
 	}
 
-	nSteps := Draw(tc, Integers(1, statefulMaxSteps))
+	// Under WithSingleTestCase the loop runs until a rule or invariant fails
+	// or the process is terminated externally; the retry budget is dropped so
+	// repeated Assume rejections don't cap the run.
+	isSingle := tc.isSingleTestCase()
+	var nSteps int
+	if isSingle {
+		nSteps = math.MaxInt
+	} else {
+		nSteps = Draw(tc, Integers(1, statefulMaxSteps))
+	}
 	stepsSucceeded := 0
 	stepsAttempted := 0
 	step := 0
-	for stepsSucceeded < nSteps && (stepsAttempted < 10*nSteps || (stepsSucceeded == 0 && stepsAttempted < 1000)) {
+	for stepsSucceeded < nSteps && (isSingle || stepsAttempted < 10*nSteps || (stepsSucceeded == 0 && stepsAttempted < 1000)) {
 		step++
 		idx := 0
 		if len(sm.rules) > 1 {

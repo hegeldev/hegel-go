@@ -75,7 +75,9 @@ type TestCase interface {
 	// Assume rejects the current test case if condition is false.
 	Assume(condition bool)
 
-	// Note prints message during the final (replay) test case only.
+	// Note prints message during the final (replay) test case or under
+	// [WithSingleTestCase]. Output is routed to t.Log for [Test], or stdout
+	// for [Run].
 	Note(message string)
 
 	// Target sends a target value to guide test generation.
@@ -92,7 +94,8 @@ type TestCase interface {
 	// FailNow marks the test case as failed and stops the test body.
 	FailNow()
 
-	// Log routes the message through Note (only emitted on final replay).
+	// Log routes the message through Note (only emitted on final replay or
+	// under [WithSingleTestCase]).
 	Log(args ...any)
 
 	// doRequest sends a CBOR-encoded request to the server and returns the
@@ -102,6 +105,10 @@ type TestCase interface {
 	// generateFromSchema sends a generate command for schema and returns the
 	// decoded value. Unexported to seal the interface to this package.
 	generateFromSchema(schema map[string]any) (any, error)
+
+	// isSingleTestCase reports whether this case is running under
+	// [WithSingleTestCase]. Unexported to seal the interface to this package.
+	isSingleTestCase() bool
 }
 
 // Draw produces a value from a Generator using the given State context.
