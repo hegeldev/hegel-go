@@ -1,5 +1,9 @@
 # Changelog
 
+## 0.5.2 - 2026-05-20
+
+This release adds `hegel.WithSingleTestCase` (and a matching `--single-test-case` flag on `hegel.Workload`) for long-running workloads or tests whose body is not safely re-runnable on the same inputs — code with external side effects, time-dependent behavior, or execution under Antithesis. Shrinking, replay, and the example database are disabled, and `hegel.RunStateful` loops indefinitely instead of capping at the usual step count.
+
 ## 0.5.1 - 2026-05-16
 
 Add a `WithSeed(seed int64)` option to set a fixed seed for a test:
