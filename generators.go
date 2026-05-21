@@ -40,6 +40,11 @@ const (
 	// labelStateful marks a single rule or invariant call inside a stateful
 	// test, letting the shrinker treat each step as an atomic unit.
 	labelStateful spanLabel = 16
+	// labelComposite marks a composite generator's body, so draws inside
+	// the body are bracketed in a span. This lets [Draw] suppress nested
+	// draw reports the same way it does for element generators inside
+	// Lists/Maps/OneOf.
+	labelComposite spanLabel = 17
 )
 
 // --- Generator interface ---
@@ -109,22 +114,42 @@ type TestCase interface {
 	// isSingleTestCase reports whether this case is running under
 	// [WithSingleTestCase]. Unexported to seal the interface to this package.
 	isSingleTestCase() bool
+
+	// maybeNoteFn returns the note function for this test case, or nil if
+	// notes are suppressed (the exploratory phase).
+	maybeNoteFn() func(string)
+
+	// startSpan notifies the server that a new generation span has started.
+	startSpan(label spanLabel) error
+
+	// stopSpan notifies the server that the current generation span has ended.
+	stopSpan(discard bool) error
+
+	// inSpan reports whether the test case is inside one or more
+	// generation spans.
+	inSpan() bool
 }
 
 // Draw produces a value from a Generator using the given State context.
 func Draw[T any](tc TestCase, g Generator[T]) T {
-	// Mark Draw as a t.Helper so the noteFn-driven t.Log decoration points
-	// at the user's call site rather than this function. The interface
-	// check avoids referring to *T by name (which would collide with the
-	// type parameter) and gracefully skips the *testCase branch, where
-	// notes route through stdout without file:line decoration.
-	if h, ok := tc.(interface{ Helper() }); ok {
+	h, hasTestingT := tc.(interface{ Helper() })
+	if hasTestingT {
 		h.Helper()
 	}
 
 	v, err := g.draw(tc)
 	if err != nil {
 		panic(err)
+	}
+	// Nested draws are reported as part of the parent's value.
+	if fn := tc.maybeNoteFn(); fn != nil && !tc.inSpan() {
+		msg, err := formatDrawReport(1, v, hasTestingT)
+		if err != nil { // coverage-ignore
+			panic(err)
+		}
+		if msg != "" {
+			fn(msg)
+		}
 	}
 	return v
 }
@@ -206,7 +231,7 @@ const maxFilterAttempts = 3
 func (g *filteredGenerator[T]) draw(tc TestCase) (T, error) {
 	var zero T
 	for range maxFilterAttempts {
-		if err := startSpan(tc, labelFilter); err != nil {
+		if err := tc.startSpan(labelFilter); err != nil {
 			return zero, err
 		}
 		value, err := g.source.draw(tc)
@@ -214,12 +239,12 @@ func (g *filteredGenerator[T]) draw(tc TestCase) (T, error) {
 			return zero, err
 		}
 		if g.predicate(value) {
-			if err := stopSpan(tc, false); err != nil { // coverage-ignore
+			if err := tc.stopSpan(false); err != nil { // coverage-ignore
 				return zero, err
 			}
 			return value, nil
 		}
-		if err := stopSpan(tc, true); err != nil { // coverage-ignore
+		if err := tc.stopSpan(true); err != nil { // coverage-ignore
 			return zero, err
 		}
 	}
@@ -296,42 +321,27 @@ func Filter[T any](g Generator[T], pred func(T) bool) Generator[T] {
 
 // --- Span helpers ---
 
-// startSpan notifies the server that a new generation span has started.
-func startSpan(tc TestCase, label spanLabel) error {
-	_, err := tc.doRequest(map[string]any{
-		"command": "start_span",
-		"label":   int64(label),
-	})
-	return err
-}
-
-// stopSpan notifies the server that the current generation span has ended.
-func stopSpan(tc TestCase, discard bool) error {
-	_, err := tc.doRequest(map[string]any{
-		"command": "stop_span",
-		"discard": discard,
-	})
-	return err
-}
-
 // withSpan brackets body in a span that always commits (discard=false).
 //
 // On body error the span is left open: every error path here is a sentinel
 // that aborts the test case (dataExhausted, flakyAbort, connectionError,
 // assumeRejected), and the runner tears down server-side state regardless.
 //
-// Use the inline startSpan/stopSpan pair when the discard decision depends
-// on the body's outcome (see filteredGenerator.draw).
+// Use the inline (*testCase).startSpan/stopSpan pair when the discard
+// decision depends on the body's outcome (see filteredGenerator.draw).
 func withSpan[T any](tc TestCase, label spanLabel, body func() (T, error)) (T, error) {
+	if h, ok := tc.(interface{ Helper() }); ok {
+		h.Helper()
+	}
 	var zero T
-	if err := startSpan(tc, label); err != nil {
+	if err := tc.startSpan(label); err != nil {
 		return zero, err
 	}
 	v, err := body()
 	if err != nil {
 		return zero, err
 	}
-	if err := stopSpan(tc, false); err != nil { // coverage-ignore
+	if err := tc.stopSpan(false); err != nil { // coverage-ignore
 		return zero, err
 	}
 	return v, nil

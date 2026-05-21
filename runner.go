@@ -24,6 +24,7 @@ type testCase struct {
 	aborted        bool
 	failed         bool         // for T.Error/Fail deferred INTERESTING
 	noteFn         func(string) // nil for exploratory cases; t.Log/stdout for final replay / single-case
+	depth          int          // current span nesting depth; >0 inside a generation span
 }
 
 // --- Sentinel errors ---
@@ -162,6 +163,36 @@ func (s *testCase) generateFromSchema(schema map[string]any) (any, error) {
 
 func (s *testCase) isSingleTestCase() bool {
 	return s.singleTestCase
+}
+
+func (s *testCase) maybeNoteFn() func(string) {
+	return s.noteFn
+}
+
+func (s *testCase) startSpan(label spanLabel) error {
+	if _, err := s.doRequest(map[string]any{
+		"command": "start_span",
+		"label":   int64(label),
+	}); err != nil {
+		return err
+	}
+	s.depth++
+	return nil
+}
+
+func (s *testCase) stopSpan(discard bool) error {
+	if _, err := s.doRequest(map[string]any{
+		"command": "stop_span",
+		"discard": discard,
+	}); err != nil {
+		return err
+	}
+	s.depth--
+	return nil
+}
+
+func (s *testCase) inSpan() bool {
+	return s.depth > 0
 }
 
 // fatalSentinel is panic'd by T.Fatal/Fatalf/FailNow to mark a test case as INTERESTING.
@@ -453,7 +484,17 @@ func extractPanicOrigin(v any) string {
 }
 
 func isHegelFrame(fn string) bool {
-	return strings.HasPrefix(fn, "hegel.dev/go/hegel")
+	const pkg = "hegel.dev/go/hegel"
+	if !strings.HasPrefix(fn, pkg) {
+		return false
+	}
+	if len(fn) == len(pkg) {
+		return true
+	}
+	// "hegel.dev/go/hegel.Func" or "hegel.dev/go/hegel/sub.Func" → internal.
+	// "hegel.dev/go/hegel_test.Func" → external (test package), not internal.
+	next := fn[len(pkg)]
+	return next == '.' || next == '/'
 }
 
 // --- Client: manages a single connection's test lifecycle ---

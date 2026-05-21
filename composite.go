@@ -7,22 +7,25 @@ type compositeGenerator[T any] struct {
 	fn func(TestCase) T
 }
 
-// draw invokes the composed function with the given test case.
+// draw invokes the composed function inside a labelComposite span so nested
+// [Draw] reports are suppressed.
 //
-// The user fn calls [Draw], which panics at the exported boundary with the
-// sentinel error types. Those panics propagate up to the runner's recover,
-// which handles them identically to errors returned via the Generator
-// contract — no wrapping generator branches on error type. Letting them
-// through preserves the original stack trace for non-sentinel panics
-// (fatalSentinel from T.Fatal, user panics) so [extractPanicOrigin] can
-// point at the user's code rather than this defer site.
+// Panics from [Draw] (sentinel errors, fatalSentinel, user panics) propagate
+// uncaught so the runner's recover sees the original stack — [extractPanicOrigin]
+// points at the user's code rather than a defer site here.
 //
 //lint:ignore U1000 satisfies Generator interface; staticcheck misses generic dispatch
 func (g *compositeGenerator[T]) draw(tc TestCase) (T, error) {
-	if h, ok := tc.(interface{ Helper() }); ok {
-		h.Helper()
+	helper, _ := tc.(interface{ Helper() })
+	if helper != nil {
+		helper.Helper()
 	}
-	return g.fn(tc), nil
+	return withSpan(tc, labelComposite, func() (T, error) {
+		if helper != nil {
+			helper.Helper()
+		}
+		return g.fn(tc), nil
+	})
 }
 
 // asBasic always returns not-basic — composite generators have no schema.

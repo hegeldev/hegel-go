@@ -931,6 +931,16 @@ panic("always fail for final replay")`, "hegel.WithTestCases(1)").
 		goTest()
 }
 
+func TestDrawReportOnFinal(t *testing.T) {
+	t.Parallel()
+
+	newTempGoProject(t).
+		testBody(`n := hegel.Draw(ht, hegel.Integers(0, 100))
+ht.Fatalf("got %d", n)`, "hegel.WithTestCases(1)").
+		expectFailure(`hegel_test\.go:\d+: n := hegel\.Draw\(ht, hegel\.Integers\(0, 100\)\) = \d+`).
+		goTest()
+}
+
 // --- hegelCommand: covered in installer_test.go ---
 
 // --- runTest: SendControlRequest error (closed connection) ---

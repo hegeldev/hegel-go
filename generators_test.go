@@ -137,6 +137,7 @@ func TestLabelConstants(t *testing.T) {
 		{"Mapped", labelMapped, 13},
 		{"SampledFrom", labelSampledFrom, 14},
 		{"EnumVariant", labelEnumVariant, 15},
+		{"Composite", labelComposite, 17},
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
@@ -1117,13 +1118,13 @@ func TestExtractFloatAsFloat64(t *testing.T) {
 }
 
 // =============================================================================
-// startSpan/stopSpan: aborted path returns errTestCaseAborted
+// (*testCase).startSpan / (*testCase).stopSpan: aborted path returns errTestCaseAborted
 // =============================================================================
 
 func TestStartSpanAborted(t *testing.T) {
 	t.Parallel()
 	s := &testCase{aborted: true}
-	if err := startSpan(s, labelOneOf); !errors.Is(err, errTestCaseAborted) {
+	if err := s.startSpan(labelOneOf); !errors.Is(err, errTestCaseAborted) {
 		t.Fatalf("startSpan on aborted: got %v, want errTestCaseAborted", err)
 	}
 }
@@ -1131,8 +1132,21 @@ func TestStartSpanAborted(t *testing.T) {
 func TestStopSpanAborted(t *testing.T) {
 	t.Parallel()
 	s := &testCase{aborted: true}
-	if err := stopSpan(s, false); !errors.Is(err, errTestCaseAborted) {
+	if err := s.stopSpan(false); !errors.Is(err, errTestCaseAborted) {
 		t.Fatalf("stopSpan on aborted: got %v, want errTestCaseAborted", err)
+	}
+}
+
+// TestInSpan verifies that (*testCase).inSpan reflects the depth counter.
+func TestInSpan(t *testing.T) {
+	t.Parallel()
+	s := &testCase{}
+	if s.inSpan() {
+		t.Fatalf("inSpan at depth 0: got true, want false")
+	}
+	s.depth = 1
+	if !s.inSpan() {
+		t.Fatalf("inSpan at depth 1: got false, want true")
 	}
 }
 
