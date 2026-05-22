@@ -77,12 +77,13 @@ func (c *sourceCache) extractLocked(key fileLine) (string, error) {
 
 	stmt := ""
 	var best ast.Node
+	tokFile := c.fset.File(f.FileStart)
 	ast.Inspect(f, func(n ast.Node) bool {
 		if n == nil {
 			return false
 		}
-		pos := c.fset.Position(n.Pos()).Line
-		end := c.fset.Position(n.End()).Line
+		pos := tokFile.Line(n.Pos())
+		end := tokFile.Line(n.End())
 		if pos > key.line || end < key.line {
 			return false
 		}
@@ -111,33 +112,30 @@ func (c *sourceCache) loadLocked(file string) (*ast.File, error) {
 	if f, ok := c.files[file]; ok {
 		return f.file, f.err
 	}
-	f, err := parser.ParseFile(c.fset, file, nil, parser.ParseComments)
+	f, err := parser.ParseFile(c.fset, file, nil, parser.SkipObjectResolution)
 	c.files[file] = cachedFile{f, err}
 	return f, err
 }
 
-// formatDrawReport renders one line describing a successful Draw call.
-// Returns "" with a nil error when the caller is internal to the hegel
-// package (e.g. the stateful runner's bookkeeping draws). When omitLocation
-// is true the rendered line drops the leading "file:line: " — callers that
-// route the message through testing.T.Log get that decoration for free.
-func formatDrawReport(skip int, value any, omitLocation bool) (string, error) {
+// formatDrawReport resolves the caller's source position via runtime.Caller
+// and returns the file:line location and a printed "statement = value" line
+// for the originating Draw call. skip is the number of frames above this one
+// to skip (Draw passes 1 to point at the user's call site).
+func formatDrawReport(skip int, value any) (location, statement string, _ error) {
 	_, file, line, ok := runtime.Caller(skip + 1)
 	if !ok { // coverage-ignore
-		return "", fmt.Errorf("runtime.Caller(%d) failed", skip+1)
+		return "", "", fmt.Errorf("runtime.Caller(%d) failed", skip+1)
 	}
 	stmt, _ := drawReportSource.statementAt(file, line)
-	return formatDrawLine(file, line, stmt, value, omitLocation), nil
+	location, stmt = formatDrawLine(file, line, stmt, value)
+	return location, stmt, nil
 }
 
-func formatDrawLine(file string, line int, stmt string, value any, omitLocation bool) string {
+func formatDrawLine(file string, line int, stmt string, value any) (location, statement string) {
 	if stmt == "" {
 		stmt = fmt.Sprintf("hegel.Draw[%T](...) = %#v", value, value)
 	} else {
 		stmt = fmt.Sprintf("%s = %#v", stmt, value)
 	}
-	if omitLocation {
-		return stmt
-	}
-	return fmt.Sprintf("%s:%d: %s", filepath.Base(file), line, stmt)
+	return fmt.Sprintf("%s:%d", filepath.Base(file), line), stmt
 }
