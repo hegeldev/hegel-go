@@ -192,37 +192,27 @@ func TestSourceCacheMultiLineStatement(t *testing.T) {
 
 func TestFormatDrawLineWithStatement(t *testing.T) {
 	t.Parallel()
-	got := formatDrawLine("/abs/path/example_test.go", 42, "x := hegel.Draw(...)", []int{0, 0}, false)
-	want := "example_test.go:42: x := hegel.Draw(...) = []int{0, 0}"
-	if got != want {
-		t.Fatalf("formatDrawLine: got %q, want %q", got, want)
+	loc, stmt := formatDrawLine("/abs/path/example_test.go", 42, "x := hegel.Draw(...)", []int{0, 0})
+	wantLoc := "example_test.go:42"
+	wantStmt := "x := hegel.Draw(...) = []int{0, 0}"
+	if loc != wantLoc {
+		t.Fatalf("formatDrawLine location: got %q, want %q", loc, wantLoc)
+	}
+	if stmt != wantStmt {
+		t.Fatalf("formatDrawLine statement: got %q, want %q", stmt, wantStmt)
 	}
 }
 
 func TestFormatDrawLineWithoutStatement(t *testing.T) {
 	t.Parallel()
-	got := formatDrawLine("/abs/path/example_test.go", 42, "", 7, false)
-	want := "example_test.go:42: hegel.Draw[int](...) = 7"
-	if got != want {
-		t.Fatalf("formatDrawLine: got %q, want %q", got, want)
+	loc, stmt := formatDrawLine("/abs/path/example_test.go", 42, "", 7)
+	wantLoc := "example_test.go:42"
+	wantStmt := "hegel.Draw[int](...) = 7"
+	if loc != wantLoc {
+		t.Fatalf("formatDrawLine location: got %q, want %q", loc, wantLoc)
 	}
-}
-
-func TestFormatDrawLineOmitLocationWithStatement(t *testing.T) {
-	t.Parallel()
-	got := formatDrawLine("/abs/path/example_test.go", 42, "x := hegel.Draw(...)", []int{0, 0}, true)
-	want := "x := hegel.Draw(...) = []int{0, 0}"
-	if got != want {
-		t.Fatalf("formatDrawLine: got %q, want %q", got, want)
-	}
-}
-
-func TestFormatDrawLineOmitLocationWithoutStatement(t *testing.T) {
-	t.Parallel()
-	got := formatDrawLine("/abs/path/example_test.go", 42, "", 7, true)
-	want := "hegel.Draw[int](...) = 7"
-	if got != want {
-		t.Fatalf("formatDrawLine: got %q, want %q", got, want)
+	if stmt != wantStmt {
+		t.Fatalf("formatDrawLine statement: got %q, want %q", stmt, wantStmt)
 	}
 }
 
