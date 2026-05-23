@@ -27,8 +27,9 @@ jobs:
         with:
           go-version: stable
 
-      - name: Install just
-        run: sudo apt-get update && sudo apt-get install -y just
+      - uses: ./.github/actions/install-tools
+        with:
+          tools: just
 
       - name: Lint
         run: just lint
@@ -59,9 +60,9 @@ jobs:
         with:
           persist-credentials: false
 
-      - name: Install just
-        run: sudo apt-get update && sudo apt-get install -y just
-      - uses: astral-sh/setup-uv@d0d8abe699bfb85fec6de9f7adb5ae17292296ff # v6
+      - uses: ./.github/actions/install-tools
+        with:
+          tools: just uv
 
       - uses: actions/setup-go@40f1582b2485089dde7abd97c1529aa768e1baff # v5
         with:
@@ -118,8 +119,9 @@ jobs:
         with:
           go-version: stable
 
-      - name: Install just
-        run: sudo apt-get update && sudo apt-get install -y just
+      - uses: ./.github/actions/install-tools
+        with:
+          tools: just
 
       - name: Check docs
         run: just check-docs
@@ -134,9 +136,9 @@ jobs:
         with:
           persist-credentials: false
 
-      - name: Install just
-        run: sudo apt-get update && sudo apt-get install -y just
-      - uses: astral-sh/setup-uv@d0d8abe699bfb85fec6de9f7adb5ae17292296ff # v6
+      - uses: ./.github/actions/install-tools
+        with:
+          tools: just uv
 
       - uses: actions/setup-go@40f1582b2485089dde7abd97c1529aa768e1baff # v5
         with:
