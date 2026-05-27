@@ -1,7 +1,7 @@
 package hegel
 
 import (
-	"io"
+	"bytes"
 	"os"
 	"path/filepath"
 	"strings"
@@ -217,13 +217,14 @@ func TestFormatDrawLineWithoutStatement(t *testing.T) {
 }
 
 func TestDrawReportInProcess(t *testing.T) {
-	captured := captureStdout(t, func() {
-		if err := Run(func(tc TestCase) {
-			_ = Draw(tc, Integers(0, 100))
-		}, WithSingleTestCase()); err != nil {
-			t.Fatalf("Run: %v", err)
-		}
-	})
+	t.Parallel()
+	var buf bytes.Buffer
+	if err := run(func(tc TestCase) {
+		_ = Draw(tc, Integers(0, 100))
+	}, WithSingleTestCase(), withOutput(&buf)); err != nil {
+		t.Fatalf("runHegel: %v", err)
+	}
+	captured := buf.String()
 	if !strings.Contains(captured, "draw_report_test.go:") {
 		t.Fatalf("expected draw report in output, got:\n%s", captured)
 	}
@@ -235,18 +236,18 @@ func TestDrawReportInProcess(t *testing.T) {
 // Inner Draws inside the Composite element fire at depth > 0 under the Lists
 // span and must be suppressed.
 func TestDrawReportSuppressedInsideSpan(t *testing.T) {
+	t.Parallel()
 	gen := Lists(Composite(func(tc TestCase) int {
 		return Draw(tc, Integers(0, 100))
 	})).MinSize(2).MaxSize(2)
 
-	captured := captureStdout(t, func() {
-		if err := Run(func(tc TestCase) {
-			_ = Draw(tc, gen)
-		}, WithSingleTestCase()); err != nil {
-			t.Fatalf("Run: %v", err)
-		}
-	})
-
+	var buf bytes.Buffer
+	if err := run(func(tc TestCase) {
+		_ = Draw(tc, gen)
+	}, WithSingleTestCase(), withOutput(&buf)); err != nil {
+		t.Fatalf("runHegel: %v", err)
+	}
+	captured := buf.String()
 	got := strings.Count(captured, "draw_report_test.go:")
 	if got != 1 {
 		t.Fatalf("expected exactly 1 draw line in output, got %d:\n%s", got, captured)
@@ -259,20 +260,20 @@ func TestDrawReportSuppressedInsideSpan(t *testing.T) {
 // Isolates labelComposite from labelList: a top-level Composite must
 // suppress its own inner Draws even without an enclosing Lists span.
 func TestDrawReportSuppressedInsideComposite(t *testing.T) {
+	t.Parallel()
 	gen := Composite(func(tc TestCase) int {
 		a := Draw(tc, Integers(0, 100))
 		b := Draw(tc, Integers(0, 100))
 		return a + b
 	})
 
-	captured := captureStdout(t, func() {
-		if err := Run(func(tc TestCase) {
-			_ = Draw(tc, gen)
-		}, WithSingleTestCase()); err != nil {
-			t.Fatalf("Run: %v", err)
-		}
-	})
-
+	var buf bytes.Buffer
+	if err := run(func(tc TestCase) {
+		_ = Draw(tc, gen)
+	}, WithSingleTestCase(), withOutput(&buf)); err != nil {
+		t.Fatalf("runHegel: %v", err)
+	}
+	captured := buf.String()
 	got := strings.Count(captured, "draw_report_test.go:")
 	if got != 1 {
 		t.Fatalf("expected exactly 1 draw line in output, got %d:\n%s", got, captured)
@@ -280,29 +281,6 @@ func TestDrawReportSuppressedInsideComposite(t *testing.T) {
 	if !strings.Contains(captured, "Draw(tc, gen)") {
 		t.Fatalf("expected outer Draw statement text in output, got:\n%s", captured)
 	}
-}
-
-// captureStdout redirects os.Stdout for the duration of fn. Not safe for
-// concurrent test execution — caller must not use t.Parallel.
-func captureStdout(t *testing.T, fn func()) string {
-	t.Helper()
-	r, w, err := os.Pipe()
-	if err != nil {
-		t.Fatalf("os.Pipe: %v", err)
-	}
-	saved := os.Stdout
-	os.Stdout = w
-
-	done := make(chan string, 1)
-	go func() {
-		buf, _ := io.ReadAll(r)
-		done <- string(buf)
-	}()
-
-	fn()
-	w.Close()
-	os.Stdout = saved
-	return <-done
 }
 
 func TestIsHegelFrameExternalTestPackage(t *testing.T) {

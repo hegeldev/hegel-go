@@ -22,9 +22,9 @@ type testCase struct {
 	stream         *stream
 	singleTestCase bool // set when this case runs under WithSingleTestCase
 	aborted        bool
-	failed         bool         // for T.Error/Fail deferred INTERESTING
-	noteFn         func(string) // nil for exploratory cases; t.Log/stdout for final replay / single-case
-	depth          int          // current span nesting depth; >0 inside a generation span
+	failed         bool      // for T.Error/Fail deferred INTERESTING
+	out            io.Writer // nil for exploratory cases; set for final replay / single-case
+	depth          int       // current span nesting depth; >0 inside a generation span
 }
 
 // --- Sentinel errors ---
@@ -65,9 +65,17 @@ func (s *testCase) Assume(condition bool) {
 }
 
 func (s *testCase) Note(message string) {
-	if s.noteFn != nil {
-		s.noteFn(message)
+	if s.out != nil {
+		fmt.Fprintln(s.out, message)
 	}
+}
+
+func (s *testCase) reportDraw(skip int, value any) {
+	if s.out == nil {
+		return
+	}
+	loc, msg := formatDrawReport(skip+1, value)
+	fmt.Fprintf(s.out, "%s: %s\n", loc, msg)
 }
 
 func (s *testCase) Errorf(format string, args ...any) {
@@ -163,10 +171,6 @@ func (s *testCase) generateFromSchema(schema map[string]any) (any, error) {
 
 func (s *testCase) isSingleTestCase() bool {
 	return s.singleTestCase
-}
-
-func (s *testCase) maybeNoteFn() func(string) {
-	return s.noteFn
 }
 
 func (s *testCase) startSpan(label spanLabel) error {
@@ -293,6 +297,9 @@ type runOptions struct {
 	// databaseKey identifies the test for example-database lookups. Set by
 	// [Test] from t.Name(); nil for [Run]/[MustRun] (no test name available).
 	databaseKey []byte
+	// output receives note/draw-report output during single-test-case mode and
+	// during the final replay of interesting cases. nil means no output.
+	output io.Writer
 }
 
 // Option is a functional option for Test and Run.
@@ -352,6 +359,14 @@ func withDatabaseKey(key []byte) Option {
 	return func(o *runOptions) { o.databaseKey = key }
 }
 
+// withOutput sets the writer that receives note and draw-report output during
+// single-test-case mode and during the final replay of interesting cases.
+// Unexported: [Run] sets it to [os.Stdout], [Test] to t.Output(), [Workload]
+// to its stdout. Tests use it to inspect output.
+func withOutput(w io.Writer) Option {
+	return func(o *runOptions) { o.output = w }
+}
+
 // ciEnvVar describes a single CI-detection env var. If matchAny is true, the
 // var counts as a CI signal whenever it is present in the environment, even
 // with an empty value. Otherwise it must equal expected exactly.
@@ -394,7 +409,7 @@ func isCI() bool {
 //
 // Note output goes to stdout. For use in standalone binaries and conformance tests.
 func Run(fn func(TestCase), opts ...Option) error {
-	return runHegel(fn, stdoutNoteFn, opts)
+	return run(fn, append(opts, withOutput(os.Stdout))...)
 }
 
 // MustRun runs a property test and panics if it fails.
@@ -412,23 +427,19 @@ func Test(t *testing.T, fn func(*T), opts ...Option) {
 		ht := &T{testCase: tc.(*testCase), T: t}
 		fn(ht)
 	}
-	allOpts := append(opts, withDatabaseKey([]byte(t.Name())))
-	err := runHegel(body, func(msg string) { t.Helper(); t.Log(msg) }, allOpts) // coverage-ignore
-	if err != nil {                                                             // coverage-ignore
+	allOpts := append(opts, withDatabaseKey([]byte(t.Name())), withOutput(t.Output()))
+	err := run(body, allOpts...)
+	if err != nil { // coverage-ignore
 		t.Fatal(err)
 	}
 }
 
-// stdoutNoteFn is the noteFn for Run/MustRun: writes to stdout.
-func stdoutNoteFn(msg string) {
-	fmt.Println(msg)
-}
-
-// runHegel is the shared implementation for Run, MustRun, and Test.
+// run is the shared implementation for Run, MustRun, and Test.
 //
-// The example-database key is supplied (when applicable) by [Test];
-// non-test entry points leave it nil.
-func runHegel(fn testBody, noteFn func(string), opts []Option) error {
+// The example-database key is supplied (when applicable) by [Test]; non-test
+// entry points leave it nil. Note/draw-report output is routed via
+// [withOutput]; absent that option no output is produced.
+func run(fn testBody, opts ...Option) error {
 	inCI := isCI()
 	o := runOptions{
 		testCases:   100,
@@ -451,13 +462,13 @@ func runHegel(fn testBody, noteFn func(string), opts []Option) error {
 		if err := s.start(); err != nil {
 			return fmt.Errorf("session start: %w", err)
 		}
-		return s.runTest(fn, o, noteFn)
+		return s.runTest(fn, o)
 	}
 
 	if err := globalSession.start(); err != nil {
 		return fmt.Errorf("session start: %w", err)
 	}
-	return globalSession.runTest(fn, o, noteFn)
+	return globalSession.runTest(fn, o)
 }
 
 // extractPanicOrigin extracts file/line from a recovered panic using runtime.Callers,
@@ -554,7 +565,10 @@ func buildRunTestMessage(streamID uint32, opts runOptions) map[string]any {
 // case via the single_test_case command — no shrinking, replay, or example
 // database. Otherwise it sends run_test and replays any interesting failures
 // after the exploratory phase.
-func (c *client) runTest(fn testBody, opts runOptions, noteFn func(string)) error {
+//
+// Note/draw-report output during single-test-case mode and during the final
+// replay of interesting cases is written to opts.output (see [withOutput]).
+func (c *client) runTest(fn testBody, opts runOptions) error {
 	testSt := c.conn.NewStream("Test")
 
 	cmdName := "run_test"
@@ -607,12 +621,12 @@ testCase:
 				return fmt.Errorf("connect test case stream: %w", err)
 			}
 
-			var caseNoteFn func(string)
+			var caseOut io.Writer
 			if opts.singleTestCase {
-				caseNoteFn = noteFn
+				caseOut = opts.output
 			}
 
-			lastErr = c.runTestCase(caseSt, fn, opts.singleTestCase, caseNoteFn)
+			lastErr = c.runTestCase(caseSt, fn, opts.singleTestCase, caseOut)
 			if lastErr != nil && !errors.Is(lastErr, errPropTestFailed) {
 				return lastErr
 			}
@@ -670,7 +684,7 @@ testCase:
 		if err != nil { // coverage-ignore
 			return fmt.Errorf("connect final case stream: %w", err)
 		}
-		caseErr := c.runTestCase(caseSt, fn, false, noteFn)
+		caseErr := c.runTestCase(caseSt, fn, false, opts.output)
 		if caseErr != nil {
 			errs = append(errs, caseErr)
 		}
@@ -683,12 +697,12 @@ var errPropTestFailed = errors.New("property test failed")
 // runTestCase executes one test case and sends mark_complete to the server.
 //
 // Returns errPropTestFailed if the test case caused an abort.
-func (c *client) runTestCase(st *stream, fn testBody, singleTestCase bool, noteFn func(string)) error {
+func (c *client) runTestCase(st *stream, fn testBody, singleTestCase bool, out io.Writer) error {
 	state := &testCase{
 		stream:         st,
 		singleTestCase: singleTestCase,
 		aborted:        false,
-		noteFn:         noteFn,
+		out:            out,
 	}
 
 	sendComplete := true
@@ -944,8 +958,8 @@ func (s *hegelSession) cleanupLocked() {
 }
 
 // runTest runs a test via the session's client.
-func (s *hegelSession) runTest(fn testBody, opts runOptions, noteFn func(string)) error {
-	return s.cli.runTest(fn, opts, noteFn)
+func (s *hegelSession) runTest(fn testBody, opts runOptions) error {
+	return s.cli.runTest(fn, opts)
 }
 
 // globalSession is the package-level session, lazily started.

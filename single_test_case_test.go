@@ -1,6 +1,7 @@
 package hegel
 
 import (
+	"bytes"
 	"fmt"
 	"io"
 	"strings"
@@ -51,13 +52,14 @@ func TestSingleTestCaseFlagFalseIsNoop(t *testing.T) {
 // --- Integration tests: real hegel binary ---
 
 func TestSingleTestCaseRunsExactlyOnce(t *testing.T) {
+	t.Parallel()
 	var count int32
-	err := Run(func(s TestCase) {
+	err := run(func(s TestCase) {
 		atomic.AddInt32(&count, 1)
 		_ = Draw[bool](s, Booleans())
 	}, WithSingleTestCase())
 	if err != nil {
-		t.Fatalf("Run: %v", err)
+		t.Fatalf("runHegel: %v", err)
 	}
 	if got := atomic.LoadInt32(&count); got != 1 {
 		t.Errorf("expected exactly 1 test case, got %d", got)
@@ -65,7 +67,8 @@ func TestSingleTestCaseRunsExactlyOnce(t *testing.T) {
 }
 
 func TestSingleTestCaseFailureSurfaces(t *testing.T) {
-	err := Run(func(TestCase) {
+	t.Parallel()
+	err := run(func(TestCase) {
 		panic("intentional failure")
 	}, WithSingleTestCase())
 	if err == nil {
@@ -77,30 +80,25 @@ func TestSingleTestCaseFailureSurfaces(t *testing.T) {
 }
 
 func TestSingleTestCaseNoteIsVisible(t *testing.T) {
+	t.Parallel()
 	const marker = "hello from single test case"
-	var notes []string
-	err := runHegel(func(s TestCase) {
+	var buf bytes.Buffer
+	err := run(func(s TestCase) {
 		s.Note(marker)
-	}, func(msg string) { notes = append(notes, msg) }, []Option{WithSingleTestCase()})
+	}, WithSingleTestCase(), withOutput(&buf))
 	if err != nil {
 		t.Fatalf("runHegel: %v", err)
 	}
-	found := false
-	for _, n := range notes {
-		if strings.Contains(n, marker) {
-			found = true
-			break
-		}
-	}
-	if !found {
-		t.Errorf("expected note %q in output, got %v", marker, notes)
+	if !strings.Contains(buf.String(), marker) {
+		t.Errorf("expected note %q in output, got %q", marker, buf.String())
 	}
 }
 
 func TestSingleTestCasePermissiveOptions(t *testing.T) {
+	t.Parallel()
 	// Combining WithSingleTestCase with other options is permissive — the
 	// extra options simply don't go on the wire.
-	err := Run(func(s TestCase) {
+	err := run(func(s TestCase) {
 		_ = Draw[bool](s, Booleans())
 	},
 		WithSingleTestCase(),
@@ -110,7 +108,7 @@ func TestSingleTestCasePermissiveOptions(t *testing.T) {
 		SuppressHealthCheck(FilterTooMuch),
 	)
 	if err != nil {
-		t.Fatalf("Run: %v", err)
+		t.Fatalf("runHegel: %v", err)
 	}
 }
 
@@ -128,8 +126,9 @@ func (m *unboundedMachine) InvariantBounded(_ TestCase) {
 }
 
 func TestSingleTestCaseStatefulRunsBeyondDefaultCap(t *testing.T) {
+	t.Parallel()
 	m := &unboundedMachine{}
-	err := Run(func(s TestCase) {
+	err := run(func(s TestCase) {
 		RunStateful(s, m)
 	}, WithSingleTestCase())
 	if err == nil {
@@ -151,7 +150,7 @@ func TestRunSingleTestCaseSendControlRequestError(t *testing.T) {
 	remote.Close()
 
 	cl := newClient(conn)
-	err := cl.runTest(func(_ TestCase) {}, runOptions{singleTestCase: true}, stdoutNoteFn)
+	err := cl.runTest(func(_ TestCase) {}, runOptions{singleTestCase: true})
 	if err == nil {
 		t.Fatal("expected error from single_test_case send on closed conn")
 	}
@@ -161,9 +160,11 @@ func TestRunSingleTestCaseSendControlRequestError(t *testing.T) {
 // --- Workload --single-test-case ---
 
 func TestWorkloadSingleTestCaseFlag(t *testing.T) {
+	t.Parallel()
 	var count int32
 	err := workload(
 		[]string{"prog", "--single-test-case"},
+		io.Discard,
 		io.Discard,
 		func(s TestCase) {
 			atomic.AddInt32(&count, 1)

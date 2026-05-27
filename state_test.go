@@ -1,14 +1,28 @@
 package hegel
 
 import (
+	"bytes"
+	"strings"
 	"testing"
 )
 
 // makeFakeT creates a *T with a zero testCase and a real *testing.T
 // for unit testing T methods in state.go.
+//
+// emit defaults to false so the embedded *testing.T isn't exercised.
 func makeFakeT(t *testing.T) *T {
 	return &T{
 		testCase: &testCase{},
+		T:        t,
+	}
+}
+
+// makeEmittingT creates a *T with a testCase.out set to buf.
+// Use when the test wants to assert routing through the embedded *testing.T
+// (which we can't capture directly) and/or testCase.out.
+func makeEmittingT(t *testing.T, buf *bytes.Buffer) *T {
+	return &T{
+		testCase: &testCase{out: buf},
 		T:        t,
 	}
 }
@@ -36,15 +50,19 @@ func TestTFatalPanicsWithSentinel(t *testing.T) {
 	ht.Fatal("fatal message")
 }
 
-func TestTFatalCallsNoteFn(t *testing.T) {
+// TestTFatalEmitsViaTestingT exercises the emit=true branch of Fatal: the
+// message routes through t.T.Log so file:line decoration walks back to user
+// code. We can't capture t.T.Log output from here, so this test merely
+// proves the path runs without panic from t.Log and that the fatalSentinel
+// still unwinds.
+func TestTFatalEmitsViaTestingT(t *testing.T) {
 	t.Parallel()
-	ht := makeFakeT(t)
-	var gotMsg string
-	ht.testCase.noteFn = func(msg string) { gotMsg = msg }
+	ht := makeEmittingT(t, &bytes.Buffer{})
 	defer func() {
-		_ = recover()
-		if gotMsg != "fatal message" {
-			t.Errorf("expected note %q, got %q", "fatal message", gotMsg)
+		r := recover()
+		fs, ok := r.(fatalSentinel)
+		if !ok || fs.msg != "fatal message" {
+			t.Errorf("expected fatalSentinel %q, got %T:%v", "fatal message", r, r)
 		}
 	}()
 	ht.Fatal("fatal message")
@@ -69,15 +87,14 @@ func TestTFatalfPanicsWithSentinel(t *testing.T) {
 	ht.Fatalf("fatal: %d", 42)
 }
 
-func TestTFatalfCallsNoteFn(t *testing.T) {
+func TestTFatalfEmitsViaTestingT(t *testing.T) {
 	t.Parallel()
-	ht := makeFakeT(t)
-	var gotMsg string
-	ht.testCase.noteFn = func(msg string) { gotMsg = msg }
+	ht := makeEmittingT(t, &bytes.Buffer{})
 	defer func() {
-		_ = recover()
-		if gotMsg != "fatal: 99" {
-			t.Errorf("expected note %q, got %q", "fatal: 99", gotMsg)
+		r := recover()
+		fs, ok := r.(fatalSentinel)
+		if !ok || fs.msg != "fatal: 99" {
+			t.Errorf("expected fatalSentinel %q, got %T:%v", "fatal: 99", r, r)
 		}
 	}()
 	ht.Fatalf("fatal: %d", 99)
@@ -155,31 +172,41 @@ func TestTSkipNowPanicsWithAssumeRejected(t *testing.T) {
 // T.Error / T.Errorf — set failed flag, call Note
 // =============================================================================
 
-func TestTErrorSetsFailedAndCallsNote(t *testing.T) {
+func TestTErrorSetsFailed(t *testing.T) {
 	t.Parallel()
 	ht := makeFakeT(t)
-	noted := false
-	ht.testCase.noteFn = func(msg string) { noted = true }
 	ht.Error("something went wrong")
 	if !ht.testCase.failed {
 		t.Error("expected failed to be true after Error()")
 	}
-	if !noted {
-		t.Error("expected Note to be called by Error()")
-	}
 }
 
-func TestTErrorfSetsFailedAndCallsNote(t *testing.T) {
+func TestTErrorfSetsFailed(t *testing.T) {
 	t.Parallel()
 	ht := makeFakeT(t)
-	noted := false
-	ht.testCase.noteFn = func(msg string) { noted = true }
 	ht.Errorf("error: %d", 99)
 	if !ht.testCase.failed {
 		t.Error("expected failed to be true after Errorf()")
 	}
-	if !noted {
-		t.Error("expected Note to be called by Errorf()")
+}
+
+// TestTErrorEmitsViaTestingT exercises the emit=true branch of Error.
+func TestTErrorEmitsViaTestingT(t *testing.T) {
+	t.Parallel()
+	ht := makeEmittingT(t, &bytes.Buffer{})
+	ht.Error("something went wrong")
+	if !ht.testCase.failed {
+		t.Error("expected failed to be true after Error()")
+	}
+}
+
+// TestTErrorfEmitsViaTestingT exercises the emit=true branch of Errorf.
+func TestTErrorfEmitsViaTestingT(t *testing.T) {
+	t.Parallel()
+	ht := makeEmittingT(t, &bytes.Buffer{})
+	ht.Errorf("error: %d", 99)
+	if !ht.testCase.failed {
+		t.Error("expected failed to be true after Errorf()")
 	}
 }
 
@@ -200,40 +227,72 @@ func TestTFailSetsFailed(t *testing.T) {
 }
 
 // =============================================================================
-// T.Log / T.Logf — route through Note
+// T.Log / T.Logf / T.Note — route through t.T.Log when emit=true, no-op otherwise
 // =============================================================================
 
-func TestTLogCallsNote(t *testing.T) {
+// When emit=false, Log/Logf/Note are silent.
+func TestTLogSilentWhenNotEmitting(t *testing.T) {
 	t.Parallel()
 	ht := makeFakeT(t)
-	var gotMsg string
-	ht.testCase.noteFn = func(msg string) { gotMsg = msg }
 	ht.Log("hello", " world")
-	if gotMsg != "hello world" {
-		t.Errorf("expected %q, got %q", "hello world", gotMsg)
-	}
-}
-
-func TestTLogfCallsNote(t *testing.T) {
-	t.Parallel()
-	ht := makeFakeT(t)
-	var gotMsg string
-	ht.testCase.noteFn = func(msg string) { gotMsg = msg }
 	ht.Logf("value=%d", 42)
-	if gotMsg != "value=42" {
-		t.Errorf("expected %q, got %q", "value=42", gotMsg)
+	ht.Note("a note")
+}
+
+// When emit=true, Log/Logf/Note route through t.T.Log. We can't capture
+// t.T.Log output directly; this test just exercises the branch.
+func TestTLogEmitsWhenEmitting(t *testing.T) {
+	t.Parallel()
+	ht := makeEmittingT(t, &bytes.Buffer{})
+	ht.Log("hello", " world")
+	ht.Logf("value=%d", 42)
+	ht.Note("a note")
+}
+
+// testCase.Note writes to s.out when set.
+func TestTestCaseNoteWritesToOut(t *testing.T) {
+	t.Parallel()
+	var buf bytes.Buffer
+	s := &testCase{out: &buf}
+	s.Note("hello world")
+	if got := strings.TrimSpace(buf.String()); got != "hello world" {
+		t.Errorf("expected %q, got %q", "hello world", got)
 	}
 }
 
-func TestTNoteCallsNoteFn(t *testing.T) {
+// testCase.Errorf writes to s.out and sets the failed flag.
+func TestTestCaseErrorfWritesAndFails(t *testing.T) {
 	t.Parallel()
-	ht := makeFakeT(t)
-	var gotMsg string
-	ht.testCase.noteFn = func(msg string) { gotMsg = msg }
-	ht.Note("a note")
-	if gotMsg != "a note" {
-		t.Errorf("expected %q, got %q", "a note", gotMsg)
+	var buf bytes.Buffer
+	s := &testCase{out: &buf}
+	s.Errorf("value=%d", 42)
+	if !s.failed {
+		t.Error("expected failed=true after Errorf")
 	}
+	if got := strings.TrimSpace(buf.String()); got != "value=42" {
+		t.Errorf("expected %q, got %q", "value=42", got)
+	}
+}
+
+// testCase.Log routes through Note.
+func TestTestCaseLogWritesToOut(t *testing.T) {
+	t.Parallel()
+	var buf bytes.Buffer
+	s := &testCase{out: &buf}
+	s.Log("hello", " world")
+	if got := strings.TrimSpace(buf.String()); got != "hello world" {
+		t.Errorf("expected %q, got %q", "hello world", got)
+	}
+}
+
+// *T.reportDraw with emit=true and a captured Draw site routes through
+// t.T.Log. We can't capture t.T.Log output from here, but we can exercise
+// the code path. The call site doesn't matter — formatDrawReport just
+// needs a non-zero skip frame.
+func TestTReportDrawEmits(t *testing.T) {
+	t.Parallel()
+	ht := makeEmittingT(t, &bytes.Buffer{})
+	ht.reportDraw(0, 42)
 }
 
 // =============================================================================

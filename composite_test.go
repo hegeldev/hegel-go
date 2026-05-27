@@ -221,7 +221,6 @@ func TestCompositeRecursiveE2E(t *testing.T) {
 // value triggers a failure, the engine shrinks toward a minimal failing input.
 func TestCompositeShrinksToFailingCase(t *testing.T) {
 	t.Parallel()
-
 	// Generator: a struct with two ints. Property under test: a + b < 100.
 	// Smallest counterexample: a=0, b=100 (or a=100, b=0).
 	type pair struct{ a, b int }
@@ -233,7 +232,7 @@ func TestCompositeShrinksToFailingCase(t *testing.T) {
 	})
 
 	var minimalA, minimalB int
-	err := Run(func(s TestCase) {
+	err := run(func(s TestCase) {
 		p := Draw(s, pairGen)
 		if p.a+p.b >= 100 {
 			minimalA, minimalB = p.a, p.b

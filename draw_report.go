@@ -121,14 +121,14 @@ func (c *sourceCache) loadLocked(file string) (*ast.File, error) {
 // and returns the file:line location and a printed "statement = value" line
 // for the originating Draw call. skip is the number of frames above this one
 // to skip (Draw passes 1 to point at the user's call site).
-func formatDrawReport(skip int, value any) (location, statement string, _ error) {
+func formatDrawReport(skip int, value any) (location, statement string) {
 	_, file, line, ok := runtime.Caller(skip + 1)
 	if !ok { // coverage-ignore
-		return "", "", fmt.Errorf("runtime.Caller(%d) failed", skip+1)
+		panic(fmt.Errorf("runtime.Caller(%d) failed", skip+1))
 	}
 	stmt, _ := drawReportSource.statementAt(file, line)
 	location, stmt = formatDrawLine(file, line, stmt, value)
-	return location, stmt, nil
+	return location, stmt
 }
 
 func formatDrawLine(file string, line int, stmt string, value any) (location, statement string) {

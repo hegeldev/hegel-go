@@ -20,13 +20,22 @@ func applyOpts(opts []Option) runOptions {
 }
 
 // captureWorkloadExit replaces workloadExit with one that records the exit
-// code into the returned pointer, and registers a t.Cleanup to restore it.
+// code into the returned pointer, redirects workloadStdout/workloadStderr to
+// the test's output, and registers a t.Cleanup to restore them.
 func captureWorkloadExit(t *testing.T) *int {
 	t.Helper()
 	var code int
-	orig := workloadExit
+	origExit := workloadExit
+	origStdout := workloadStdout
+	origStderr := workloadStderr
 	workloadExit = func(c int) { code = c }
-	t.Cleanup(func() { workloadExit = orig })
+	workloadStdout = t.Output()
+	workloadStderr = t.Output()
+	t.Cleanup(func() {
+		workloadExit = origExit
+		workloadStdout = origStdout
+		workloadStderr = origStderr
+	})
 	return &code
 }
 
@@ -163,7 +172,7 @@ func TestParseHealthCheckRoundTrip(t *testing.T) {
 
 func TestWorkloadEmptyTestSucceeds(t *testing.T) {
 	t.Setenv("HEGEL_PROTOCOL_TEST_MODE", "empty_test")
-	err := workload([]string{"prog"}, io.Discard, func(TestCase) {
+	err := workload([]string{"prog"}, io.Discard, io.Discard, func(TestCase) {
 		t.Fatal("body should not run under empty_test")
 	}, nil)
 	if err != nil {
@@ -182,6 +191,7 @@ func TestWorkloadParsesFlags(t *testing.T) {
 			"--suppress-health-check=filter_too_much",
 		},
 		io.Discard,
+		io.Discard,
 		func(TestCase) {}, nil,
 	)
 	if err != nil {
@@ -192,7 +202,7 @@ func TestWorkloadParsesFlags(t *testing.T) {
 func TestWorkloadHelpReturnsNil(t *testing.T) {
 	t.Parallel()
 	var buf bytes.Buffer
-	err := workload([]string{"myprog", "--help"}, &buf, func(TestCase) {}, nil)
+	err := workload([]string{"myprog", "--help"}, io.Discard, &buf, func(TestCase) {}, nil)
 	if err != nil {
 		t.Errorf("expected nil error on --help, got %v", err)
 	}
@@ -207,7 +217,7 @@ func TestWorkloadHelpReturnsNil(t *testing.T) {
 func TestWorkloadBadFlagReturnsError(t *testing.T) {
 	t.Parallel()
 	var buf bytes.Buffer
-	err := workload([]string{"prog", "--bogus"}, &buf, func(TestCase) {}, nil)
+	err := workload([]string{"prog", "--bogus"}, io.Discard, &buf, func(TestCase) {}, nil)
 	if err == nil {
 		t.Fatal("expected error for unknown flag")
 	}
@@ -221,6 +231,7 @@ func TestWorkloadBadHealthCheckReturnsError(t *testing.T) {
 	t.Parallel()
 	err := workload(
 		[]string{"prog", "--suppress-health-check=nonsense"},
+		io.Discard,
 		io.Discard,
 		func(TestCase) {}, nil,
 	)

@@ -191,7 +191,7 @@ func TestRunStatefulAssumeRejectionRetries(t *testing.T) {
 
 func TestRunStatefulRulePanicPropagates(t *testing.T) {
 	t.Parallel()
-	err := Run(func(tc TestCase) {
+	err := run(func(tc TestCase) {
 		RunStateful(tc, &rulePanicker{})
 	})
 	assertErrorContains(t, "rule panic propagated", err)
@@ -229,7 +229,7 @@ func TestStatefulInitialInvariantConnectionError(t *testing.T) {
 
 func TestRunStatefulInvariantViolationFails(t *testing.T) {
 	t.Parallel()
-	err := Run(func(tc TestCase) {
+	err := run(func(tc TestCase) {
 		RunStateful(tc, &invariantViolator{})
 	}, WithTestCases(10))
 	assertErrorContains(t, "counter reached", err)

@@ -38,12 +38,12 @@ func TestDatabasePersistsFailingExamples(t *testing.T) {
 		t.Fatal("expected empty database directory before the run")
 	}
 
-	err = runHegel(func(_ TestCase) {
+	err = run(func(_ TestCase) {
 		panic("")
-	}, stdoutNoteFn, []Option{
+	},
 		WithDatabase(Database(dbDir)),
 		withDatabaseKey([]byte("test_database_persists")),
-	})
+	)
 	if err == nil {
 		t.Fatal("expected property test failure")
 	}
