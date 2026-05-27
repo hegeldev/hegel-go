@@ -1,6 +1,8 @@
 package hegel
 
-import "testing"
+import (
+	"testing"
+)
 
 // These tests verify that the t.Helper() calls inside T.Fatal, T.Fatalf, and
 // T.Logf cause t.Log to decorate output with the user's test file:line, not

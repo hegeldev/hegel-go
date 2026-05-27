@@ -115,9 +115,11 @@ type TestCase interface {
 	// [WithSingleTestCase]. Unexported to seal the interface to this package.
 	isSingleTestCase() bool
 
-	// maybeNoteFn returns the note function for this test case, or nil if
-	// notes are suppressed (the exploratory phase).
-	maybeNoteFn() func(string)
+	// reportDraw emits one draw-report line for value through the
+	// implementation's note channel, or no-ops when notes are suppressed.
+	// skip is the number of stack frames to skip when resolving the source
+	// position of the originating [Draw] call.
+	reportDraw(skip int, value any)
 
 	// startSpan notifies the server that a new generation span has started.
 	startSpan(label spanLabel) error
@@ -130,26 +132,21 @@ type TestCase interface {
 	inSpan() bool
 }
 
-// Draw produces a value from a Generator using the given State context.
+// Draw produces a value from a Generator using the given TestCase context.
 func Draw[T any](tc TestCase, g Generator[T]) T {
-	h, hasTestingT := tc.(interface{ Helper() })
-	if hasTestingT {
+	// Mark this frame as a helper so t.Log file:line decoration walks past
+	// it to the user's call site. testCase has no-op Helper; *T inherits
+	// from *testing.T.
+	if h, ok := tc.(interface{ Helper() }); ok {
 		h.Helper()
 	}
-
 	v, err := g.draw(tc)
 	if err != nil {
 		panic(err)
 	}
 	// Nested draws are reported as part of the parent's value.
-	if fn := tc.maybeNoteFn(); fn != nil && !tc.inSpan() {
-		msg, err := formatDrawReport(1, v, hasTestingT)
-		if err != nil { // coverage-ignore
-			panic(err)
-		}
-		if msg != "" {
-			fn(msg)
-		}
+	if !tc.inSpan() {
+		tc.reportDraw(1, v)
 	}
 	return v
 }

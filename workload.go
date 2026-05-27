@@ -11,9 +11,13 @@ import (
 	"strings"
 )
 
-// workloadExit is a seam so tests can observe the exit code from [Workload]
-// without terminating the test process.
-var workloadExit = os.Exit
+// Seams so tests can observe the exit code from [Workload] and redirect its
+// output without terminating the test process or polluting the test log.
+var (
+	workloadExit             = os.Exit
+	workloadStdout io.Writer = os.Stdout
+	workloadStderr io.Writer = os.Stderr
+)
 
 // Workload runs a property test as a standalone CLI binary, parsing flags
 // from [os.Args].
@@ -22,19 +26,19 @@ var workloadExit = os.Exit
 //
 // opts are overridden by flags.
 func Workload(fn func(TestCase), opts ...Option) {
-	err := workload(os.Args, os.Stderr, fn, opts)
+	err := workload(os.Args, workloadStdout, workloadStderr, fn, opts)
 	if err == nil {
 		return
 	}
-	fmt.Fprintln(os.Stderr, "Error:", err)
+	fmt.Fprintln(workloadStderr, "Error:", err)
 	workloadExit(1)
 }
 
-// workload is the testable core of [Workload]. It writes flag-package
-// output (parse errors, usage, --help) to stderr and returns nil on success
-// (including --help) or a non-nil error for flag-parse problems and
-// property-test failures.
-func workload(args []string, stderr io.Writer, fn func(TestCase), opts []Option) error {
+// workload is the testable core of [Workload]. Note output (interesting cases,
+// single-test-case mode) goes to stdout; flag-package output (parse errors,
+// usage, --help) goes to stderr. Returns nil on success (including --help) or
+// a non-nil error for flag-parse problems and property-test failures.
+func workload(args []string, stdout io.Writer, stderr io.Writer, fn func(TestCase), opts []Option) error {
 	fs := flag.NewFlagSet(args[0], flag.ContinueOnError)
 	fs.SetOutput(stderr)
 
@@ -59,7 +63,8 @@ func workload(args []string, stderr io.Writer, fn func(TestCase), opts []Option)
 			allOpts = append(allOpts, ov.Option())
 		}
 	})
-	return Run(fn, allOpts...)
+	allOpts = append(allOpts, withOutput(stdout))
+	return run(fn, allOpts...)
 }
 
 type optionValue interface {

@@ -42,22 +42,24 @@ type T struct {
 
 // Shadowed methods — override testing.T behavior for Hegel compatibility.
 
-// Fatal logs the message via [TestCase.Note] and marks the test case as failed.
+// Fatal logs the message via the embedded [*testing.T] and marks the test
+// case as failed.
 func (t *T) Fatal(args ...any) {
 	msg := fmt.Sprint(args...)
-	if t.noteFn != nil {
+	if t.out != nil {
 		t.Helper()
-		t.noteFn(msg)
+		t.T.Log(msg)
 	}
 	panic(fatalSentinel{msg: msg})
 }
 
-// Fatalf logs the formatted message via [TestCase.Note] and marks the test case as failed.
+// Fatalf logs the formatted message via the embedded [*testing.T] and marks
+// the test case as failed.
 func (t *T) Fatalf(format string, args ...any) {
 	msg := fmt.Sprintf(format, args...)
-	if t.noteFn != nil {
+	if t.out != nil {
 		t.Helper()
-		t.noteFn(msg)
+		t.T.Log(msg)
 	}
 	panic(fatalSentinel{msg: msg})
 }
@@ -77,14 +79,26 @@ func (t *T) SkipNow() {
 	t.Assume(false)
 }
 
-// Error logs the message via [TestCase.Note] and sets the failed flag.
+// Error logs the message via the embedded [*testing.T] and sets the failed flag.
 //
 // The test case continues running but will be treated as a failure after return.
 func (t *T) Error(args ...any) {
 	msg := fmt.Sprint(args...)
-	if t.noteFn != nil {
+	if t.out != nil {
 		t.Helper()
-		t.noteFn(msg)
+		t.T.Log(msg)
+	}
+	t.testCase.Fail()
+}
+
+// Errorf logs the formatted message via the embedded [*testing.T] and sets
+// the failed flag.
+//
+// The test case continues running but will be treated as a failure after return.
+func (t *T) Errorf(format string, args ...any) {
+	if t.out != nil {
+		t.Helper()
+		t.T.Logf(format, args...)
 	}
 	t.testCase.Fail()
 }
@@ -94,24 +108,40 @@ func (t *T) Failed() bool {
 	return t.testCase.failed
 }
 
-// Logf routes the formatted message through [TestCase.Note].
-func (t *T) Logf(format string, args ...any) {
-	if t.noteFn != nil {
+// Log routes the message through the embedded [*testing.T].
+func (t *T) Log(args ...any) {
+	if t.out != nil {
 		t.Helper()
-		t.noteFn(fmt.Sprintf(format, args...))
+		t.T.Log(fmt.Sprint(args...))
 	}
 }
 
-// Note routes the message through [TestCase.Note], marking this frame as a
-// helper so the noteFn-driven t.Log decoration walks past it to user code.
-func (t *T) Note(message string) {
-	if t.noteFn != nil {
+// Logf routes the formatted message through the embedded [*testing.T].
+func (t *T) Logf(format string, args ...any) {
+	if t.out != nil {
 		t.Helper()
-		t.noteFn(message)
+		t.T.Logf(format, args...)
+	}
+}
+
+// Note routes the message through the embedded [*testing.T].
+func (t *T) Note(message string) {
+	if t.out != nil {
+		t.Helper()
+		t.T.Log(message)
 	}
 }
 
 // Run aborts the test — nested sub-tests inside a Hegel property test are not supported.
 func (t *T) Run(_ string, _ func(*testing.T)) bool {
 	panic("nested t.Run is not supported inside a property test")
+}
+
+func (t *T) reportDraw(skip int, value any) {
+	if t.out == nil {
+		return
+	}
+	_, msg := formatDrawReport(skip+1, value)
+	t.Helper()
+	t.T.Log(msg)
 }

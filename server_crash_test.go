@@ -228,7 +228,7 @@ func TestServerCrashIncludesLogContent(t *testing.T) {
 
 	err := s.runTest(func(tc TestCase) {
 		Draw[bool](tc, Booleans())
-	}, runOptions{testCases: 1}, stdoutNoteFn)
+	}, runOptions{testCases: 1})
 	if err == nil {
 		t.Fatal("expected error from fake crash server")
 	}
@@ -247,7 +247,7 @@ func TestServerCrashEmptyLog(t *testing.T) {
 
 	err := s.runTest(func(tc TestCase) {
 		Draw[bool](tc, Booleans())
-	}, runOptions{testCases: 1}, stdoutNoteFn)
+	}, runOptions{testCases: 1})
 	if err == nil {
 		t.Fatal("expected error from fake crash server")
 	}
