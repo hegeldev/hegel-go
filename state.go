@@ -50,7 +50,7 @@ func (t *T) Fatal(args ...any) {
 		t.Helper()
 		t.T.Log(msg)
 	}
-	panic(fatalSentinel{msg: msg})
+	panic(shortCircuit{errTestCaseAborted})
 }
 
 // Fatalf logs the formatted message via the embedded [*testing.T] and marks
@@ -61,7 +61,7 @@ func (t *T) Fatalf(format string, args ...any) {
 		t.Helper()
 		t.T.Log(msg)
 	}
-	panic(fatalSentinel{msg: msg})
+	panic(shortCircuit{errTestCaseAborted})
 }
 
 // Skip discards the current test case.

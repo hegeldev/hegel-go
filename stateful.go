@@ -1,10 +1,13 @@
 package hegel
 
 import (
+	"errors"
 	"fmt"
 	"math"
 	"reflect"
 	"strings"
+
+	"hegel.dev/go/hegel/internal/libhegel"
 )
 
 // statefulMaxSteps caps the number of rule invocations per test case.
@@ -139,7 +142,7 @@ func (sm *stateMachine) Run(tc TestCase) {
 // callInvariant brackets fn(tc) in a labelStateful span. Panics propagate
 // to the caller; invariant failures must surface as test failures.
 func callInvariant(tc TestCase, fn func(TestCase)) error {
-	_, err := withSpan(tc, labelStateful, func() (struct{}, error) {
+	_, err := withSpan(tc, libhegel.LABEL_STATEFUL, func() (struct{}, error) {
 		fn(tc)
 		return struct{}{}, nil
 	})
@@ -151,13 +154,13 @@ func callInvariant(tc TestCase, fn func(TestCase)) error {
 // It returns true if fn ran to completion, false if it rejected via
 // Assume. Other panics propagate to the caller.
 func callRule(tc TestCase, fn func(TestCase)) (bool, error) {
-	return withSpan(tc, labelStateful, func() (ok bool, err error) {
+	return withSpan(tc, libhegel.LABEL_STATEFUL, func() (ok bool, err error) {
 		defer func() {
 			r := recover()
 			if r == nil {
 				return
 			}
-			if _, isAssume := r.(assumeRejected); isAssume {
+			if sc, ok := r.(shortCircuit); ok && errors.Is(sc.err, libhegel.E_ASSUME) {
 				return
 			}
 			panic(r)

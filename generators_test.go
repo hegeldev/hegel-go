@@ -1,7 +1,6 @@
 package hegel
 
 import (
-	"errors"
 	"fmt"
 	"math"
 	"math/big"
@@ -67,84 +66,6 @@ func TestMappedGeneratorMapOnBasicInner(t *testing.T) {
 	result := Map[int64, int64](inner, func(v int64) int64 { return v })
 	if _, ok := result.(*basicGenerator[int64]); !ok {
 		t.Errorf("Map on basicGenerator should return *basicGenerator[int64]")
-	}
-}
-
-// =============================================================================
-// collection protocol tests
-// =============================================================================
-
-// --- collection StopTest on new_collection ---
-
-func TestCollectionStopTestOnNewCollection(t *testing.T) {
-
-	t.Setenv("HEGEL_PROTOCOL_TEST_MODE", "stop_test_on_new_collection")
-	// Should not error -- the test was stopped, not failed.
-	Test(t, func(ht *T) {
-		max := 5
-		coll, err := newCollection(ht.testCase, 0, &max)
-		if err != nil {
-			panic(err)
-		}
-		coll.More(ht.testCase)
-		if err := coll.Err(); err != nil {
-			panic(err)
-		}
-	})
-}
-
-// --- collection StopTest on collection_more ---
-
-func TestCollectionStopTestOnCollectionMore(t *testing.T) {
-
-	t.Setenv("HEGEL_PROTOCOL_TEST_MODE", "stop_test_on_collection_more")
-	Test(t, func(ht *T) {
-		max := 5
-		coll, err := newCollection(ht.testCase, 0, &max)
-		if err != nil {
-			panic(err)
-		}
-		coll.More(ht.testCase)
-		if err := coll.Err(); err != nil {
-			panic(err)
-		}
-	})
-}
-
-// =============================================================================
-// Label constants
-// =============================================================================
-
-func TestLabelConstants(t *testing.T) {
-	t.Parallel()
-	cases := []struct {
-		name string
-		val  spanLabel
-		want int
-	}{
-		{"List", labelList, 1},
-		{"ListElement", labelListElement, 2},
-		{"Set", labelSet, 3},
-		{"SetElement", labelSetElement, 4},
-		{"Map", labelMap, 5},
-		{"MapEntry", labelMapEntry, 6},
-		{"Tuple", labelTuple, 7},
-		{"OneOf", labelOneOf, 8},
-		{"Optional", labelOptional, 9},
-		{"FixedDict", labelFixedDict, 10},
-		{"flatMap", labelFlatMap, 11},
-		{"Filter", labelFilter, 12},
-		{"Mapped", labelMapped, 13},
-		{"SampledFrom", labelSampledFrom, 14},
-		{"EnumVariant", labelEnumVariant, 15},
-		{"Composite", labelComposite, 17},
-	}
-	for _, tc := range cases {
-		t.Run(tc.name, func(t *testing.T) {
-			if int(tc.val) != tc.want {
-				t.Errorf("%s: expected %d, got %d", tc.name, tc.want, int(tc.val))
-			}
-		})
 	}
 }
 
@@ -433,19 +354,6 @@ func TestFromRegexE2E(t *testing.T) {
 			}
 		}
 	}, WithTestCases(50))
-}
-
-// =============================================================================
-// basicGenerator.draw error path (line 78-79)
-// =============================================================================
-
-// TestBasicGeneratorGenerateErrorResponse covers the error path in
-// basicGenerator.draw when generateFromSchema returns a non-StopTest error.
-func TestBasicGeneratorGenerateErrorResponse(t *testing.T) {
-	t.Setenv("HEGEL_PROTOCOL_TEST_MODE", "error_response")
-	newTempGoProject(t).
-		testBody(`_ = hegel.Draw[int64](ht, hegel.Integers[int64](0, 100))`).
-		goTest()
 }
 
 // =============================================================================
@@ -1117,26 +1025,6 @@ func TestExtractFloatAsFloat64(t *testing.T) {
 	}
 }
 
-// =============================================================================
-// (*testCase).startSpan / (*testCase).stopSpan: aborted path returns errTestCaseAborted
-// =============================================================================
-
-func TestStartSpanAborted(t *testing.T) {
-	t.Parallel()
-	s := &testCase{aborted: true}
-	if err := s.startSpan(labelOneOf); !errors.Is(err, errTestCaseAborted) {
-		t.Fatalf("startSpan on aborted: got %v, want errTestCaseAborted", err)
-	}
-}
-
-func TestStopSpanAborted(t *testing.T) {
-	t.Parallel()
-	s := &testCase{aborted: true}
-	if err := s.stopSpan(false); !errors.Is(err, errTestCaseAborted) {
-		t.Fatalf("stopSpan on aborted: got %v, want errTestCaseAborted", err)
-	}
-}
-
 // TestInSpan verifies that (*testCase).inSpan reflects the depth counter.
 func TestInSpan(t *testing.T) {
 	t.Parallel()
@@ -1157,9 +1045,8 @@ func TestInSpan(t *testing.T) {
 func TestRejectFinishedCollection(t *testing.T) {
 	t.Parallel()
 	c := &collection{finished: true}
-	s := &testCase{}
 	// Should be a no-op since finished = true.
-	c.Reject(s)
+	c.Reject("duplicate key")
 	if err := c.Err(); err != nil {
 		t.Fatalf("Reject on finished: %v", err)
 	}
@@ -1172,16 +1059,16 @@ func TestRejectE2E(t *testing.T) {
 
 	Test(t, func(ht *T) {
 		max := 5
-		coll, err := newCollection(ht.testCase, 0, &max)
+		coll, err := ht.testCase.newCollection(0, &max)
 		if err != nil {
 			panic(err)
 		}
-		if coll.More(ht.testCase) {
+		if coll.More() {
 			// Reject the first element — tells the server it doesn't count.
-			coll.Reject(ht.testCase)
+			coll.Reject("duplicate key")
 		}
 		// Drain remaining elements.
-		for coll.More(ht.testCase) {
+		for coll.More() {
 		}
 		if err := coll.Err(); err != nil {
 			panic(err)
@@ -1207,6 +1094,10 @@ func TestListsNegativeMinSizeSchema(t *testing.T) {
 // flatMappedGenerator.draw. The source Filter always rejects, so after
 // maxFilterAttempts it returns assumeRejected, which flatMappedGenerator.draw
 // propagates from inside its withSpan body.
+//
+// FilterTooMuch is suppressed because by design every case in this test
+// rejects: the test's intent is to exercise the rejection-propagation code
+// path, not to assert anything about the engine's filter health check.
 func TestFlatMappedGeneratorSourceError(t *testing.T) {
 	t.Parallel()
 	source := Filter(Booleans(), func(bool) bool { return false })
@@ -1215,23 +1106,7 @@ func TestFlatMappedGeneratorSourceError(t *testing.T) {
 	})
 	Test(t, func(ht *T) {
 		_ = Draw(ht, gen)
-	}, WithTestCases(20))
-}
-
-// TestListsStopTestOnNewCollection covers the err path in Lists.draw when
-// newCollection itself returns the dataExhausted sentinel (server sent
-// StopTest in response to new_collection). The non-basic element generator
-// forces Lists onto the composite (withSpan + newCollection) draw path.
-func TestListsStopTestOnNewCollection(t *testing.T) {
-	t.Setenv("HEGEL_PROTOCOL_TEST_MODE", "stop_test_on_new_collection")
-	Test(t, func(ht *T) {
-		nonBasic := &mappedGenerator[int64, int64]{
-			inner: Integers[int64](0, 10),
-			fn:    func(v int64) int64 { return v },
-		}
-		gen := Lists(nonBasic).MaxSize(3)
-		_ = Draw(ht, gen)
-	})
+	}, WithTestCases(20), SuppressHealthCheck(FilterTooMuch))
 }
 
 // TestMapOnBasicGeneratorE2E exercises Map on a basicGenerator. Booleans()

@@ -1,6 +1,10 @@
 package hegel
 
-import "fmt"
+import (
+	"fmt"
+
+	"hegel.dev/go/hegel/internal/libhegel"
+)
 
 // --- Lists generator ---
 
@@ -94,13 +98,13 @@ func (g ListGenerator[T]) draw(tc TestCase) ([]T, error) {
 		m := g.maxSize
 		maxSize = &m
 	}
-	return withSpan(tc, labelList, func() ([]T, error) {
+	return withSpan(tc, libhegel.LABEL_LIST, func() ([]T, error) {
 		var result []T
-		coll, err := newCollection(tc, g.minSize, maxSize)
+		coll, err := tc.newCollection(g.minSize, maxSize)
 		if err != nil {
 			return nil, err
 		}
-		for coll.More(tc) {
+		for coll.More() {
 			v, err := g.elements.draw(tc)
 			if err != nil {
 				return nil, err
@@ -205,19 +209,19 @@ func (g MapGenerator[K, V]) draw(tc TestCase) (map[K]V, error) {
 		m := g.maxSize
 		maxSize = &m
 	}
-	return withSpan(tc, labelMap, func() (map[K]V, error) {
+	return withSpan(tc, libhegel.LABEL_MAP, func() (map[K]V, error) {
 		result := map[K]V{}
-		coll, err := newCollection(tc, g.minSize, maxSize)
+		coll, err := tc.newCollection(g.minSize, maxSize)
 		if err != nil {
 			return nil, err
 		}
-		for coll.More(tc) {
+		for coll.More() {
 			k, err := g.keys.draw(tc)
 			if err != nil {
 				return nil, err
 			}
 			if _, exists := result[k]; exists {
-				coll.Reject(tc)
+				coll.Reject("duplicate key")
 				continue
 			}
 			v, err := g.values.draw(tc)

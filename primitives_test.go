@@ -75,13 +75,6 @@ func TestFloatsE2E_Float32(t *testing.T) {
 	}, WithTestCases(50))
 }
 
-func TestFloatsGenerateErrorResponse(t *testing.T) {
-	t.Setenv("HEGEL_PROTOCOL_TEST_MODE", "error_response")
-	newTempGoProject(t).
-		testBody(`_ = hegel.Draw[float64](ht, hegel.Floats[float64]())`).
-		goTest()
-}
-
 func TestBooleansE2E(t *testing.T) {
 	t.Parallel()
 

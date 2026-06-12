@@ -1,8 +1,26 @@
 package hegel
 
 import (
+	"os"
 	"testing"
 )
+
+// clearCIEnv unsets every CI-detection env var for the duration of the test so
+// isCI() returns false even on a CI runner. Used by tests that need to assert
+// non-CI default behavior (e.g. the example database being enabled).
+//
+// It must genuinely unset the vars rather than set them to "": the matchAny
+// vars (e.g. CI) count as a CI signal whenever they are present, even empty, so
+// t.Setenv(name, "") would leave isCI() returning true on a CI runner.
+func clearCIEnv(t *testing.T) {
+	t.Helper()
+	for _, v := range ciEnvVars {
+		if old, ok := os.LookupEnv(v.name); ok {
+			os.Unsetenv(v.name)
+			t.Cleanup(func() { os.Setenv(v.name, old) })
+		}
+	}
+}
 
 // These tests verify that the t.Helper() calls inside T.Fatal, T.Fatalf, and
 // T.Logf cause t.Log to decorate output with the user's test file:line, not

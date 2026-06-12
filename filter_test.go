@@ -172,32 +172,6 @@ func TestFilteredGeneratorGenerateChainedFilters(t *testing.T) {
 	}, WithTestCases(30))
 }
 
-// TestFilteredGeneratorStartSpanConnectionError covers the startSpan-err path
-// in filteredGenerator.draw: when the underlying conn is closed before the
-// first request, startSpan fails and Draw panics with the wrapped error.
-func TestFilteredGeneratorStartSpanConnectionError(t *testing.T) {
-	t.Parallel()
-	s, c := socketPair(t)
-	conn := newConnection(s, s, "C")
-	c.Close()
-	conn.state = stateClient
-	st := &stream{conn: conn, streamID: 1, inbox: make(chan any, 1), nextMessageID: 1}
-	conn.streams[1] = st
-	s.Close()
-
-	state := &testCase{stream: st}
-	gen := Filter(Booleans(), func(bool) bool { return true })
-
-	var caught any
-	func() {
-		defer func() { caught = recover() }()
-		Draw[bool](state, gen)
-	}()
-	if caught == nil {
-		t.Fatal("expected panic from Draw on connection error")
-	}
-}
-
 // TestFilteredGeneratorGenerateThenMap verifies that Filter followed by Map
 // correctly applies the predicate first and then the mapping function.
 func TestFilteredGeneratorGenerateThenMap(t *testing.T) {

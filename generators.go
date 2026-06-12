@@ -1,51 +1,8 @@
 package hegel
 
+import "hegel.dev/go/hegel/internal/libhegel"
+
 // --- Span label constants ---
-
-// spanLabel identifies the kind of generation span being tracked.
-// The server uses these labels for better test-case shrinking.
-type spanLabel int
-
-const (
-	// labelList marks a list generation span.
-	labelList spanLabel = 1
-	// labelListElement marks a list element generation span.
-	labelListElement spanLabel = 2
-	// labelSet marks a set generation span.
-	labelSet spanLabel = 3
-	// labelSetElement marks a set element generation span.
-	labelSetElement spanLabel = 4
-	// labelMap marks a map (dict) generation span.
-	labelMap spanLabel = 5
-	// labelMapEntry marks a map entry generation span.
-	labelMapEntry spanLabel = 6
-	// labelTuple marks a tuple generation span.
-	labelTuple spanLabel = 7
-	// labelOneOf marks a one-of (union) generation span.
-	labelOneOf spanLabel = 8
-	// labelOptional marks an optional value generation span.
-	labelOptional spanLabel = 9
-	// labelFixedDict marks a fixed-key dict generation span.
-	labelFixedDict spanLabel = 10
-	// labelFlatMap marks a flat-map generation span.
-	labelFlatMap spanLabel = 11
-	// labelFilter marks a filter generation span.
-	labelFilter spanLabel = 12
-	// labelMapped marks a mapped (transformed) generation span.
-	labelMapped spanLabel = 13
-	// labelSampledFrom marks a sampled-from generation span.
-	labelSampledFrom spanLabel = 14
-	// labelEnumVariant marks an enum variant generation span.
-	labelEnumVariant spanLabel = 15
-	// labelStateful marks a single rule or invariant call inside a stateful
-	// test, letting the shrinker treat each step as an atomic unit.
-	labelStateful spanLabel = 16
-	// labelComposite marks a composite generator's body, so draws inside
-	// the body are bracketed in a span. This lets [Draw] suppress nested
-	// draw reports the same way it does for element generators inside
-	// Lists/Maps/OneOf.
-	labelComposite spanLabel = 17
-)
 
 // --- Generator interface ---
 
@@ -53,12 +10,8 @@ const (
 //
 // It is a sealed interface — only types within this package can implement it.
 type Generator[T any] interface {
-	// draw produces a value from the Hegel server using the given test case.
+	// draw produces a value from the Hegel engine using the given test case.
 	// Unexported to seal the interface to this package.
-	//
-	// Returns the sentinel errors [*dataExhausted] / [flakyAbort] when the
-	// server aborts the test case, [*connectionError] for transport
-	// failures, and [assumeRejected] when a Filter exhausts its retries.
 	draw(tc TestCase) (T, error)
 
 	// asBasic returns the basic-schema form of this generator, when one exists.
@@ -103,16 +56,25 @@ type TestCase interface {
 	// under [WithSingleTestCase]).
 	Log(args ...any)
 
-	// doRequest sends a CBOR-encoded request to the server and returns the
-	// decoded reply. Unexported to seal the interface to this package.
-	doRequest(msg map[string]any) (any, error)
+	// generate requests a value from the engine for schema. The schema is a
+	// JSON-shaped map (CBOR-encoded on the wire to libhegel). Returns the
+	// decoded value or a sentinel error on abort.
+	generate(schema map[string]any) (any, error)
 
-	// generateFromSchema sends a generate command for schema and returns the
-	// decoded value. Unexported to seal the interface to this package.
-	generateFromSchema(schema map[string]any) (any, error)
+	// startSpan begins a generation span. label is one of the [spanLabel]
+	// constants; the engine uses labels for shrinking.
+	startSpan(label libhegel.Label) error
+
+	// stopSpan ends the current generation span. discard=true tells the
+	// engine the entire span's choices should be reverted.
+	stopSpan(discard bool) error
+
+	// newCollectionCmd allocates a collection on the engine, returning its id.
+	// maxSize=nil means unbounded.
+	newCollection(minSize int, maxSize *int) (*collection, error)
 
 	// isSingleTestCase reports whether this case is running under
-	// [WithSingleTestCase]. Unexported to seal the interface to this package.
+	// [WithSingleTestCase].
 	isSingleTestCase() bool
 
 	// reportDraw emits one draw-report line for value through the
@@ -120,12 +82,6 @@ type TestCase interface {
 	// skip is the number of stack frames to skip when resolving the source
 	// position of the originating [Draw] call.
 	reportDraw(skip int, value any)
-
-	// startSpan notifies the server that a new generation span has started.
-	startSpan(label spanLabel) error
-
-	// stopSpan notifies the server that the current generation span has ended.
-	stopSpan(discard bool) error
 
 	// inSpan reports whether the test case is inside one or more
 	// generation spans.
@@ -142,7 +98,7 @@ func Draw[T any](tc TestCase, g Generator[T]) T {
 	}
 	v, err := g.draw(tc)
 	if err != nil {
-		panic(err)
+		panic(shortCircuit{err})
 	}
 	// Nested draws are reported as part of the parent's value.
 	if !tc.inSpan() {
@@ -160,9 +116,9 @@ type basicGenerator[T any] struct {
 	parse  func(any) T
 }
 
-// draw sends a generate command to the server and returns the result.
+// draw sends a generate command to the engine and returns the result.
 func (g *basicGenerator[T]) draw(tc TestCase) (T, error) {
-	v, err := tc.generateFromSchema(g.schema)
+	v, err := tc.generate(g.schema)
 	if err != nil {
 		var zero T
 		return zero, err
@@ -190,7 +146,7 @@ type mappedGenerator[T, U any] struct {
 //
 //lint:ignore U1000 satisfies Generator interface; staticcheck misses generic dispatch
 func (g *mappedGenerator[T, U]) draw(tc TestCase) (U, error) {
-	return withSpan(tc, labelMapped, func() (U, error) {
+	return withSpan(tc, libhegel.LABEL_MAPPED, func() (U, error) {
 		var zero U
 		v, err := g.inner.draw(tc)
 		if err != nil {
@@ -228,7 +184,7 @@ const maxFilterAttempts = 3
 func (g *filteredGenerator[T]) draw(tc TestCase) (T, error) {
 	var zero T
 	for range maxFilterAttempts {
-		if err := tc.startSpan(labelFilter); err != nil {
+		if err := tc.startSpan(libhegel.LABEL_FILTER); err != nil {
 			return zero, err
 		}
 		value, err := g.source.draw(tc)
@@ -245,7 +201,7 @@ func (g *filteredGenerator[T]) draw(tc TestCase) (T, error) {
 			return zero, err
 		}
 	}
-	return zero, assumeRejected{}
+	return zero, libhegel.E_ASSUME
 }
 
 // asBasic always returns not-basic — filtering cannot be expressed as a schema.
@@ -268,7 +224,7 @@ type flatMappedGenerator[T, U any] struct {
 //
 //lint:ignore U1000 satisfies Generator interface; staticcheck misses generic dispatch
 func (g *flatMappedGenerator[T, U]) draw(tc TestCase) (U, error) {
-	return withSpan(tc, labelFlatMap, func() (U, error) {
+	return withSpan(tc, libhegel.LABEL_FLAT_MAP, func() (U, error) {
 		var zero U
 		first, err := g.source.draw(tc)
 		if err != nil {
@@ -321,12 +277,12 @@ func Filter[T any](g Generator[T], pred func(T) bool) Generator[T] {
 // withSpan brackets body in a span that always commits (discard=false).
 //
 // On body error the span is left open: every error path here is a sentinel
-// that aborts the test case (dataExhausted, flakyAbort, connectionError,
-// assumeRejected), and the runner tears down server-side state regardless.
+// that aborts the test case, and the runner
+// tears down engine state regardless.
 //
 // Use the inline (*testCase).startSpan/stopSpan pair when the discard
 // decision depends on the body's outcome (see filteredGenerator.draw).
-func withSpan[T any](tc TestCase, label spanLabel, body func() (T, error)) (T, error) {
+func withSpan[T any](tc TestCase, label libhegel.Label, body func() (T, error)) (T, error) {
 	if h, ok := tc.(interface{ Helper() }); ok {
 		h.Helper()
 	}
@@ -342,77 +298,4 @@ func withSpan[T any](tc TestCase, label spanLabel, body func() (T, error)) (T, e
 		return zero, err
 	}
 	return v, nil
-}
-
-// --- collection protocol ---
-
-// collection manages a server-side collection (list/set/map) generation session.
-//
-// Errors from More and Reject are stashed on err. Callers iterate with
-// `for coll.More(s) { ... }` and check `coll.Err()` once after the loop.
-type collection struct {
-	collectionID uint64
-	finished     bool
-	err          error
-}
-
-// Err returns the first error encountered by More or Reject, or nil.
-func (c *collection) Err() error {
-	return c.err
-}
-
-// newCollection starts a new collection on the server with the given size bounds.
-// A nil maxSize means unbounded (omitted from the payload).
-func newCollection(tc TestCase, minSize int, maxSize *int) (*collection, error) {
-	msg := map[string]any{
-		"command":  "new_collection",
-		"min_size": int64(minSize),
-	}
-	if maxSize != nil {
-		msg["max_size"] = int64(*maxSize)
-	}
-	v, err := tc.doRequest(msg)
-	if err != nil {
-		return nil, err
-	}
-	id, _ := v.(uint64)
-	return &collection{collectionID: id}, nil
-}
-
-// More asks the server whether another element should be generated.
-//
-// Returns false once the collection is finished or an error has been
-// recorded; check Err after the loop to distinguish those cases.
-func (c *collection) More(tc TestCase) bool {
-	if c.finished || c.err != nil {
-		return false
-	}
-	v, err := tc.doRequest(map[string]any{
-		"command":       "collection_more",
-		"collection_id": c.collectionID,
-	})
-	if err != nil {
-		c.err = err
-		return false
-	}
-	more, _ := v.(bool)
-	if !more {
-		c.finished = true
-	}
-	return more
-}
-
-// Reject tells the server that the last generated element should not count.
-//
-// Errors are recorded on the collection and surfaced via Err.
-func (c *collection) Reject(tc TestCase) {
-	if c.finished || c.err != nil {
-		return
-	}
-	if _, err := tc.doRequest(map[string]any{
-		"command":       "collection_reject",
-		"collection_id": c.collectionID,
-	}); err != nil {
-		c.err = err
-	}
 }

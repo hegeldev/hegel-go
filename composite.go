@@ -1,5 +1,7 @@
 package hegel
 
+import "hegel.dev/go/hegel/internal/libhegel"
+
 // compositeGenerator is a Generator built from an imperative function that
 // composes other generators via [Draw]. It has no schema and always falls
 // back to compositional generation.
@@ -20,7 +22,7 @@ func (g *compositeGenerator[T]) draw(tc TestCase) (T, error) {
 	if helper != nil {
 		helper.Helper()
 	}
-	return withSpan(tc, labelComposite, func() (T, error) {
+	return withSpan(tc, libhegel.LABEL_COMPOSITE, func() (T, error) {
 		if helper != nil {
 			helper.Helper()
 		}

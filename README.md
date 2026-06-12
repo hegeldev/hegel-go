@@ -16,7 +16,15 @@ Hegel is a property-based testing library for Go. Hegel is based on [Hypothesis]
 
 To install: `go get hegel.dev/go/hegel@latest`.
 
-Hegel will use [uv](https://docs.astral.sh/uv/) to install the required [hegel-core](https://github.com/hegeldev/hegel-core) server component. If `uv` is already on your path, it will use that, otherwise it will download a private copy of it to ~/.cache/hegel and not put it on your path. See https://hegel.dev/reference/installation for details.
+Hegel for Go drives [libhegel](https://github.com/hegeldev/hegel-rust) — the native Rust engine. At runtime hegel-go looks for `libhegel.so` (Linux), `libhegel.dylib` (macOS), or `libhegel.dll` (Windows) at `$HEGEL_LIBHEGEL_PATH` first, then in a sibling `../hegel-rust/target/release/` (and `../hegel-rust/target/debug/`) checkout relative to your project root, and finally falls back to downloading the matching version from hegel-rust's GitHub releases on first use (cached under `~/.cache/hegel-go/libhegel/<version>/`, SHA-256 verified). Set `HEGEL_LIBHEGEL_NO_DOWNLOAD=1` to opt out of the download fallback.
+
+Supported platforms (those with a published libhegel artifact): Linux amd64/arm64, macOS arm64 (Apple Silicon), and Windows amd64/arm64.
+
+During development, build the library locally:
+
+```
+just build-libhegel    # cargo build --release -p hegeltest-c in ../hegel-rust/
+```
 
 ## Quickstart
 

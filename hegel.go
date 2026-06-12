@@ -11,6 +11,9 @@
 //
 //	go get hegel.dev/go/hegel@latest
 //
+// Hegel calls into libhegel — the Rust engine shipped by the hegel-rust
+// project — via FFI.
+//
 // # Write your first test
 //
 // You're now ready to write your first test. Hegel integrates directly with
@@ -185,6 +188,4 @@
 //
 // [Hypothesis]: https://github.com/hypothesisworks/hypothesis
 // [Hegel]: https://hegel.dev/
-//
-// [uv]: https://docs.astral.sh/uv/
 package hegel

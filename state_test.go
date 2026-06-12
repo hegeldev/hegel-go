@@ -2,6 +2,7 @@ package hegel
 
 import (
 	"bytes"
+	"errors"
 	"strings"
 	"testing"
 )
@@ -39,12 +40,12 @@ func TestTFatalPanicsWithSentinel(t *testing.T) {
 		if r == nil {
 			t.Fatal("expected Fatal to panic")
 		}
-		fs, ok := r.(fatalSentinel)
+		fs, ok := r.(shortCircuit)
 		if !ok {
-			t.Fatalf("expected fatalSentinel, got %T: %v", r, r)
+			t.Fatalf("expected shortCircuit, got %T: %v", r, r)
 		}
-		if fs.msg != "fatal message" {
-			t.Errorf("expected msg %q, got %q", "fatal message", fs.msg)
+		if !errors.Is(fs.err, errTestCaseAborted) {
+			t.Errorf("expected errTestCaseAborted, got %q", fs.err)
 		}
 	}()
 	ht.Fatal("fatal message")
@@ -57,47 +58,35 @@ func TestTFatalPanicsWithSentinel(t *testing.T) {
 // still unwinds.
 func TestTFatalEmitsViaTestingT(t *testing.T) {
 	t.Parallel()
-	ht := makeEmittingT(t, &bytes.Buffer{})
-	defer func() {
-		r := recover()
-		fs, ok := r.(fatalSentinel)
-		if !ok || fs.msg != "fatal message" {
-			t.Errorf("expected fatalSentinel %q, got %T:%v", "fatal message", r, r)
-		}
-	}()
-	ht.Fatal("fatal message")
-}
-
-func TestTFatalfPanicsWithSentinel(t *testing.T) {
-	t.Parallel()
-	ht := makeFakeT(t)
+	var buf bytes.Buffer
+	ht := makeEmittingT(t, &buf)
 	defer func() {
 		r := recover()
 		if r == nil {
 			t.Fatal("expected Fatalf to panic")
 		}
-		fs, ok := r.(fatalSentinel)
-		if !ok {
-			t.Fatalf("expected fatalSentinel, got %T: %v", r, r)
-		}
-		if fs.msg != "fatal: 42" {
-			t.Errorf("expected msg %q, got %q", "fatal: 42", fs.msg)
+	}()
+	const message = "fatal message"
+	ht.Fatal(message)
+	if !strings.Contains(buf.String(), message) {
+		t.Fatalf("expected %s to contain %s", buf.String(), message)
+	}
+}
+
+func TestTFatalfPanicsWithSentinel(t *testing.T) {
+	t.Parallel()
+	var buf bytes.Buffer
+	ht := makeEmittingT(t, &buf)
+	defer func() {
+		r := recover()
+		if r == nil {
+			t.Fatal("expected Fatalf to panic")
 		}
 	}()
 	ht.Fatalf("fatal: %d", 42)
-}
-
-func TestTFatalfEmitsViaTestingT(t *testing.T) {
-	t.Parallel()
-	ht := makeEmittingT(t, &bytes.Buffer{})
-	defer func() {
-		r := recover()
-		fs, ok := r.(fatalSentinel)
-		if !ok || fs.msg != "fatal: 99" {
-			t.Errorf("expected fatalSentinel %q, got %T:%v", "fatal: 99", r, r)
-		}
-	}()
-	ht.Fatalf("fatal: %d", 99)
+	if !strings.Contains(buf.String(), "fatal: 42") {
+		t.Fatalf("expected %s to contain %s", buf.String(), "fatal: 42")
+	}
 }
 
 func TestTFailNowPanicsWithSentinel(t *testing.T) {
@@ -108,22 +97,18 @@ func TestTFailNowPanicsWithSentinel(t *testing.T) {
 		if r == nil {
 			t.Fatal("expected FailNow to panic")
 		}
-		fs, ok := r.(fatalSentinel)
+		fs, ok := r.(shortCircuit)
 		if !ok {
 			t.Fatalf("expected fatalSentinel, got %T: %v", r, r)
 		}
-		if fs.msg != "FailNow called" {
-			t.Errorf("expected msg %q, got %q", "FailNow called", fs.msg)
+		if !errors.Is(fs.err, errTestCaseAborted) {
+			t.Errorf("expected errTestCaseAborted, got %s", fs.err)
 		}
 	}()
 	ht.FailNow()
 }
 
-// =============================================================================
-// T.Skip / T.Skipf / T.SkipNow — call Assume(false), panic with assumeRejected
-// =============================================================================
-
-func TestTSkipPanicsWithAssumeRejected(t *testing.T) {
+func TestTSkipPanicsWithShortCircuit(t *testing.T) {
 	t.Parallel()
 	ht := makeFakeT(t)
 	defer func() {
@@ -131,14 +116,14 @@ func TestTSkipPanicsWithAssumeRejected(t *testing.T) {
 		if r == nil {
 			t.Fatal("expected Skip to panic")
 		}
-		if _, ok := r.(assumeRejected); !ok {
-			t.Fatalf("expected assumeRejected, got %T: %v", r, r)
+		if _, ok := r.(shortCircuit); !ok {
+			t.Fatalf("expected shortCircuit, got %T: %v", r, r)
 		}
 	}()
 	ht.Skip("skipping")
 }
 
-func TestTSkipfPanicsWithAssumeRejected(t *testing.T) {
+func TestTSkipfPanicsWithShortCircuit(t *testing.T) {
 	t.Parallel()
 	ht := makeFakeT(t)
 	defer func() {
@@ -146,14 +131,14 @@ func TestTSkipfPanicsWithAssumeRejected(t *testing.T) {
 		if r == nil {
 			t.Fatal("expected Skipf to panic")
 		}
-		if _, ok := r.(assumeRejected); !ok {
-			t.Fatalf("expected assumeRejected, got %T: %v", r, r)
+		if _, ok := r.(shortCircuit); !ok {
+			t.Fatalf("expected shortCircuit, got %T: %v", r, r)
 		}
 	}()
 	ht.Skipf("skip: %d", 1)
 }
 
-func TestTSkipNowPanicsWithAssumeRejected(t *testing.T) {
+func TestTSkipNowPanicsWithShortCircuit(t *testing.T) {
 	t.Parallel()
 	ht := makeFakeT(t)
 	defer func() {
@@ -161,8 +146,8 @@ func TestTSkipNowPanicsWithAssumeRejected(t *testing.T) {
 		if r == nil {
 			t.Fatal("expected SkipNow to panic")
 		}
-		if _, ok := r.(assumeRejected); !ok {
-			t.Fatalf("expected assumeRejected, got %T: %v", r, r)
+		if _, ok := r.(shortCircuit); !ok {
+			t.Fatalf("expected shortCircuit, got %T: %v", r, r)
 		}
 	}()
 	ht.SkipNow()
