@@ -1,14 +1,20 @@
 package libhegel
 
+import "fmt"
+
 // Stub creates a Handle where libhegel return values are controlled by the caller.
 //
 // returns supplies one value per libhegel call, consumed in strict call order.
 // The caller is responsible to provide the correct number of values with the
 // correct dynamic types (e.g. uintptr for opaque handles, Error for op results).
 func Stub(returns ...any) *Handle {
+	var i int
 	retval := func() any {
-		v := returns[0]
-		returns = returns[1:]
+		if i >= len(returns) {
+			panic(fmt.Sprintf("libhegel stub: missing %d'th return value", i+1))
+		}
+		v := returns[i]
+		i++
 		return v
 	}
 
