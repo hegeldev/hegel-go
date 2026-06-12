@@ -1,0 +1,54 @@
+name: Bump hegel-rust
+
+on:
+  # Fired by hegel-rust's release workflow; client_payload.version carries the
+  # released version so we pin that exact release rather than racing on latest.
+  repository_dispatch:
+    types: [hegel-rust-release]
+  # Manual escape hatch: run with an empty version to pin the latest release,
+  # or supply a specific version.
+  workflow_dispatch:
+    inputs:
+      version:
+        description: "hegel-rust version to pin (empty = latest release)"
+        required: false
+        default: ""
+
+permissions: {}
+
+jobs:
+  bump:
+    name: bump hegel-rust
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+      pull-requests: write
+    steps:
+      - name: Generate app token
+        uses: actions/create-github-app-token@d72941d797fd3113feb6b93fd0dec494b13a2547 # v1
+        id: app-token
+        with:
+          app-id: ${{ vars.HEGEL_RELEASE_APP_ID }}
+          private-key: ${{ secrets.HEGEL_RELEASE_APP_PRIVATE_KEY }}
+          repositories: hegel-go
+
+      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
+        with:
+          token: ${{ steps.app-token.outputs.token }} # zizmor: ignore[artipacked]
+
+      - uses: actions/setup-go@40f1582b2485089dde7abd97c1529aa768e1baff # v5
+        with:
+          go-version: stable
+
+      - uses: ./.github/actions/install-tools
+        with:
+          tools: just
+
+      - name: Bump pinned libhegel and open/update PR
+        env:
+          # hegel-rust releases are public, so the app token (scoped to
+          # hegel-go) reads them fine; gh uses GH_TOKEN for the PR commands.
+          GH_TOKEN: ${{ steps.app-token.outputs.token }}
+          HEGEL_RELEASE_APP_ID: ${{ vars.HEGEL_RELEASE_APP_ID }}
+          VERSION: ${{ github.event.client_payload.version || inputs.version }}
+        run: python .github/scripts/bump_hegel_rust.py "$VERSION"
