@@ -94,7 +94,7 @@ func newStateMachine[M any, T interface{ *M }](machine T) (*stateMachine, error)
 func (sm *stateMachine) Run(tc TestCase) {
 	tc.Note("Initial invariant check.")
 	for _, inv := range sm.invariants {
-		if err := callInvariant(tc, inv.fn); err != nil {
+		if _, err := callRule(tc, inv.fn); err != nil {
 			tc.abort(err)
 		}
 	}
@@ -131,21 +131,11 @@ func (sm *stateMachine) Run(tc TestCase) {
 		}
 		stepsSucceeded++
 		for _, inv := range sm.invariants {
-			if err := callInvariant(tc, inv.fn); err != nil { // coverage-ignore
+			if _, err := callRule(tc, inv.fn); err != nil { // coverage-ignore
 				tc.abort(err)
 			}
 		}
 	}
-}
-
-// callInvariant brackets fn(tc) in a labelStateful span. Panics propagate
-// to the caller; invariant failures must surface as test failures.
-func callInvariant(tc TestCase, fn func(TestCase)) error {
-	_, err := withSpan(tc, libhegel.LABEL_STATEFUL, func() (struct{}, error) {
-		fn(tc)
-		return struct{}{}, nil
-	})
-	return err
 }
 
 // callRule brackets fn(tc) in a labelStateful span and recovers from
