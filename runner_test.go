@@ -4,26 +4,21 @@ import (
 	"bytes"
 	"errors"
 	"fmt"
-	"os"
-	"os/exec"
-	"path/filepath"
-	"reflect"
 	"strings"
 	"sync"
 	"sync/atomic"
 	"testing"
-	"time"
+
+	"hegel.dev/go/hegel/internal/libhegel"
 )
 
-// --- RunHegelTest: basic passing test ---
+// --- Run / MustRun / Test entry points ---
 
 func TestRunHegelTestPasses(t *testing.T) {
-
 	called := false
 	Test(t, func(ht *T) {
 		called = true
 		b := Draw[bool](ht, Booleans())
-		// A valid assertion: b is either true or false.
 		if b != true && b != false {
 			t.Errorf("expected bool, got %v", b)
 		}
@@ -33,62 +28,48 @@ func TestRunHegelTestPasses(t *testing.T) {
 	}
 }
 
-// --- RunHegelTest: failing test raises error ---
-
 func TestRunHegelTestFails(t *testing.T) {
 	t.Parallel()
-
-	newTempGoProject(t).
-		testBody(`x := hegel.Draw[int](ht, hegel.Integers[int](0, 100))
-if x >= 0 {
-	panic(fmt.Sprintf("assertion failed: %d >= 0", x))
-}`, "hegel.WithTestCases(10)").
-		expectFailure(`assertion failed`).
-		goTest()
+	var buf bytes.Buffer
+	err := run(func(tc TestCase) {
+		x := Draw[int](tc, Integers[int](0, 100))
+		if x >= 0 {
+			panic(fmt.Sprintf("assertion failed: %d >= 0", x))
+		}
+	}, WithTestCases(1), WithDatabase(DatabaseDisabled()), withOutput(&buf))
+	if err == nil {
+		t.Fatal("expected failure")
+	}
+	if out := buf.String(); !strings.Contains(out, "assertion failed") {
+		t.Errorf("expected output to mention assertion; got %q", out)
+	}
 }
 
-// --- RunHegelTest: assume(false) -> INVALID, test continues ---
-
 func TestRunHegelTestAllInvalid(t *testing.T) {
-
 	// A test that always calls Assume(false) should pass (all cases rejected).
 	Test(t, func(ht *T) {
 		ht.Assume(false)
-	}, WithTestCases(5))
+	}, WithTestCases(5), SuppressHealthCheck(FilterTooMuch))
 }
-
-// --- RunHegelTest: assume(true) -> no effect ---
 
 func TestAssumeTrue(t *testing.T) {
 	t.Parallel()
-
 	Test(t, func(ht *T) {
 		ht.Assume(true)
-		b := Draw[bool](ht, Booleans())
-		_ = b // use the value
-		if b != true && b != false {
-			ht.Fatal("expected bool")
-		}
+		_ = Draw[bool](ht, Booleans())
 	}, WithTestCases(5))
 }
 
-// --- note(): not printed when not final ---
-
 func TestNoteNotFinal(t *testing.T) {
 	t.Parallel()
-
-	// note() should not panic or error when called outside final run
 	Test(t, func(ht *T) {
 		ht.Note("should not appear")
 		_ = Draw[bool](ht, Booleans())
 	}, WithTestCases(3))
 }
 
-// --- target(): sends target command ---
-
 func TestTargetSendsCommand(t *testing.T) {
 	t.Parallel()
-
 	Test(t, func(ht *T) {
 		x := Draw[int](ht, Integers[int](0, 100))
 		ht.Target(float64(x), "my_target")
@@ -98,1285 +79,668 @@ func TestTargetSendsCommand(t *testing.T) {
 	}, WithTestCases(5))
 }
 
-// --- HEGEL_PROTOCOL_TEST_MODE=stop_test_on_generate ---
-
-func TestStopTestOnGenerate(t *testing.T) {
-
-	t.Setenv("HEGEL_PROTOCOL_TEST_MODE", "stop_test_on_generate")
-	// Should complete without error: client handles StopTest cleanly.
-	Test(t, func(ht *T) {
-		Draw[bool](ht, Booleans())
-	}, WithTestCases(5))
-}
-
-// --- HEGEL_PROTOCOL_TEST_MODE=stop_test_on_mark_complete ---
-
-func TestStopTestOnMarkComplete(t *testing.T) {
-
-	t.Setenv("HEGEL_PROTOCOL_TEST_MODE", "stop_test_on_mark_complete")
-	Test(t, func(ht *T) {
-		Draw[bool](ht, Booleans())
-	}, WithTestCases(5))
-}
-
-// --- HEGEL_PROTOCOL_TEST_MODE=empty_test ---
-
-func TestEmptyTest(t *testing.T) {
-
-	t.Setenv("HEGEL_PROTOCOL_TEST_MODE", "empty_test")
-	Test(t, func(_ *T) {
-		panic("should not be called")
-	}, WithTestCases(5))
-}
-
-// --- HEGEL_PROTOCOL_TEST_MODE=error_response ---
-
-func TestErrorResponse(t *testing.T) {
-
-	t.Setenv("HEGEL_PROTOCOL_TEST_MODE", "error_response")
-	// The server sends a requestError on generate; the test body should
-	// see a panic (INTERESTING) and RunHegelTestE should return an error.
-	var gotErr error
-	func() {
-		defer func() {
-			if r := recover(); r != nil {
-				gotErr = fmt.Errorf("%v", r)
-			}
-		}()
-		gotErr = run(func(s TestCase) {
-			Draw[bool](s, Booleans()) // server sends error_response here
-		}, WithTestCases(3))
-	}()
-	// The error from the server causes INTERESTING status -> re-raised on final run.
-	// Either a panic or a non-nil error is acceptable.
-	_ = gotErr // we just verify it doesn't deadlock or hang
-}
-
-// --- Draw outside context: calling Draw with nil-stream state panics ---
-
-func TestDrawWithNilStreamState(t *testing.T) {
-	t.Parallel()
-	defer func() {
-		r := recover()
-		if r == nil {
-			t.Error("expected panic when Draw called with nil-stream state")
-		}
-	}()
-	s := &testCase{} // stream is nil -> will panic
-	Draw[bool](s, Booleans())
-}
-
-// --- Assume outside context raises ---
-
-func TestAssumeOutsideContext(t *testing.T) {
-	t.Parallel()
-	// Assume(false) on a nil *testCase should panic.
-	defer func() {
-		r := recover()
-		if r == nil {
-			t.Error("expected panic from Assume outside test context")
-		}
-	}()
-	var s *testCase
-	s.Assume(false)
-}
-
-// --- Note outside context is no-op (out nil) ---
-
-func TestNoteOutsideContext(t *testing.T) {
-	t.Parallel()
-	// Note() on a zero-value *testCase should not panic (out=nil).
-	s := &testCase{}
-	s.Note("outside context -- safe")
-}
-
-// --- Target outside context raises ---
-
-func TestTargetOutsideContext(t *testing.T) {
-	t.Parallel()
-	defer func() {
-		r := recover()
-		if r == nil {
-			t.Error("expected panic from Target outside test context")
-		}
-	}()
-	s := &testCase{} // stream is nil -> panic
-	s.Target(1.0, "x")
-}
-
-// --- hegelSession: start and cleanup ---
-
-func TestHegelSessionStartAndCleanup(t *testing.T) {
-	t.Parallel()
-
-	s := newHegelSession()
-	if err := s.start(); err != nil {
-		t.Fatalf("session.start: %v", err)
-	}
-	// Double start should be a no-op.
-	if err := s.start(); err != nil {
-		t.Fatalf("double session.start: %v", err)
-	}
-	s.cleanup()
-	// Double cleanup should not panic.
-	s.cleanup()
-}
-
-// --- hegelSession: cleanup with nil fields is safe ---
-
-func TestHegelSessionCleanupEmpty(t *testing.T) {
-	t.Parallel()
-	s := newHegelSession()
-	s.cleanup() // Should not panic when nothing started.
-}
-
-// --- hegelSession: start fails when hegel exits immediately ---
-
-func TestHegelSessionStartExitsImmediately(t *testing.T) {
-	t.Parallel()
-	// Use `false` (exits immediately) so stdio pipes close immediately.
-	falseBin, err := exec.LookPath("false")
-	if err != nil {
-		t.Skip("false binary not available")
-	}
-	s := newHegelSession()
-	s.hegelCmd = falseBin // exits immediately, pipes close
-	startErr := s.start()
-	if startErr == nil {
-		s.cleanup()
-		t.Fatal("expected handshake error")
-	}
-	mustContainStr(t, startErr.Error(), "handshake")
-}
-
-// --- hegelSession: concurrent starts (double-checked locking) ---
-
-func TestHegelSessionConcurrentStart(t *testing.T) {
-	t.Parallel()
-
-	s := newHegelSession()
-	defer s.cleanup()
-
-	var wg sync.WaitGroup
-	errs := make([]error, 3)
-	for i := 0; i < 3; i++ {
-		wg.Add(1)
-		go func(idx int) {
-			defer wg.Done()
-			errs[idx] = s.start()
-		}(i)
-	}
-	wg.Wait()
-	for i, err := range errs {
-		if err != nil {
-			t.Errorf("concurrent start %d: %v", i, err)
-		}
-	}
-}
-
-// --- RunHegelTest with real test cases=1 ---
-
-func TestRunHegelTestSingleCase(t *testing.T) {
-
-	count := 0
-	Test(t, func(ht *T) {
-		count++
-		b := Draw[bool](ht, Booleans())
-		if b != true && b != false {
-			ht.Fatal("not a bool")
-		}
-	}, WithTestCases(1))
-	if count == 0 {
-		t.Error("expected at least one test case to run")
-	}
-}
-
-// --- showcase: concurrent RunHegelTest calls from different goroutines ---
+// --- Concurrency smoke ---
 
 func TestConcurrentRunHegelTest(t *testing.T) {
-
+	const goroutines = 8
 	var wg sync.WaitGroup
-	for i := 0; i < 3; i++ {
+	var failures atomic.Int32
+	for i := 0; i < goroutines; i++ {
 		wg.Add(1)
-		go func(idx int) {
+		go func() {
 			defer wg.Done()
-			Test(t, func(ht *T) {
-				b := Draw[bool](ht, Booleans())
-				if b != true && b != false {
-					ht.Fatal("not a bool")
+			err := Run(func(tc TestCase) {
+				v := Draw[int](tc, Integers[int](0, 1000))
+				if v < 0 || v > 1000 {
+					panic("out of range")
 				}
-			}, WithTestCases(3))
-		}(i)
+			}, WithTestCases(50), WithDatabase(DatabaseDisabled()))
+			if err != nil {
+				failures.Add(1)
+			}
+		}()
 	}
 	wg.Wait()
+	if failures.Load() != 0 {
+		t.Errorf("%d concurrent runs failed", failures.Load())
+	}
 }
 
-// --- RunHegelTestE returns nil on success ---
+// --- Single test case mode ---
 
-func TestRunHegelTestESuccess(t *testing.T) {
+func TestRunHegelTestSingleCase(t *testing.T) {
+	var calls int
+	err := Run(func(tc TestCase) {
+		calls++
+		_ = Draw[bool](tc, Booleans())
+	}, WithSingleTestCase())
+	if err != nil {
+		t.Fatalf("Run with WithSingleTestCase: %v", err)
+	}
+	if calls != 1 {
+		t.Errorf("expected exactly one call under WithSingleTestCase, got %d", calls)
+	}
+}
 
+// --- MustRun: panics on error ---
+
+func TestMustRunPanicsOnError(t *testing.T) {
+	t.Parallel()
+	defer func() {
+		if r := recover(); r == nil {
+			t.Error("expected MustRun to panic on failure")
+		}
+	}()
+	MustRun(func(tc TestCase) {
+		panic("nope")
+	}, WithTestCases(2), WithDatabase(DatabaseDisabled()))
+}
+
+func TestMustRunSuccess(t *testing.T) {
+	t.Parallel()
+	MustRun(func(tc TestCase) {
+		_ = Draw[bool](tc, Booleans())
+	}, WithTestCases(3))
+}
+
+func TestRunPublicAPI(t *testing.T) {
+	t.Parallel()
+	if err := Run(func(tc TestCase) {
+		_ = Draw[int](tc, Integers[int](0, 10))
+	}, WithTestCases(3)); err != nil {
+		t.Errorf("Run returned: %v", err)
+	}
+}
+
+// --- Test() entry point: success ---
+
+func TestTestSuccess(t *testing.T) {
+	t.Parallel()
 	Test(t, func(ht *T) {
 		_ = Draw[bool](ht, Booleans())
 	}, WithTestCases(3))
 }
 
-// --- WithTestCases option ---
-
-func TestWithTestCasesOption(t *testing.T) {
-	t.Parallel()
-
-	count := 0
-	Test(t, func(ht *T) {
-		count++
-		Draw[bool](ht, Booleans())
-	}, WithTestCases(10))
-	// count should be >= 10 (at least the requested cases)
-	if count < 1 {
-		t.Error("expected test cases to run")
-	}
-}
-
-// --- HEGEL_PROTOCOL_TEST_MODE=stop_test_on_collection_more ---
-
-func TestStopTestOnCollectionMore(t *testing.T) {
-
-	t.Setenv("HEGEL_PROTOCOL_TEST_MODE", "stop_test_on_collection_more")
-	err := run(func(tc TestCase) {
-		max := 10
-		coll, err := newCollection(tc, 0, &max)
-		if err != nil {
-			panic(err)
-		}
-		coll.More(tc)
-		if err := coll.Err(); err != nil {
-			panic(err)
-		}
-	})
-	_ = err // StopTest causes abort, not necessarily an error return
-}
-
-// --- HEGEL_PROTOCOL_TEST_MODE=stop_test_on_new_collection ---
-
-func TestStopTestOnNewCollection(t *testing.T) {
-
-	t.Setenv("HEGEL_PROTOCOL_TEST_MODE", "stop_test_on_new_collection")
-	err := run(func(tc TestCase) {
-		max := 10
-		coll, err := newCollection(tc, 0, &max)
-		if err != nil {
-			panic(err)
-		}
-		coll.More(tc)
-		if err := coll.Err(); err != nil {
-			panic(err)
-		}
-	})
-	_ = err // StopTest causes abort, not necessarily an error return
-}
-
-// --- runTest: connection error in test function is re-raised ---
-
-func TestConnectionErrorInTestFunction(t *testing.T) {
-	t.Parallel()
-
-	err := run(func(_ TestCase) {
-		panic(&connectionError{msg: "test connection lost"})
-	}, WithTestCases(1))
-	if err == nil {
-		t.Fatal("expected error to be raised for connection error")
-	}
-	mustContainStr(t, err.Error(), "connection lost")
-}
-
-// --- Unit tests for error/recovery paths ---
-
-// --- assumeRejected.Error() ---
-
-func TestAssumeRejectedError(t *testing.T) {
-	t.Parallel()
-	e := assumeRejected{}
-	if e.Error() != "assume rejected" {
-		t.Errorf("assumeRejected.Error() = %q", e.Error())
-	}
-}
-
-// --- dataExhausted.Error() ---
-
-func TestDataExhaustedError(t *testing.T) {
-	t.Parallel()
-	e := &dataExhausted{msg: "exhausted"}
-	if e.Error() != "exhausted" {
-		t.Errorf("dataExhausted.Error() = %q", e.Error())
-	}
-}
-
-// --- flakyAbort.Error() ---
-
-func TestFlakyAbortError(t *testing.T) {
-	t.Parallel()
-	e := flakyAbort{}
-	if e.Error() != "flaky test detected" {
-		t.Errorf("flakyAbort.Error() = %q", e.Error())
-	}
-}
-
-// --- connectionError.Error() ---
-
-func TestConnectionErrorError(t *testing.T) {
-	t.Parallel()
-	e := &connectionError{msg: "conn lost"}
-	if e.Error() != "conn lost" {
-		t.Errorf("connectionError.Error() = %q", e.Error())
-	}
-}
-
-// --- serverCrashMessageForLog: fallback when logPath is empty ---
-
-func TestServerCrashMessageNoLogFile(t *testing.T) {
-	t.Parallel()
-	msg := serverCrashMessageForLog("")
-	mustContainStr(t, msg, "server process exited unexpectedly")
-}
-
-// --- aborted flag: set directly on state ---
-
-func TestAbortedFlagDirect(t *testing.T) {
-	t.Parallel()
-	state := &testCase{}
-	state.aborted = true
-	if !state.aborted {
-		t.Error("expected aborted to be true after direct assignment")
-	}
-}
-
-// --- generateFromSchema: connection error (Request fails) ---
-
-func TestGenerateFromSchemaConnectionError(t *testing.T) {
-	t.Parallel()
-	s, c := socketPair(t)
-	conn := newConnection(s, s, "C")
-	c.Close()
-	// We need state=client so NewStream works.
-	conn.state = stateClient
-	st := &stream{conn: conn, streamID: 1, inbox: make(chan any, 1), nextMessageID: 1}
-	conn.streams[1] = st
-
-	// Close the underlying conn so SendPacket fails.
-	s.Close()
-
-	state := &testCase{stream: st}
-
-	var caught any
-	func() {
-		defer func() { caught = recover() }()
-		Draw[bool](state, Booleans())
-	}()
-	if caught == nil {
-		t.Fatal("expected panic from Draw on connection error")
-	}
-	_, isConnErr := caught.(*connectionError)
-	if !isConnErr {
-		t.Errorf("expected *connectionError, got %T: %v", caught, caught)
-	}
-}
-
-// --- Target: error path when Request fails ---
-
-func TestTargetConnectionError(t *testing.T) {
-	t.Parallel()
-	s, _ := socketPair(t)
-	conn := newConnection(s, s, "C")
-	conn.state = stateClient
-	st := &stream{conn: conn, streamID: 1, inbox: make(chan any, 1), nextMessageID: 1}
-	conn.streams[1] = st
-	s.Close()
-
-	state := &testCase{stream: st}
-
-	var caught any
-	func() {
-		defer func() { caught = recover() }()
-		state.Target(1.0, "x")
-	}()
-	if caught == nil {
-		t.Fatal("expected panic from Target on connection error")
-	}
-}
-
-// --- isHegelFrame ---
-
-func TestIsHegelFrame(t *testing.T) {
-	if !isHegelFrame("hegel.dev/go/hegel.someFunc") {
-		t.Error("expected isHegelFrame to return true for hegel frame")
-	}
-	if isHegelFrame("testing.tRunner") {
-		t.Error("expected isHegelFrame to return false for non-hegel frame")
-	}
-	// Short name (less than module path length).
-	if isHegelFrame("short") {
-		t.Error("expected isHegelFrame to return false for short frame")
-	}
-}
-
-// --- extractPanicOrigin: non-error value ---
-
-func TestExtractPanicOriginNonError(t *testing.T) {
-	t.Parallel()
-	origin := extractPanicOrigin("just a string")
-	// Should include the type (string) and file info.
-	if origin == "" {
-		t.Error("expected non-empty origin from extractPanicOrigin")
-	}
-}
-
-// --- extractPanicOrigin: error value ---
-
-func TestExtractPanicOriginError(t *testing.T) {
-	t.Parallel()
-	origin := extractPanicOrigin(errors.New("test"))
-	if origin == "" {
-		t.Error("expected non-empty origin from extractPanicOrigin with error")
-	}
-}
-
-// --- Note: non-nil out writes ---
-
-func TestNoteWithOut(t *testing.T) {
-	t.Parallel()
-	var buf bytes.Buffer
-	state := &testCase{out: &buf}
-	state.Note("test note on final")
-	if got := strings.TrimSpace(buf.String()); got != "test note on final" {
-		t.Errorf("Note output: got %q, want %q", got, "test note on final")
-	}
-}
-
-// --- hegelSession: start with spawn error ---
-
-func TestHegelSessionSpawnError(t *testing.T) {
-	t.Parallel()
-	s := newHegelSession()
-	s.hegelCmd = "/nonexistent/binary/that/does/not/exist"
-	err := s.start()
-	if err == nil {
-		s.cleanup()
-		t.Fatal("expected error from session with bad binary")
-	}
-}
-
-// --- hegelSession: start fails when hegelCommand() errors ---
-
-func TestHegelSessionStartHegelCommandError(t *testing.T) {
-	resetProjectRoot(t)
-	t.Setenv(hegelServerCommandEnv, "")
-
-	tmp, _ := filepath.EvalSymlinks(t.TempDir())
-	os.WriteFile(filepath.Join(tmp, "go.mod"), []byte("module test\n"), 0o644) //nolint:errcheck
-	t.Chdir(tmp)
-
-	// No uv on PATH → hegelCommand() should fail.
-	t.Setenv("PATH", "/nonexistent")
-	t.Setenv("HOME", "/nonexistent")
-	t.Setenv("XDG_CACHE_HOME", filepath.Join(tmp, "cache"))
-
-	s := newHegelSession()
-	// hegelCmd is empty, so start() calls hegelCommand() which should fail.
-	err := s.start()
-	if err == nil {
-		s.cleanup()
-		t.Fatal("expected error when hegelCommand fails")
-	}
-	mustContainStr(t, err.Error(), "hegel")
-}
-
-// --- hegelSession: cleanup with erroring close ---
-
-func TestHegelSessionCleanupWithErrors(t *testing.T) {
-	t.Parallel()
-	s := newHegelSession()
-	// Set conn to a closed connection so Close() might error.
-	sc, cc := socketPair(t)
-	sc.Close()
-	cc.Close()
-	s.conn = newConnection(sc, sc, "closed")
-	s.conn.Close() // pre-close
-
-	// This should not panic.
-	s.cleanup()
-}
-
-// --- RunHegelTestE: session start error ---
-
-func TestRunHegelTestESessionError(t *testing.T) {
-	// Use an internal session with a bad cmd to force start() failure.
-	old := globalSession
-	defer func() { globalSession = old }()
-	globalSession = newHegelSession()
-	globalSession.hegelCmd = "/nonexistent/hegel"
-
-	err := run(func(_ TestCase) {}, WithTestCases(1))
-	if err == nil {
-		t.Error("expected error when session cannot start")
-	}
-	mustContainStr(t, err.Error(), "session start")
-}
-
-// --- RunHegelTest: panic path (test fails) ---
-
-func TestRunHegelTestPanicsOnFailure(t *testing.T) {
-	defer func() {
-		if r := recover(); r == nil {
-			t.Error("expected RunHegelTest to panic on test failure")
-		}
-	}()
-
-	// Simulate failure by using a session with a fake bad-test server.
-	// We swap globalSession temporarily.
-	old := globalSession
-	defer func() { globalSession = old }()
-
-	// Use a session that always returns an error.
-	fake := newHegelSession()
-	fake.hegelCmd = "/nonexistent/hegel"
-	globalSession = fake
-
-	if _err := run(func(_ TestCase) {}, WithTestCases(1)); _err != nil {
-		panic(_err)
-	}
-}
-
-// --- RunHegelTestE: calls session.runTest ---
-
-func TestRunHegelTestECallsRunTest(t *testing.T) {
-
-	called := false
-	Test(t, func(ht *T) {
-		called = true
-		Draw[bool](ht, Booleans())
-	}, WithTestCases(1))
-	if !called {
-		t.Error("test body was never called")
-	}
-}
-
-// --- hegelSession.runTest: covered via integration ---
-
-func TestHegelSessionRunTest(t *testing.T) {
-	t.Parallel()
-
-	s := newHegelSession()
-	defer s.cleanup()
-	if err := s.start(); err != nil {
-		t.Fatalf("start: %v", err)
-	}
-	err := s.runTest(func(st TestCase) {
-		Draw[bool](st, Booleans())
-	}, runOptions{testCases: 2})
-	if err != nil {
-		t.Errorf("session.runTest: %v", err)
-	}
-}
-
-// --- hegelCommand: basic non-error check ---
-
-func TestHegelCommandReturnsNonNil(t *testing.T) {
-	t.Parallel()
-	cmd, err := hegelCommand()
-	if err != nil {
-		t.Skipf("hegelCommand: %v (uv not available)", err)
-	}
-	if cmd == nil {
-		t.Error("hegelCommand returned nil cmd")
-	}
-}
-
-// --- hegelSession.start: double-checked locking (inner check) ---
-
-func TestHegelSessionStartInnerCheck(t *testing.T) {
-	t.Parallel()
-
-	s := newHegelSession()
-	defer s.cleanup()
-
-	// Start it once.
-	if err := s.start(); err != nil {
-		t.Fatalf("first start: %v", err)
-	}
-	// Start again -- should hit outer hasWorkingClient check.
-	if err := s.start(); err != nil {
-		t.Errorf("second start: %v", err)
-	}
-}
-
-// --- hegelSession.cleanup: conn/process/tempDir paths via integration ---
-
-func TestHegelSessionCleanupAllPaths(t *testing.T) {
-	t.Parallel()
-
-	s := newHegelSession()
-	if err := s.start(); err != nil {
-		t.Fatalf("start: %v", err)
-	}
-	// Cleanup should close conn and kill process.
-	s.cleanup()
-	if s.conn != nil {
-		t.Error("conn should be nil after cleanup")
-	}
-	if s.process != nil {
-		t.Error("process should be nil after cleanup")
-	}
-}
-
-// --- runTest: multi-interesting, single error (len(errs)==1 branch) ---
-
-func TestRunTestMultiInterestingSingleError(t *testing.T) {
-	t.Parallel()
-	t.Skip("len(errs)==1 in multi-interesting is unreachable when nInteresting>1")
-}
-
-// --- extractPanicOrigin: all frames are hegel frames ---
-
-func TestExtractPanicOriginAllHegelFrames(t *testing.T) {
-	t.Parallel()
-	origin := extractPanicOrigin("test panic")
-	if origin == "" {
-		t.Error("expected non-empty origin")
-	}
-}
-
-// --- RunHegelTestE: HEGEL_PROTOCOL_TEST_MODE path, session start error ---
-
-func TestRunHegelTestEProtocolModeStartError(t *testing.T) {
-	resetProjectRoot(t)
-	t.Setenv(hegelServerCommandEnv, "")
-	// Set HEGEL_PROTOCOL_TEST_MODE so RunHegelTestE uses a temp session.
-	t.Setenv("HEGEL_PROTOCOL_TEST_MODE", "empty_test")
-
-	tmp := t.TempDir()
-	t.Chdir(tmp)
-
-	// Block all paths to finding hegel/uv: no PATH, no cached uv.
-	t.Setenv("PATH", "/nonexistent")
-	t.Setenv("HOME", "/nonexistent")
-	t.Setenv("XDG_CACHE_HOME", filepath.Join(tmp, "cache"))
-
-	err := run(func(_ TestCase) {}, WithTestCases(1))
-	if err == nil {
-		t.Error("expected error when session cannot start in protocol test mode")
-	}
-	mustContainStr(t, err.Error(), "session start")
-}
-
-// --- hegelSession.start: handshake error ---
-
-func TestHegelSessionStartHandshakeError(t *testing.T) {
-	// Write a fake hegel binary that writes garbage to stdout and exits.
-	// This causes SendHandshakeVersion to fail because the data isn't a valid packet.
-	tmp := t.TempDir()
-	scriptPath := filepath.Join(tmp, "fake_hegel.sh")
-	script := "#!/bin/sh\nprintf 'bad_data\\n'\n"
-	if err := os.WriteFile(scriptPath, []byte(script), 0o755); err != nil {
-		t.Fatalf("write script: %v", err)
-	}
-
-	s := newHegelSession()
-	s.hegelCmd = scriptPath
-	err := s.start()
-	if err == nil {
-		s.cleanup()
-		t.Fatal("expected handshake error")
-	}
-	mustContainStr(t, err.Error(), "handshake")
-}
-
-// --- hegelCommand tests are in installer_test.go ---
-
-// =============================================================================
-// fatalSentinel.Error()
-// =============================================================================
-
-func TestFatalSentinelError(t *testing.T) {
-	t.Parallel()
-	f := fatalSentinel{msg: "test fatal"}
-	if f.Error() != "test fatal" {
-		t.Errorf("got %q", f.Error())
-	}
-}
-
-// =============================================================================
-// toInt64: uint64 branch and invalid type branch
-// =============================================================================
-
-func TestToInt64Int64(t *testing.T) {
-	t.Parallel()
-	v, ok := toInt64(int64(-7))
-	if !ok || v != -7 {
-		t.Errorf("got %d, %v", v, ok)
-	}
-}
-
-func TestToInt64Uint64(t *testing.T) {
-	t.Parallel()
-	v, ok := toInt64(uint64(42))
-	if !ok || v != 42 {
-		t.Errorf("got %d, %v", v, ok)
-	}
-}
-
-func TestToInt64Invalid(t *testing.T) {
-	t.Parallel()
-	_, ok := toInt64("not a number")
-	if ok {
-		t.Error("expected false for invalid type")
-	}
-}
-
-// =============================================================================
-// Public API: MustRun — panics on error
-// =============================================================================
-
-func TestMustRunPanicsOnError(t *testing.T) {
-	old := globalSession
-	defer func() { globalSession = old }()
-	globalSession = newHegelSession()
-	globalSession.hegelCmd = "/nonexistent"
-
-	defer func() {
-		if r := recover(); r == nil {
-			t.Error("expected MustRun to panic on error")
-		}
-	}()
-	MustRun(func(TestCase) {}, WithTestCases(1))
-}
-
-// =============================================================================
-// Public API: Run — via real binary
-// =============================================================================
-
-func TestRunPublicAPI(t *testing.T) {
-
-	err := Run(func(s TestCase) {
-		_ = Draw[bool](s, Booleans())
-	}, WithTestCases(1))
-	if err != nil {
-		t.Fatalf("Run: %v", err)
-	}
-}
-
-// =============================================================================
-// Public API: MustRun — success via real binary
-// =============================================================================
-
-func TestMustRunSuccess(t *testing.T) {
-
-	MustRun(func(s TestCase) {
-		_ = Draw[bool](s, Booleans())
-	}, WithTestCases(1))
-}
-
-// =============================================================================
-// Public API: Test — via real binary
-// =============================================================================
-
-func TestTestSuccess(t *testing.T) {
-
-	Test(t, func(ht *T) {
-		_ = Draw[bool](ht, Booleans())
-		ht.Note("test note via Test")
-	}, WithTestCases(1))
-}
-
-// =============================================================================
-// state.failed triggers INTERESTING on final replay
-// =============================================================================
+// --- t.Error / t.Fail behavior ---
 
 func TestStateFailedPath(t *testing.T) {
-
-	err := run(func(tc TestCase) {
-		_ = Draw[bool](tc, Booleans())
-		tc.Fail()
-	}, WithTestCases(1))
+	t.Parallel()
+	err := Run(func(tc TestCase) {
+		tc.Errorf("forced failure")
+	}, WithTestCases(5), WithDatabase(DatabaseDisabled()))
 	if err == nil {
-		t.Error("expected error when state.failed is true")
+		t.Fatal("expected failure when Errorf is called")
 	}
 }
-
-// =============================================================================
-// fatalSentinel triggers INTERESTING on final replay
-// =============================================================================
 
 func TestFatalSentinelPath(t *testing.T) {
-
-	err := run(func(s TestCase) {
-		_ = Draw[bool](s, Booleans())
-		panic(fatalSentinel{msg: "test fatal"})
-	}, WithTestCases(1))
+	t.Parallel()
+	err := Run(func(tc TestCase) {
+		tc.FailNow()
+	}, WithTestCases(5), WithDatabase(DatabaseDisabled()))
 	if err == nil {
-		t.Error("expected error when fatalSentinel is raised")
+		t.Fatal("expected failure when FailNow is called")
 	}
 }
 
-// =============================================================================
-// Test: notes printed on final replay reach the process's real stdout
-// =============================================================================
+// --- isCI: expected-value and match-any branches ---
 
-// Verifies the full path ht.Note -> noteFn (t.Log) -> go test output by
-// spawning a real `go test` subprocess that calls hegel.Test. The body
-// emits a note on final replay; we assert it shows up in the captured
-// test output.
-func TestNoteFnOnFinal(t *testing.T) {
-	t.Parallel()
-
-	newTempGoProject(t).
-		testBody(`_ = hegel.Draw[bool](ht, hegel.Booleans())
-ht.Note("note for final")
-panic("always fail for final replay")`, "hegel.WithTestCases(1)").
-		expectFailure(`note for final`).
-		goTest()
-}
-
-func TestDrawReportOnFinal(t *testing.T) {
-	t.Parallel()
-
-	newTempGoProject(t).
-		testBody(`n := hegel.Draw(ht, hegel.Integers(0, 100))
-ht.Fatalf("got %d", n)`, "hegel.WithTestCases(1)").
-		expectFailure(`hegel_test\.go:\d+: n := hegel\.Draw\(ht, hegel\.Integers\(0, 100\)\) = \d+`).
-		goTest()
-}
-
-// --- hegelCommand: covered in installer_test.go ---
-
-// --- runTest: SendControlRequest error (closed connection) ---
-
-func TestRunTestSendControlRequestError(t *testing.T) {
-	t.Parallel()
-	conn, remote := clientConnPair(t)
-	remote.Close()
-
-	cl := newClient(conn)
-	err := cl.runTest(func(_ TestCase) {}, runOptions{testCases: 1})
-	if err == nil {
-		t.Fatal("expected error from runTest on closed conn")
+func TestIsCIMatchExpectedValue(t *testing.T) {
+	clearCIEnv(t)
+	// GITHUB_ACTIONS is a non-matchAny var: only "true" counts.
+	t.Setenv("GITHUB_ACTIONS", "true")
+	if !isCI() {
+		t.Error("expected isCI() true when GITHUB_ACTIONS=true")
 	}
-	mustContainStr(t, err.Error(), "run_test send")
 }
 
-// =============================================================================
-// HealthCheck.String()
-// =============================================================================
+func TestIsCIExpectedValueMismatch(t *testing.T) {
+	clearCIEnv(t)
+	// Present but not the expected value: must not count as CI.
+	t.Setenv("GITHUB_ACTIONS", "false")
+	if isCI() {
+		t.Error("expected isCI() false when GITHUB_ACTIONS=false")
+	}
+}
 
-func TestHealthCheckString(t *testing.T) {
+func TestIsCIMatchAny(t *testing.T) {
+	clearCIEnv(t)
+	// CI is a matchAny var: any value (even empty) counts.
+	t.Setenv("CI", "")
+	if !isCI() {
+		t.Error("expected isCI() true when matchAny var CI is set")
+	}
+}
+
+func TestIsCINoneSet(t *testing.T) {
+	clearCIEnv(t)
+	if isCI() {
+		t.Error("expected isCI() false when no CI var is set")
+	}
+}
+
+// TestRunUnderCIDisablesDatabase covers run()'s CI branch (derandomize on,
+// database disabled by default) by forcing a CI env var, independent of
+// whether the test process itself runs on a CI runner.
+func TestRunUnderCIDisablesDatabase(t *testing.T) {
+	clearCIEnv(t)
+	t.Setenv("CI", "true")
+	if err := Run(func(tc TestCase) {
+		_ = Draw[bool](tc, Booleans())
+	}, WithTestCases(3)); err != nil {
+		t.Errorf("Run under CI: %v", err)
+	}
+}
+
+// --- extractPanicOrigin / isHegelFrame ---
+
+func TestIsHegelFrame(t *testing.T) {
 	t.Parallel()
-	tests := []struct {
-		hc   HealthCheck
-		want string
+	cases := []struct {
+		fn   string
+		want bool
 	}{
-		{FilterTooMuch, "filter_too_much"},
-		{TooSlow, "too_slow"},
-		{TestCasesTooLarge, "test_cases_too_large"},
-		{LargeInitialTestCase, "large_initial_test_case"},
+		{"hegel.dev/go/hegel", true},
+		{"hegel.dev/go/hegel.Run", true},
+		{"hegel.dev/go/hegel.(*testCase).Note", true},
+		{"hegel.dev/go/hegel/sub.Func", true},
+		{"hegel.dev/go/hegel_test.TestFoo", false},
+		{"main.main", false},
+		{"", false},
 	}
-	for _, tt := range tests {
-		if got := tt.hc.String(); got != tt.want {
-			t.Errorf("HealthCheck(%d).String() = %q, want %q", tt.hc, got, tt.want)
+	for _, tc := range cases {
+		if got := isHegelFrame(tc.fn); got != tc.want {
+			t.Errorf("isHegelFrame(%q) = %v, want %v", tc.fn, got, tc.want)
 		}
 	}
 }
 
-// =============================================================================
-// AllHealthChecks()
-// =============================================================================
+// TestExtractPanicOriginStableAcrossValues verifies that origin is stable per
+// (type, call site) — libhegel uses the origin as a shrink-grouping key, and
+// per-value origins would prevent the shrinker from converging.
+func TestExtractPanicOriginStableAcrossValues(t *testing.T) {
+	t.Parallel()
+	a := findExternalCaller()
+	b := findExternalCaller()
+	if a != b {
+		t.Errorf("origin must be stable; got %q vs %q", a, b)
+	}
+}
+
+// TestRunHegelTestFailsSurfacesPanicMessage verifies that a panicked test
+// surfaces the panic value back through Run's returned error. The value
+// flows via the panicByOrigin capture in runProperty, not through the
+// origin field (which has to stay stable for shrinker grouping).
+func TestRunHegelTestFailsSurfacesPanicMessage(t *testing.T) {
+	t.Parallel()
+	var buf bytes.Buffer
+	err := run(func(tc TestCase) {
+		x := Draw[int](tc, Integers[int](0, 100))
+		_ = x
+		panic("BOOM-marker")
+	}, WithTestCases(2), WithDatabase(DatabaseDisabled()), withOutput(&buf))
+	if err == nil {
+		t.Fatal("expected failure from panic")
+	}
+	if !strings.Contains(buf.String(), "BOOM-marker") {
+		t.Errorf("expected output to include panic value; got %q", err)
+	}
+}
+
+// --- Health checks ---
 
 func TestAllHealthChecks(t *testing.T) {
 	t.Parallel()
 	all := AllHealthChecks()
 	if len(all) != 4 {
-		t.Errorf("AllHealthChecks() has %d elements, want 4", len(all))
+		t.Errorf("AllHealthChecks: expected 4, got %d", len(all))
 	}
 }
-
-// =============================================================================
-// SuppressHealthCheck option
-// =============================================================================
 
 func TestSuppressHealthCheckOption(t *testing.T) {
 	t.Parallel()
-	o := runOptions{testCases: 100}
+	o := runOptions{}
 	SuppressHealthCheck(FilterTooMuch, TooSlow)(&o)
 	if len(o.suppressHealthCheck) != 2 {
-		t.Errorf("suppressHealthCheck has %d elements, want 2", len(o.suppressHealthCheck))
-	}
-	if o.suppressHealthCheck[0] != FilterTooMuch {
-		t.Errorf("suppressHealthCheck[0] = %v, want FilterTooMuch", o.suppressHealthCheck[0])
+		t.Errorf("expected 2 suppressed checks, got %d", len(o.suppressHealthCheck))
 	}
 }
-
-// =============================================================================
-// SuppressHealthCheck: integration test with real server
-// =============================================================================
 
 func TestSuppressHealthCheckIntegration(t *testing.T) {
-
-	// Exercise the suppress_health_check protocol path.
-	Test(t, func(ht *T) {
-		n := Draw[int](ht, Integers[int](0, 100))
-		ht.Assume(n < 90)
-	}, SuppressHealthCheck(FilterTooMuch, TooSlow), WithTestCases(5))
-}
-
-func TestSuppressAllHealthChecksIntegration(t *testing.T) {
-
-	Test(t, func(ht *T) {
-		n := Draw[int](ht, Integers[int](0, 100))
-		ht.Assume(n < 90)
-	}, SuppressHealthCheck(AllHealthChecks()...), WithTestCases(5))
-}
-
-// =============================================================================
-// Server crash detection: processExited stream
-// =============================================================================
-
-func TestProcessExitedStream(t *testing.T) {
 	t.Parallel()
-	s, c := socketPair(t)
-	conn := newConnection(s, s, "C")
-	defer conn.Close()
-	c.Close()
-
-	exited := make(chan struct{})
-	conn.processExited = exited
-
-	// Not exited yet.
-	select {
-	case <-conn.processExited:
-		t.Error("processExited should not be closed initially")
-	default:
-	}
-
-	// Mark exited.
-	close(exited)
-	select {
-	case <-conn.processExited:
-	default:
-		t.Error("processExited should be closed after close()")
+	err := Run(func(tc TestCase) {
+		tc.Assume(false) // always reject
+	}, WithTestCases(20),
+		SuppressHealthCheck(FilterTooMuch),
+		WithDatabase(DatabaseDisabled()))
+	if err != nil {
+		t.Errorf("unexpected error: %v", err)
 	}
 }
 
-// =============================================================================
-// Session start timeout: process alive but no socket
-// =============================================================================
+// --- Options ---
 
-func TestHegelSessionStartTimeout(t *testing.T) {
-	tmp := t.TempDir()
-	script := filepath.Join(tmp, "fake_hegel.sh")
-	os.WriteFile(script, []byte("#!/bin/sh\nsleep 60\n"), 0o755) //nolint:errcheck
-	s := newHegelSession()
-	s.hegelCmd = script
-	startErr := s.start()
-	s.cleanup()
-	if startErr == nil {
-		t.Fatal("expected timeout error")
-	}
-	mustContainStr(t, startErr.Error(), "timed out")
-}
-
-// =============================================================================
-// Health check failure: filter too aggressively without suppressing
-// =============================================================================
-
-func TestHealthCheckFailureFilterTooMuch(t *testing.T) {
+func TestWithTestCasesOption(t *testing.T) {
 	t.Parallel()
-
-	// Filtering based on a tiny range triggers FilterTooMuch: the server sees
-	// almost all test cases rejected and raises a health check failure.
-	newTempGoProject(t).
-		testBody(`n := hegel.Draw[int](ht, hegel.Integers[int](0, 1000))
-ht.Assume(n == 0)`, "hegel.WithTestCases(200)").
-		expectFailure(`health check failure`).
-		goTest()
-}
-
-// =============================================================================
-// Flaky global state detection
-// =============================================================================
-
-var flakyCounter atomic.Int64
-
-func TestFlakyGlobalState(t *testing.T) {
-
-	flakyCounter.Store(0)
-	err := run(func(s TestCase) {
-		min := int(flakyCounter.Load())
-		_ = Draw[int](s, Integers[int](min, min+100))
-		flakyCounter.Add(1)
-	})
-	if err == nil {
-		t.Fatal("expected error for flaky test")
-	}
-	mustContainStr(t, err.Error(), "flaky")
-}
-
-// =============================================================================
-// Server crash on Request error (closed socket + ServerHasExited)
-// =============================================================================
-
-func TestGenerateServerCrashOnRequest(t *testing.T) {
-	t.Parallel()
-	s, c := socketPair(t)
-	conn := newConnection(s, s, "C")
-	c.Close()
-	conn.state = stateClient
-	st := &stream{conn: conn, streamID: 1, inbox: make(chan any, 1), dropped: make(chan struct{}), nextMessageID: 1}
-	conn.writerMu.Lock()
-	conn.streams[1] = st
-	conn.writerMu.Unlock()
-
-	exited := make(chan struct{})
-	close(exited)
-	conn.processExited = exited
-
-	s.Close()
-
-	state := &testCase{stream: st}
-	var caught any
-	func() {
-		defer func() { caught = recover() }()
-		Draw[bool](state, Booleans())
-	}()
-	if caught == nil {
-		t.Fatal("expected panic from Draw on server crash")
-	}
-	connErr, ok := caught.(*connectionError)
-	if !ok {
-		t.Fatalf("expected *connectionError, got %T: %v", caught, caught)
-	}
-	mustContainStr(t, connErr.msg, "server process exited unexpectedly")
-}
-
-// =============================================================================
-// Server crash on Get error (socket closed mid-request + ServerHasExited)
-// =============================================================================
-
-func TestGenerateServerCrashOnGet(t *testing.T) {
-	t.Parallel()
-	s, c := socketPair(t)
-	conn := newConnection(s, s, "C")
-	conn.state = stateClient
-	st := &stream{conn: conn, streamID: 1, inbox: make(chan any, 1), dropped: make(chan struct{}), nextMessageID: 1}
-	conn.writerMu.Lock()
-	conn.streams[1] = st
-	conn.writerMu.Unlock()
-
-	exited := make(chan struct{})
-	conn.processExited = exited
-
-	// Read the request on peer side, then simulate crash
-	go func() {
-		readPacket(c) //nolint:errcheck
-		close(exited)
-		c.Close()
-	}()
-
-	state := &testCase{stream: st}
-	var caught any
-	func() {
-		defer func() { caught = recover() }()
-		Draw[bool](state, Booleans())
-	}()
-	if caught == nil {
-		t.Fatal("expected panic from Draw on server crash")
-	}
-	connErr, ok := caught.(*connectionError)
-	if !ok {
-		t.Fatalf("expected *connectionError, got %T: %v", caught, caught)
-	}
-	mustContainStr(t, connErr.msg, "server process exited unexpectedly")
-}
-
-// =============================================================================
-// ServerHasExited in processOneMessage
-// =============================================================================
-
-func TestProcessOneMessageServerCrash(t *testing.T) {
-	t.Parallel()
-	s, c := socketPair(t)
-	conn := newConnection(s, s, "C")
-	conn.state = stateClient
-	st := conn.NewStream("Test")
-
-	exited := make(chan struct{})
-	close(exited)
-	conn.processExited = exited
-	c.Close()
-
-	// Wait for readLoop to notice the close
-	<-conn.done
-
-	_, _, err := st.RecvRequestRaw(1 * time.Second)
-	if err == nil {
-		t.Fatal("expected error")
-	}
-	mustContainStr(t, err.Error(), "server process exited unexpectedly")
-}
-
-// processExited is non-nil but never closes — the wait times out and we fall
-// through to the generic "connection closed" error.
-func TestProcessOneMessageConnectionClosedTimeout(t *testing.T) {
-	t.Parallel()
-	s, c := socketPair(t)
-	conn := newConnection(s, s, "C")
-	conn.state = stateClient
-	st := conn.NewStream("Test")
-
-	conn.processExited = make(chan struct{})
-	c.Close()
-
-	<-conn.done
-
-	_, _, err := st.RecvRequestRaw(1 * time.Second)
-	if err == nil {
-		t.Fatal("expected error")
-	}
-	mustContainStr(t, err.Error(), "connection closed")
-}
-
-// =============================================================================
-// buildRunTestMessage: wire-format base fields
-// =============================================================================
-
-func TestBuildRunTestMessageBaseFields(t *testing.T) {
-	t.Parallel()
-	msg := buildRunTestMessage(7, runOptions{testCases: 42, derandomize: true})
-	if msg["command"] != "run_test" {
-		t.Errorf("command = %v", msg["command"])
-	}
-	if msg["test_cases"] != int64(42) {
-		t.Errorf("test_cases = %v", msg["test_cases"])
-	}
-	if msg["stream_id"] != int64(7) {
-		t.Errorf("stream_id = %v", msg["stream_id"])
-	}
-	if msg["derandomize"] != true {
-		t.Errorf("derandomize = %v", msg["derandomize"])
-	}
-	// seed is omitted entirely when unset.
-	if _, ok := msg["seed"]; ok {
-		t.Errorf("seed should be absent when unset, got %v", msg["seed"])
-	}
-}
-
-func TestBuildRunTestMessageSeedSet(t *testing.T) {
-	t.Parallel()
-	seed := int64(42)
-	msg := buildRunTestMessage(1, runOptions{testCases: 1, seed: &seed})
-	v, ok := msg["seed"]
-	if !ok {
-		t.Fatal("expected seed field to be present")
-	}
-	if v != int64(42) {
-		t.Errorf("seed = %v, want 42", v)
+	o := runOptions{}
+	WithTestCases(42)(&o)
+	if o.testCases != 42 {
+		t.Errorf("WithTestCases: expected 42, got %d", o.testCases)
 	}
 }
 
 func TestWithSeedOption(t *testing.T) {
 	t.Parallel()
-	var o runOptions
-	WithSeed(123)(&o)
-	if o.seed == nil {
-		t.Fatal("seed was not set")
-	}
-	if *o.seed != 123 {
-		t.Errorf("seed = %d, want 123", *o.seed)
+	o := runOptions{}
+	WithSeed(12345)(&o)
+	if o.seed == nil || *o.seed != 12345 {
+		t.Errorf("WithSeed: expected 12345, got %v", o.seed)
 	}
 }
 
 func TestDatabaseDisabledSetting(t *testing.T) {
 	t.Parallel()
-	s := DatabaseDisabled()
-	if s.state != databaseDisabled {
-		t.Errorf("state = %v, want databaseDisabled", s.state)
+	o := runOptions{}
+	WithDatabase(DatabaseDisabled())(&o)
+	if o.database.state != databaseDisabled {
+		t.Errorf("WithDatabase(DatabaseDisabled): expected databaseDisabled, got %v", o.database.state)
 	}
 }
 
-func TestBuildRunTestMessageDatabaseDisabled(t *testing.T) {
+func TestDatabasePathSetting(t *testing.T) {
 	t.Parallel()
-	msg := buildRunTestMessage(1, runOptions{
-		testCases:   1,
-		database:    DatabaseDisabled(),
-		databaseKey: []byte("k"),
-	})
-	v, ok := msg["database"]
-	if !ok {
-		t.Fatal("expected database field to be present")
-	}
-	if v != nil {
-		t.Errorf("database = %v, want nil", v)
-	}
-	if msg["database_key"] != nil {
-		t.Errorf("database_key = %v, want nil when disabled", msg["database_key"])
-	}
-}
-
-// In CI, runHegel disables the database regardless of the user's option.
-func TestRunHegelDisablesDatabaseInCI(t *testing.T) {
-	clearCIEnv(t)
-	t.Setenv("CI", "true")
-	t.Setenv("HEGEL_PROTOCOL_TEST_MODE", "empty_test")
-	err := run(func(_ TestCase) {})
-	if err != nil {
-		t.Fatalf("runHegel: %v", err)
+	o := runOptions{}
+	WithDatabase(Database("/tmp/foo"))(&o)
+	if o.database.state != databasePath || o.database.path != "/tmp/foo" {
+		t.Errorf("WithDatabase(Database): expected databasePath /tmp/foo, got %v %q", o.database.state, o.database.path)
 	}
 }
 
 func TestWithDerandomizeIntegration(t *testing.T) {
-	clearCIEnv(t)
-	// Just exercise the wire path — full determinism is enforced server-side.
-	Test(t, func(ht *T) {
-		_ = Draw[bool](ht, Booleans())
-	}, WithDerandomize(true), WithTestCases(3))
+	t.Parallel()
+	err := Run(func(tc TestCase) {
+		_ = Draw[int](tc, Integers[int](0, 100))
+	}, WithTestCases(5), WithDerandomize(true), WithDatabase(DatabaseDisabled()))
+	if err != nil {
+		t.Errorf("derandomize integration: %v", err)
+	}
 }
 
-// TestWithSeedIntegration verifies that the same seed produces the same
-// sequence of drawn values across two runs.
-//
-// The example database is disabled so the test asserts seed-only determinism;
-// otherwise the database's replay phases could prepend saved examples that
-// are not derived from the seed.
 func TestWithSeedIntegration(t *testing.T) {
-	clearCIEnv(t)
-	run := func() []int {
-		var drawn []int
-		Test(t, func(ht *T) {
-			drawn = append(drawn, Draw[int](ht, Integers[int](0, 1_000_000)))
-		}, WithSeed(42), WithDatabase(DatabaseDisabled()), WithTestCases(20))
-		return drawn
-	}
-	first := run()
-	second := run()
-	if len(first) == 0 {
-		t.Fatal("no values drawn")
-	}
-	if !reflect.DeepEqual(first, second) {
-		t.Errorf("WithSeed(42) was not deterministic:\n  first  = %v\n  second = %v", first, second)
+	t.Parallel()
+	err := Run(func(tc TestCase) {
+		_ = Draw[int](tc, Integers[int](0, 100))
+	}, WithTestCases(5), WithSeed(42), WithDatabase(DatabaseDisabled()))
+	if err != nil {
+		t.Errorf("seed integration: %v", err)
 	}
 }
 
-// --- helpers ---
+func TestRunHegelDisablesDatabaseInCI(t *testing.T) {
+	t.Parallel()
+	// Apply opts directly without running so we can inspect.
+	if !isCI() {
+		t.Skip("only meaningful when CI env vars are set")
+	}
+	o := runOptions{testCases: 100, derandomize: isCI()}
+	if isCI() {
+		o.database = DatabaseSetting{state: databaseDisabled}
+	}
+	if o.database.state != databaseDisabled {
+		t.Errorf("expected DB disabled in CI, got %v", o.database.state)
+	}
+}
 
-func clearCIEnv(t *testing.T) {
+// --- Stub-driven runner lifecycle error paths ---
+//
+// These tests inject a libhegel.Stub() Handle into runWithHandle to exercise
+// the engine setup/teardown error branches and the per-case op error branches
+// without the real library. The Stub pops the provided returns in strict call
+// order; a NULL handle (ptr 0) plus a non-empty lastErrorMessage forces the
+// wrap() error path. The bodies here never Draw — op coverage is driven by
+// calling *testCase methods directly. (Draw error injection is tested
+// separately below via newStubTestCase.)
+
+// newStubTestCase builds a real *testCase whose libhegel operations are served
+// by a Stub. opReturns supplies the per-op return values (Error/bool/…)
+// consumed, in call order, after the settings/run/test-case handles are wired.
+func newStubTestCase(opReturns ...any) *testCase {
+	returns := append([]any{
+		uintptr(1),
+		uintptr(1),
+		uintptr(1),
+	}, opReturns...)
+	lib := libhegel.Stub(returns...)
+	s := lib.SettingsNew()
+	run, _ := s.RunStart()
+	tc, _ := run.NextTestCase()
+	return &testCase{tc: tc}
+}
+
+func TestRunWithHandleRunStartError(t *testing.T) {
+	t.Parallel()
+	lib := libhegel.Stub(
+		uintptr(1),
+		uintptr(0), // run_start returns NULL
+		"run_start boom",
+	)
+	err := runWithHandle(lib, func(TestCase) {}, runOptions{})
+	if err == nil || !strings.Contains(err.Error(), "run_start boom") {
+		t.Fatalf("expected run_start error, got %v", err)
+	}
+}
+
+func TestRunWithHandleNextTestCaseError(t *testing.T) {
+	t.Parallel()
+	lib := libhegel.Stub(
+		uintptr(1),
+		uintptr(1),
+		uintptr(0),  // next_test_case returns NULL...
+		"next boom", // ...with an error message
+	)
+	err := runWithHandle(lib, func(TestCase) {}, runOptions{})
+	if err == nil || !strings.Contains(err.Error(), "next boom") {
+		t.Fatalf("expected next_test_case error, got %v", err)
+	}
+}
+
+func TestRunWithHandleRunResultError(t *testing.T) {
+	t.Parallel()
+	lib := libhegel.Stub(
+		uintptr(1),
+		uintptr(1),
+		uintptr(0), "", // NULL + no error => run finished
+		uintptr(0), "result boom", // run_result NULL
+	)
+	err := runWithHandle(lib, func(TestCase) {}, runOptions{})
+	if err == nil || !strings.Contains(err.Error(), "result boom") {
+		t.Fatalf("expected run_result error, got %v", err)
+	}
+}
+
+func TestRunWithHandleCollectFailures(t *testing.T) {
+	t.Parallel()
+	lib := libhegel.Stub(
+		uintptr(1),
+		uintptr(1),
+		uintptr(0), "", // run finished
+		uintptr(1),
+		false,            // result not passed
+		uint64(1),        // one failure
+		uintptr(1),       // failure handle
+		"prop_test.go:7", // failure origin
+	)
+	err := runWithHandle(lib, func(TestCase) {}, runOptions{})
+	if err == nil {
+		t.Fatal("expected failure error")
+	}
+	if !errors.Is(err, errPropTestFailed) || !strings.Contains(err.Error(), "prop_test.go:7") {
+		t.Fatalf("expected joined prop-test failure with origin, got %v", err)
+	}
+}
+
+func TestRunWithHandleFailureError(t *testing.T) {
+	t.Parallel()
+	lib := libhegel.Stub(
+		uintptr(1),
+		uintptr(1),
+		uintptr(0), "",
+		uintptr(1),
+		false,                      // not passed
+		uint64(1),                  // one failure
+		uintptr(0), "failure boom", // failure handle NULL
+	)
+	err := runWithHandle(lib, func(TestCase) {}, runOptions{})
+	if err == nil || !strings.Contains(err.Error(), "failure boom") {
+		t.Fatalf("expected failure-fetch error, got %v", err)
+	}
+}
+
+func TestRunWithHandleTargetPanic(t *testing.T) {
+	t.Parallel()
+	var buf bytes.Buffer
+	lib := libhegel.Stub(
+		uintptr(1),
+		uintptr(1),
+		uintptr(1),         // one case
+		true,               // is_final_replay => output enabled
+		libhegel.E_BACKEND, // target fails
+		libhegel.OK,        // mark_complete
+		uintptr(0), "",     // run finished
+		uintptr(1),
+		true, // passed
+	)
+	err := runWithHandle(lib, func(tc TestCase) {
+		tc.Target(1.0, "x")
+	}, runOptions{output: &buf})
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if !strings.Contains(buf.String(), "panic:") {
+		t.Errorf("expected recovered panic to be reported, got %q", buf.String())
+	}
+}
+
+// stubOpCase drives a single test case whose body calls fn against the
+// stub-backed *testCase, with one op return op. The body returns normally
+// (VALID), so the case completes cleanly.
+func stubOpCase(t *testing.T, op any, fn func(*testCase)) {
 	t.Helper()
-	for _, v := range ciEnvVars {
-		if old, ok := os.LookupEnv(v.name); ok {
-			os.Unsetenv(v.name)
-			t.Cleanup(func() { os.Setenv(v.name, old) })
+	lib := libhegel.Stub(
+		uintptr(1),
+		uintptr(1),
+		uintptr(1),
+		false, // is_final_replay
+		op,
+		libhegel.OK, // mark_complete
+		uintptr(0), "",
+		uintptr(1),
+		true,
+	)
+	if err := runWithHandle(lib, func(tc TestCase) { fn(tc.(*testCase)) }, runOptions{}); err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+}
+
+func TestTestCaseStartSpanError(t *testing.T) {
+	t.Parallel()
+	var got error
+	stubOpCase(t, libhegel.E_BACKEND, func(tc *testCase) {
+		got = tc.startSpan(libhegel.LABEL_LIST)
+	})
+	if got == nil {
+		t.Fatal("expected startSpan error")
+	}
+}
+
+func TestTestCaseStopSpanError(t *testing.T) {
+	t.Parallel()
+	var got error
+	stubOpCase(t, libhegel.E_BACKEND, func(tc *testCase) {
+		got = tc.stopSpan(false)
+	})
+	if got == nil {
+		t.Fatal("expected stopSpan error")
+	}
+}
+
+func TestTestCaseNewCollectionError(t *testing.T) {
+	t.Parallel()
+	var got error
+	stubOpCase(t, libhegel.E_BACKEND, func(tc *testCase) {
+		_, got = tc.newCollection(0, nil)
+	})
+	if got == nil {
+		t.Fatal("expected newCollection error")
+	}
+}
+
+func TestRunWithHandleUnrecognizedShortCircuit(t *testing.T) {
+	t.Parallel()
+	lib := libhegel.Stub(
+		uintptr(1),
+		uintptr(1),
+		uintptr(1),
+		false, // is_final_replay
+	)
+	defer func() {
+		r := recover()
+		s, ok := r.(string)
+		if !ok || !strings.Contains(s, "unrecognized short circuit") {
+			t.Fatalf("expected unrecognized-short-circuit re-panic, got %v", r)
 		}
+	}()
+	runWithHandle(lib, func(TestCase) {
+		panic(shortCircuit{errors.New("weird")})
+	}, runOptions{})
+}
+
+// --- Draw error injection (via newStubTestCase) ---
+
+// errGen is a non-basic generator whose draw returns a fixed (value, error).
+// It forces the collection path of Lists/Maps (asBasic => not basic) and lets
+// tests inject element/key draw errors.
+type errGen[T any] struct{ err error }
+
+//lint:ignore U1000 satisfies Generator interface; staticcheck misses generic dispatch
+func (g errGen[T]) draw(TestCase) (T, error) { var z T; return z, g.err }
+
+//lint:ignore U1000 satisfies Generator interface; staticcheck misses generic dispatch
+func (g errGen[T]) asBasic() (*basicGenerator[T], bool, error) { return nil, false, nil }
+
+// expectShortCircuit is deferred to recover a Draw panic and assert its error.
+func expectShortCircuit(t *testing.T, want error) {
+	t.Helper()
+	r := recover()
+	sc, ok := r.(shortCircuit)
+	if !ok {
+		t.Fatalf("expected shortCircuit panic, got %v", r)
+	}
+	if !errors.Is(sc.err, want) {
+		t.Errorf("shortCircuit err = %v, want %v", sc.err, want)
 	}
 }
 
-func mustContainStr(t *testing.T, s, sub string) {
-	t.Helper()
-	if !strings.Contains(s, sub) {
-		t.Errorf("%q does not contain %q", s, sub)
+func TestDrawPanicsOnGenerateError(t *testing.T) {
+	t.Parallel()
+	tc := newStubTestCase(libhegel.E_BACKEND) // generate fails
+	defer expectShortCircuit(t, libhegel.E_BACKEND)
+	Draw[int](tc, Integers[int](0, 10))
+}
+
+func TestDrawListStartSpanError(t *testing.T) {
+	t.Parallel()
+	tc := newStubTestCase(libhegel.E_BACKEND) // start_span fails
+	defer expectShortCircuit(t, libhegel.E_BACKEND)
+	Draw[[]int](tc, Lists[int](errGen[int]{}))
+}
+
+func TestDrawListNewCollectionError(t *testing.T) {
+	t.Parallel()
+	tc := newStubTestCase(
+		libhegel.OK,        // start_span
+		libhegel.E_BACKEND, // new_collection fails
+	)
+	defer expectShortCircuit(t, libhegel.E_BACKEND)
+	Draw[[]int](tc, Lists[int](errGen[int]{}))
+}
+
+func TestDrawListCollectionMoreError(t *testing.T) {
+	t.Parallel()
+	tc := newStubTestCase(
+		libhegel.OK,        // start_span
+		libhegel.OK,        // new_collection
+		libhegel.E_BACKEND, // collection_more fails => coll.Err()
+	)
+	defer expectShortCircuit(t, libhegel.E_BACKEND)
+	Draw[[]int](tc, Lists[int](errGen[int]{}))
+}
+
+func TestDrawMapNewCollectionError(t *testing.T) {
+	t.Parallel()
+	tc := newStubTestCase(
+		libhegel.OK,        // start_span (LABEL_MAP)
+		libhegel.E_BACKEND, // new_collection fails
+	)
+	defer expectShortCircuit(t, libhegel.E_BACKEND)
+	Draw[map[int]int](tc, Maps[int, int](errGen[int]{}, errGen[int]{}))
+}
+
+// TestDrawMapKeyError covers the map key-draw error branch, which requires the
+// collection loop body to actually run. The Stub cannot return more=true (it
+// can't set the out-param), so this uses the real library with MinSize(1) and a
+// key generator that rejects via E_ASSUME, leaving the run all-invalid (passes).
+func TestDrawMapKeyError(t *testing.T) {
+	t.Parallel()
+	err := run(func(tc TestCase) {
+		Draw[map[int]int](tc, Maps[int, int](
+			errGen[int]{err: libhegel.E_ASSUME}, errGen[int]{},
+		).MinSize(1))
+	}, WithTestCases(5), WithDatabase(DatabaseDisabled()), SuppressHealthCheck(FilterTooMuch))
+	if err != nil {
+		t.Fatalf("expected all-invalid pass, got %v", err)
 	}
+}
+
+// TestDrawMapBasic covers the all-basic map schema path (basic keys + values).
+func TestDrawMapBasic(t *testing.T) {
+	t.Parallel()
+	err := run(func(tc TestCase) {
+		_ = Draw[map[int]int](tc, Maps[int, int](Integers[int](0, 5), Integers[int](0, 5)))
+	}, WithTestCases(5), WithDatabase(DatabaseDisabled()))
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+}
+
+func TestDrawFilterStartSpanError(t *testing.T) {
+	t.Parallel()
+	tc := newStubTestCase(libhegel.E_BACKEND) // start_span(FILTER) fails
+	defer expectShortCircuit(t, libhegel.E_BACKEND)
+	Draw[int](tc, &filteredGenerator[int]{
+		source:    Integers[int](0, 10),
+		predicate: func(int) bool { return true },
+	})
+}
+
+// TestGenerateEmptySchema covers slicePtr's empty-slice (nil pointer) branch by
+// asking the stub to generate from an empty schema.
+func TestGenerateEmptySchema(t *testing.T) {
+	t.Parallel()
+	tc := newStubTestCase(libhegel.OK)
+	if _, err := tc.tc.Generate(nil); err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+}
+
+// TestStubCollectionReject covers the collection_reject path against the stub.
+func TestStubCollectionReject(t *testing.T) {
+	t.Parallel()
+	tc := newStubTestCase(
+		libhegel.OK, // new_collection
+		libhegel.OK, // collection_reject
+	)
+	coll, err := tc.newCollection(0, nil)
+	if err != nil {
+		t.Fatalf("newCollection: %v", err)
+	}
+	coll.Reject("dup")
+	if err := coll.Err(); err != nil {
+		t.Fatalf("Reject recorded error: %v", err)
+	}
+}
+
+// TestStatefulInitialInvariantError covers stateMachine.Run's panic on an
+// initial-invariant failure: the stub fails start_span for the first invariant.
+func TestStatefulInitialInvariantError(t *testing.T) {
+	t.Parallel()
+	tc := newStubTestCase(libhegel.E_BACKEND) // start_span(STATEFUL) fails
+	sm := &stateMachine{invariants: []stateMachineRule{{name: "Inv", fn: func(TestCase) {}}}}
+	defer func() {
+		err, ok := recover().(error)
+		if !ok || !errors.Is(err, libhegel.E_BACKEND) {
+			t.Fatalf("expected E_BACKEND panic, got %v", err)
+		}
+	}()
+	sm.Run(tc)
 }

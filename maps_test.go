@@ -247,42 +247,7 @@ func TestPairsToMapNonSlicePair(t *testing.T) {
 }
 
 // =============================================================================
-// Maps: StopTest during collection operations
-// =============================================================================
-
-// TestMapsStopTestOnNewCollection verifies that StopTest during new_collection
-// aborts the test without panicking or sending further commands.
-func TestMapsStopTestOnNewCollection(t *testing.T) {
-
-	t.Setenv("HEGEL_PROTOCOL_TEST_MODE", "stop_test_on_new_collection")
-	// StopTest causes test to be skipped or aborted, not fail
-	Test(t, func(ht *T) {
-		nonBasicKeys := &mappedGenerator[int64, int64]{
-			inner: Integers[int64](0, 10),
-			fn:    func(v int64) int64 { return v },
-		}
-		gen := Maps(nonBasicKeys, Integers[int64](0, 100)).MaxSize(3)
-		_ = Draw(ht, gen)
-	})
-}
-
-// TestMapsStopTestOnCollectionMore verifies that StopTest during collection_more
-// aborts the test cleanly.
-func TestMapsStopTestOnCollectionMore(t *testing.T) {
-
-	t.Setenv("HEGEL_PROTOCOL_TEST_MODE", "stop_test_on_collection_more")
-	Test(t, func(ht *T) {
-		nonBasicKeys := &mappedGenerator[int64, int64]{
-			inner: Integers[int64](0, 10),
-			fn:    func(v int64) int64 { return v },
-		}
-		gen := Maps(nonBasicKeys, Integers[int64](0, 100)).MaxSize(3)
-		_ = Draw(ht, gen)
-	})
-}
-
-// =============================================================================
-// Maps: E2E tests against real hegel binary
+// Maps: E2E tests against real libhegel
 // =============================================================================
 
 // TestMapsBasicE2E verifies the basic Maps generator produces maps with

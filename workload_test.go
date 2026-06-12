@@ -20,22 +20,13 @@ func applyOpts(opts []Option) runOptions {
 }
 
 // captureWorkloadExit replaces workloadExit with one that records the exit
-// code into the returned pointer, redirects workloadStdout/workloadStderr to
-// the test's output, and registers a t.Cleanup to restore them.
+// code into the returned pointer, and registers a t.Cleanup to restore it.
 func captureWorkloadExit(t *testing.T) *int {
 	t.Helper()
 	var code int
-	origExit := workloadExit
-	origStdout := workloadStdout
-	origStderr := workloadStderr
+	orig := workloadExit
 	workloadExit = func(c int) { code = c }
-	workloadStdout = t.Output()
-	workloadStderr = t.Output()
-	t.Cleanup(func() {
-		workloadExit = origExit
-		workloadStdout = origStdout
-		workloadStderr = origStderr
-	})
+	t.Cleanup(func() { workloadExit = orig })
 	return &code
 }
 
@@ -170,18 +161,8 @@ func TestParseHealthCheckRoundTrip(t *testing.T) {
 
 // --- workload() (lowercase) ---
 
-func TestWorkloadEmptyTestSucceeds(t *testing.T) {
-	t.Setenv("HEGEL_PROTOCOL_TEST_MODE", "empty_test")
-	err := workload([]string{"prog"}, io.Discard, io.Discard, func(TestCase) {
-		t.Fatal("body should not run under empty_test")
-	}, nil)
-	if err != nil {
-		t.Fatalf("workload: %v", err)
-	}
-}
-
 func TestWorkloadParsesFlags(t *testing.T) {
-	t.Setenv("HEGEL_PROTOCOL_TEST_MODE", "empty_test")
+	t.Parallel()
 	err := workload(
 		[]string{
 			"prog",
@@ -277,38 +258,22 @@ func TestWorkloadLayeringDefaultAlone(t *testing.T) {
 	}
 }
 
-// --- Workload() (uppercase): success and exit-on-error paths ---
+// --- Workload() (uppercase): success and exit paths ---
 
 func TestWorkloadPublicSuccess(t *testing.T) {
-	t.Setenv("HEGEL_PROTOCOL_TEST_MODE", "empty_test")
-	withArgs(t, []string{"prog"})
+	withArgs(t, []string{"prog", "--single-test-case"})
 	code := captureWorkloadExit(t)
 
-	Workload(func(TestCase) {})
+	Workload(func(tc TestCase) {
+		_ = Draw[bool](tc, Booleans())
+	})
 	if *code != 0 {
-		t.Errorf("workloadExit should not be called on success (got %d)", *code)
+		t.Errorf("expected exit code 0 (workloadExit not called); got %d", *code)
 	}
 }
 
 func TestWorkloadPublicExitsOnFlagError(t *testing.T) {
 	withArgs(t, []string{"prog", "--bogus"})
-	code := captureWorkloadExit(t)
-
-	Workload(func(TestCase) {})
-	if *code != 1 {
-		t.Errorf("expected exit code 1, got %d", *code)
-	}
-}
-
-// TestWorkloadPublicExitsOnRunError exercises the path where Run returns an
-// error (the flag package did not pre-print).
-func TestWorkloadPublicExitsOnRunError(t *testing.T) {
-	old := globalSession
-	defer func() { globalSession = old }()
-	globalSession = newHegelSession()
-	globalSession.hegelCmd = "/nonexistent"
-
-	withArgs(t, []string{"prog"})
 	code := captureWorkloadExit(t)
 
 	Workload(func(TestCase) {})

@@ -62,13 +62,31 @@ jobs:
 
       - uses: ./.github/actions/install-tools
         with:
-          tools: just uv
+          tools: just
 
       - uses: actions/setup-go@40f1582b2485089dde7abd97c1529aa768e1baff # v5
         with:
           go-version: ${{ matrix.go-version }}
 
+      - name: Stage libhegel from the matching GitHub release
+        id: libhegel
+        run: |
+          set -euo pipefail
+          VERSION=$(grep -oP 'const hegelVersion = "\K[^"]+' internal/libhegel/checksums.go)
+          ASSET="libhegel-linux-amd64.so"
+          URL_BASE="https://github.com/hegeldev/hegel-rust/releases/download/v${VERSION}"
+          DEST="${RUNNER_TEMP}/libhegel.so"
+          curl -fsSL -o "${DEST}" "${URL_BASE}/${ASSET}"
+          curl -fsSL -o "${DEST}.sha256" "${URL_BASE}/${ASSET}.sha256"
+          # The published .sha256 file is GNU sha256sum style: <digest>  <asset>.
+          # Rewrite it so it references the local path before verifying.
+          WANT=$(awk '{print $1}' "${DEST}.sha256")
+          echo "${WANT}  ${DEST}" | sha256sum -c -
+          echo "path=${DEST}" >> "$GITHUB_OUTPUT"
+
       - name: Run tests
+        env:
+          HEGEL_LIBHEGEL_PATH: ${{ steps.libhegel.outputs.path }}
         run: just test
 
       - name: Auto-update coverage annotations and ratchet
@@ -105,6 +123,94 @@ jobs:
               --head "$BRANCH" || true
           fi
 
+  # Compile and vet for every target GOOS/GOARCH. The runtime tests only run on
+  # Linux (test) plus macOS/Windows amd64 (smoke), so this is the only guard for
+  # targets without a runner — notably windows/arm64 and darwin/amd64. It exists
+  # because the FFI loader is platform-split (purego.Dlopen on POSIX,
+  # LoadLibrary on Windows); a Linux-only CI silently shipped code that did not
+  # compile on Windows at all.
+  cross-build:
+    name: "cross-build (${{ matrix.target }})"
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    strategy:
+      matrix:
+        target:
+          - linux/amd64
+          - linux/arm64
+          - darwin/amd64
+          - darwin/arm64
+          - windows/amd64
+          - windows/arm64
+    steps:
+      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
+        with:
+          persist-credentials: false
+
+      - uses: actions/setup-go@40f1582b2485089dde7abd97c1529aa768e1baff # v5
+        with:
+          go-version: stable
+
+      - name: Build and vet
+        env:
+          TARGET: ${{ matrix.target }}
+        run: |
+          export GOOS="${TARGET%/*}" GOARCH="${TARGET#*/}"
+          echo "Building for $GOOS/$GOARCH"
+          go build ./...
+          go vet ./...
+
+  # Run the real test suite against a downloaded libhegel on the OSes we have
+  # runners for, so the FFI loader is exercised end-to-end off Linux. Coverage
+  # and the ratchet stay on the Linux `test` job; here we just run `go test`.
+  # macos-latest is arm64 and windows-latest is amd64, matching the published
+  # libhegel-darwin-arm64.dylib / libhegel-windows-amd64.dll artifacts.
+  smoke:
+    name: "smoke (${{ matrix.os }})"
+    runs-on: ${{ matrix.os }}
+    permissions:
+      contents: read
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: macos-latest
+            asset: libhegel-darwin-arm64.dylib
+            libname: libhegel.dylib
+          - os: windows-latest
+            asset: libhegel-windows-amd64.dll
+            libname: libhegel.dll
+    steps:
+      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
+        with:
+          persist-credentials: false
+
+      - uses: actions/setup-go@40f1582b2485089dde7abd97c1529aa768e1baff # v5
+        with:
+          go-version: stable
+
+      - name: Stage libhegel from the matching GitHub release
+        id: libhegel
+        shell: bash
+        env:
+          ASSET: ${{ matrix.asset }}
+          LIBNAME: ${{ matrix.libname }}
+        run: |
+          set -euo pipefail
+          # awk (not grep -oP) for BSD/macOS portability.
+          VERSION=$(awk -F'"' '/const hegelVersion =/{print $2}' internal/libhegel/checksums.go)
+          DEST="${RUNNER_TEMP}/${LIBNAME}"
+          curl -fsSL -o "${DEST}" \
+            "https://github.com/hegeldev/hegel-rust/releases/download/v${VERSION}/${ASSET}"
+          echo "path=${DEST}" >> "$GITHUB_OUTPUT"
+
+      - name: Run tests
+        shell: bash
+        env:
+          HEGEL_LIBHEGEL_PATH: ${{ steps.libhegel.outputs.path }}
+        run: go test ./...
+
   docs:
     name: docs
     runs-on: ubuntu-latest
@@ -126,30 +232,10 @@ jobs:
       - name: Check docs
         run: just check-docs
 
-  conformance:
-    name: conformance
-    runs-on: ubuntu-latest
-    permissions:
-      contents: read
-    steps:
-      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
-        with:
-          persist-credentials: false
-
-      - uses: ./.github/actions/install-tools
-        with:
-          tools: just uv
-
-      - uses: actions/setup-go@40f1582b2485089dde7abd97c1529aa768e1baff # v5
-        with:
-          go-version: stable
-
-      - run: just conformance
-
   release:
     name: release
     if: github.event_name == 'push' && github.repository == 'hegeldev/hegel-go'
-    needs: [lint, test, docs, conformance]
+    needs: [lint, test, cross-build, smoke, docs]
     runs-on: ubuntu-latest
     permissions:
       contents: write

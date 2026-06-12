@@ -42,7 +42,7 @@ func TestDatabasePersistsFailingExamples(t *testing.T) {
 		panic("")
 	},
 		WithDatabase(Database(dbDir)),
-		withDatabaseKey([]byte("test_database_persists")),
+		withDatabaseKey("test_database_persists"),
 	)
 	if err == nil {
 		t.Fatal("expected property test failure")

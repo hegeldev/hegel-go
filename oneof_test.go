@@ -541,25 +541,6 @@ func TestOneOfAllBranchesAppear(t *testing.T) {
 	}
 }
 
-// TestCompositeOneOfGenerateErrorResponse covers the error path in
-// oneOfGenerator.draw when the server sends a requestError in response
-// to the index generate command on the composite path.
-func TestCompositeOneOfGenerateErrorResponse(t *testing.T) {
-	t.Skip("buggy: temp project does not reliably reproduce the composite-path error response")
-	t.Setenv("HEGEL_PROTOCOL_TEST_MODE", "error_response")
-	// Filter wrappers force each branch to be non-basic, which forces the
-	// composite (oneOfGenerator.draw) path rather than the flat-schema path.
-	// The error-response triggers a panic during the index draw, then the
-	// test-mode server exits before a final replay — assert on the resulting
-	// "server exited" diagnostic so we know the composite path was reached.
-	newTempGoProject(t).
-		testBody(`g1 := hegel.Filter(hegel.Integers[int64](0, 5), func(int64) bool { return true })
-g2 := hegel.Filter(hegel.Integers[int64](6, 10), func(int64) bool { return true })
-_ = hegel.Draw[int64](ht, hegel.OneOf(g1, g2))`).
-		expectFailure(`server process exited`).
-		goTest()
-}
-
 // TestOptionalCompositeInnerError covers the err path in optionalGenerator.draw
 // composite branch when inner.draw returns an error (Filter exhausts retries).
 // The composite path picks idx=0 or idx=1 with equal probability, so with

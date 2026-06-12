@@ -230,11 +230,6 @@ func TestListsNestedE2E(t *testing.T) {
 
 // TestListsPropagatesElementErrorE2E verifies that when the element generator
 // returns an error, Lists.draw propagates it through its err-check path.
-//
-// A Filter with an always-false predicate exhausts maxFilterAttempts on
-// every Draw and returns assumeRejected; MinSize=1 forces Lists into the
-// non-basic path and guarantees at least one elements.draw call where the
-// error is observed.
 func TestListsPropagatesElementErrorE2E(t *testing.T) {
 	t.Parallel()
 

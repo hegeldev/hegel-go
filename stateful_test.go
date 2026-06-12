@@ -1,7 +1,9 @@
 package hegel
 
 import (
+	"bytes"
 	"fmt"
+	"strings"
 	"testing"
 )
 
@@ -191,46 +193,28 @@ func TestRunStatefulAssumeRejectionRetries(t *testing.T) {
 
 func TestRunStatefulRulePanicPropagates(t *testing.T) {
 	t.Parallel()
+	var buf bytes.Buffer
 	err := run(func(tc TestCase) {
 		RunStateful(tc, &rulePanicker{})
-	})
-	assertErrorContains(t, "rule panic propagated", err)
-}
-
-// TestStatefulInitialInvariantConnectionError covers the err-from-callInvariant
-// path inside stateMachine.Run's initial-invariant loop. With the underlying
-// conn closed, the very first withSpan(labelStateful) startSpan request fails,
-// propagating up through callInvariant and panicking out of Run.
-func TestStatefulInitialInvariantConnectionError(t *testing.T) {
-	t.Parallel()
-	s, c := socketPair(t)
-	conn := newConnection(s, s, "C")
-	c.Close()
-	conn.state = stateClient
-	st := &stream{conn: conn, streamID: 1, inbox: make(chan any, 1), nextMessageID: 1}
-	conn.streams[1] = st
-	s.Close()
-
-	state := &testCase{stream: st}
-	sm, err := newStateMachine(&goodCounter{})
-	if err != nil {
-		t.Fatalf("newStateMachine: %v", err)
+	}, withOutput(&buf))
+	if err == nil {
+		t.Fatal("Expected error")
 	}
-
-	var caught any
-	func() {
-		defer func() { caught = recover() }()
-		sm.Run(state)
-	}()
-	if caught == nil {
-		t.Fatal("expected panic from sm.Run on connection error")
+	if !strings.Contains(buf.String(), "rule panic propagated") {
+		t.Fatalf("Expected rule panic propagated in output, got %q", buf.String())
 	}
 }
 
 func TestRunStatefulInvariantViolationFails(t *testing.T) {
 	t.Parallel()
+	var buf bytes.Buffer
 	err := run(func(tc TestCase) {
 		RunStateful(tc, &invariantViolator{})
-	}, WithTestCases(10))
-	assertErrorContains(t, "counter reached", err)
+	}, WithTestCases(10), withOutput(&buf))
+	if err == nil {
+		t.Fatal("Expected error")
+	}
+	if !strings.Contains(buf.String(), "counter reached") {
+		t.Fatalf("Expected counter reached in output, got %q", buf.String())
+	}
 }

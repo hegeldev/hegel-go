@@ -236,7 +236,7 @@ func TestCompositeShrinksToFailingCase(t *testing.T) {
 		p := Draw(s, pairGen)
 		if p.a+p.b >= 100 {
 			minimalA, minimalB = p.a, p.b
-			panic(fatalSentinel{msg: "property violated"})
+			s.FailNow()
 		}
 	}, WithTestCases(200))
 	if err == nil {

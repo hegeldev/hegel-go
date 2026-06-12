@@ -2,6 +2,8 @@ package hegel
 
 import (
 	"net/netip"
+
+	"hegel.dev/go/hegel/internal/libhegel"
 )
 
 // --- OneOf generator ---
@@ -58,9 +60,9 @@ func (g *oneOfGenerator[T]) draw(tc TestCase) (T, error) {
 	if ok {
 		return bg.draw(tc)
 	}
-	return withSpan(tc, labelOneOf, func() (T, error) {
+	return withSpan(tc, libhegel.LABEL_ONE_OF, func() (T, error) {
 		n := len(g.generators)
-		idx, err := tc.generateFromSchema(map[string]any{
+		idx, err := tc.generate(map[string]any{
 			"type":      "integer",
 			"min_value": int64(0),
 			"max_value": int64(n - 1),
@@ -142,8 +144,8 @@ func (g *optionalGenerator[T]) draw(tc TestCase) (*T, error) {
 	if ok {
 		return bg.draw(tc)
 	}
-	return withSpan(tc, labelOneOf, func() (*T, error) {
-		idx, err := tc.generateFromSchema(map[string]any{
+	return withSpan(tc, libhegel.LABEL_ONE_OF, func() (*T, error) {
+		idx, err := tc.generate(map[string]any{
 			"type":      "integer",
 			"min_value": int64(0),
 			"max_value": int64(1),

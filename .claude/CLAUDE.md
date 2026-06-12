@@ -3,51 +3,43 @@
 ## Build Commands
 
 ```bash
+just build-libhegel     # Build libhegel.{so,dylib} in the sibling hegel-rust checkout
 just test               # Run tests with coverage (fails if coverage < 100%)
 just format             # Auto-format code
 just lint               # Check formatting + linting
 just docs               # Build API documentation
 just check              # Run lint + check-docs + test (full CI check)
-just build-conformance  # Compile conformance binaries to bin/conformance/
-just conformance        # Build conformance binaries + run Python conformance test suite
 go test -run TestName ./...  # Run a single test
 ```
 
 ## What This Is
 
 A Go implementation of the Hegel property-based testing library. Hegel is a
-universal property-based testing protocol powered by Hypothesis on the backend.
-Client libraries communicate with the `hegel` binary (a Python server) via Unix sockets using
-a custom binary protocol.
+universal property-based testing protocol whose native engine ships as a Rust
+shared library, `libhegel` (built from
+[hegel-rust](https://github.com/hegeldev/hegel-rust)'s `hegel-c` crate).
+hegel-go calls into libhegel directly via FFI using
+[`github.com/ebitengine/purego`](https://github.com/ebitengine/purego).
 
 ## Architecture
 
 The library is structured in layers, each building on the previous:
 
-1. **Protocol Layer** — Binary wire protocol with 20-byte header, CBOR payload, CRC32
-2. **Connection & Streams** — Unix socket multiplexing with demand-driven reader
-3. **Test Runner** — Spawns `hegel` subprocess, manages test lifecycle
-4. **Generators** — Type-safe generator abstraction, span system, collection protocol
-5. **Conformance** — Test binaries that validate library correctness against the framework
+1. **FFI loader** (`internal/libhegel`) — purego-based dlopen of `libhegel.{so,dylib}`,
+   one `*libhegel.Handle` struct with a `func`-typed field per C symbol, path
+   resolution via `HEGEL_LIBHEGEL_PATH` env var or sibling-checkout defaults.
+2. **Test runner** (`runner.go`) — `testCase` implements
+   `TestCase` by routing every operation (generate, span, target, collection,
+   mark_complete) to one libhegel C call.
+3. **Generators** (`generators.go`, `primitives.go`, `collections.go`,
+   `combinators.go`, `composite.go`) — type-safe generator abstraction, span
+   system, collection protocol. Generators take a `TestCase` and produce
+   typed values; they never touch libhegel directly.
 
-### Key Pattern: Demand-Driven Reader
-
-The Connection uses a demand-driven model: when a Stream needs a message, it
-acquires a reader lock and reads packets from the socket until its inbox has data.
-No background threads — reading is triggered by the consumer that needs data.
-
-### Key Pattern: Thread-Local Stream State
-
-The current data stream is stored in thread-local (or context-var) state so that
-generator functions (`generate()`, `assume()`, `note()`, `target()`) don't need a
-stream parameter. The test runner sets the current stream before calling the test
-body.
-
-### Key Pattern: Global Lazy Session
-
-The `hegel` subprocess is managed by a global session that starts lazily on first
-use and shuts down automatically on process exit. Users never construct connections
-or sessions manually — `Test`, `Run`, and `MustRun` are plain free functions.
+A conformance suite that validates generator output against the protocol is
+on the roadmap — the previous Python-server pytest harness was removed in
+the libhegel transition and needs to be replaced with one that doesn't
+depend on a server emitting per-test-case status.
 
 ## Public API
 
@@ -62,58 +54,36 @@ The user-facing surface lives in `hegel.go` (canonical package doc). Entry point
 - Generators: `Integers`, `Floats`, `Text`, `Booleans`, `Lists`, `Maps`, ...
 - Options: `WithTestCases(n)`, `WithDatabase(Database(path))`,
   `WithDatabase(DatabaseDisabled())`, `WithDerandomize(bool)`, `WithSeed(n)`,
-  `SuppressHealthCheck(...)`
-- Low-level: the unexported `runHegel` is what `Test`, `Run`, and `MustRun`
-  delegate to; useful in error-injection tests via direct call
+  `SuppressHealthCheck(...)`, `WithSingleTestCase()`
 
 ## Testing Philosophy
 
-- **100% code coverage** is mandatory. `just check` fails if any line is uncovered.
-  Use `HEGEL_PROTOCOL_TEST_MODE` (see below) to cover error paths — prefer writing
-  real tests over adding `// coverage-ignore` annotations. The annotation count is
-  ratcheted and cannot increase without justification.
-- **Use the real `hegel` binary** for integration tests. Never write a mock server.
-  The real binary runs as a subprocess, so there is zero threading contention.
-  In-process mocks with threads cause deadlocks — they have wasted hundreds of
-  agent turns in previous library generations.
-- **Socket pairs** (`socketpair()`) for unit testing Connection/Stream in isolation.
+- **100% per-file code coverage** is mandatory. `just check` fails if any
+  file is uncovered. Use `// coverage-ignore` only for genuinely untestable
+  code (e.g. platform-specific branches, fixed-shape CBOR encode that can't
+  fail). The annotation count is ratcheted in
+  `.github/coverage-ratchet.json` and cannot increase without justification.
+- **Function-pointer stubs** are the primary way to cover libhegel error
+  paths.
+- **Use the real libhegel** for integration tests.
 
-### HEGEL_PROTOCOL_TEST_MODE — Error Injection
+## Locating libhegel
 
-Set the `HEGEL_PROTOCOL_TEST_MODE` environment variable before calling `Run` (or
-`runHegel` directly in tests) to trigger server-side error injection:
+The library is resolved in this order; first hit wins:
 
-| Mode                          | What it does                                      |
-|-------------------------------|---------------------------------------------------|
-| `stop_test_on_generate`       | StopTest on 1st generate of 2nd test case         |
-| `stop_test_on_mark_complete`  | StopTest in response to mark_complete             |
-| `stop_test_on_collection_more`| StopTest during collection_more                   |
-| `stop_test_on_new_collection` | StopTest during new_collection                    |
-| `error_response`              | RequestError on first generate                    |
-| `empty_test`                  | test_done immediately, no test cases run          |
+1. `$HEGEL_LIBHEGEL_PATH` if set (no fallback if it fails to open)
+2. `<projectRoot>/../hegel-rust/target/release/libhegel.<ext>`
+3. `<projectRoot>/../hegel-rust/target/debug/libhegel.<ext>`
 
-## Critical: StopTest Handling
-
-When the server sends StopTest, the client MUST:
-1. Raise a language-specific exception (DataExhausted/StopTest) to unwind the test body
-2. NOT send `mark_complete` after receiving StopTest
-3. Track a per-test-case `test_aborted` flag to suppress further commands
-
-Failing to handle StopTest correctly causes `FlakyStrategyDefinition` errors.
-
-## Wire Protocol
-
-- **Header**: 5 big-endian uint32: `magic(0x4845474C)`, `CRC32`, `stream_id`,
-  `message_id`, `payload_length`
-- **Payload**: CBOR-encoded bytes
-- **Terminator**: single byte `0x0A`
-- **Reply bit**: `message_id | (1 << 31)` marks a message as a reply
-- **Client stream IDs**: odd — allocated as `(counter << 1) | 1`
-- **CRC32**: computed over the full 20-byte header (checksum field zeroed) + payload
+`<ext>` is `so` on Linux, `dylib` on macOS. End users will eventually get an
+auto-downloader from GitHub releases; for now, build libhegel locally via
+`just build-libhegel`, which delegates to `cargo build --release -p hegeltest-c`
+in the sibling `hegel-rust/` checkout.
 
 ## Tooling Choices
 
 - **Go version**: the oldest version supported by go.dev (1.N-1); CI tests 1.N and 1.N-1
+- **FFI**: `github.com/ebitengine/purego` — runtime dlopen, no cgo
 - **Test framework**: `testing` (Go stdlib) — run via `go test -race -coverprofile=coverage.out -covermode=atomic ./...`
 - **Linter**: `go vet` (stdlib) + `staticcheck` v0.7.0 (2026.1) — run via `just lint`
 - **Formatter**: `gofmt` (bundled with Go) — check with `gofmt -l .`, apply with `gofmt -w .`
@@ -124,7 +94,7 @@ Failing to handle StopTest correctly causes `FlakyStrategyDefinition` errors.
 
 - **Module path**: `hegel.dev/go/hegel`
 - **Package name**: `hegel` — single package for the library, users import `hegel.dev/go/hegel`
-- **File naming**: lowercase, multi-word files use underscores (e.g., `project_root.go`, `log_excerpt.go`)
+- **File naming**: lowercase, multi-word files use underscores (e.g., `project_root.go`)
 - **Test files**: `*_test.go` in the same package (white-box testing for coverage)
 - **Exported symbols**: PascalCase per Go convention
 - **Unexported symbols**: camelCase per Go convention
@@ -138,11 +108,12 @@ Failing to handle StopTest correctly causes `FlakyStrategyDefinition` errors.
 
 - Positive integers decode as `uint64`, negative as `int64` when decoding to `any`. You MUST handle both in type switches.
 - `float32` decodes as `float64` from CBOR wire format. The `float32` branch is only reachable if passed directly.
+- libhegel uses `ciborium` on the Rust side. Both should round-trip cleanly; verify with new generators by exercising them in conformance.
 
-### net.Pipe() in tests
+### purego pitfalls
 
-- `net.Pipe()` is synchronous (unbuffered) — always write in a goroutine to avoid deadlocks.
-- Returns `io.ErrClosedPipe` (not `io.EOF`) when the other end closes.
+- Functions returning `const char*` should be typed `func() string` (not `*byte` or `uintptr`).
+- C string arguments are passed as `string`. purego ensures that the memory is managed correctly.
 
 ### Coverage enforcement
 
@@ -151,23 +122,6 @@ Failing to handle StopTest correctly causes `FlakyStrategyDefinition` errors.
 - A ratchet in `.github/coverage-ratchet.json` tracks the annotation count and prevents growth. The ratchet auto-tightens when annotations are removed.
 - Use `-coverpkg=hegel.dev/go/hegel` to restrict coverage to the library package (excludes `cmd/` and `examples/`).
 
-### Test isolation with HEGEL_PROTOCOL_TEST_MODE
-
-- Test-mode hegel handles exactly ONE `run_test` then exits. `Run` creates a fresh temporary session when this env var is set.
-- Test-mode sessions suppress stderr to avoid Python tracebacks in test output.
-
-### Protocol field names
-
-- The `run_test` command and server responses use `"stream_id"` for the test stream ID.
-- Always cross-check field names against the published hegel-core server.
-
-### Conformance layout
-
-- `internal/conformance/cmd/test_*/main.go` — one Go test binary per generator family (integers, floats, text, lists, maps, oneof, sampled_from, booleans, binary)
-- `tests/conformance/` — Python pytest harness that runs the binaries
-- `bin/conformance/` — build output from `just build-conformance` (gitignored)
-- `just conformance` builds the binaries then runs the Python suite via `uv`
-
 ### Generator optimization
 
 - `BasicGenerator.Map()` returns a new `*BasicGenerator` with the same schema and a composed transform — only one `generate` command regardless of chained `.Map()` calls.
@@ -175,10 +129,10 @@ Failing to handle StopTest correctly causes `FlakyStrategyDefinition` errors.
 
 ### OneOf code paths
 
-- All basic: a flat `{"type": "one_of", "generators": [...]}` schema. The server
+- All basic: a flat `{"type": "one_of", "generators": [...]}` schema. libhegel
   returns `[index, value]` and the synthesized parse fn dispatches to the
   matching per-branch parse using `index`. No tagged-tuple wrapping.
 - Any non-basic: falls back to `oneOfGenerator.draw`, which generates an index
-  via `generateFromSchema` (an integer in `[0, n-1]`) and recursively draws
+  via `tc.generate(schema)` (an integer in `[0, n-1]`) and recursively draws
   from the chosen branch under a span. The same shape applies to `Optional`,
   whose schema is a 2-branch one_of (null vs. inner value).

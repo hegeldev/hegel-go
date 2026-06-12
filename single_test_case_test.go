@@ -66,34 +66,6 @@ func TestSingleTestCaseRunsExactlyOnce(t *testing.T) {
 	}
 }
 
-func TestSingleTestCaseFailureSurfaces(t *testing.T) {
-	t.Parallel()
-	err := run(func(TestCase) {
-		panic("intentional failure")
-	}, WithSingleTestCase())
-	if err == nil {
-		t.Fatal("expected error from failing single test case")
-	}
-	if !strings.Contains(err.Error(), "intentional failure") {
-		t.Errorf("expected error to mention panic message, got: %v", err)
-	}
-}
-
-func TestSingleTestCaseNoteIsVisible(t *testing.T) {
-	t.Parallel()
-	const marker = "hello from single test case"
-	var buf bytes.Buffer
-	err := run(func(s TestCase) {
-		s.Note(marker)
-	}, WithSingleTestCase(), withOutput(&buf))
-	if err != nil {
-		t.Fatalf("runHegel: %v", err)
-	}
-	if !strings.Contains(buf.String(), marker) {
-		t.Errorf("expected note %q in output, got %q", marker, buf.String())
-	}
-}
-
 func TestSingleTestCasePermissiveOptions(t *testing.T) {
 	t.Parallel()
 	// Combining WithSingleTestCase with other options is permissive — the
@@ -127,34 +99,20 @@ func (m *unboundedMachine) InvariantBounded(_ TestCase) {
 
 func TestSingleTestCaseStatefulRunsBeyondDefaultCap(t *testing.T) {
 	t.Parallel()
+	var buf bytes.Buffer
 	m := &unboundedMachine{}
 	err := run(func(s TestCase) {
 		RunStateful(s, m)
-	}, WithSingleTestCase())
+	}, WithSingleTestCase(), withOutput(&buf))
 	if err == nil {
 		t.Fatalf("expected invariant to fail; counter reached %d", m.n)
 	}
 	if m.n <= statefulMaxSteps {
 		t.Errorf("expected >%d steps, got %d (cap not lifted?)", statefulMaxSteps, m.n)
 	}
-	if !strings.Contains(err.Error(), "counter reached") {
-		t.Errorf("expected invariant panic in error, got: %v", err)
+	if !strings.Contains(buf.String(), "counter reached") {
+		t.Errorf("expected invariant panic in output, got: %q", buf.String())
 	}
-}
-
-// --- runTest in single-test-case mode: SendControlRequest error (closed connection) ---
-
-func TestRunSingleTestCaseSendControlRequestError(t *testing.T) {
-	t.Parallel()
-	conn, remote := clientConnPair(t)
-	remote.Close()
-
-	cl := newClient(conn)
-	err := cl.runTest(func(_ TestCase) {}, runOptions{singleTestCase: true})
-	if err == nil {
-		t.Fatal("expected error from single_test_case send on closed conn")
-	}
-	mustContainStr(t, err.Error(), "single_test_case send")
 }
 
 // --- Workload --single-test-case ---
