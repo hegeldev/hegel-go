@@ -1,7 +1,6 @@
 package hegel
 
 import (
-	"errors"
 	"fmt"
 	"math"
 	"reflect"
@@ -96,7 +95,7 @@ func (sm *stateMachine) Run(tc TestCase) {
 	tc.Note("Initial invariant check.")
 	for _, inv := range sm.invariants {
 		if err := callInvariant(tc, inv.fn); err != nil {
-			panic(err)
+			tc.abort(err)
 		}
 	}
 
@@ -124,7 +123,7 @@ func (sm *stateMachine) Run(tc TestCase) {
 
 		ok, err := callRule(tc, rule.fn)
 		if err != nil { // coverage-ignore
-			panic(err)
+			tc.abort(err)
 		}
 		stepsAttempted++
 		if !ok {
@@ -133,7 +132,7 @@ func (sm *stateMachine) Run(tc TestCase) {
 		stepsSucceeded++
 		for _, inv := range sm.invariants {
 			if err := callInvariant(tc, inv.fn); err != nil { // coverage-ignore
-				panic(err)
+				tc.abort(err)
 			}
 		}
 	}
@@ -154,17 +153,17 @@ func callInvariant(tc TestCase, fn func(TestCase)) error {
 // It returns true if fn ran to completion, false if it rejected via
 // Assume. Other panics propagate to the caller.
 func callRule(tc TestCase, fn func(TestCase)) (bool, error) {
-	return withSpan(tc, libhegel.LABEL_STATEFUL, func() (ok bool, err error) {
+	return withSpan(tc, libhegel.LABEL_STATEFUL, func() (bool, error) {
 		defer func() {
-			r := recover()
-			if r == nil {
-				return
+			if tc.getStatus() == libhegel.STATUS_INVALID {
+				tc.setStatus(libhegel.STATUS_VALID)
 			}
-			if sc, ok := r.(shortCircuit); ok && errors.Is(sc.err, libhegel.E_ASSUME) {
-				return
+
+			if tc.getStatus() != libhegel.STATUS_VALID {
+				tc.abort(nil)
 			}
-			panic(r)
 		}()
+		defer tc.recoverAbort()
 		fn(tc)
 		return true, nil
 	})

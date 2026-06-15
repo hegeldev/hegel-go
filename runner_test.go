@@ -1,9 +1,7 @@
 package hegel
 
 import (
-	"bytes"
 	"errors"
-	"fmt"
 	"strings"
 	"sync"
 	"sync/atomic"
@@ -25,23 +23,6 @@ func TestRunHegelTestPasses(t *testing.T) {
 	}, WithTestCases(5))
 	if !called {
 		t.Error("test function was never called")
-	}
-}
-
-func TestRunHegelTestFails(t *testing.T) {
-	t.Parallel()
-	var buf bytes.Buffer
-	err := run(func(tc TestCase) {
-		x := Draw[int](tc, Integers[int](0, 100))
-		if x >= 0 {
-			panic(fmt.Sprintf("assertion failed: %d >= 0", x))
-		}
-	}, WithTestCases(1), WithDatabase(DatabaseDisabled()), withOutput(&buf))
-	if err == nil {
-		t.Fatal("expected failure")
-	}
-	if out := buf.String(); !strings.Contains(out, "assertion failed") {
-		t.Errorf("expected output to mention assertion; got %q", out)
 	}
 }
 
@@ -124,7 +105,10 @@ func TestRunHegelTestSingleCase(t *testing.T) {
 
 // --- MustRun: panics on error ---
 
-func TestMustRunPanicsOnError(t *testing.T) {
+// TestMustRunPanicsOnUserPanic covers the exploratory-case recover path in
+// driveOneCase: a user panic on a non-final case is recovered into an
+// INTERESTING status (the final replay then re-panics, which MustRun surfaces).
+func TestMustRunPanicsOnUserPanic(t *testing.T) {
 	t.Parallel()
 	defer func() {
 		if r := recover(); r == nil {
@@ -133,6 +117,21 @@ func TestMustRunPanicsOnError(t *testing.T) {
 	}()
 	MustRun(func(tc TestCase) {
 		panic("nope")
+	}, WithTestCases(2), WithDatabase(DatabaseDisabled()))
+}
+
+// TestMustRunPanicsOnReturnedError covers MustRun's panic(err) branch: failing
+// via Fail (rather than panicking) makes the property surface as a returned
+// error from Run, which MustRun re-panics.
+func TestMustRunPanicsOnReturnedError(t *testing.T) {
+	t.Parallel()
+	defer func() {
+		if r := recover(); r == nil {
+			t.Error("expected MustRun to panic on returned error")
+		}
+	}()
+	MustRun(func(tc TestCase) {
+		tc.Fail()
 	}, WithTestCases(2), WithDatabase(DatabaseDisabled()))
 }
 
@@ -264,26 +263,6 @@ func TestExtractPanicOriginStableAcrossValues(t *testing.T) {
 	b := findExternalCaller()
 	if a != b {
 		t.Errorf("origin must be stable; got %q vs %q", a, b)
-	}
-}
-
-// TestRunHegelTestFailsSurfacesPanicMessage verifies that a panicked test
-// surfaces the panic value back through Run's returned error. The value
-// flows via the panicByOrigin capture in runProperty, not through the
-// origin field (which has to stay stable for shrinker grouping).
-func TestRunHegelTestFailsSurfacesPanicMessage(t *testing.T) {
-	t.Parallel()
-	var buf bytes.Buffer
-	err := run(func(tc TestCase) {
-		x := Draw[int](tc, Integers[int](0, 100))
-		_ = x
-		panic("BOOM-marker")
-	}, WithTestCases(2), WithDatabase(DatabaseDisabled()), withOutput(&buf))
-	if err == nil {
-		t.Fatal("expected failure from panic")
-	}
-	if !strings.Contains(buf.String(), "BOOM-marker") {
-		t.Errorf("expected output to include panic value; got %q", err)
 	}
 }
 
@@ -496,29 +475,48 @@ func TestRunWithHandleFailureError(t *testing.T) {
 	}
 }
 
+// TestBuildSettingsExercisesAllSetters drives a clean (no-test-case) run with
+// rich options so buildSettings invokes every conditionally-applied settings
+// setter: Mode, TestCases, Seed, Database, DatabaseKey and SuppressHealthCheck.
+func TestBuildSettingsExercisesAllSetters(t *testing.T) {
+	t.Parallel()
+	lib := libhegel.Stub(
+		uintptr(1),     // settings_new
+		uintptr(1),     // run_start
+		uintptr(0), "", // next_test_case NULL => run finished
+		uintptr(1), // run_result
+		true,       // passed
+	)
+	seed := int64(7)
+	opts := runOptions{
+		testCases:           5,
+		seed:                &seed,
+		singleTestCase:      true,
+		database:            Database("/tmp/does-not-matter.db"),
+		databaseKey:         "TestBuildSettingsExercisesAllSetters",
+		suppressHealthCheck: []HealthCheck{FilterTooMuch},
+	}
+	if err := runWithHandle(lib, func(TestCase) {}, opts); err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+}
+
 func TestRunWithHandleTargetPanic(t *testing.T) {
 	t.Parallel()
-	var buf bytes.Buffer
 	lib := libhegel.Stub(
 		uintptr(1),
 		uintptr(1),
 		uintptr(1),         // one case
-		true,               // is_final_replay => output enabled
+		true,               // is_final_replay => user panics are not recovered
 		libhegel.E_BACKEND, // target fails
-		libhegel.OK,        // mark_complete
-		uintptr(0), "",     // run finished
-		uintptr(1),
-		true, // passed
 	)
-	err := runWithHandle(lib, func(tc TestCase) {
+	// On the final replay skipUserPanic lets the panic propagate out of
+	// runWithHandle (so the Go runtime prints it for debuggers); it is not
+	// recovered into a status or error. expectErrorPanic asserts it escapes.
+	defer expectErrorPanic(t, libhegel.E_BACKEND)
+	runWithHandle(lib, func(tc TestCase) {
 		tc.Target(1.0, "x")
-	}, runOptions{output: &buf})
-	if err != nil {
-		t.Fatalf("unexpected error: %v", err)
-	}
-	if !strings.Contains(buf.String(), "panic:") {
-		t.Errorf("expected recovered panic to be reported, got %q", buf.String())
-	}
+	}, runOptions{})
 }
 
 // stubOpCase drives a single test case whose body calls fn against the
@@ -581,18 +579,29 @@ func TestRunWithHandleUnrecognizedShortCircuit(t *testing.T) {
 		uintptr(1),
 		uintptr(1),
 		uintptr(1),
-		false, // is_final_replay
+		true, // is_final_replay
 	)
-	defer func() {
-		r := recover()
-		s, ok := r.(string)
-		if !ok || !strings.Contains(s, "unrecognized short circuit") {
-			t.Fatalf("expected unrecognized-short-circuit re-panic, got %v", r)
-		}
-	}()
-	runWithHandle(lib, func(TestCase) {
-		panic(shortCircuit{errors.New("weird")})
+	var sentinel = errors.New("weird")
+	defer expectErrorPanic(t, sentinel)
+	runWithHandle(lib, func(tc TestCase) {
+		tc.abort(sentinel)
 	}, runOptions{})
+}
+
+// TestAbortDoesNotDowngradeInteresting covers the guard in abort that refuses
+// to lower an already-INTERESTING status: an Assume rejection (E_ASSUME =>
+// INVALID) on an interesting case is a no-op and does not panic.
+func TestAbortDoesNotDowngradeInteresting(t *testing.T) {
+	t.Parallel()
+	tc := newStubTestCase()
+	tc.setStatus(libhegel.STATUS_INTERESTING)
+	tc.abort(libhegel.E_ASSUME) // INVALID < INTERESTING => returns without aborting
+	if tc.getStatus() != libhegel.STATUS_INTERESTING {
+		t.Fatalf("status downgraded to %v", tc.getStatus())
+	}
+	if tc.aborted {
+		t.Fatal("expected case not to be marked aborted")
+	}
 }
 
 // --- Draw error injection (via newStubTestCase) ---
@@ -608,30 +617,30 @@ func (g errGen[T]) draw(TestCase) (T, error) { var z T; return z, g.err }
 //lint:ignore U1000 satisfies Generator interface; staticcheck misses generic dispatch
 func (g errGen[T]) asBasic() (*basicGenerator[T], bool, error) { return nil, false, nil }
 
-// expectShortCircuit is deferred to recover a Draw panic and assert its error.
-func expectShortCircuit(t *testing.T, want error) {
+// expectErrorPanic is deferred to recover a Draw panic and assert its error.
+func expectErrorPanic(t *testing.T, want error) {
 	t.Helper()
 	r := recover()
-	sc, ok := r.(shortCircuit)
+	err, ok := r.(error)
 	if !ok {
-		t.Fatalf("expected shortCircuit panic, got %v", r)
+		t.Fatalf("expected error panic, got %v", r)
 	}
-	if !errors.Is(sc.err, want) {
-		t.Errorf("shortCircuit err = %v, want %v", sc.err, want)
+	if !errors.Is(err, want) {
+		t.Errorf("err = %v, want %v", err, want)
 	}
 }
 
 func TestDrawPanicsOnGenerateError(t *testing.T) {
 	t.Parallel()
 	tc := newStubTestCase(libhegel.E_BACKEND) // generate fails
-	defer expectShortCircuit(t, libhegel.E_BACKEND)
+	defer expectErrorPanic(t, libhegel.E_BACKEND)
 	Draw[int](tc, Integers[int](0, 10))
 }
 
 func TestDrawListStartSpanError(t *testing.T) {
 	t.Parallel()
 	tc := newStubTestCase(libhegel.E_BACKEND) // start_span fails
-	defer expectShortCircuit(t, libhegel.E_BACKEND)
+	defer expectErrorPanic(t, libhegel.E_BACKEND)
 	Draw[[]int](tc, Lists[int](errGen[int]{}))
 }
 
@@ -641,7 +650,7 @@ func TestDrawListNewCollectionError(t *testing.T) {
 		libhegel.OK,        // start_span
 		libhegel.E_BACKEND, // new_collection fails
 	)
-	defer expectShortCircuit(t, libhegel.E_BACKEND)
+	defer expectErrorPanic(t, libhegel.E_BACKEND)
 	Draw[[]int](tc, Lists[int](errGen[int]{}))
 }
 
@@ -652,7 +661,7 @@ func TestDrawListCollectionMoreError(t *testing.T) {
 		libhegel.OK,        // new_collection
 		libhegel.E_BACKEND, // collection_more fails => coll.Err()
 	)
-	defer expectShortCircuit(t, libhegel.E_BACKEND)
+	defer expectErrorPanic(t, libhegel.E_BACKEND)
 	Draw[[]int](tc, Lists[int](errGen[int]{}))
 }
 
@@ -662,7 +671,7 @@ func TestDrawMapNewCollectionError(t *testing.T) {
 		libhegel.OK,        // start_span (LABEL_MAP)
 		libhegel.E_BACKEND, // new_collection fails
 	)
-	defer expectShortCircuit(t, libhegel.E_BACKEND)
+	defer expectErrorPanic(t, libhegel.E_BACKEND)
 	Draw[map[int]int](tc, Maps[int, int](errGen[int]{}, errGen[int]{}))
 }
 
@@ -696,7 +705,7 @@ func TestDrawMapBasic(t *testing.T) {
 func TestDrawFilterStartSpanError(t *testing.T) {
 	t.Parallel()
 	tc := newStubTestCase(libhegel.E_BACKEND) // start_span(FILTER) fails
-	defer expectShortCircuit(t, libhegel.E_BACKEND)
+	defer expectErrorPanic(t, libhegel.E_BACKEND)
 	Draw[int](tc, &filteredGenerator[int]{
 		source:    Integers[int](0, 10),
 		predicate: func(int) bool { return true },

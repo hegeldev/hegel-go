@@ -56,6 +56,22 @@ type TestCase interface {
 	// under [WithSingleTestCase]).
 	Log(args ...any)
 
+	// Abort the current test case and update status.
+	//
+	// Passing nil for err is valid and aborts without changing state.
+	abort(err error)
+
+	// Recover from a previous call to abort.
+	//
+	// Must be a deferred call.
+	recoverAbort()
+
+	// Get the current status.
+	getStatus() libhegel.Status
+
+	// Set the current status.
+	setStatus(status libhegel.Status)
+
 	// generate requests a value from the engine for schema. The schema is a
 	// JSON-shaped map (CBOR-encoded on the wire to libhegel). Returns the
 	// decoded value or a sentinel error on abort.
@@ -98,7 +114,7 @@ func Draw[T any](tc TestCase, g Generator[T]) T {
 	}
 	v, err := g.draw(tc)
 	if err != nil {
-		panic(shortCircuit{err})
+		tc.abort(err)
 	}
 	// Nested draws are reported as part of the parent's value.
 	if !tc.inSpan() {

@@ -38,8 +38,8 @@ func TestDatabasePersistsFailingExamples(t *testing.T) {
 		t.Fatal("expected empty database directory before the run")
 	}
 
-	err = run(func(_ TestCase) {
-		panic("")
+	err = run(func(tc TestCase) {
+		tc.Fail()
 	},
 		WithDatabase(Database(dbDir)),
 		withDatabaseKey("test_database_persists"),
@@ -102,7 +102,7 @@ func TestReplay1(t *testing.T) {
 		n := hegel.Draw[int64](ht, hegel.Integers[int64](math.MinInt64, math.MaxInt64))
 		recordTestCase("TestReplay1", n)
 		if n >= 1_000_000 {
-			panic(fmt.Sprintf("n=%%d", n))
+			ht.Fatalf("n=%%d", n)
 		}
 	}, hegel.WithDatabase(hegel.Database(%q)))
 }
@@ -112,7 +112,7 @@ func TestReplay2(t *testing.T) {
 		n := hegel.Draw[int64](ht, hegel.Integers[int64](math.MinInt64, math.MaxInt64))
 		recordTestCase("TestReplay2", n)
 		if n >= 1_000_000 {
-			panic(fmt.Sprintf("n=%%d", n))
+			ht.Fatalf("n=%%d", n)
 		}
 	}, hegel.WithDatabase(hegel.Database(%q)))
 }

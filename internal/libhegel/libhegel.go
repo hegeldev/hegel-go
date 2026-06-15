@@ -375,7 +375,7 @@ func (s *Settings) TestCases(n uint64) {
 	s.lib.settingsTestCases(s.ptr, n)
 }
 
-func (s *Settings) Verbosity(v Verbosity) { // coverage-ignore (exposed for completeness; not yet wired into the runner)
+func (s *Settings) Verbosity(v Verbosity) {
 	s.lib.settingsVerbosity(s.ptr, v)
 }
 
@@ -387,7 +387,7 @@ func (s *Settings) Derandomize(on bool) {
 	s.lib.settingsDerandomize(s.ptr, on)
 }
 
-func (s *Settings) ReportMultipleFailures(yes bool) { // coverage-ignore (exposed for completeness; not yet wired into the runner)
+func (s *Settings) ReportMultipleFailures(yes bool) {
 	s.lib.settingsReportMultiFail(s.ptr, yes)
 }
 
@@ -399,7 +399,7 @@ func (s *Settings) DatabaseKey(key string) {
 	s.lib.settingsDatabaseKey(s.ptr, key)
 }
 
-func (s *Settings) Phases(p Phase) { // coverage-ignore (exposed for completeness; not yet wired into the runner)
+func (s *Settings) Phases(p Phase) {
 	s.lib.settingsPhases(s.ptr, p)
 }
 
