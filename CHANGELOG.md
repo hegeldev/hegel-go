@@ -1,5 +1,9 @@
 # Changelog
 
+## 0.6.1 - 2026-06-15
+
+Overhaul panic handling to improve the experience when debugging hegel tests.
+
 ## 0.6.0 - 2026-06-12
 
 This release replaces the Python-server backend with a direct FFI binding to libhegel, the native Rust engine shipped by [hegel-rust](https://github.com/hegeldev/hegel-rust).
