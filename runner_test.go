@@ -444,10 +444,10 @@ func TestRunWithHandleCollectFailures(t *testing.T) {
 		uintptr(1),
 		uintptr(0), "", // run finished
 		uintptr(1),
-		false,            // result not passed
-		uint64(1),        // one failure
-		uintptr(1),       // failure handle
-		"prop_test.go:7", // failure origin
+		libhegel.RUN_STATUS_FAILED, // result status: failed
+		uint64(1),                  // one failure
+		uintptr(1),                 // failure handle
+		"prop_test.go:7",           // failure origin
 	)
 	err := runWithHandle(lib, func(TestCase) {}, runOptions{})
 	if err == nil {
@@ -465,13 +465,32 @@ func TestRunWithHandleFailureError(t *testing.T) {
 		uintptr(1),
 		uintptr(0), "",
 		uintptr(1),
-		false,                      // not passed
+		libhegel.RUN_STATUS_FAILED, // not passed
 		uint64(1),                  // one failure
 		uintptr(0), "failure boom", // failure handle NULL
 	)
 	err := runWithHandle(lib, func(TestCase) {}, runOptions{})
 	if err == nil || !strings.Contains(err.Error(), "failure boom") {
 		t.Fatalf("expected failure-fetch error, got %v", err)
+	}
+}
+
+func TestRunWithHandleRunError(t *testing.T) {
+	t.Parallel()
+	lib := libhegel.Stub(
+		uintptr(1),
+		uintptr(1),
+		uintptr(0), "", // run finished
+		uintptr(1),
+		libhegel.RUN_STATUS_ERROR, // run errored (e.g. failed health check)
+		"FailedHealthCheck: FilterTooMuch — …", // run-level error message
+	)
+	err := runWithHandle(lib, func(TestCase) {}, runOptions{})
+	if err == nil {
+		t.Fatal("expected run-error error")
+	}
+	if !errors.Is(err, errPropTestFailed) || !strings.Contains(err.Error(), "FilterTooMuch") {
+		t.Fatalf("expected run-level error message, got %v", err)
 	}
 }
 
@@ -484,8 +503,8 @@ func TestBuildSettingsExercisesAllSetters(t *testing.T) {
 		uintptr(1),     // settings_new
 		uintptr(1),     // run_start
 		uintptr(0), "", // next_test_case NULL => run finished
-		uintptr(1), // run_result
-		true,       // passed
+		uintptr(1),                 // run_result
+		libhegel.RUN_STATUS_PASSED, // passed
 	)
 	seed := int64(7)
 	opts := runOptions{
@@ -533,7 +552,7 @@ func stubOpCase(t *testing.T, op any, fn func(*testCase)) {
 		libhegel.OK, // mark_complete
 		uintptr(0), "",
 		uintptr(1),
-		true,
+		libhegel.RUN_STATUS_PASSED,
 	)
 	if err := runWithHandle(lib, func(tc TestCase) { fn(tc.(*testCase)) }, runOptions{}); err != nil {
 		t.Fatalf("unexpected error: %v", err)

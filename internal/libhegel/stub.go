@@ -42,20 +42,31 @@ func Stub(returns ...any) *Handle {
 		func(rt runT) {},
 		func(rt runT) testCaseT { return testCaseT(retval().(uintptr)) },
 		func(rt runT) resultT { return resultT(retval().(uintptr)) },
+		func(st settingsT, blob string) testCaseT { return testCaseT(retval().(uintptr)) },
+		func(tct testCaseT) {},
 		func(tct testCaseT, b1 *byte, u1 uint64, b2 **byte, u2 *uint64) Error { return retval().(Error) },
 		func(tct testCaseT, l Label) Error { return retval().(Error) },
 		func(tct testCaseT, b bool) Error { return retval().(Error) },
 		func(tct testCaseT, u1, u2 uint64, c *Collection) Error { return retval().(Error) },
 		func(tct testCaseT, c Collection, b *bool) Error { return retval().(Error) },
 		func(tct testCaseT, c Collection, s string) Error { return retval().(Error) },
+		func(tct testCaseT, p *int64) Error { return retval().(Error) },
+		func(tct testCaseT, p int64, v *int64) Error { return retval().(Error) },
+		func(tct testCaseT, p int64, c bool, v *int64) Error { return retval().(Error) },
+		func(tct testCaseT, r **byte, nr uint64, iv **byte, ni uint64, m *int64) Error {
+			return retval().(Error)
+		},
+		func(tct testCaseT, m int64, r *int64) Error { return retval().(Error) },
+		func(tct testCaseT, p float64, f, hf bool, v *bool) Error { return retval().(Error) },
 		func(tct testCaseT, f float64, s string) Error { return retval().(Error) },
 		func(tct testCaseT, s1 Status, s2 string) Error { return retval().(Error) },
 		func(tct testCaseT) bool { return retval().(bool) },
-		func(rt resultT) bool { return retval().(bool) },
+		func(rt resultT) RunStatus { return retval().(RunStatus) },
+		func(rt resultT) string { return retval().(string) },
 		func(rt resultT) uint64 { return retval().(uint64) },
 		func(rt resultT, u uint64) failureT { return failureT(retval().(uintptr)) },
-		func(ft failureT) string { return retval().(string) }, // coverage-ignore (panic_message: not wired into collectFailures)
-		func(ft failureT) string { return retval().(string) }, // coverage-ignore (diagnostic: not wired into collectFailures)
+		func(ft failureT) string { return retval().(string) },
+		func(ft failureT) string { return retval().(string) },
 		func(ft failureT) string { return retval().(string) },
 	}
 }

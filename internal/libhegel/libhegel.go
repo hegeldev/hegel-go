@@ -27,11 +27,12 @@ import (
 	"os"
 	"runtime"
 	"slices"
+	"strings"
 	"sync"
 	"unsafe"
 )
 
-//go:generate go tool stringer -type=Error,Status,Mode,Verbosity,HealthCheck,Phase,Label -linecomment -output=libhegel_string.go
+//go:generate go tool stringer -type=Error,Status,Mode,Verbosity,RunStatus,HealthCheck,Phase,Label -linecomment -output=libhegel_string.go
 
 // LibraryPathEnv overrides automatic library discovery.
 const LibraryPathEnv = "HEGEL_LIBHEGEL_PATH"
@@ -86,7 +87,21 @@ const (
 	VERBOSITY_DEBUG
 )
 
-// TODO: Stringer
+type RunStatus int32 // Equivalent of hegel_run_status_t
+
+const (
+	// The property held across every generated test case.
+	RUN_STATUS_PASSED RunStatus = iota
+
+	// The property failed; inspect each distinct counterexample via
+	// [Result.FailureCount] / [Result.Failure].
+	RUN_STATUS_FAILED
+
+	// The run itself failed — a failed health check, a nondeterministic test,
+	// an engine panic — and produced no verdict on the property. There are no
+	// failures to inspect; read the message via [Result.ErrorMessage].
+	RUN_STATUS_ERROR
+)
 
 type HealthCheck uint32
 
@@ -158,7 +173,14 @@ const (
 	// Outer span around the variant discriminator of a sum-type draw.
 	LABEL_ENUM_VARIANT
 
-	// TODO: Missing from upstream
+	// Span around one swarm-testing feature-flag draw. Emitted internally by
+	// the engine's state-machine rule selection; callers normally never open
+	// this span themselves.
+	LABEL_FEATURE_FLAG
+
+	// Binding-specific labels, beyond the upstream HEGEL_LABEL_* range. The
+	// engine treats span labels as opaque shrinker hints, so hegel-go reserves
+	// values past the last upstream constant for its own span structures.
 	LABEL_COMPOSITE
 	LABEL_STATEFUL
 )
@@ -223,23 +245,33 @@ type Handle struct {
 	nextTestCase func(runT) testCaseT
 	runResult    func(runT) resultT
 
-	generate         func(testCaseT, *byte, uint64, **byte, *uint64) Error
-	startSpan        func(testCaseT, Label) Error
-	stopSpan         func(testCaseT, bool) Error
-	newCollection    func(testCaseT, uint64, uint64, *Collection) Error
-	collectionMore   func(testCaseT, Collection, *bool) Error
-	collectionReject func(testCaseT, Collection, string) Error
-	target           func(testCaseT, float64, string) Error
-	markComplete     func(testCaseT, Status, string) Error
-	isFinalReplay    func(testCaseT) bool
+	testCaseFromBlob func(settingsT, string) testCaseT
+	testCaseFree     func(testCaseT)
 
-	resultPassed       func(resultT) bool
+	generate             func(testCaseT, *byte, uint64, **byte, *uint64) Error
+	startSpan            func(testCaseT, Label) Error
+	stopSpan             func(testCaseT, bool) Error
+	newCollection        func(testCaseT, uint64, uint64, *Collection) Error
+	collectionMore       func(testCaseT, Collection, *bool) Error
+	collectionReject     func(testCaseT, Collection, string) Error
+	newPool              func(testCaseT, *int64) Error
+	poolAdd              func(testCaseT, int64, *int64) Error
+	poolGenerate         func(testCaseT, int64, bool, *int64) Error
+	newStateMachine      func(testCaseT, **byte, uint64, **byte, uint64, *int64) Error
+	stateMachineNextRule func(testCaseT, int64, *int64) Error
+	primitiveBoolean     func(testCaseT, float64, bool, bool, *bool) Error
+	target               func(testCaseT, float64, string) Error
+	markComplete         func(testCaseT, Status, string) Error
+	isFinalReplay        func(testCaseT) bool
+
+	resultStatus       func(resultT) RunStatus
+	resultError        func(resultT) string
 	resultFailureCount func(resultT) uint64
 	resultFailure      func(resultT, uint64) failureT
 
-	failurePanicMsg   func(failureT) string
-	failureDiagnostic func(failureT) string
-	failureOrigin     func(failureT) string
+	failurePanicMsg         func(failureT) string
+	failureOrigin           func(failureT) string
+	failureReproductionBlob func(failureT) string
 }
 
 // The global libhegel handle.
@@ -333,22 +365,32 @@ func tryOpen(path string) (lib *Handle, err error) {
 		{"hegel_run_result", &lib.runResult},
 		{"hegel_run_free", &lib.runFree},
 
+		{"hegel_test_case_from_blob", &lib.testCaseFromBlob},
+		{"hegel_test_case_free", &lib.testCaseFree},
+
 		{"hegel_generate", &lib.generate},
 		{"hegel_start_span", &lib.startSpan},
 		{"hegel_stop_span", &lib.stopSpan},
 		{"hegel_new_collection", &lib.newCollection},
 		{"hegel_collection_more", &lib.collectionMore},
 		{"hegel_collection_reject", &lib.collectionReject},
+		{"hegel_new_pool", &lib.newPool},
+		{"hegel_pool_add", &lib.poolAdd},
+		{"hegel_pool_generate", &lib.poolGenerate},
+		{"hegel_new_state_machine", &lib.newStateMachine},
+		{"hegel_state_machine_next_rule", &lib.stateMachineNextRule},
+		{"hegel_primitive_boolean", &lib.primitiveBoolean},
 		{"hegel_target", &lib.target},
 		{"hegel_mark_complete", &lib.markComplete},
 		{"hegel_test_case_is_final_replay", &lib.isFinalReplay},
 
-		{"hegel_run_result_passed", &lib.resultPassed},
+		{"hegel_run_result_status", &lib.resultStatus},
+		{"hegel_run_result_error", &lib.resultError},
 		{"hegel_run_result_failure_count", &lib.resultFailureCount},
 		{"hegel_run_result_failure", &lib.resultFailure},
 		{"hegel_failure_panic_message", &lib.failurePanicMsg},
-		{"hegel_failure_diagnostic", &lib.failureDiagnostic},
 		{"hegel_failure_origin", &lib.failureOrigin},
+		{"hegel_failure_reproduction_blob", &lib.failureReproductionBlob},
 
 		{"hegel_last_error_message", &lib.lastErrorMessage},
 		{"hegel_version", &lib.version},
@@ -412,6 +454,17 @@ func (s *Settings) RunStart() (*Run, error) {
 	return (*Run)(r), err
 }
 
+// TestCaseFromBlob builds a standalone test case that replays the example
+// encoded in a base64 failure blob (from [Failure.ReproductionBlob]). Unlike
+// test cases from [Run.NextTestCase], the returned handle is owned by the
+// caller and is freed automatically via the GC. Returns nil, nil when the blob
+// is rejected without a diagnostic.
+func (s *Settings) TestCaseFromBlob(blob string) (*TestCase, error) {
+	tc, err := wrap("hegel_test_case_from_blob", s.lib,
+		func() testCaseT { return s.lib.testCaseFromBlob(s.ptr, blob) }, s.lib.testCaseFree)
+	return (*TestCase)(tc), err
+}
+
 type Run wrapper[runT]
 
 // Returns nil, nil when there are no more test cases.
@@ -460,6 +513,62 @@ func (tc *TestCase) CollectionReject(coll Collection, why string) error {
 	return toError("hegel_collection_reject", tc.lib.collectionReject(tc.ptr, coll, why))
 }
 
+// NewPool creates an engine-managed variable pool for stateful testing.
+func (tc *TestCase) NewPool() (pool int64, err error) {
+	err = toError("hegel_new_pool", tc.lib.newPool(tc.ptr, &pool))
+	return
+}
+
+// PoolAdd registers a new variable in the pool, returning the engine-assigned id.
+func (tc *TestCase) PoolAdd(pool int64) (variable int64, err error) {
+	err = toError("hegel_pool_add", tc.lib.poolAdd(tc.ptr, pool, &variable))
+	return
+}
+
+// PoolGenerate draws a variable id from the pool, letting the engine choose and
+// shrink which previously-added variable to reuse. When consume is true the
+// drawn variable is removed from the pool.
+func (tc *TestCase) PoolGenerate(pool int64, consume bool) (variable int64, err error) {
+	err = toError("hegel_pool_generate", tc.lib.poolGenerate(tc.ptr, pool, consume, &variable))
+	return
+}
+
+// NewStateMachine registers a state machine for engine-owned stateful testing,
+// with the named rules and invariants. Rule selection (including swarm testing)
+// is owned by the engine and driven via [TestCase.StateMachineNextRule].
+func (tc *TestCase) NewStateMachine(ruleNames, invariantNames []string) (machine int64, err error) {
+	rules, err := cStringArray(ruleNames)
+	if err != nil {
+		return 0, fmt.Errorf("hegel_new_state_machine: rule names: %w", err)
+	}
+	invariants, err := cStringArray(invariantNames)
+	if err != nil {
+		return 0, fmt.Errorf("hegel_new_state_machine: invariant names: %w", err)
+	}
+	err = toError("hegel_new_state_machine", tc.lib.newStateMachine(
+		tc.ptr,
+		slicePtr(rules), uint64(len(ruleNames)),
+		slicePtr(invariants), uint64(len(invariantNames)),
+		&machine,
+	))
+	return
+}
+
+// StateMachineNextRule draws the index of the next rule to run, in
+// [0, num_rules), letting the engine choose and shrink the rule sequence.
+func (tc *TestCase) StateMachineNextRule(machine int64) (rule int64, err error) {
+	err = toError("hegel_state_machine_next_rule", tc.lib.stateMachineNextRule(tc.ptr, machine, &rule))
+	return
+}
+
+// PrimitiveBoolean draws a single boolean that is true with probability p. When
+// hasForced is true the result is forced to forced (consuming no entropy and
+// not shrunk).
+func (tc *TestCase) PrimitiveBoolean(p float64, forced, hasForced bool) (value bool, err error) {
+	err = toError("hegel_primitive_boolean", tc.lib.primitiveBoolean(tc.ptr, p, forced, hasForced, &value))
+	return
+}
+
 func (tc *TestCase) Target(value float64, label string) error {
 	return toError("hegel_target", tc.lib.target(tc.ptr, value, label))
 }
@@ -474,8 +583,16 @@ func (tc *TestCase) IsFinalReplay() bool {
 
 type Result wrapper[resultT]
 
-func (r *Result) Passed() bool {
-	return r.lib.resultPassed(r.ptr)
+// Status reports whether the run passed, failed with counterexamples, or
+// errored (the run itself failed and produced no verdict — see [Result.ErrorMessage]).
+func (r *Result) Status() RunStatus {
+	return r.lib.resultStatus(r.ptr)
+}
+
+// ErrorMessage returns the run-level error message when [Result.Status] is
+// [RUN_STATUS_ERROR], or the empty string otherwise.
+func (r *Result) ErrorMessage() string {
+	return r.lib.resultError(r.ptr)
 }
 
 func (r *Result) FailureCount() uint64 {
@@ -489,16 +606,19 @@ func (r *Result) Failure(index uint64) (*Failure, error) {
 
 type Failure wrapper[failureT]
 
-func (f *Failure) PanicMessage() string { // coverage-ignore (diagnostic/panic_message not yet wired into collectFailures)
+func (f *Failure) PanicMessage() string {
 	return f.lib.failurePanicMsg(f.ptr)
-}
-
-func (f *Failure) Diagnostic() string { // coverage-ignore (diagnostic/panic_message not yet wired into collectFailures)
-	return f.lib.failureDiagnostic(f.ptr)
 }
 
 func (f *Failure) Origin() string {
 	return f.lib.failureOrigin(f.ptr)
+}
+
+// ReproductionBlob returns the failure's base64 reproduction blob, suitable
+// for deterministic replay via [Settings.TestCaseFromBlob], or the empty
+// string if the engine produced no blob for this failure.
+func (f *Failure) ReproductionBlob() string {
+	return f.lib.failureReproductionBlob(f.ptr)
 }
 
 func slicePtr[E any](s []E) *E {
@@ -506,4 +626,28 @@ func slicePtr[E any](s []E) *E {
 		return &s[0]
 	}
 	return nil
+}
+
+// cStringArray builds a C `const char *const *` array from a slice of Go
+// strings, returning the pointer array whose first element is what the C
+// function receives via [slicePtr]. Each pointer addresses a NUL-terminated
+// buffer; those buffers stay reachable (and thus alive for the duration of the
+// FFI call) through the returned []*byte, which the caller passes by pointer.
+//
+// A Go string may contain an interior NUL byte, but a C string cannot — it
+// would be silently truncated at the first NUL. Such an input is rejected with
+// an error rather than passed on as a corrupted name.
+func cStringArray(ss []string) ([]*byte, error) {
+	if len(ss) == 0 {
+		return nil, nil
+	}
+	ptrs := make([]*byte, len(ss))
+	for i, s := range ss {
+		if strings.IndexByte(s, 0) >= 0 {
+			return nil, fmt.Errorf("string %q contains an interior NUL byte", s)
+		}
+		buf := append([]byte(s), 0) // NUL-terminate for C
+		ptrs[i] = &buf[0]
+	}
+	return ptrs, nil
 }

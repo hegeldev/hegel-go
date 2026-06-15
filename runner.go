@@ -486,11 +486,18 @@ func runWithHandle(lib *libhegel.Handle, fn testBody, opts runOptions) error {
 		return err
 	}
 
-	if result.Passed() {
+	switch result.Status() {
+	case libhegel.RUN_STATUS_PASSED:
 		return nil
+	case libhegel.RUN_STATUS_ERROR:
+		// The run itself failed (a health check, a nondeterministic test, an
+		// engine panic) and produced no verdict on the property. There are no
+		// counterexamples to collect; the diagnostic lives in the run-level
+		// error message.
+		return fmt.Errorf("%w: %s", errPropTestFailed, result.ErrorMessage())
+	default:
+		return collectFailures(result)
 	}
-
-	return collectFailures(result)
 }
 
 func buildSettings(lib *libhegel.Handle, opts runOptions) *libhegel.Settings {
@@ -583,8 +590,9 @@ func driveOneCase(tc *libhegel.TestCase, fn testBody, single bool, baseOutput io
 }
 
 // collectFailures walks the failure list from a finished run and joins the
-// failures into a single error. Health-check and flaky-test failures land here
-// too — they are surfaced with their libhegel-emitted diagnostic text.
+// failures into a single error. It is called only for a RUN_STATUS_FAILED run
+// (the property has counterexamples); health-check and other run-level errors
+// surface as RUN_STATUS_ERROR and are handled by the caller.
 //
 // panicByOrigin supplies the dynamic panic message captured by driveOneCase
 // for each origin libhegel reports. The origin string itself is stable per
@@ -593,7 +601,7 @@ func driveOneCase(tc *libhegel.TestCase, fn testBody, single bool, baseOutput io
 // panicked with.
 func collectFailures(result *libhegel.Result) error {
 	n := result.FailureCount()
-	if n == 0 { // coverage-ignore (resultPassed=false implies n>=1)
+	if n == 0 { // coverage-ignore (RUN_STATUS_FAILED implies n>=1)
 		return errPropTestFailed
 	}
 	var errs []error

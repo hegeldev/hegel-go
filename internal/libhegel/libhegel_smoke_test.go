@@ -67,7 +67,7 @@ func TestLibhegelEndToEnd(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if !lib.resultPassed(result.ptr) {
+	if lib.resultStatus(result.ptr) != RUN_STATUS_PASSED {
 		t.Errorf("expected passing run, got failure count %d", lib.resultFailureCount(result.ptr))
 	}
 }
