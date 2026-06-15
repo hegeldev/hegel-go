@@ -107,7 +107,9 @@ func (sm *stateMachine) Run(tc TestCase) {
 	if isSingle {
 		nSteps = math.MaxInt
 	} else {
-		nSteps = Draw(tc, Integers(1, statefulMaxSteps))
+		// NB: Draw(Integers(0, statefulMaxSteps)) is not equivalent here
+		// because the resulting distribution is different.
+		nSteps = min(Draw(tc, Integers(0, math.MaxInt)), statefulMaxSteps)
 	}
 	stepsSucceeded := 0
 	stepsAttempted := 0
