@@ -18,8 +18,10 @@ import (
 // It is compatible with most popular TestingT interfaces from assert libraries.
 type testCase struct {
 	tc             *libhegel.TestCase
+	status         libhegel.Status
+	origin         string
 	singleTestCase bool      // set when this case runs under WithSingleTestCase
-	failed         bool      // for T.Error/T.Fail deferred INTERESTING
+	aborted        bool      // set if test case run was short circuited
 	out            io.Writer // nil for exploratory cases; set for final replay / single-case
 	depth          int       // current span nesting depth
 }
@@ -33,12 +35,10 @@ var errTestCaseAborted = errors.New("test case aborted")
 // driveOneCase wraps it for failing cases; runProperty collects across cases.
 var errPropTestFailed = errors.New("property test failed")
 
-// --- TestCase public-method implementations ---
-
 // Assume rejects the current test case if condition is false.
 func (s *testCase) Assume(condition bool) {
 	if !condition {
-		panic(shortCircuit{libhegel.E_ASSUME})
+		s.abort(libhegel.E_ASSUME)
 	}
 }
 
@@ -58,16 +58,15 @@ func (s *testCase) reportDraw(skip int, value any) {
 
 func (s *testCase) Errorf(format string, args ...any) {
 	s.Note(fmt.Sprintf(format, args...))
-	s.failed = true
+	s.Fail()
 }
 
 func (s *testCase) Fail() {
-	s.failed = true
+	s.setStatus(libhegel.STATUS_INTERESTING)
 }
 
 func (s *testCase) FailNow() {
-	s.failed = true
-	panic(shortCircuit{errTestCaseAborted})
+	s.abort(errTestCaseAborted)
 }
 
 func (s *testCase) Log(args ...any) {
@@ -78,6 +77,51 @@ func (s *testCase) Target(value float64, label string) {
 	err := s.tc.Target(value, label)
 	if err != nil {
 		panic(err)
+	}
+}
+
+func (s *testCase) setStatus(status libhegel.Status) {
+	s.status = status
+	s.origin = ""
+	if s.status == libhegel.STATUS_INTERESTING {
+		s.origin = findExternalCaller()
+	}
+}
+
+func (s *testCase) getStatus() libhegel.Status {
+	return s.status
+}
+
+func (s *testCase) abort(err error) {
+	var status libhegel.Status
+	switch {
+	case err == nil:
+		status = s.status
+	case errors.Is(err, libhegel.E_ASSUME):
+		status = libhegel.STATUS_INVALID
+	case errors.Is(err, libhegel.E_STOP_TEST):
+		status = libhegel.STATUS_OVERRUN
+	case errors.Is(err, errTestCaseAborted):
+		status = libhegel.STATUS_INTERESTING
+	default:
+		// Unrecognized error: we panic instead of aborting.
+		panic(err)
+	}
+
+	if status < s.status {
+		// Ensure we never override STATUS_INTERESTING during an abort.
+		return
+	}
+
+	s.setStatus(status)
+	s.aborted = true
+	panic(err)
+}
+
+func (s *testCase) recoverAbort() {
+	if s.aborted {
+		s.aborted = false
+		_ = recover()
 	}
 }
 
@@ -492,26 +536,21 @@ func buildSettings(lib *libhegel.Handle, opts runOptions) *libhegel.Settings {
 	return s
 }
 
-// shortCircuit is the panic payload used to transport an error inside [Run].
-type shortCircuit struct {
-	err error
-}
-
 // driveOneCase runs one test case received from libhegel: invokes fn against a
 // fresh [testCase], recovers panics into a status (VALID/INVALID/OVERRUN/
 // INTERESTING) and an optional origin, and calls hegel_mark_complete.
 // Failures themselves are surfaced via hegel_run_result; the caller doesn't
 // need to inspect anything per-case.
-//
-// panicByOrigin records the most recent panic value seen at each origin so
-// the caller can include the dynamic panic message in the returned error
-// without putting it in the origin string (which libhegel uses as a
-// shrink-grouping key, and which therefore MUST be stable across all
-// failing inputs from the same call site).
 func driveOneCase(tc *libhegel.TestCase, fn testBody, single bool, baseOutput io.Writer) {
 	var caseOut io.Writer
+	var skipUserPanic bool
 	if tc.IsFinalReplay() || single {
 		caseOut = baseOutput
+
+		// Do not recover any pending panics on the final replay or when in
+		// single testcase mode.
+		// This ensures that debuggers can see the panics.
+		skipUserPanic = true
 	}
 
 	state := &testCase{
@@ -520,45 +559,27 @@ func driveOneCase(tc *libhegel.TestCase, fn testBody, single bool, baseOutput io
 		out:            caseOut,
 	}
 
-	status := libhegel.STATUS_VALID
-	var origin string
-
 	func() {
 		defer func() {
-			r := recover()
-			if r == nil {
-				if state.failed {
-					status = libhegel.STATUS_INTERESTING
-					origin = "test failed (via t.Error/t.Fail)"
-				}
+			if skipUserPanic {
 				return
 			}
-			switch v := r.(type) {
-			case shortCircuit:
-				switch {
-				case errors.Is(v.err, libhegel.E_ASSUME):
-					status = libhegel.STATUS_INVALID
-				case errors.Is(v.err, libhegel.E_STOP_TEST):
-					status = libhegel.STATUS_OVERRUN
-				case errors.Is(v.err, errTestCaseAborted):
-					status = libhegel.STATUS_INTERESTING
-					origin = findExternalCaller()
-				default:
-					panic(fmt.Sprintf("unrecognized short circuit: %v", v))
-				}
 
-			default:
-				status = libhegel.STATUS_INTERESTING
-				origin = findExternalCaller()
-				if caseOut != nil {
-					fmt.Fprintf(caseOut, "panic: %v at %s\n", v, origin)
-				}
+			r := recover()
+			if r == nil {
+				return
 			}
+
+			// The panic is recovered into an INTERESTING status. On the final
+			// replay (or in single-case mode) we never get here: skipUserPanic
+			// lets the panic propagate so the Go runtime prints it for debuggers.
+			state.setStatus(libhegel.STATUS_INTERESTING)
 		}()
+		defer state.recoverAbort()
 		fn(state)
 	}()
 
-	tc.MarkComplete(status, origin)
+	tc.MarkComplete(state.status, state.origin)
 }
 
 // collectFailures walks the failure list from a finished run and joins the

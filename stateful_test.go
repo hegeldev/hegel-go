@@ -1,9 +1,6 @@
 package hegel
 
 import (
-	"bytes"
-	"fmt"
-	"strings"
 	"testing"
 )
 
@@ -63,16 +60,19 @@ func (m *gatedMachine) RuleGated(tc TestCase) {
 	m.gateCount++
 }
 
-type rulePanicker struct{}
+// ruleFailer.RuleFail marks the case failed via Fail (which sets INTERESTING
+// without panicking), so callRule's deferred block observes a non-VALID status
+// after the rule returns and aborts via abort(nil).
+type ruleFailer struct{}
 
-func (rulePanicker) RuleBoom(_ TestCase) { panic("rule panic propagated") }
+func (ruleFailer) RuleFail(tc TestCase) { tc.Fail() }
 
 type invariantViolator struct{ n int }
 
 func (m *invariantViolator) RuleStep(_ TestCase) { m.n++ }
-func (m *invariantViolator) InvariantSmall(_ TestCase) {
+func (m *invariantViolator) InvariantSmall(tc TestCase) {
 	if m.n >= 3 {
-		panic(fmt.Sprintf("counter reached %d", m.n))
+		tc.FailNow()
 	}
 }
 
@@ -191,30 +191,24 @@ func TestRunStatefulAssumeRejectionRetries(t *testing.T) {
 	}
 }
 
-func TestRunStatefulRulePanicPropagates(t *testing.T) {
+func TestRunStatefulInvariantViolationFails(t *testing.T) {
 	t.Parallel()
-	var buf bytes.Buffer
 	err := run(func(tc TestCase) {
-		RunStateful(tc, &rulePanicker{})
-	}, withOutput(&buf))
+		RunStateful(tc, &invariantViolator{})
+	}, WithTestCases(10))
 	if err == nil {
 		t.Fatal("Expected error")
-	}
-	if !strings.Contains(buf.String(), "rule panic propagated") {
-		t.Fatalf("Expected rule panic propagated in output, got %q", buf.String())
 	}
 }
 
-func TestRunStatefulInvariantViolationFails(t *testing.T) {
+// TestRunStatefulRuleFailureAborts covers callRule's deferred abort(nil) when a
+// rule leaves the case in a non-VALID status (via Fail) rather than panicking.
+func TestRunStatefulRuleFailureAborts(t *testing.T) {
 	t.Parallel()
-	var buf bytes.Buffer
 	err := run(func(tc TestCase) {
-		RunStateful(tc, &invariantViolator{})
-	}, WithTestCases(10), withOutput(&buf))
+		RunStateful(tc, &ruleFailer{})
+	}, WithTestCases(10))
 	if err == nil {
 		t.Fatal("Expected error")
-	}
-	if !strings.Contains(buf.String(), "counter reached") {
-		t.Fatalf("Expected counter reached in output, got %q", buf.String())
 	}
 }

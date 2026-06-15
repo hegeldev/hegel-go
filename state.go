@@ -3,6 +3,8 @@ package hegel
 import (
 	"fmt"
 	"testing"
+
+	"hegel.dev/go/hegel/internal/libhegel"
 )
 
 // Compile-time check that T satisfies testing.TB.
@@ -50,7 +52,7 @@ func (t *T) Fatal(args ...any) {
 		t.Helper()
 		t.T.Log(msg)
 	}
-	panic(shortCircuit{errTestCaseAborted})
+	t.abort(errTestCaseAborted)
 }
 
 // Fatalf logs the formatted message via the embedded [*testing.T] and marks
@@ -61,7 +63,7 @@ func (t *T) Fatalf(format string, args ...any) {
 		t.Helper()
 		t.T.Log(msg)
 	}
-	panic(shortCircuit{errTestCaseAborted})
+	t.abort(errTestCaseAborted)
 }
 
 // Skip discards the current test case.
@@ -105,7 +107,7 @@ func (t *T) Errorf(format string, args ...any) {
 
 // Failed reports whether the test case has been marked as failed.
 func (t *T) Failed() bool {
-	return t.testCase.failed
+	return t.testCase.status == libhegel.STATUS_INTERESTING
 }
 
 // Log routes the message through the embedded [*testing.T].

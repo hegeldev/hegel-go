@@ -2,9 +2,10 @@ package hegel
 
 import (
 	"bytes"
-	"errors"
 	"strings"
 	"testing"
+
+	"hegel.dev/go/hegel/internal/libhegel"
 )
 
 // makeFakeT creates a *T with a zero testCase and a real *testing.T
@@ -35,19 +36,7 @@ func makeEmittingT(t *testing.T, buf *bytes.Buffer) *T {
 func TestTFatalPanicsWithSentinel(t *testing.T) {
 	t.Parallel()
 	ht := makeFakeT(t)
-	defer func() {
-		r := recover()
-		if r == nil {
-			t.Fatal("expected Fatal to panic")
-		}
-		fs, ok := r.(shortCircuit)
-		if !ok {
-			t.Fatalf("expected shortCircuit, got %T: %v", r, r)
-		}
-		if !errors.Is(fs.err, errTestCaseAborted) {
-			t.Errorf("expected errTestCaseAborted, got %q", fs.err)
-		}
-	}()
+	defer expectErrorPanic(t, errTestCaseAborted)
 	ht.Fatal("fatal message")
 }
 
@@ -92,64 +81,28 @@ func TestTFatalfPanicsWithSentinel(t *testing.T) {
 func TestTFailNowPanicsWithSentinel(t *testing.T) {
 	t.Parallel()
 	ht := makeFakeT(t)
-	defer func() {
-		r := recover()
-		if r == nil {
-			t.Fatal("expected FailNow to panic")
-		}
-		fs, ok := r.(shortCircuit)
-		if !ok {
-			t.Fatalf("expected fatalSentinel, got %T: %v", r, r)
-		}
-		if !errors.Is(fs.err, errTestCaseAborted) {
-			t.Errorf("expected errTestCaseAborted, got %s", fs.err)
-		}
-	}()
+	defer expectErrorPanic(t, errTestCaseAborted)
 	ht.FailNow()
 }
 
 func TestTSkipPanicsWithShortCircuit(t *testing.T) {
 	t.Parallel()
 	ht := makeFakeT(t)
-	defer func() {
-		r := recover()
-		if r == nil {
-			t.Fatal("expected Skip to panic")
-		}
-		if _, ok := r.(shortCircuit); !ok {
-			t.Fatalf("expected shortCircuit, got %T: %v", r, r)
-		}
-	}()
+	defer expectErrorPanic(t, libhegel.E_ASSUME)
 	ht.Skip("skipping")
 }
 
 func TestTSkipfPanicsWithShortCircuit(t *testing.T) {
 	t.Parallel()
 	ht := makeFakeT(t)
-	defer func() {
-		r := recover()
-		if r == nil {
-			t.Fatal("expected Skipf to panic")
-		}
-		if _, ok := r.(shortCircuit); !ok {
-			t.Fatalf("expected shortCircuit, got %T: %v", r, r)
-		}
-	}()
+	defer expectErrorPanic(t, libhegel.E_ASSUME)
 	ht.Skipf("skip: %d", 1)
 }
 
 func TestTSkipNowPanicsWithShortCircuit(t *testing.T) {
 	t.Parallel()
 	ht := makeFakeT(t)
-	defer func() {
-		r := recover()
-		if r == nil {
-			t.Fatal("expected SkipNow to panic")
-		}
-		if _, ok := r.(shortCircuit); !ok {
-			t.Fatalf("expected shortCircuit, got %T: %v", r, r)
-		}
-	}()
+	defer expectErrorPanic(t, libhegel.E_ASSUME)
 	ht.SkipNow()
 }
 
@@ -161,8 +114,8 @@ func TestTErrorSetsFailed(t *testing.T) {
 	t.Parallel()
 	ht := makeFakeT(t)
 	ht.Error("something went wrong")
-	if !ht.testCase.failed {
-		t.Error("expected failed to be true after Error()")
+	if ht.testCase.status != libhegel.STATUS_INTERESTING {
+		t.Error("expected status=INTERESTING after Error()")
 	}
 }
 
@@ -170,8 +123,8 @@ func TestTErrorfSetsFailed(t *testing.T) {
 	t.Parallel()
 	ht := makeFakeT(t)
 	ht.Errorf("error: %d", 99)
-	if !ht.testCase.failed {
-		t.Error("expected failed to be true after Errorf()")
+	if ht.testCase.status != libhegel.STATUS_INTERESTING {
+		t.Error("expected status=INTERESTING after Errorf()")
 	}
 }
 
@@ -180,8 +133,8 @@ func TestTErrorEmitsViaTestingT(t *testing.T) {
 	t.Parallel()
 	ht := makeEmittingT(t, &bytes.Buffer{})
 	ht.Error("something went wrong")
-	if !ht.testCase.failed {
-		t.Error("expected failed to be true after Error()")
+	if ht.testCase.status != libhegel.STATUS_INTERESTING {
+		t.Error("expected status=INTERESTING after Error()")
 	}
 }
 
@@ -190,8 +143,8 @@ func TestTErrorfEmitsViaTestingT(t *testing.T) {
 	t.Parallel()
 	ht := makeEmittingT(t, &bytes.Buffer{})
 	ht.Errorf("error: %d", 99)
-	if !ht.testCase.failed {
-		t.Error("expected failed to be true after Errorf()")
+	if ht.testCase.status != libhegel.STATUS_INTERESTING {
+		t.Error("expected status=INTERESTING after Errorf()")
 	}
 }
 
@@ -251,8 +204,8 @@ func TestTestCaseErrorfWritesAndFails(t *testing.T) {
 	var buf bytes.Buffer
 	s := &testCase{out: &buf}
 	s.Errorf("value=%d", 42)
-	if !s.failed {
-		t.Error("expected failed=true after Errorf")
+	if s.status != libhegel.STATUS_INTERESTING {
+		t.Error("expected status=INTERESTING after Errorf")
 	}
 	if got := strings.TrimSpace(buf.String()); got != "value=42" {
 		t.Errorf("expected %q, got %q", "value=42", got)

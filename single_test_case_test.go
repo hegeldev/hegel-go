@@ -1,10 +1,7 @@
 package hegel
 
 import (
-	"bytes"
-	"fmt"
 	"io"
-	"strings"
 	"sync/atomic"
 	"testing"
 )
@@ -89,29 +86,25 @@ func TestSingleTestCasePermissiveOptions(t *testing.T) {
 type unboundedMachine struct{ n int }
 
 func (m *unboundedMachine) RuleStep(_ TestCase) { m.n++ }
-func (m *unboundedMachine) InvariantBounded(_ TestCase) {
+func (m *unboundedMachine) InvariantBounded(tc TestCase) {
 	// Threshold well above statefulMaxSteps (50), so a successful failure
 	// proves the cap was lifted in single-test-case mode.
 	if m.n >= 200 {
-		panic(fmt.Sprintf("counter reached %d", m.n))
+		tc.FailNow()
 	}
 }
 
 func TestSingleTestCaseStatefulRunsBeyondDefaultCap(t *testing.T) {
 	t.Parallel()
-	var buf bytes.Buffer
 	m := &unboundedMachine{}
 	err := run(func(s TestCase) {
 		RunStateful(s, m)
-	}, WithSingleTestCase(), withOutput(&buf))
+	}, WithSingleTestCase())
 	if err == nil {
 		t.Fatalf("expected invariant to fail; counter reached %d", m.n)
 	}
 	if m.n <= statefulMaxSteps {
 		t.Errorf("expected >%d steps, got %d (cap not lifted?)", statefulMaxSteps, m.n)
-	}
-	if !strings.Contains(buf.String(), "counter reached") {
-		t.Errorf("expected invariant panic in output, got: %q", buf.String())
 	}
 }
 
