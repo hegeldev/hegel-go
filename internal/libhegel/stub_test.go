@@ -24,11 +24,12 @@ func TestStubMissingReturnPanics(t *testing.T) {
 }
 
 // TestStubUnwiredSetters exercises the settings setters that the runner does
-// not (yet) drive — Verbosity, ReportMultipleFailures and Phases — directly
-// against a Stub so their plumbing is covered.
+// not (yet) drive — Backend, Verbosity, ReportMultipleFailures and Phases —
+// directly against a Stub so their plumbing is covered.
 func TestStubUnwiredSetters(t *testing.T) {
 	lib := Stub(uintptr(1)) // settings_new handle
 	s := lib.SettingsNew()
+	s.Backend(BACKEND_URANDOM)
 	s.Verbosity(VERBOSITY_VERBOSE)
 	s.ReportMultipleFailures(true)
 	s.Phases(PHASE_GENERATE)
