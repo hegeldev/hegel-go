@@ -17,7 +17,30 @@ build-libhegel:
 
 # Run tests with coverage.
 # We measure coverage across all packages; exclusions are in .testcoverage.yml.
-test *args: build-libhegel
+#
+# The library only uses a local libhegel when HEGEL_LIBHEGEL_PATH points at one;
+# otherwise it auto-downloads the pinned, checksum-verified release. With a
+# sibling hegel-rust checkout present, this recipe builds it and exports that
+# path. Pass `vendored` as the mode to skip the local build and test against the
+# pinned release instead — handy after a version bump, when the checkout may lag
+# hegelVersion. An externally set HEGEL_LIBHEGEL_PATH (e.g. in CI) always wins.
+test mode="" *args="":
+    #!/usr/bin/env bash
+    set -euo pipefail
+    case "{{mode}}" in
+        vendored)
+            unset HEGEL_LIBHEGEL_PATH ;;
+        "")
+            just build-libhegel
+            if [ -z "${HEGEL_LIBHEGEL_PATH:-}" ]; then
+                ext=so; [ "$(uname)" = Darwin ] && ext=dylib
+                libpath="{{hegel_rust_dir}}/target/release/libhegel.$ext"
+                [ -f "$libpath" ] && export HEGEL_LIBHEGEL_PATH="$libpath"
+            fi ;;
+        *)
+            echo "unknown test mode '{{mode}}' (expected '' or 'vendored')" >&2
+            exit 1 ;;
+    esac
     go test -race {{args}} -coverprofile=coverage.out -covermode=atomic \
         -coverpkg=hegel.dev/go/hegel/... \
         ./...
@@ -53,5 +76,6 @@ check-docs:
 docs:
     go doc -http .
 
-# Run lint + docs + test (the full CI check).
-check: lint check-docs test
+# Run lint + docs + test (the full CI check). Pass `vendored` to test against
+# the pinned libhegel release instead of a local hegel-rust checkout.
+check mode="": lint check-docs (test mode)

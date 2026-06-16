@@ -1,8 +1,6 @@
 package libhegel
 
 import (
-	"os"
-	"path/filepath"
 	"strings"
 	"testing"
 )
@@ -42,25 +40,27 @@ func TestRegisterSymbolsMissing(t *testing.T) {
 	}
 }
 
-// TestLoadLibPathOverride verifies that HEGEL_LIBHEGEL_PATH is honored.
-// Skipped when no sibling checkout has been built — the auto-download path
-// has its own test against an httptest.Server.
+// TestLoadLibPathOverride verifies that HEGEL_LIBHEGEL_PATH is honored. It
+// first resolves a real library through the normal search (sibling checkout,
+// an already-set override, or the auto-downloader), then pins that path via
+// the override and confirms it is loaded from there. Skipped only when no
+// library can be resolved at all (e.g. offline with an empty cache).
 func TestLoadLibPathOverride(t *testing.T) {
-	resolved, err := filepath.Abs("../hegel-rust/target/release/" + libhegelFileName())
-	if err != nil { // coverage-ignore
-		t.Fatalf("abs: %v", err)
-	}
-	if _, err := os.Stat(resolved); err != nil {
-		t.Skipf("no libhegel at %s (run `just build-libhegel` for a sibling-checkout build)", resolved)
+	_, resolved, err := load()
+	if err != nil {
+		t.Skipf("no loadable libhegel available: %v", err)
 	}
 
 	t.Setenv(LibraryPathEnv, resolved)
 
-	lib, _, err := load()
+	lib, gotPath, err := load()
 	if err != nil {
 		t.Fatalf("loadLib with override %q: %v", resolved, err)
 	}
-	_ = lib.Close()
+	defer lib.Close()
+	if gotPath != resolved {
+		t.Errorf("override path: got %q, want %q", gotPath, resolved)
+	}
 }
 
 // TestLoadLibMissing verifies the failure path when no library can be found.
@@ -91,24 +91,12 @@ func TestCandidatePathsOverride(t *testing.T) {
 	}
 }
 
-// TestCandidatePathsDefault verifies the default search returns both
-// release and debug paths.
-func TestCandidatePathsDefault(t *testing.T) {
+// TestCandidatePathsNoOverride verifies that with no HEGEL_LIBHEGEL_PATH set,
+// candidatePaths returns nil so resolution falls through to the auto-downloader
+// — the library does not search for a sibling hegel-rust checkout.
+func TestCandidatePathsNoOverride(t *testing.T) {
 	t.Setenv(LibraryPathEnv, "")
-	got := candidatePaths()
-	if len(got) != 2 {
-		t.Fatalf("expected 2 default paths, got %d: %v", len(got), got)
-	}
-	if !strings.Contains(got[0], "release") {
-		t.Errorf("expected first path to mention release; got %q", got[0])
-	}
-	if !strings.Contains(got[1], "debug") {
-		t.Errorf("expected second path to mention debug; got %q", got[1])
-	}
-	expected := libhegelFileName()
-	for _, p := range got {
-		if filepath.Base(p) != expected {
-			t.Errorf("expected file name %q in %q", expected, p)
-		}
+	if got := candidatePaths(); got != nil {
+		t.Errorf("expected nil candidate paths with no override, got %v", got)
 	}
 }

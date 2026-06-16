@@ -34,7 +34,11 @@ import (
 
 //go:generate go tool stringer -type=Error,Status,Mode,Verbosity,RunStatus,HealthCheck,Phase,Label -linecomment -output=libhegel_string.go
 
-// LibraryPathEnv overrides automatic library discovery.
+// LibraryPathEnv names the env var that pins libhegel to an explicit path.
+// When set, that path is loaded directly with no auto-download fallback; when
+// unset, the pinned release is fetched by the auto-downloader. It is the only
+// way to use a local build — the library does not search for a sibling
+// hegel-rust checkout.
 const LibraryPathEnv = "HEGEL_LIBHEGEL_PATH"
 
 type Error int32
@@ -315,8 +319,8 @@ func loadFromPaths(paths []string) (*Handle, string, error) {
 			return lib, path, nil
 		}
 	}
-	if os.Getenv(LibraryPathEnv) == "" { // coverage-ignore (download fallback only runs when every local path fails)
-		// Last resort: fetch from GitHub releases into the per-version cache.
+	if os.Getenv(LibraryPathEnv) == "" { // coverage-ignore (download fallback hits the network, not exercised in unit tests)
+		// No explicit override: fetch the pinned release into the per-version cache.
 		downloaded, err := downloadCandidate()
 		if err != nil {
 			attempts = append(attempts, fmt.Errorf("download fallback: %w", err))
