@@ -32,7 +32,7 @@ import (
 	"unsafe"
 )
 
-//go:generate go tool stringer -type=Error,Status,Mode,Verbosity,RunStatus,HealthCheck,Phase,Label -linecomment -output=libhegel_string.go
+//go:generate go tool stringer -type=Error,Status,Mode,Backend,Verbosity,RunStatus,HealthCheck,Phase,Label -linecomment -output=libhegel_string.go
 
 // LibraryPathEnv names the env var that pins libhegel to an explicit path.
 // When set, that path is loaded directly with no auto-download fallback; when
@@ -80,6 +80,22 @@ type Mode int32 // Equivalent of hegel_mode_t
 const (
 	MODE_TEST_RUN Mode = iota
 	MODE_SINGLE_TEST_CASE
+)
+
+type Backend int32 // Equivalent of hegel_backend_t
+
+const (
+	// Choose automatically (the default): urandom under Antithesis, otherwise
+	// the default seeded PRNG.
+	BACKEND_AUTO Backend = iota
+
+	// Expand a single seeded PRNG; runs are reproducible from the seed and
+	// shrinking / replay work as usual.
+	BACKEND_DEFAULT
+
+	// Read fresh entropy from /dev/urandom on every draw. Intended for running
+	// under Antithesis; you almost certainly don't want it otherwise.
+	BACKEND_URANDOM
 )
 
 type Verbosity int32 // Equivalent of hegel_verbosity_t
@@ -234,6 +250,7 @@ type Handle struct {
 	settingsNew             func() settingsT
 	settingsFree            func(settingsT)
 	settingsMode            func(settingsT, Mode)
+	settingsBackend         func(settingsT, Backend)
 	settingsTestCases       func(settingsT, uint64)
 	settingsVerbosity       func(settingsT, Verbosity)
 	settingsSeed            func(settingsT, uint64, bool)
@@ -354,6 +371,7 @@ func tryOpen(path string) (lib *Handle, err error) {
 		{"hegel_settings_new", &lib.settingsNew},
 		{"hegel_settings_free", &lib.settingsFree},
 		{"hegel_settings_mode", &lib.settingsMode},
+		{"hegel_settings_backend", &lib.settingsBackend},
 		{"hegel_settings_test_cases", &lib.settingsTestCases},
 		{"hegel_settings_verbosity", &lib.settingsVerbosity},
 		{"hegel_settings_seed", &lib.settingsSeed},
@@ -415,6 +433,11 @@ func (lib *Handle) SettingsNew() *Settings {
 
 func (s *Settings) Mode(m Mode) {
 	s.lib.settingsMode(s.ptr, m)
+}
+
+// Backend selects the engine's randomness backend. See [Backend].
+func (s *Settings) Backend(b Backend) {
+	s.lib.settingsBackend(s.ptr, b)
 }
 
 func (s *Settings) TestCases(n uint64) {

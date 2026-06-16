@@ -29,6 +29,7 @@ func Stub(returns ...any) *Handle {
 		func() settingsT { return settingsT(retval().(uintptr)) },
 		func(st settingsT) {},
 		func(st settingsT, m Mode) {},
+		func(st settingsT, b Backend) {},
 		func(st settingsT, u uint64) {},
 		func(st settingsT, v Verbosity) {},
 		func(st settingsT, u uint64, b bool) {},
