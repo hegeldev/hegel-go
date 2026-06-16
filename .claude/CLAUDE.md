@@ -27,7 +27,8 @@ The library is structured in layers, each building on the previous:
 
 1. **FFI loader** (`internal/libhegel`) — purego-based dlopen of `libhegel.{so,dylib}`,
    one `*libhegel.Handle` struct with a `func`-typed field per C symbol, path
-   resolution via `HEGEL_LIBHEGEL_PATH` env var or sibling-checkout defaults.
+   resolution via the `HEGEL_LIBHEGEL_PATH` env var, otherwise the pinned release
+   is auto-downloaded.
 2. **Test runner** (`runner.go`) — `testCase` implements
    `TestCase` by routing every operation (generate, span, target, collection,
    mark_complete) to one libhegel C call.
@@ -71,14 +72,18 @@ The user-facing surface lives in `hegel.go` (canonical package doc). Entry point
 
 The library is resolved in this order; first hit wins:
 
-1. `$HEGEL_LIBHEGEL_PATH` if set (no fallback if it fails to open)
-2. `<projectRoot>/../hegel-rust/target/release/libhegel.<ext>`
-3. `<projectRoot>/../hegel-rust/target/debug/libhegel.<ext>`
+1. `$HEGEL_LIBHEGEL_PATH` if set (loaded directly; no auto-download fallback if
+   it fails to open)
+2. Auto-download of the pinned release (`hegelVersion`) from hegel-rust's GitHub
+   releases, verified against the baked-in checksum and cached per-version.
 
-`<ext>` is `so` on Linux, `dylib` on macOS. End users will eventually get an
-auto-downloader from GitHub releases; for now, build libhegel locally via
-`just build-libhegel`, which delegates to `cargo build --release -p hegeltest-c`
-in the sibling `hegel-rust/` checkout.
+The library does **not** hunt for a sibling `hegel-rust` checkout. To test
+against a local build, point `HEGEL_LIBHEGEL_PATH` at it — `just test` /
+`just check` do this for you: `build-libhegel` (`cargo build --release -p
+hegeltest-c` in the sibling `hegel-rust/` checkout) builds the `.so`, and the
+recipe exports its path. Run `just check vendored` to bypass the local build and
+exercise the auto-download path instead. `<ext>` is `so` on Linux, `dylib` on
+macOS.
 
 ## Tooling Choices
 
