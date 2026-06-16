@@ -19,6 +19,7 @@ CLAUDE.local.md
 !.claude/CLAUDE.md
 !.claude/skills/
 .claude/skills/*
+!.claude/skills/align-libhegel/
 !.claude/skills/changelog/
 !.claude/skills/coverage/
 !.claude/skills/go-concurrency/
