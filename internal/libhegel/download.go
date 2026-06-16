@@ -26,12 +26,6 @@ const hegelDownloadBaseURLEnv = "HEGEL_DOWNLOAD_BASE_URL"
 // environments that must rely on a pre-staged library.
 const hegelDownloadDisableEnv = "HEGEL_LIBHEGEL_NO_DOWNLOAD"
 
-// libhegelFileName returns the local-checkout library filename for this OS:
-// "libhegel.so" on Linux, "libhegel.dylib" on macOS, "libhegel.dll" on Windows.
-func libhegelFileName() string {
-	return "libhegel." + libhegelExt()
-}
-
 // libhegelAssetName returns the platform-specific filename of the libhegel
 // artifact published in hegel-rust GitHub releases. Format:
 // `libhegel-<goos>-<goarch>.<ext>`, e.g. `libhegel-linux-amd64.so`.
@@ -52,22 +46,17 @@ func libhegelExt() string {
 	}
 }
 
-// candidatePaths returns the ordered list of paths to try for libhegel.
+// candidatePaths returns the paths to try for libhegel. Resolution is limited
+// to an explicit HEGEL_LIBHEGEL_PATH override; with none set it returns nil and
+// loadFromPaths falls through to the checksum-verified auto-downloader. The
+// library does not hunt for a sibling hegel-rust checkout — pointing at a local
+// build is the justfile's job (it exports HEGEL_LIBHEGEL_PATH after running
+// build-libhegel).
 func candidatePaths() []string {
 	if override := os.Getenv(LibraryPathEnv); override != "" {
 		return []string{override}
 	}
-
-	root := findProjectRoot()
-	if root == "" { // coverage-ignore (project root is always found when running the test suite)
-		return nil
-	}
-
-	parent := filepath.Dir(root)
-	return []string{
-		filepath.Join(parent, "hegel-rust", "target", "release", libhegelFileName()),
-		filepath.Join(parent, "hegel-rust", "target", "debug", libhegelFileName()),
-	}
+	return nil
 }
 
 // libhegelCacheDir returns the per-version cache directory under the user's
@@ -167,10 +156,10 @@ func downloadToFile(url, dest string) (string, error) {
 }
 
 // downloadCandidate triggers an on-demand download to the per-version cache
-// dir and returns the path of the downloaded library. Used by [openLibhegel]
-// as a last-resort path after local search has failed. The download is
-// verified against the baked-in checksum for the host platform's asset.
-func downloadCandidate() (string, error) { // coverage-ignore (download fallback only runs when every local path fails)
+// dir and returns the path of the downloaded library. Used by [loadFromPaths]
+// when no HEGEL_LIBHEGEL_PATH override is set. The download is verified against
+// the baked-in checksum for the host platform's asset.
+func downloadCandidate() (string, error) { // coverage-ignore (exercised only against the network, not in unit tests)
 	return downloadVerifiedLibhegel(hegelVersion, libhegelAssetName(), libhegelChecksums)
 }
 
