@@ -22,6 +22,7 @@ package main
 
 import (
 	"encoding/json"
+	"errors"
 	"flag"
 	"fmt"
 	"os"
@@ -56,6 +57,14 @@ func release(want string) (version string, checksums map[string]string, err erro
 
 	out, err := exec.Command("gh", args...).Output()
 	if err != nil {
+		// gh writes the real reason (e.g. "HTTP 401", "release not found") to
+		// stderr; .Output() stashes it in *exec.ExitError.Stderr but the error
+		// string alone is just "exit status N". Surface it so failures are
+		// diagnosable instead of opaque.
+		var exitErr *exec.ExitError
+		if errors.As(err, &exitErr) && len(exitErr.Stderr) > 0 {
+			return "", nil, fmt.Errorf("gh release view: %w: %s", err, strings.TrimSpace(string(exitErr.Stderr)))
+		}
 		return "", nil, fmt.Errorf("gh release view: %w", err)
 	}
 

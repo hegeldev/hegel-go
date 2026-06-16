@@ -47,6 +47,7 @@ jobs:
       - name: Bump pinned libhegel
         id: bump
         env:
+          GH_TOKEN: ${{ steps.app-token.outputs.token }}
           HEGEL_RELEASE_APP_ID: ${{ vars.HEGEL_RELEASE_APP_ID }}
           VERSION: ${{ github.event.client_payload.version || inputs.version }}
         run: python .github/scripts/bump_hegel_rust.py "$VERSION"
