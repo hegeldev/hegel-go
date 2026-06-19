@@ -63,6 +63,10 @@ jobs:
         with:
           anthropic_api_key: ${{ secrets.ANTHROPIC_API_KEY }}
           github_token: ${{ steps.app-token.outputs.token }}
+          # hegel-rust fires this workflow via repository_dispatch using the
+          # hegel-release[bot] app token, so the actor is a bot. The action
+          # blocks bot-initiated runs by default; allow this specific bot.
+          allowed_bots: hegel-release
           prompt: |
             The pinned libhegel version was just bumped to v${{ steps.bump.outputs.version }}
             (internal/libhegel/checksums.go) on this checkout. Use the align-libhegel skill
