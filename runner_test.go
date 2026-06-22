@@ -378,12 +378,12 @@ func TestRunHegelDisablesDatabaseInCI(t *testing.T) {
 // order; a NULL handle (ptr 0) plus a non-empty lastErrorMessage forces the
 // wrap() error path. The bodies here never Draw — op coverage is driven by
 // calling *testCase methods directly. (Draw error injection is tested
-// separately below via newStubTestCase.)
+// separately below via stubTestCase.)
 
-// newStubTestCase builds a real *testCase whose libhegel operations are served
+// stubTestCase builds a real *testCase whose libhegel operations are served
 // by a Stub. opReturns supplies the per-op return values (Error/bool/…)
 // consumed, in call order, after the settings/run/test-case handles are wired.
-func newStubTestCase(opReturns ...any) *testCase {
+func stubTestCase(opReturns ...any) *testCase {
 	returns := append([]any{
 		uintptr(1),
 		uintptr(1),
@@ -458,23 +458,6 @@ func TestRunWithHandleCollectFailures(t *testing.T) {
 	}
 }
 
-func TestRunWithHandleFailureError(t *testing.T) {
-	t.Parallel()
-	lib := libhegel.Stub(
-		uintptr(1),
-		uintptr(1),
-		uintptr(0), "",
-		uintptr(1),
-		libhegel.RUN_STATUS_FAILED, // not passed
-		uint64(1),                  // one failure
-		uintptr(0), "failure boom", // failure handle NULL
-	)
-	err := runWithHandle(lib, func(TestCase) {}, runOptions{})
-	if err == nil || !strings.Contains(err.Error(), "failure boom") {
-		t.Fatalf("expected failure-fetch error, got %v", err)
-	}
-}
-
 func TestRunWithHandleRunError(t *testing.T) {
 	t.Parallel()
 	lib := libhegel.Stub(
@@ -528,6 +511,7 @@ func TestRunWithHandleTargetPanic(t *testing.T) {
 		uintptr(1),         // one case
 		true,               // is_final_replay => user panics are not recovered
 		libhegel.E_BACKEND, // target fails
+		"",                 // target's diagnostic, read on the error path
 	)
 	// On the final replay skipUserPanic lets the panic propagate out of
 	// runWithHandle (so the Go runtime prints it for debuggers); it is not
@@ -538,17 +522,23 @@ func TestRunWithHandleTargetPanic(t *testing.T) {
 	}, runOptions{})
 }
 
-// stubOpCase drives a single test case whose body calls fn against the
-// stub-backed *testCase, with one op return op. The body returns normally
-// (VALID), so the case completes cleanly.
-func stubOpCase(t *testing.T, op any, fn func(*testCase)) {
+// runWithFailingOp drives a single test case whose body calls fn against the
+// stub-backed *testCase, with the next libhegel op returning failErr.
+//
+// failErr MUST be a non-OK Error: the stub sequence is hardwired for the error
+// path, supplying the diagnostic string that the wrapper reads back from the
+// context after a failed op. Passing OK would desynchronize the sequence. The
+// body is expected to capture (not propagate) the error, so the case still
+// returns normally (VALID) and the run completes cleanly.
+func runWithFailingOp(t *testing.T, failErr libhegel.Error, fn func(*testCase)) {
 	t.Helper()
 	lib := libhegel.Stub(
 		uintptr(1),
 		uintptr(1),
 		uintptr(1),
-		false, // is_final_replay
-		op,
+		false,       // is_final_replay
+		failErr,     // the failing op
+		"",          // failErr's diagnostic, read on the error path
 		libhegel.OK, // mark_complete
 		uintptr(0), "",
 		uintptr(1),
@@ -562,7 +552,7 @@ func stubOpCase(t *testing.T, op any, fn func(*testCase)) {
 func TestTestCaseStartSpanError(t *testing.T) {
 	t.Parallel()
 	var got error
-	stubOpCase(t, libhegel.E_BACKEND, func(tc *testCase) {
+	runWithFailingOp(t, libhegel.E_BACKEND, func(tc *testCase) {
 		got = tc.startSpan(libhegel.LABEL_LIST)
 	})
 	if got == nil {
@@ -573,7 +563,7 @@ func TestTestCaseStartSpanError(t *testing.T) {
 func TestTestCaseStopSpanError(t *testing.T) {
 	t.Parallel()
 	var got error
-	stubOpCase(t, libhegel.E_BACKEND, func(tc *testCase) {
+	runWithFailingOp(t, libhegel.E_BACKEND, func(tc *testCase) {
 		got = tc.stopSpan(false)
 	})
 	if got == nil {
@@ -584,7 +574,7 @@ func TestTestCaseStopSpanError(t *testing.T) {
 func TestTestCaseNewCollectionError(t *testing.T) {
 	t.Parallel()
 	var got error
-	stubOpCase(t, libhegel.E_BACKEND, func(tc *testCase) {
+	runWithFailingOp(t, libhegel.E_BACKEND, func(tc *testCase) {
 		_, got = tc.newCollection(0, nil)
 	})
 	if got == nil {
@@ -612,7 +602,7 @@ func TestRunWithHandleUnrecognizedShortCircuit(t *testing.T) {
 // INVALID) on an interesting case is a no-op and does not panic.
 func TestAbortDoesNotDowngradeInteresting(t *testing.T) {
 	t.Parallel()
-	tc := newStubTestCase()
+	tc := stubTestCase()
 	tc.setStatus(libhegel.STATUS_INTERESTING)
 	tc.abort(libhegel.E_ASSUME) // INVALID < INTERESTING => returns without aborting
 	if tc.getStatus() != libhegel.STATUS_INTERESTING {
@@ -623,7 +613,7 @@ func TestAbortDoesNotDowngradeInteresting(t *testing.T) {
 	}
 }
 
-// --- Draw error injection (via newStubTestCase) ---
+// --- Draw error injection (via stubTestCase) ---
 
 // errGen is a non-basic generator whose draw returns a fixed (value, error).
 // It forces the collection path of Lists/Maps (asBasic => not basic) and lets
@@ -651,23 +641,24 @@ func expectErrorPanic(t *testing.T, want error) {
 
 func TestDrawPanicsOnGenerateError(t *testing.T) {
 	t.Parallel()
-	tc := newStubTestCase(libhegel.E_BACKEND) // generate fails
+	tc := stubTestCase(libhegel.E_BACKEND, "") // generate fails
 	defer expectErrorPanic(t, libhegel.E_BACKEND)
 	Draw[int](tc, Integers[int](0, 10))
 }
 
 func TestDrawListStartSpanError(t *testing.T) {
 	t.Parallel()
-	tc := newStubTestCase(libhegel.E_BACKEND) // start_span fails
+	tc := stubTestCase(libhegel.E_BACKEND, "") // start_span fails
 	defer expectErrorPanic(t, libhegel.E_BACKEND)
 	Draw[[]int](tc, Lists[int](errGen[int]{}))
 }
 
 func TestDrawListNewCollectionError(t *testing.T) {
 	t.Parallel()
-	tc := newStubTestCase(
+	tc := stubTestCase(
 		libhegel.OK,        // start_span
 		libhegel.E_BACKEND, // new_collection fails
+		"",                 // new_collection's diagnostic
 	)
 	defer expectErrorPanic(t, libhegel.E_BACKEND)
 	Draw[[]int](tc, Lists[int](errGen[int]{}))
@@ -675,10 +666,11 @@ func TestDrawListNewCollectionError(t *testing.T) {
 
 func TestDrawListCollectionMoreError(t *testing.T) {
 	t.Parallel()
-	tc := newStubTestCase(
+	tc := stubTestCase(
 		libhegel.OK,        // start_span
 		libhegel.OK,        // new_collection
 		libhegel.E_BACKEND, // collection_more fails => coll.Err()
+		"",                 // collection_more's diagnostic
 	)
 	defer expectErrorPanic(t, libhegel.E_BACKEND)
 	Draw[[]int](tc, Lists[int](errGen[int]{}))
@@ -686,9 +678,10 @@ func TestDrawListCollectionMoreError(t *testing.T) {
 
 func TestDrawMapNewCollectionError(t *testing.T) {
 	t.Parallel()
-	tc := newStubTestCase(
+	tc := stubTestCase(
 		libhegel.OK,        // start_span (LABEL_MAP)
 		libhegel.E_BACKEND, // new_collection fails
+		"",                 // new_collection's diagnostic
 	)
 	defer expectErrorPanic(t, libhegel.E_BACKEND)
 	Draw[map[int]int](tc, Maps[int, int](errGen[int]{}, errGen[int]{}))
@@ -723,7 +716,7 @@ func TestDrawMapBasic(t *testing.T) {
 
 func TestDrawFilterStartSpanError(t *testing.T) {
 	t.Parallel()
-	tc := newStubTestCase(libhegel.E_BACKEND) // start_span(FILTER) fails
+	tc := stubTestCase(libhegel.E_BACKEND, "") // start_span(FILTER) fails
 	defer expectErrorPanic(t, libhegel.E_BACKEND)
 	Draw[int](tc, &filteredGenerator[int]{
 		source:    Integers[int](0, 10),
@@ -735,7 +728,7 @@ func TestDrawFilterStartSpanError(t *testing.T) {
 // asking the stub to generate from an empty schema.
 func TestGenerateEmptySchema(t *testing.T) {
 	t.Parallel()
-	tc := newStubTestCase(libhegel.OK)
+	tc := stubTestCase(libhegel.OK)
 	if _, err := tc.tc.Generate(nil); err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -744,7 +737,7 @@ func TestGenerateEmptySchema(t *testing.T) {
 // TestStubCollectionReject covers the collection_reject path against the stub.
 func TestStubCollectionReject(t *testing.T) {
 	t.Parallel()
-	tc := newStubTestCase(
+	tc := stubTestCase(
 		libhegel.OK, // new_collection
 		libhegel.OK, // collection_reject
 	)
@@ -762,7 +755,7 @@ func TestStubCollectionReject(t *testing.T) {
 // initial-invariant failure: the stub fails start_span for the first invariant.
 func TestStatefulInitialInvariantError(t *testing.T) {
 	t.Parallel()
-	tc := newStubTestCase(libhegel.E_BACKEND) // start_span(STATEFUL) fails
+	tc := stubTestCase(libhegel.E_BACKEND, "") // start_span(STATEFUL) fails
 	sm := &stateMachine{invariants: []stateMachineRule{{name: "Inv", fn: func(TestCase) {}}}}
 	defer func() {
 		err, ok := recover().(error)

@@ -24,7 +24,14 @@ func Stub(returns ...any) *Handle {
 	// handle (allocation failure), any non-zero value otherwise.
 	return &Handle{
 		0,
-		func() string { return retval().(string) },
+		// The error-reporting context is pure binding plumbing the caller does
+		// not control: contextNew hands back a synthetic non-NULL handle without
+		// consuming a return, so existing stub return sequences are unaffected.
+		// contextLastError pops a string, taking over the role the old
+		// hegel_last_error_message played in wrap's NULL path.
+		func() contextT { return 1 },
+		func(c contextT) {},
+		func(c contextT) string { return retval().(string) },
 		func() string { return retval().(string) }, // coverage-ignore (version: not exercised by the runner)
 		func() settingsT { return settingsT(retval().(uintptr)) },
 		func(st settingsT) {},
@@ -35,32 +42,34 @@ func Stub(returns ...any) *Handle {
 		func(st settingsT, u uint64, b bool) {},
 		func(st settingsT, b bool) {},
 		func(st settingsT, b bool) {},
-		func(st settingsT, s string) {},
-		func(st settingsT, s string) {},
+		func(c contextT, st settingsT, s string) {},
+		func(c contextT, st settingsT, s string) {},
 		func(st settingsT, p Phase) {},
 		func(st settingsT, hc HealthCheck) {},
-		func(st settingsT) runT { return runT(retval().(uintptr)) },
+		func(c contextT, st settingsT) runT { return runT(retval().(uintptr)) },
 		func(rt runT) {},
-		func(rt runT) testCaseT { return testCaseT(retval().(uintptr)) },
-		func(rt runT) resultT { return resultT(retval().(uintptr)) },
-		func(st settingsT, blob string) testCaseT { return testCaseT(retval().(uintptr)) },
-		func(tct testCaseT) {},
-		func(tct testCaseT, b1 *byte, u1 uint64, b2 **byte, u2 *uint64) Error { return retval().(Error) },
-		func(tct testCaseT, l Label) Error { return retval().(Error) },
-		func(tct testCaseT, b bool) Error { return retval().(Error) },
-		func(tct testCaseT, u1, u2 uint64, c *Collection) Error { return retval().(Error) },
-		func(tct testCaseT, c Collection, b *bool) Error { return retval().(Error) },
-		func(tct testCaseT, c Collection, s string) Error { return retval().(Error) },
-		func(tct testCaseT, p *int64) Error { return retval().(Error) },
-		func(tct testCaseT, p int64, v *int64) Error { return retval().(Error) },
-		func(tct testCaseT, p int64, c bool, v *int64) Error { return retval().(Error) },
-		func(tct testCaseT, r **byte, nr uint64, iv **byte, ni uint64, m *int64) Error {
+		func(c contextT, rt runT) testCaseT { return testCaseT(retval().(uintptr)) },
+		func(c contextT, rt runT) resultT { return resultT(retval().(uintptr)) },
+		func(c contextT, st settingsT, blob string) testCaseT { return testCaseT(retval().(uintptr)) },
+		func(c contextT, tct testCaseT) {},
+		func(c contextT, tct testCaseT, b1 *byte, u1 uint64, b2 **byte, u2 *uint64) Error {
 			return retval().(Error)
 		},
-		func(tct testCaseT, m int64, r *int64) Error { return retval().(Error) },
-		func(tct testCaseT, p float64, f, hf bool, v *bool) Error { return retval().(Error) },
-		func(tct testCaseT, f float64, s string) Error { return retval().(Error) },
-		func(tct testCaseT, s1 Status, s2 string) Error { return retval().(Error) },
+		func(c contextT, tct testCaseT, l Label) Error { return retval().(Error) },
+		func(c contextT, tct testCaseT, b bool) Error { return retval().(Error) },
+		func(c contextT, tct testCaseT, u1, u2 uint64, col *Collection) Error { return retval().(Error) },
+		func(c contextT, tct testCaseT, col Collection, b *bool) Error { return retval().(Error) },
+		func(c contextT, tct testCaseT, col Collection, s string) Error { return retval().(Error) },
+		func(c contextT, tct testCaseT, p *int64) Error { return retval().(Error) },
+		func(c contextT, tct testCaseT, p int64, v *int64) Error { return retval().(Error) },
+		func(c contextT, tct testCaseT, p int64, cs bool, v *int64) Error { return retval().(Error) },
+		func(c contextT, tct testCaseT, r **byte, nr uint64, iv **byte, ni uint64, m *int64) Error {
+			return retval().(Error)
+		},
+		func(c contextT, tct testCaseT, m int64, r *int64) Error { return retval().(Error) },
+		func(c contextT, tct testCaseT, p float64, f, hf bool, v *bool) Error { return retval().(Error) },
+		func(c contextT, tct testCaseT, f float64, s string) Error { return retval().(Error) },
+		func(c contextT, tct testCaseT, s1 Status, s2 string) Error { return retval().(Error) },
 		func(tct testCaseT) bool { return retval().(bool) },
 		func(rt resultT) RunStatus { return retval().(RunStatus) },
 		func(rt resultT) string { return retval().(string) },

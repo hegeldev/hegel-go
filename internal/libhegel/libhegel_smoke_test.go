@@ -47,15 +47,15 @@ func TestLibhegelEndToEnd(t *testing.T) {
 		}
 		value, err := tc.Generate(schema)
 		if err != nil {
-			t.Fatalf("generate err=%d msg=%q", err, lib.lastErrorMessage())
+			t.Fatalf("generate err=%v", err)
 		}
 		// Decode the single-byte unsigned integer to sanity-check the protocol.
 		if len(value) == 0 {
 			t.Fatalf("generate returned empty value")
 		}
 		_ = value[0] // we don't enforce a value; just confirm it's readable.
-		if rc := lib.markComplete(tc.ptr, STATUS_VALID, ""); rc != OK {
-			t.Fatalf("mark_complete rc=%d msg=%q", rc, lib.lastErrorMessage())
+		if err := tc.MarkComplete(STATUS_VALID, ""); err != nil {
+			t.Fatalf("mark_complete err=%v", err)
 		}
 		cases++
 	}

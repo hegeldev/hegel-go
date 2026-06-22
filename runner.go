@@ -606,10 +606,8 @@ func collectFailures(result *libhegel.Result) error {
 	}
 	var errs []error
 	for i := uint64(0); i < n; i++ {
-		fail, err := result.Failure(i)
-		if err != nil {
-			return err
-		}
+		// index is always < n == FailureCount, so Failure never returns nil here.
+		fail := result.Failure(i)
 		// TODO: Include diagnostic / panic_message once they are wired up.
 		errs = append(errs, fmt.Errorf("%w: %s", errPropTestFailed, fail.Origin()))
 	}
