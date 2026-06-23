@@ -710,6 +710,23 @@ func TestDrawMapKeyError(t *testing.T) {
 	}
 }
 
+// TestDrawMapValueError covers the map value-draw error branch. It mirrors
+// [TestDrawMapKeyError] but lets the key draw succeed (a real generator) so the
+// loop reaches the value draw, which then rejects via E_ASSUME. Without this the
+// branch is only ever hit by luck — when the real engine returns a stop/assume
+// sentinel mid-draw — which makes its coverage flaky.
+func TestDrawMapValueError(t *testing.T) {
+	t.Parallel()
+	err := run(func(tc TestCase) {
+		Draw[map[int]int](tc, Maps[int, int](
+			Integers[int](0, 5), errGen[int]{err: libhegel.E_ASSUME},
+		).MinSize(1))
+	}, WithTestCases(5), WithDatabase(DatabaseDisabled()), SuppressHealthCheck(FilterTooMuch))
+	if err != nil {
+		t.Fatalf("expected all-invalid pass, got %v", err)
+	}
+}
+
 // TestDrawMapBasic covers the all-basic map schema path (basic keys + values).
 func TestDrawMapBasic(t *testing.T) {
 	t.Parallel()
