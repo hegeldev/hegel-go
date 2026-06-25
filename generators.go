@@ -93,6 +93,16 @@ type TestCase interface {
 	// [WithSingleTestCase].
 	isSingleTestCase() bool
 
+	// stateMachineNew registers an engine-owned state machine with the
+	// named rules and invariants, returning its id. The engine owns rule
+	// selection (including swarm testing).
+	stateMachineNew(ruleNames, invariantNames []string) (libhegel.StateMachine, error)
+
+	// stateMachineNextRule draws the index of the next rule to run, in
+	// [0, len(rules)). Returns an [libhegel.E_STOP_TEST] error when the
+	// engine's choice budget is exhausted.
+	stateMachineNextRule(machine libhegel.StateMachine) (int64, error)
+
 	// reportDraw emits one draw-report line for value through the
 	// implementation's note channel, or no-ops when notes are suppressed.
 	// skip is the number of stack frames to skip when resolving the source

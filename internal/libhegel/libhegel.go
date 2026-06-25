@@ -137,6 +137,10 @@ const (
 
 type Collection int64
 
+// StateMachine identifies an engine-owned state machine registered via
+// [TestCase.NewStateMachine] for the lifetime of a single test case.
+type StateMachine int64
+
 type Label uint64
 
 const (
@@ -254,8 +258,8 @@ type symbols struct {
 	newPool              func(ctxT, testCaseT, *int64) Error
 	poolAdd              func(ctxT, testCaseT, int64, *int64) Error
 	poolGenerate         func(ctxT, testCaseT, int64, bool, *int64) Error
-	newStateMachine      func(ctxT, testCaseT, **byte, uint64, **byte, uint64, *int64) Error
-	stateMachineNextRule func(ctxT, testCaseT, int64, *int64) Error
+	newStateMachine      func(ctxT, testCaseT, **byte, uint64, **byte, uint64, *StateMachine) Error
+	stateMachineNextRule func(ctxT, testCaseT, StateMachine, *int64) Error
 	primitiveBoolean     func(ctxT, testCaseT, float64, bool, bool, *bool) Error
 	target               func(ctxT, testCaseT, float64, string) Error
 	markComplete         func(ctxT, testCaseT, Status, string) Error
@@ -589,6 +593,7 @@ type TestCase struct {
 	outBool  bool
 	outInt   int64
 	outColl  Collection
+	outSM    StateMachine
 }
 
 func (tc *TestCase) Generate(ctx *Context, schema []byte) ([]byte, error) {
@@ -662,7 +667,7 @@ func (tc *TestCase) PoolGenerate(ctx *Context, pool int64, consume bool) (int64,
 // NewStateMachine registers a state machine for engine-owned stateful testing,
 // with the named rules and invariants. Rule selection (including swarm testing)
 // is owned by the engine and driven via [TestCase.StateMachineNextRule].
-func (tc *TestCase) NewStateMachine(ctx *Context, ruleNames, invariantNames []string) (int64, error) {
+func (tc *TestCase) NewStateMachine(ctx *Context, ruleNames, invariantNames []string) (StateMachine, error) {
 	rules, err := cStringArray(ruleNames)
 	if err != nil {
 		return 0, fmt.Errorf("hegel_new_state_machine: rule names: %w", err)
@@ -676,15 +681,15 @@ func (tc *TestCase) NewStateMachine(ctx *Context, ruleNames, invariantNames []st
 			ctx, tc.raw,
 			slicePtr(rules), uint64(len(ruleNames)),
 			slicePtr(invariants), uint64(len(invariantNames)),
-			&tc.outInt,
+			&tc.outSM,
 		)
 	})
-	return tc.outInt, err
+	return tc.outSM, err
 }
 
 // StateMachineNextRule draws the index of the next rule to run, in
 // [0, num_rules), letting the engine choose and shrink the rule sequence.
-func (tc *TestCase) StateMachineNextRule(ctx *Context, machine int64) (int64, error) {
+func (tc *TestCase) StateMachineNextRule(ctx *Context, machine StateMachine) (int64, error) {
 	err := ctx.invoke("hegel_state_machine_next_rule", func(ctx ctxT) Error {
 		return tc.syms.stateMachineNextRule(ctx, tc.raw, machine, &tc.outInt)
 	})

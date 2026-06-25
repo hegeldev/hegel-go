@@ -142,6 +142,14 @@ func (s *testCase) isSingleTestCase() bool {
 	return s.singleTestCase
 }
 
+func (s *testCase) stateMachineNew(ruleNames, invariantNames []string) (libhegel.StateMachine, error) {
+	return s.tc.NewStateMachine(s.ctx, ruleNames, invariantNames)
+}
+
+func (s *testCase) stateMachineNextRule(machine libhegel.StateMachine) (int64, error) {
+	return s.tc.StateMachineNextRule(s.ctx, machine)
+}
+
 func (s *testCase) startSpan(label libhegel.Label) error {
 	err := s.tc.StartSpan(s.ctx, label)
 	if err != nil {
