@@ -2,14 +2,17 @@ module hegel.dev/go/hegel
 
 go 1.25.0
 
-require github.com/fxamacker/cbor/v2 v2.9.0
+require (
+	github.com/ebitengine/purego v0.10.1
+	github.com/fxamacker/cbor/v2 v2.9.0
+	golang.org/x/sys v0.44.0
+)
 
 require (
 	github.com/BurntSushi/toml v1.4.1-0.20240526193622-a339e1f7089c // indirect
 	github.com/alexflint/go-arg v1.6.0 // indirect
 	github.com/alexflint/go-scalar v1.2.0 // indirect
 	github.com/aws/aws-sdk-go v1.49.4 // indirect
-	github.com/ebitengine/purego v0.10.1 // indirect
 	github.com/golang/freetype v0.0.0-20170609003504-e2365dfdc4a0 // indirect
 	github.com/google/go-cmp v0.7.0 // indirect
 	github.com/google/go-github/v56 v56.0.0 // indirect
@@ -26,7 +29,6 @@ require (
 	golang.org/x/image v0.18.0 // indirect
 	golang.org/x/mod v0.36.0 // indirect
 	golang.org/x/sync v0.20.0 // indirect
-	golang.org/x/sys v0.44.0 // indirect
 	golang.org/x/tools v0.45.0 // indirect
 	gopkg.in/yaml.v3 v3.0.1 // indirect
 	honnef.co/go/tools v0.7.0 // indirect
