@@ -17,6 +17,7 @@ import (
 //
 // It is compatible with most popular TestingT interfaces from assert libraries.
 type testCase struct {
+	ctx            *libhegel.Context
 	tc             *libhegel.TestCase
 	status         libhegel.Status
 	origin         string
@@ -74,7 +75,7 @@ func (s *testCase) Log(args ...any) {
 }
 
 func (s *testCase) Target(value float64, label string) {
-	err := s.tc.Target(value, label)
+	err := s.tc.Target(s.ctx, value, label)
 	if err != nil {
 		panic(err)
 	}
@@ -130,7 +131,7 @@ func (s *testCase) generate(schema map[string]any) (any, error) {
 	if err != nil { // coverage-ignore (fixed-shape maps always encode)
 		panic(fmt.Sprintf("encode schema: %v", err))
 	}
-	valueBytes, err := s.tc.Generate(schemaBytes)
+	valueBytes, err := s.tc.Generate(s.ctx, schemaBytes)
 	if err != nil {
 		return nil, err
 	}
@@ -142,7 +143,7 @@ func (s *testCase) isSingleTestCase() bool {
 }
 
 func (s *testCase) startSpan(label libhegel.Label) error {
-	err := s.tc.StartSpan(label)
+	err := s.tc.StartSpan(s.ctx, label)
 	if err != nil {
 		return err
 	}
@@ -151,7 +152,7 @@ func (s *testCase) startSpan(label libhegel.Label) error {
 }
 
 func (s *testCase) stopSpan(discard bool) error {
-	err := s.tc.StopSpan(discard)
+	err := s.tc.StopSpan(s.ctx, discard)
 	if err != nil {
 		return err
 	}
@@ -168,11 +169,11 @@ func (s *testCase) newCollection(minSize int, maxSize *int) (*collection, error)
 	if maxSize != nil {
 		maxVal = uint64(*maxSize)
 	}
-	id, err := s.tc.NewCollection(uint64(minSize), maxVal)
+	id, err := s.tc.NewCollection(s.ctx, uint64(minSize), maxVal)
 	if err != nil {
 		return nil, err
 	}
-	return &collection{tc: s.tc, id: id}, nil
+	return &collection{ctx: s.ctx, tc: s.tc, id: id}, nil
 }
 
 // --- collection protocol ---
@@ -182,6 +183,7 @@ func (s *testCase) newCollection(minSize int, maxSize *int) (*collection, error)
 // Errors from More and Reject are stashed on err. Callers iterate with
 // `for coll.More(s) { ... }` and check `coll.Err()` once after the loop.
 type collection struct {
+	ctx      *libhegel.Context
 	tc       *libhegel.TestCase
 	id       libhegel.Collection
 	finished bool
@@ -201,7 +203,7 @@ func (c *collection) More() bool {
 	if c.finished || c.err != nil {
 		return false
 	}
-	more, err := c.tc.CollectionMore(c.id)
+	more, err := c.tc.CollectionMore(c.ctx, c.id)
 	if err != nil {
 		c.err = err
 		return false
@@ -221,7 +223,7 @@ func (c *collection) Reject(reason string) {
 	if c.finished || c.err != nil {
 		return
 	}
-	if err := c.tc.CollectionReject(c.id, reason); err != nil {
+	if err := c.tc.CollectionReject(c.ctx, c.id, reason); err != nil {
 		c.err = err
 	}
 }
@@ -442,51 +444,48 @@ func run(fn testBody, opts ...Option) error {
 		opt(&o)
 	}
 
-	lib, _ := libhegel.GlobalHandle()
-	return runWithHandle(lib, fn, o)
+	ctx := libhegel.NewContext()
+	return runWithContext(ctx, fn, o)
 }
 
-// runWithHandle is the libhegel-driving core of [runProperty], split out so
-// tests can inject a stub *libhegel and exercise the engine setup/teardown
-// error paths (run_start / run_result failures) without the real library.
-func runWithHandle(lib *libhegel.Handle, fn testBody, opts runOptions) error {
-	s := buildSettings(lib, opts)
-
-	run, err := s.RunStart()
+func runWithContext(ctx *libhegel.Context, fn testBody, opts runOptions) error {
+	s, err := buildSettings(ctx, opts)
 	if err != nil {
 		return err
 	}
 
-	// Drive the engine until next_test_case returns NULL. The C ABI overloads
-	// NULL to mean either "run finished" or "engine failed mid-run", with
-	// hegel_last_error_message distinguishing the two. We deliberately do NOT
-	// read last_error here to disambiguate: it is OS-thread-local, and this
-	// loop runs on a goroutine the Go runtime may migrate between OS threads,
-	// so a NULL from a normal completion can observe a stale error string left
-	// by an unrelated concurrent run on the same OS thread — a spurious
-	// failure. (hegel-java can check it safely because it uses 1:1 OS threads.)
-	// A genuine mid-run engine failure is still surfaced: hegel_run_result
-	// below returns NULL (handled) or a result whose failure list carries the
-	// engine's diagnostic, which collectFailures reports.
-	// In single-test-case mode libhegel returns NULL after one case.
+	run, err := s.RunStart(ctx)
+	if err != nil {
+		return err
+	}
+
+	var output io.Writer
+	var skipUserPanic bool
+	if opts.singleTestCase {
+		output = opts.output
+		skipUserPanic = true
+	}
 	for {
-		tc, err := run.NextTestCase()
+		tc, err := run.NextTestCase(ctx)
 		if err != nil {
 			return err
 		}
 		if tc == nil {
 			break
 		}
-		// TODO: Omit singleTestCase?
-		driveOneCase(tc, fn, opts.singleTestCase, opts.output)
+
+		origin, status := driveOneCase(ctx, tc, fn, output, skipUserPanic, opts.singleTestCase)
+		if err := tc.MarkComplete(ctx, status, origin); err != nil {
+			return err
+		}
 	}
 
-	result, err := run.RunResult()
+	result, err := run.RunResult(ctx)
 	if err != nil {
 		return err
 	}
 
-	switch result.Status() {
+	switch result.Status(ctx) {
 	case libhegel.RUN_STATUS_PASSED:
 		return nil
 	case libhegel.RUN_STATUS_ERROR:
@@ -494,26 +493,34 @@ func runWithHandle(lib *libhegel.Handle, fn testBody, opts runOptions) error {
 		// engine panic) and produced no verdict on the property. There are no
 		// counterexamples to collect; the diagnostic lives in the run-level
 		// error message.
-		return fmt.Errorf("%w: %s", errPropTestFailed, result.ErrorMessage())
+		return fmt.Errorf("%w: %s", errPropTestFailed, result.ErrorMessage(ctx))
 	default:
-		return collectFailures(result)
+		if opts.singleTestCase {
+			// There is never a need to replay a single test case.
+			return errPropTestFailed
+		}
+
+		return replayFailures(ctx, s, result, fn, opts)
 	}
 }
 
-func buildSettings(lib *libhegel.Handle, opts runOptions) *libhegel.Settings {
-	s := lib.SettingsNew()
+func buildSettings(ctx *libhegel.Context, opts runOptions) (*libhegel.Settings, error) {
+	s := ctx.SettingsNew()
 
+	// Each setter is a fallible libhegel call; a non-nil error means the option
+	// was rejected and must be surfaced rather than silently dropped. Collect
+	// every applicable setter's error (nil entries are dropped by errors.Join)
+	// so a bad option is reported instead of being lost.
+	var errs []error
 	if opts.testCases > 0 {
-		s.TestCases(uint64(opts.testCases))
+		errs = append(errs, s.TestCases(ctx, uint64(opts.testCases)))
 	}
-	s.Derandomize(opts.derandomize)
-
+	errs = append(errs, s.Derandomize(ctx, opts.derandomize))
 	if opts.seed != nil {
-		s.Seed(uint64(*opts.seed), true)
+		errs = append(errs, s.Seed(ctx, uint64(*opts.seed), true))
 	}
-
 	if opts.singleTestCase {
-		s.Mode(libhegel.MODE_SINGLE_TEST_CASE)
+		errs = append(errs, s.Mode(ctx, libhegel.MODE_SINGLE_TEST_CASE))
 	}
 
 	switch opts.database.state {
@@ -521,15 +528,15 @@ func buildSettings(lib *libhegel.Handle, opts runOptions) *libhegel.Settings {
 		// Don't call: libhegel uses its default.
 	case databaseDisabled:
 		// Empty string disables the database.
-		s.Database("")
+		errs = append(errs, s.Database(ctx, ""))
 	case databasePath:
-		s.Database(opts.database.path)
+		errs = append(errs, s.Database(ctx, opts.database.path))
 	default: // coverage-ignore (databaseState enum is closed)
-		panic(fmt.Sprintf("unknown database state %d", opts.database.state))
+		return nil, fmt.Errorf("unknown database state %d", opts.database.state)
 	}
 
 	if opts.database.state != databaseDisabled && opts.databaseKey != "" {
-		s.DatabaseKey(opts.databaseKey)
+		errs = append(errs, s.DatabaseKey(ctx, opts.databaseKey))
 	}
 
 	if len(opts.suppressHealthCheck) > 0 {
@@ -537,83 +544,69 @@ func buildSettings(lib *libhegel.Handle, opts runOptions) *libhegel.Settings {
 		for _, hc := range opts.suppressHealthCheck {
 			mask |= hc
 		}
-		s.SuppressHealthCheck(mask)
+		errs = append(errs, s.SuppressHealthCheck(ctx, mask))
 	}
 
-	return s
+	if err := errors.Join(errs...); err != nil {
+		return nil, err
+	}
+
+	return s, nil
 }
 
-// driveOneCase runs one test case received from libhegel: invokes fn against a
-// fresh [testCase], recovers panics into a status (VALID/INVALID/OVERRUN/
-// INTERESTING) and an optional origin, and calls hegel_mark_complete.
-// Failures themselves are surfaced via hegel_run_result; the caller doesn't
-// need to inspect anything per-case.
-func driveOneCase(tc *libhegel.TestCase, fn testBody, single bool, baseOutput io.Writer) {
-	var caseOut io.Writer
-	var skipUserPanic bool
-	if tc.IsFinalReplay() || single {
-		caseOut = baseOutput
-
-		// Do not recover any pending panics on the final replay or when in
-		// single testcase mode.
-		// This ensures that debuggers can see the panics.
-		skipUserPanic = true
-	}
-
+func driveOneCase(ctx *libhegel.Context, tc *libhegel.TestCase, fn testBody, output io.Writer, skipUserPanic, singleTestCase bool) (origin string, status libhegel.Status) {
 	state := &testCase{
+		ctx:            ctx,
 		tc:             tc,
-		singleTestCase: single,
-		out:            caseOut,
+		singleTestCase: singleTestCase,
+		out:            output,
 	}
-
-	func() {
-		defer func() {
-			if skipUserPanic {
-				return
-			}
-
-			r := recover()
-			if r == nil {
-				return
-			}
-
-			// The panic is recovered into an INTERESTING status. On the final
-			// replay (or in single-case mode) we never get here: skipUserPanic
-			// lets the panic propagate so the Go runtime prints it for debuggers.
-			state.setStatus(libhegel.STATUS_INTERESTING)
-		}()
-		defer state.recoverAbort()
-		fn(state)
+	// Registered first so it runs last: publish the case's final status and
+	// origin into the named returns. When fn panics (FailNow/abort/user panic)
+	// the normal return below is skipped, so without this the named returns
+	// would keep their zero values (a VALID status) and the failure would be
+	// silently dropped by the caller's mark_complete.
+	defer func() {
+		origin, status = state.origin, state.status
 	}()
+	defer func() {
+		if skipUserPanic {
+			return
+		}
 
-	tc.MarkComplete(state.status, state.origin)
+		r := recover()
+		if r == nil {
+			return
+		}
+
+		// The panic is recovered into an INTERESTING status. On the final
+		// replay (or in single-case mode) we never get here: skipUserPanic
+		// lets the panic propagate so the Go runtime prints it for debuggers.
+		state.setStatus(libhegel.STATUS_INTERESTING)
+	}()
+	defer state.recoverAbort()
+	fn(state)
+	return
 }
 
-// collectFailures walks the failure list from a finished run and joins the
-// failures into a single error. It is called only for a RUN_STATUS_FAILED run
-// (the property has counterexamples); health-check and other run-level errors
-// surface as RUN_STATUS_ERROR and are handled by the caller.
+// replayFailures walks the failures of a result and replays fn against them.
 //
-// panicByOrigin supplies the dynamic panic message captured by driveOneCase
-// for each origin libhegel reports. The origin string itself is stable per
-// call site (so libhegel can group failures for shrinking); the panic value
-// is appended to the error message so users still see what the test
-// panicked with.
-func collectFailures(result *libhegel.Result) error {
-	n := result.FailureCount()
-	if n == 0 { // coverage-ignore (RUN_STATUS_FAILED implies n>=1)
-		return errPropTestFailed
-	}
-	var errs []error
-	for i := uint64(0); i < n; i++ {
-		fail, err := result.Failure(i)
+// Returns an error describing the failures.
+func replayFailures(ctx *libhegel.Context, s *libhegel.Settings, result *libhegel.Result, fn testBody, opts runOptions) error {
+	var origins []string
+	for i := range result.FailureCount(ctx) {
+		fail, err := result.Failure(ctx, i)
 		if err != nil {
 			return err
 		}
-		// TODO: Include diagnostic / panic_message once they are wired up.
-		errs = append(errs, fmt.Errorf("%w: %s", errPropTestFailed, fail.Origin()))
+		tc, err := s.TestCaseFromBlob(ctx, fail.ReproductionBlob(ctx))
+		if err != nil {
+			return err
+		}
+		driveOneCase(ctx, tc, fn, opts.output, true, false)
+		origins = append(origins, fail.Origin(ctx))
 	}
-	return errors.Join(errs...)
+	return fmt.Errorf("%w: %d failures %v", errPropTestFailed, len(origins), origins)
 }
 
 // findExternalCaller describes a recovered panic for [hegel_mark_complete]'s

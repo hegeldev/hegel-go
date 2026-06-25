@@ -9,17 +9,17 @@ import (
 // the result. This is the lowest-level integration test — anything fancier
 // goes through the testCaseRunner abstraction (added in a later task).
 func TestLibhegelEndToEnd(t *testing.T) {
-	lib, _ := GlobalHandle()
+	ctx := NewContext()
 
-	settings := lib.SettingsNew()
+	settings := ctx.SettingsNew()
 
-	settings.TestCases(10)
-	settings.Derandomize(true)
-	settings.Seed(42, true)
+	settings.TestCases(ctx, 10)
+	settings.Derandomize(ctx, true)
+	settings.Seed(ctx, 42, true)
 	// Disable the database so the test is hermetic.
-	settings.Database("")
+	settings.Database(ctx, "")
 
-	run, err := settings.RunStart()
+	run, err := settings.RunStart(ctx)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -38,24 +38,24 @@ func TestLibhegelEndToEnd(t *testing.T) {
 
 	cases := 0
 	for {
-		tc, err := run.NextTestCase()
+		tc, err := run.NextTestCase(ctx)
 		if err != nil {
 			t.Fatal(err)
 		}
 		if tc == nil {
 			break
 		}
-		value, err := tc.Generate(schema)
+		value, err := tc.Generate(ctx, schema)
 		if err != nil {
-			t.Fatalf("generate err=%d msg=%q", err, lib.lastErrorMessage())
+			t.Fatalf("generate err=%v", err)
 		}
 		// Decode the single-byte unsigned integer to sanity-check the protocol.
 		if len(value) == 0 {
 			t.Fatalf("generate returned empty value")
 		}
 		_ = value[0] // we don't enforce a value; just confirm it's readable.
-		if rc := lib.markComplete(tc.ptr, STATUS_VALID, ""); rc != OK {
-			t.Fatalf("mark_complete rc=%d msg=%q", rc, lib.lastErrorMessage())
+		if err := tc.MarkComplete(ctx, STATUS_VALID, ""); err != nil {
+			t.Fatalf("mark_complete err=%v ", err)
 		}
 		cases++
 	}
@@ -63,11 +63,11 @@ func TestLibhegelEndToEnd(t *testing.T) {
 		t.Fatal("expected at least one test case from run_start")
 	}
 
-	result, err := run.RunResult()
+	result, err := run.RunResult(ctx)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if lib.resultStatus(result.ptr) != RUN_STATUS_PASSED {
-		t.Errorf("expected passing run, got failure count %d", lib.resultFailureCount(result.ptr))
+	if result.Status(ctx) != RUN_STATUS_PASSED {
+		t.Errorf("expected passing run, got failure count %d", result.FailureCount(ctx))
 	}
 }

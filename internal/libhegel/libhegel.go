@@ -22,7 +22,6 @@
 package libhegel
 
 import (
-	"errors"
 	"fmt"
 	"os"
 	"runtime"
@@ -42,13 +41,6 @@ import (
 const LibraryPathEnv = "HEGEL_LIBHEGEL_PATH"
 
 type Error int32
-
-func toError(op string, e Error) error {
-	if e == OK {
-		return nil
-	}
-	return fmt.Errorf("%s: %w", op, error(e))
-}
 
 func (e Error) Error() string {
 	return e.String()
@@ -205,159 +197,191 @@ const (
 	LABEL_STATEFUL
 )
 
-type wrapper[T ~uintptr] struct {
-	lib *Handle
-	ptr T
+type pointer[T ~uintptr] struct {
+	syms *symbols
+	raw  T
 }
 
-// Wrap a C pointer into an object which automatically frees it via the GC.
-func wrap[T ~uintptr](op string, lib *Handle, new func() T, free func(T)) (*wrapper[T], error) {
-	runtime.LockOSThread()
-	defer runtime.UnlockOSThread()
-
-	ptr := new()
-
-	if ptr == 0 {
-		if msg := lib.lastErrorMessage(); msg != "" {
-			return nil, fmt.Errorf("%s: %s", op, msg)
-		}
-		return nil, nil
-	}
-
-	w := &wrapper[T]{lib, ptr}
-	if free != nil {
-		runtime.AddCleanup(w, free, ptr)
-	}
-
-	return w, nil
-}
-
+type ctxT uintptr      // Equivalent of hegel_context_t
 type settingsT uintptr // Equivalent of hegel_settings_t
 type runT uintptr      // Equivalent of hegel_run_t
 type testCaseT uintptr // Equivalent of hegel_test_case_t
-type resultT uintptr   // Equivalent of hegel_result_t
+type resultT uintptr   // Equivalent of hegel_run_result_t
 type failureT uintptr  // Equivalent of hegel_failure_t
 
-// A handle to a libhegel instance.
-type Handle struct {
+// symbols is the loaded libhegel shared library: the dlopen handle plus one Go
+// func per C entry point. It is immutable after load and freely shared across
+// goroutines; the per-call error-reporting context lives on [Context] instead.
+//
+// Every fallible C call takes a hegel_context_t as its first argument and
+// returns a result code; any value it produces is written through a trailing
+// out-parameter. The func signatures below mirror that convention exactly.
+type symbols struct {
 	handle dlhandle
 
-	// This function accesses thread-local state and therefore must be
-	// called on goroutine locked to an OS thread.
-	lastErrorMessage func() string
-	version          func() string
+	contextNew       func() ctxT
+	contextFree      func(ctxT) Error
+	contextLastError func(ctxT) string
 
-	settingsNew             func() settingsT
-	settingsFree            func(settingsT)
-	settingsMode            func(settingsT, Mode)
-	settingsBackend         func(settingsT, Backend)
-	settingsTestCases       func(settingsT, uint64)
-	settingsVerbosity       func(settingsT, Verbosity)
-	settingsSeed            func(settingsT, uint64, bool)
-	settingsDerandomize     func(settingsT, bool)
-	settingsReportMultiFail func(settingsT, bool)
-	settingsDatabase        func(settingsT, string)
-	settingsDatabaseKey     func(settingsT, string)
-	settingsPhases          func(settingsT, Phase)
-	settingsSuppressHC      func(settingsT, HealthCheck)
+	settingsNew                       func(ctxT, *settingsT) Error
+	settingsFree                      func(ctxT, settingsT) Error
+	settingsSetMode                   func(ctxT, settingsT, Mode) Error
+	settingsSetBackend                func(ctxT, settingsT, Backend) Error
+	settingsSetTestCases              func(ctxT, settingsT, uint64) Error
+	settingsSetVerbosity              func(ctxT, settingsT, Verbosity) Error
+	settingsSetSeed                   func(ctxT, settingsT, uint64, bool) Error
+	settingsSetDerandomize            func(ctxT, settingsT, bool) Error
+	settingsSetReportMultipleFailures func(ctxT, settingsT, bool) Error
+	settingsSetDatabase               func(ctxT, settingsT, string) Error
+	settingsSetDatabaseKey            func(ctxT, settingsT, string) Error
+	settingsSetPhases                 func(ctxT, settingsT, Phase) Error
+	settingsSetSuppressHealthCheck    func(ctxT, settingsT, HealthCheck) Error
 
-	runStart     func(settingsT) runT
-	runFree      func(runT)
-	nextTestCase func(runT) testCaseT
-	runResult    func(runT) resultT
+	runStart     func(ctxT, settingsT, *runT) Error
+	runFree      func(ctxT, runT) Error
+	nextTestCase func(ctxT, runT, *testCaseT) Error
+	runResult    func(ctxT, runT, *resultT) Error
 
-	testCaseFromBlob func(settingsT, string) testCaseT
-	testCaseFree     func(testCaseT)
+	testCaseFromBlob func(ctxT, settingsT, string, *testCaseT) Error
+	testCaseFree     func(ctxT, testCaseT) Error
 
-	generate             func(testCaseT, *byte, uint64, **byte, *uint64) Error
-	startSpan            func(testCaseT, Label) Error
-	stopSpan             func(testCaseT, bool) Error
-	newCollection        func(testCaseT, uint64, uint64, *Collection) Error
-	collectionMore       func(testCaseT, Collection, *bool) Error
-	collectionReject     func(testCaseT, Collection, string) Error
-	newPool              func(testCaseT, *int64) Error
-	poolAdd              func(testCaseT, int64, *int64) Error
-	poolGenerate         func(testCaseT, int64, bool, *int64) Error
-	newStateMachine      func(testCaseT, **byte, uint64, **byte, uint64, *int64) Error
-	stateMachineNextRule func(testCaseT, int64, *int64) Error
-	primitiveBoolean     func(testCaseT, float64, bool, bool, *bool) Error
-	target               func(testCaseT, float64, string) Error
-	markComplete         func(testCaseT, Status, string) Error
-	isFinalReplay        func(testCaseT) bool
+	generate             func(ctxT, testCaseT, *byte, uint64, **byte, *uint64) Error
+	startSpan            func(ctxT, testCaseT, Label) Error
+	stopSpan             func(ctxT, testCaseT, bool) Error
+	newCollection        func(ctxT, testCaseT, uint64, uint64, *Collection) Error
+	collectionMore       func(ctxT, testCaseT, Collection, *bool) Error
+	collectionReject     func(ctxT, testCaseT, Collection, string) Error
+	newPool              func(ctxT, testCaseT, *int64) Error
+	poolAdd              func(ctxT, testCaseT, int64, *int64) Error
+	poolGenerate         func(ctxT, testCaseT, int64, bool, *int64) Error
+	newStateMachine      func(ctxT, testCaseT, **byte, uint64, **byte, uint64, *int64) Error
+	stateMachineNextRule func(ctxT, testCaseT, int64, *int64) Error
+	primitiveBoolean     func(ctxT, testCaseT, float64, bool, bool, *bool) Error
+	target               func(ctxT, testCaseT, float64, string) Error
+	markComplete         func(ctxT, testCaseT, Status, string) Error
 
-	resultStatus       func(resultT) RunStatus
-	resultError        func(resultT) string
-	resultFailureCount func(resultT) uint64
-	resultFailure      func(resultT, uint64) failureT
+	resultStatus       func(ctxT, resultT, *RunStatus) Error
+	resultError        func(ctxT, resultT, **byte) Error
+	resultFailureCount func(ctxT, resultT, *uint64) Error
+	resultFailure      func(ctxT, resultT, uint64, *failureT) Error
 
-	failurePanicMsg         func(failureT) string
-	failureOrigin           func(failureT) string
-	failureReproductionBlob func(failureT) string
+	failureOrigin           func(ctxT, failureT, **byte) Error
+	failureReproductionBlob func(ctxT, failureT, **byte) Error
+
+	version func(ctxT, **byte) Error
 }
 
-// The global libhegel handle.
+type Context pointer[ctxT]
+
+// NewContext allocates a fresh error-reporting context over the process-wide
+// loaded library, loading the library on first use (panicking if it cannot be
+// found).
+func NewContext() *Context {
+	syms := globalSymbols()
+	ctx := &Context{syms, syms.contextNew()}
+	runtime.AddCleanup(ctx, func(ctx ctxT) { syms.contextFree(ctx) }, ctx.raw)
+	return ctx
+}
+
+func allocate[R ~uintptr](c *Context, op string, new func(ctx ctxT, raw *R) Error, free func(ctx ctxT, raw R) Error) (*pointer[R], error) {
+	ptr := pointer[R]{syms: c.syms}
+	err := c.invoke(op, func(ctx ctxT) Error {
+		return new(ctx, &ptr.raw)
+	})
+
+	if err != nil {
+		return nil, err
+	}
+
+	// A zero handle with no error is the "no handle" sentinel: the engine
+	// declined to produce one without raising an error (e.g.
+	// hegel_next_test_case once the run is finished, or
+	// hegel_test_case_from_blob rejecting a stale blob). Callers map this to a
+	// nil result.
+	if ptr.raw == 0 {
+		return nil, nil
+	}
+
+	if free != nil {
+		runtime.AddCleanup(&ptr, func(raw R) { free(0, raw) }, ptr.raw)
+	}
+
+	return &ptr, nil
+}
+
+// invoke a function with a ctxT parameter.
 //
-// Returns the handle and the path the library was loaded from.
-// panics on error.
-var GlobalHandle = sync.OnceValues(func() (*Handle, string) {
-	handle, path, err := load()
+// It is invalid to invoke on a nil context, in which case a NULL pointer is passed.
+func (c *Context) invoke(op string, fn func(ctx ctxT) Error) error {
+	var ptr ctxT
+	if c != nil {
+		ptr = c.raw
+	}
+
+	e := fn(ptr)
+	if e == OK {
+		return nil
+	}
+
+	if c != nil {
+		if msg := c.syms.contextLastError(c.raw); msg != "" {
+			return fmt.Errorf("%s: %w: %s", op, e, msg)
+		}
+	}
+
+	return fmt.Errorf("%s: %w", op, e)
+}
+
+// globalSymbols loads the libhegel shared library once and returns the shared,
+// immutable symbol table together with the path it was loaded from. Panics on
+// error. Callers obtain a usable handle via [NewContext], which pairs these
+// symbols with a fresh error-reporting context.
+var globalSymbols = sync.OnceValue(func() *symbols {
+	syms, err := load()
 	if err != nil {
 		panic(err)
 	}
-	return handle, path
+	return syms
 })
 
-// load returns the package-level libhegel binding, loading it on first call.
-// All callers share the same instance; function pointers are immutable after
-// the first successful load.
-func load() (*Handle, string, error) {
-	return loadFromPaths(candidatePaths())
+// Close unloads the library (dlclose). Invoking any method that routes through
+// these symbols afterwards is undefined behaviour.
+func (s *symbols) Close() error {
+	return dlclose(s.handle)
 }
 
-// Close the handle to the library.
-//
-// Invoking any method on [Handle] after calling this method is undefined behaviour.
-func (lib *Handle) Close() error {
-	return dlclose(lib.handle)
+// Version reports the loaded library's version (hegel_version).
+func (s *symbols) Version() string {
+	var out *byte
+	_ = s.version(0, &out)
+	return goString(out)
 }
 
-// loadFromPaths tries each path in order, returning the first that loads. If
-// none load, falls back to fetching a cached/release artifact via
-// [downloadCandidate] (skipped when HEGEL_LIBHEGEL_PATH is set: an explicit
-// override means the user wants that exact file, no auto-download fallback).
-// All failures are accumulated into the returned error if every attempt
-// fails.
-func loadFromPaths(paths []string) (*Handle, string, error) {
-	var attempts []error
-	for _, path := range paths {
-		if lib, err := tryOpen(path); err != nil {
-			attempts = append(attempts, fmt.Errorf("%s: %w", path, err))
-		} else {
-			return lib, path, nil
+func load() (*symbols, error) {
+	path := os.Getenv(LibraryPathEnv)
+	if path == "" {
+		var err error
+		path, err = downloadCandidate()
+		if err != nil { // coverage-ignore (download fallback hits the network, not exercised in unit tests)
+			return nil, fmt.Errorf("download libhegel: %w", err)
 		}
 	}
-	if os.Getenv(LibraryPathEnv) == "" { // coverage-ignore (download fallback hits the network, not exercised in unit tests)
-		// No explicit override: fetch the pinned release into the per-version cache.
-		downloaded, err := downloadCandidate()
-		if err != nil {
-			attempts = append(attempts, fmt.Errorf("download fallback: %w", err))
-		} else if lib, err := tryOpen(downloaded); err != nil {
-			attempts = append(attempts, fmt.Errorf("%s: %w", downloaded, err))
-		} else {
-			return lib, downloaded, nil
-		}
+
+	syms, err := tryOpen(path)
+	if err != nil {
+		return nil, fmt.Errorf("could not load libhegel from %s (set %s to override): %w", path, LibraryPathEnv, err)
 	}
-	return nil, "", fmt.Errorf("could not load libhegel; tried %d location(s) [set %s to override]:\n%w",
-		len(paths), LibraryPathEnv, errors.Join(attempts...))
+
+	return syms, nil
 }
 
 // tryOpen dlopens a single path and resolves every symbol against the
 // returned handle.
-func tryOpen(path string) (lib *Handle, err error) {
+func tryOpen(path string) (syms *symbols, err error) {
 	defer func() {
 		if r := recover(); r != nil { // coverage-ignore (requires stub .so)
 			err = fmt.Errorf("loading %s: symbol resolution failed: %v", path, r)
-			lib = nil
+			syms = nil
 		}
 	}()
 
@@ -366,204 +390,279 @@ func tryOpen(path string) (lib *Handle, err error) {
 		return nil, err
 	}
 
-	lib = &Handle{handle: libHandle}
+	syms = &symbols{handle: libHandle}
 	err = registerSymbols(libHandle, []symbol{
-		{"hegel_settings_new", &lib.settingsNew},
-		{"hegel_settings_free", &lib.settingsFree},
-		{"hegel_settings_mode", &lib.settingsMode},
-		{"hegel_settings_backend", &lib.settingsBackend},
-		{"hegel_settings_test_cases", &lib.settingsTestCases},
-		{"hegel_settings_verbosity", &lib.settingsVerbosity},
-		{"hegel_settings_seed", &lib.settingsSeed},
-		{"hegel_settings_derandomize", &lib.settingsDerandomize},
-		{"hegel_settings_report_multiple_failures", &lib.settingsReportMultiFail},
-		{"hegel_settings_database", &lib.settingsDatabase},
-		{"hegel_settings_database_key", &lib.settingsDatabaseKey},
-		{"hegel_settings_phases", &lib.settingsPhases},
-		{"hegel_settings_suppress_health_check", &lib.settingsSuppressHC},
+		{"hegel_context_new", &syms.contextNew},
+		{"hegel_context_free", &syms.contextFree},
+		{"hegel_context_last_error", &syms.contextLastError},
 
-		{"hegel_run_start", &lib.runStart},
-		{"hegel_next_test_case", &lib.nextTestCase},
-		{"hegel_run_result", &lib.runResult},
-		{"hegel_run_free", &lib.runFree},
+		{"hegel_settings_new", &syms.settingsNew},
+		{"hegel_settings_free", &syms.settingsFree},
+		{"hegel_settings_set_mode", &syms.settingsSetMode},
+		{"hegel_settings_set_backend", &syms.settingsSetBackend},
+		{"hegel_settings_set_test_cases", &syms.settingsSetTestCases},
+		{"hegel_settings_set_verbosity", &syms.settingsSetVerbosity},
+		{"hegel_settings_set_seed", &syms.settingsSetSeed},
+		{"hegel_settings_set_derandomize", &syms.settingsSetDerandomize},
+		{"hegel_settings_set_report_multiple_failures", &syms.settingsSetReportMultipleFailures},
+		{"hegel_settings_set_database", &syms.settingsSetDatabase},
+		{"hegel_settings_set_database_key", &syms.settingsSetDatabaseKey},
+		{"hegel_settings_set_phases", &syms.settingsSetPhases},
+		{"hegel_settings_set_suppress_health_check", &syms.settingsSetSuppressHealthCheck},
 
-		{"hegel_test_case_from_blob", &lib.testCaseFromBlob},
-		{"hegel_test_case_free", &lib.testCaseFree},
+		{"hegel_run_start", &syms.runStart},
+		{"hegel_next_test_case", &syms.nextTestCase},
+		{"hegel_run_result", &syms.runResult},
+		{"hegel_run_free", &syms.runFree},
 
-		{"hegel_generate", &lib.generate},
-		{"hegel_start_span", &lib.startSpan},
-		{"hegel_stop_span", &lib.stopSpan},
-		{"hegel_new_collection", &lib.newCollection},
-		{"hegel_collection_more", &lib.collectionMore},
-		{"hegel_collection_reject", &lib.collectionReject},
-		{"hegel_new_pool", &lib.newPool},
-		{"hegel_pool_add", &lib.poolAdd},
-		{"hegel_pool_generate", &lib.poolGenerate},
-		{"hegel_new_state_machine", &lib.newStateMachine},
-		{"hegel_state_machine_next_rule", &lib.stateMachineNextRule},
-		{"hegel_primitive_boolean", &lib.primitiveBoolean},
-		{"hegel_target", &lib.target},
-		{"hegel_mark_complete", &lib.markComplete},
-		{"hegel_test_case_is_final_replay", &lib.isFinalReplay},
+		{"hegel_test_case_from_blob", &syms.testCaseFromBlob},
+		{"hegel_test_case_free", &syms.testCaseFree},
 
-		{"hegel_run_result_status", &lib.resultStatus},
-		{"hegel_run_result_error", &lib.resultError},
-		{"hegel_run_result_failure_count", &lib.resultFailureCount},
-		{"hegel_run_result_failure", &lib.resultFailure},
-		{"hegel_failure_panic_message", &lib.failurePanicMsg},
-		{"hegel_failure_origin", &lib.failureOrigin},
-		{"hegel_failure_reproduction_blob", &lib.failureReproductionBlob},
+		{"hegel_generate", &syms.generate},
+		{"hegel_start_span", &syms.startSpan},
+		{"hegel_stop_span", &syms.stopSpan},
+		{"hegel_new_collection", &syms.newCollection},
+		{"hegel_collection_more", &syms.collectionMore},
+		{"hegel_collection_reject", &syms.collectionReject},
+		{"hegel_new_pool", &syms.newPool},
+		{"hegel_pool_add", &syms.poolAdd},
+		{"hegel_pool_generate", &syms.poolGenerate},
+		{"hegel_new_state_machine", &syms.newStateMachine},
+		{"hegel_state_machine_next_rule", &syms.stateMachineNextRule},
+		{"hegel_primitive_boolean", &syms.primitiveBoolean},
+		{"hegel_target", &syms.target},
+		{"hegel_mark_complete", &syms.markComplete},
 
-		{"hegel_last_error_message", &lib.lastErrorMessage},
-		{"hegel_version", &lib.version},
+		{"hegel_run_result_status", &syms.resultStatus},
+		{"hegel_run_result_error", &syms.resultError},
+		{"hegel_run_result_failure_count", &syms.resultFailureCount},
+		{"hegel_run_result_failure", &syms.resultFailure},
+		{"hegel_failure_origin", &syms.failureOrigin},
+		{"hegel_failure_reproduction_blob", &syms.failureReproductionBlob},
+
+		{"hegel_version", &syms.version},
 	})
 	if err != nil { // coverage-ignore (requires a libhegel with missing symbols)
 		_ = dlclose(libHandle)
 		return nil, err
 	}
-	return lib, nil
+	return syms, nil
 }
 
-type Settings wrapper[settingsT]
+type Settings pointer[settingsT]
 
-func (lib *Handle) SettingsNew() *Settings {
-	s, _ := wrap("hegel_settings_new", lib, lib.settingsNew, lib.settingsFree)
-	return (*Settings)(s)
+// SettingsNew allocates a fresh settings object on this context.
+func (c *Context) SettingsNew() *Settings {
+	ptr, _ := allocate[settingsT](c, "hegel_settings_new", func(ctx ctxT, raw *settingsT) Error {
+		return c.syms.settingsNew(ctx, raw)
+	}, c.syms.settingsFree)
+	return (*Settings)(ptr)
 }
 
-func (s *Settings) Mode(m Mode) {
-	s.lib.settingsMode(s.ptr, m)
+func (s *Settings) Mode(ctx *Context, m Mode) error {
+	return ctx.invoke("hegel_settings_set_mode", func(ctx ctxT) Error {
+		return s.syms.settingsSetMode(ctx, s.raw, m)
+	})
 }
 
 // Backend selects the engine's randomness backend. See [Backend].
-func (s *Settings) Backend(b Backend) {
-	s.lib.settingsBackend(s.ptr, b)
+func (s *Settings) Backend(ctx *Context, b Backend) error {
+	return ctx.invoke("hegel_settings_set_backend", func(ctx ctxT) Error {
+		return s.syms.settingsSetBackend(ctx, s.raw, b)
+	})
 }
 
-func (s *Settings) TestCases(n uint64) {
-	s.lib.settingsTestCases(s.ptr, n)
+func (s *Settings) TestCases(ctx *Context, n uint64) error {
+	return ctx.invoke("hegel_settings_set_test_cases", func(ctx ctxT) Error {
+		return s.syms.settingsSetTestCases(ctx, s.raw, n)
+	})
 }
 
-func (s *Settings) Verbosity(v Verbosity) {
-	s.lib.settingsVerbosity(s.ptr, v)
+func (s *Settings) Verbosity(ctx *Context, v Verbosity) error {
+	return ctx.invoke("hegel_settings_set_verbosity", func(ctx ctxT) Error {
+		return s.syms.settingsSetVerbosity(ctx, s.raw, v)
+	})
 }
 
-func (s *Settings) Seed(seed uint64, hasSeed bool) {
-	s.lib.settingsSeed(s.ptr, seed, hasSeed)
+func (s *Settings) Seed(ctx *Context, seed uint64, hasSeed bool) error {
+	return ctx.invoke("hegel_settings_set_seed", func(ctx ctxT) Error {
+		return s.syms.settingsSetSeed(ctx, s.raw, seed, hasSeed)
+	})
 }
 
-func (s *Settings) Derandomize(on bool) {
-	s.lib.settingsDerandomize(s.ptr, on)
+func (s *Settings) Derandomize(ctx *Context, on bool) error {
+	return ctx.invoke("hegel_settings_set_derandomize", func(ctx ctxT) Error {
+		return s.syms.settingsSetDerandomize(ctx, s.raw, on)
+	})
 }
 
-func (s *Settings) ReportMultipleFailures(yes bool) {
-	s.lib.settingsReportMultiFail(s.ptr, yes)
+func (s *Settings) ReportMultipleFailures(ctx *Context, yes bool) error {
+	return ctx.invoke("hegel_settings_set_report_multiple_failures", func(ctx ctxT) Error {
+		return s.syms.settingsSetReportMultipleFailures(ctx, s.raw, yes)
+	})
 }
 
-func (s *Settings) Database(path string) {
-	s.lib.settingsDatabase(s.ptr, path)
+func (s *Settings) Database(ctx *Context, path string) error {
+	return ctx.invoke("hegel_settings_set_database", func(ctx ctxT) Error {
+		return s.syms.settingsSetDatabase(ctx, s.raw, path)
+	})
 }
 
-func (s *Settings) DatabaseKey(key string) {
-	s.lib.settingsDatabaseKey(s.ptr, key)
+func (s *Settings) DatabaseKey(ctx *Context, key string) error {
+	return ctx.invoke("hegel_settings_set_database_key", func(ctx ctxT) Error {
+		return s.syms.settingsSetDatabaseKey(ctx, s.raw, key)
+	})
 }
 
-func (s *Settings) Phases(p Phase) {
-	s.lib.settingsPhases(s.ptr, p)
+func (s *Settings) Phases(ctx *Context, p Phase) error {
+	return ctx.invoke("hegel_settings_set_phases", func(ctx ctxT) Error {
+		return s.syms.settingsSetPhases(ctx, s.raw, p)
+	})
 }
 
-func (s *Settings) SuppressHealthCheck(checks HealthCheck) {
-	s.lib.settingsSuppressHC(s.ptr, checks)
+func (s *Settings) SuppressHealthCheck(ctx *Context, checks HealthCheck) error {
+	return ctx.invoke("hegel_settings_set_suppress_health_check", func(ctx ctxT) Error {
+		return s.syms.settingsSetSuppressHealthCheck(ctx, s.raw, checks)
+	})
 }
 
-func (s *Settings) RunStart() (*Run, error) {
-	r, err := wrap("hegel_run_start", s.lib, func() runT { return s.lib.runStart(s.ptr) }, s.lib.runFree)
-	return (*Run)(r), err
+func (s *Settings) RunStart(ctx *Context) (*Run, error) {
+	ptr, err := allocate(ctx, "hegel_run_start", func(ctx ctxT, raw *runT) Error {
+		e := s.syms.runStart(ctx, s.raw, raw)
+		runtime.KeepAlive(s)
+		return e
+	}, s.syms.runFree)
+	return (*Run)(ptr), err
 }
 
 // TestCaseFromBlob builds a standalone test case that replays the example
 // encoded in a base64 failure blob (from [Failure.ReproductionBlob]). Unlike
 // test cases from [Run.NextTestCase], the returned handle is owned by the
-// caller and is freed automatically via the GC. Returns nil, nil when the blob
-// is rejected without a diagnostic.
-func (s *Settings) TestCaseFromBlob(blob string) (*TestCase, error) {
-	tc, err := wrap("hegel_test_case_from_blob", s.lib,
-		func() testCaseT { return s.lib.testCaseFromBlob(s.ptr, blob) }, s.lib.testCaseFree)
-	return (*TestCase)(tc), err
+// caller and is freed automatically via the GC. A rejected blob surfaces as a
+// nil test case and a non-nil error.
+func (s *Settings) TestCaseFromBlob(ctx *Context, blob string) (tc *TestCase, err error) {
+	ptr, err := allocate(ctx, "hegel_test_case_from_blob", func(ctx ctxT, raw *testCaseT) Error {
+		e := s.syms.testCaseFromBlob(ctx, s.raw, blob, raw)
+		runtime.KeepAlive(s)
+		return e
+	}, s.syms.testCaseFree)
+	if ptr == nil {
+		return nil, err
+	}
+	return &TestCase{pointer: ptr}, err
 }
 
-type Run wrapper[runT]
+type Run pointer[runT]
 
 // Returns nil, nil when there are no more test cases.
-func (r *Run) NextTestCase() (*TestCase, error) {
-	// TODO: What does cleanup look like?
-	tc, err := wrap("hegel_next_test_case", r.lib, func() testCaseT { return r.lib.nextTestCase(r.ptr) }, nil)
-	return (*TestCase)(tc), err
+func (r *Run) NextTestCase(ctx *Context) (*TestCase, error) {
+	ptr, err := allocate(ctx, "hegel_next_test_case", func(ctx ctxT, raw *testCaseT) Error {
+		e := r.syms.nextTestCase(ctx, r.raw, raw)
+		runtime.KeepAlive(r)
+		return e
+	}, nil)
+	if ptr == nil {
+		return nil, err
+	}
+	return &TestCase{pointer: ptr}, err
 }
 
-func (r *Run) RunResult() (*Result, error) {
-	res, err := wrap("hegel_run_result", r.lib, func() resultT { return r.lib.runResult(r.ptr) }, nil)
-	return (*Result)(res), err
+func (r *Run) RunResult(ctx *Context) (*Result, error) {
+	ptr, err := allocate(ctx, "hegel_run_result", func(ctx ctxT, raw *resultT) Error {
+		e := r.syms.runResult(ctx, r.raw, raw)
+		runtime.KeepAlive(r)
+		return e
+	}, nil)
+	return &Result{pointer: ptr}, err
 }
 
-type TestCase wrapper[testCaseT]
+// TestCase wraps a hegel_test_case_t. The out* fields are reusable scratch for
+// the hot per-draw calls below: keeping them on this (heap-allocated) struct
+// lets each call pass a pointer into long-lived storage instead of allocating a
+// fresh temporary on every draw (a pointer handed to purego's reflection-based
+// call path necessarily escapes to the heap).
+type TestCase struct {
+	*pointer[testCaseT]
 
-func (tc *TestCase) Generate(schema []byte) ([]byte, error) {
-	var out *byte
-	var size uint64
-	err := toError("hegel_generate", tc.lib.generate(tc.ptr, slicePtr(schema), uint64(len(schema)), &out, &size))
+	outBytes *byte
+	outSize  uint64
+	outBool  bool
+	outInt   int64
+	outColl  Collection
+}
+
+func (tc *TestCase) Generate(ctx *Context, schema []byte) ([]byte, error) {
+	err := ctx.invoke("hegel_generate", func(ctx ctxT) Error {
+		return tc.syms.generate(ctx, tc.raw, slicePtr(schema), uint64(len(schema)), &tc.outBytes, &tc.outSize)
+	})
 	if err != nil {
 		return nil, err
 	}
-	return slices.Clone(unsafe.Slice(out, size)), nil
+	return slices.Clone(unsafe.Slice(tc.outBytes, tc.outSize)), nil
 }
 
-func (tc *TestCase) StartSpan(label Label) error {
-	return toError("hegel_start_span", tc.lib.startSpan(tc.ptr, label))
+func (tc *TestCase) StartSpan(ctx *Context, label Label) error {
+	return ctx.invoke("hegel_start_span", func(ctx ctxT) Error {
+		return tc.syms.startSpan(ctx, tc.raw, label)
+	})
 }
 
-func (tc *TestCase) StopSpan(discard bool) error {
-	return toError("hegel_stop_span", tc.lib.stopSpan(tc.ptr, discard))
+func (tc *TestCase) StopSpan(ctx *Context, discard bool) error {
+	return ctx.invoke("hegel_stop_span", func(ctx ctxT) Error {
+		return tc.syms.stopSpan(ctx, tc.raw, discard)
+	})
 }
 
-func (tc *TestCase) NewCollection(min, max uint64) (coll Collection, err error) {
-	err = toError("hegel_new_collection", tc.lib.newCollection(tc.ptr, min, max, &coll))
-	return
+func (tc *TestCase) NewCollection(ctx *Context, min, max uint64) (Collection, error) {
+	err := ctx.invoke("hegel_new_collection", func(ctx ctxT) Error {
+		return tc.syms.newCollection(ctx, tc.raw, min, max, &tc.outColl)
+	})
+	return tc.outColl, err
 }
 
-func (tc *TestCase) CollectionMore(coll Collection) (more bool, err error) {
-	err = toError("hegel_collection_more", tc.lib.collectionMore(tc.ptr, coll, &more))
-	return
+func (tc *TestCase) CollectionMore(ctx *Context, coll Collection) (bool, error) {
+	err := ctx.invoke("hegel_collection_more", func(ctx ctxT) Error {
+		return tc.syms.collectionMore(ctx, tc.raw, coll, &tc.outBool)
+	})
+	return tc.outBool, err
 }
 
-func (tc *TestCase) CollectionReject(coll Collection, why string) error {
-	return toError("hegel_collection_reject", tc.lib.collectionReject(tc.ptr, coll, why))
+func (tc *TestCase) CollectionReject(ctx *Context, coll Collection, why string) error {
+	return ctx.invoke("hegel_collection_reject", func(ctx ctxT) Error {
+		return tc.syms.collectionReject(ctx, tc.raw, coll, why)
+	})
 }
 
 // NewPool creates an engine-managed variable pool for stateful testing.
-func (tc *TestCase) NewPool() (pool int64, err error) {
-	err = toError("hegel_new_pool", tc.lib.newPool(tc.ptr, &pool))
-	return
+func (tc *TestCase) NewPool(ctx *Context) (int64, error) {
+	err := ctx.invoke("hegel_new_pool", func(ctx ctxT) Error {
+		return tc.syms.newPool(ctx, tc.raw, &tc.outInt)
+	})
+	return tc.outInt, err
 }
 
 // PoolAdd registers a new variable in the pool, returning the engine-assigned id.
-func (tc *TestCase) PoolAdd(pool int64) (variable int64, err error) {
-	err = toError("hegel_pool_add", tc.lib.poolAdd(tc.ptr, pool, &variable))
-	return
+func (tc *TestCase) PoolAdd(ctx *Context, pool int64) (int64, error) {
+	err := ctx.invoke("hegel_pool_add", func(ctx ctxT) Error {
+		return tc.syms.poolAdd(ctx, tc.raw, pool, &tc.outInt)
+	})
+	return tc.outInt, err
 }
 
 // PoolGenerate draws a variable id from the pool, letting the engine choose and
 // shrink which previously-added variable to reuse. When consume is true the
 // drawn variable is removed from the pool.
-func (tc *TestCase) PoolGenerate(pool int64, consume bool) (variable int64, err error) {
-	err = toError("hegel_pool_generate", tc.lib.poolGenerate(tc.ptr, pool, consume, &variable))
-	return
+func (tc *TestCase) PoolGenerate(ctx *Context, pool int64, consume bool) (int64, error) {
+	err := ctx.invoke("hegel_pool_generate", func(ctx ctxT) Error {
+		return tc.syms.poolGenerate(ctx, tc.raw, pool, consume, &tc.outInt)
+	})
+	return tc.outInt, err
 }
 
 // NewStateMachine registers a state machine for engine-owned stateful testing,
 // with the named rules and invariants. Rule selection (including swarm testing)
 // is owned by the engine and driven via [TestCase.StateMachineNextRule].
-func (tc *TestCase) NewStateMachine(ruleNames, invariantNames []string) (machine int64, err error) {
+func (tc *TestCase) NewStateMachine(ctx *Context, ruleNames, invariantNames []string) (int64, error) {
 	rules, err := cStringArray(ruleNames)
 	if err != nil {
 		return 0, fmt.Errorf("hegel_new_state_machine: rule names: %w", err)
@@ -572,80 +671,120 @@ func (tc *TestCase) NewStateMachine(ruleNames, invariantNames []string) (machine
 	if err != nil {
 		return 0, fmt.Errorf("hegel_new_state_machine: invariant names: %w", err)
 	}
-	err = toError("hegel_new_state_machine", tc.lib.newStateMachine(
-		tc.ptr,
-		slicePtr(rules), uint64(len(ruleNames)),
-		slicePtr(invariants), uint64(len(invariantNames)),
-		&machine,
-	))
-	return
+	err = ctx.invoke("hegel_new_state_machine", func(ctx ctxT) Error {
+		return tc.syms.newStateMachine(
+			ctx, tc.raw,
+			slicePtr(rules), uint64(len(ruleNames)),
+			slicePtr(invariants), uint64(len(invariantNames)),
+			&tc.outInt,
+		)
+	})
+	return tc.outInt, err
 }
 
 // StateMachineNextRule draws the index of the next rule to run, in
 // [0, num_rules), letting the engine choose and shrink the rule sequence.
-func (tc *TestCase) StateMachineNextRule(machine int64) (rule int64, err error) {
-	err = toError("hegel_state_machine_next_rule", tc.lib.stateMachineNextRule(tc.ptr, machine, &rule))
-	return
+func (tc *TestCase) StateMachineNextRule(ctx *Context, machine int64) (int64, error) {
+	err := ctx.invoke("hegel_state_machine_next_rule", func(ctx ctxT) Error {
+		return tc.syms.stateMachineNextRule(ctx, tc.raw, machine, &tc.outInt)
+	})
+	return tc.outInt, err
 }
 
 // PrimitiveBoolean draws a single boolean that is true with probability p. When
 // hasForced is true the result is forced to forced (consuming no entropy and
 // not shrunk).
-func (tc *TestCase) PrimitiveBoolean(p float64, forced, hasForced bool) (value bool, err error) {
-	err = toError("hegel_primitive_boolean", tc.lib.primitiveBoolean(tc.ptr, p, forced, hasForced, &value))
-	return
+func (tc *TestCase) PrimitiveBoolean(ctx *Context, p float64, forced, hasForced bool) (bool, error) {
+	err := ctx.invoke("hegel_primitive_boolean", func(ctx ctxT) Error {
+		return tc.syms.primitiveBoolean(ctx, tc.raw, p, forced, hasForced, &tc.outBool)
+	})
+	return tc.outBool, err
 }
 
-func (tc *TestCase) Target(value float64, label string) error {
-	return toError("hegel_target", tc.lib.target(tc.ptr, value, label))
+func (tc *TestCase) Target(ctx *Context, value float64, label string) error {
+	return ctx.invoke("hegel_target", func(ctx ctxT) Error {
+		return tc.syms.target(ctx, tc.raw, value, label)
+	})
 }
 
-func (tc *TestCase) MarkComplete(status Status, origin string) error {
-	return toError("hegel_mark_complete", tc.lib.markComplete(tc.ptr, status, origin))
+func (tc *TestCase) MarkComplete(ctx *Context, status Status, origin string) error {
+	return ctx.invoke("hegel_mark_complete", func(ctx ctxT) Error {
+		return tc.syms.markComplete(ctx, tc.raw, status, origin)
+	})
 }
 
-func (tc *TestCase) IsFinalReplay() bool {
-	return tc.lib.isFinalReplay(tc.ptr)
-}
+// Result wraps a hegel_run_result_t. The out* fields are reusable out-parameter
+// scratch (see [TestCase] for the rationale).
+type Result struct {
+	*pointer[resultT]
 
-type Result wrapper[resultT]
+	outStatus RunStatus
+	outCount  uint64
+	outBytes  *byte
+}
 
 // Status reports whether the run passed, failed with counterexamples, or
 // errored (the run itself failed and produced no verdict — see [Result.ErrorMessage]).
-func (r *Result) Status() RunStatus {
-	return r.lib.resultStatus(r.ptr)
+func (r *Result) Status(ctx *Context) RunStatus {
+	// Default to ERROR so a call that somehow fails (only possible on a NULL
+	// handle, which we never produce) is never mistaken for a pass.
+	r.outStatus = RUN_STATUS_ERROR
+	_ = ctx.invoke("hegel_run_result_status", func(ctx ctxT) Error {
+		return r.syms.resultStatus(ctx, r.raw, &r.outStatus)
+	})
+	return r.outStatus
 }
 
 // ErrorMessage returns the run-level error message when [Result.Status] is
 // [RUN_STATUS_ERROR], or the empty string otherwise.
-func (r *Result) ErrorMessage() string {
-	return r.lib.resultError(r.ptr)
+func (r *Result) ErrorMessage(ctx *Context) string {
+	_ = ctx.invoke("hegel_run_result_error", func(ctx ctxT) Error {
+		return r.syms.resultError(ctx, r.raw, &r.outBytes)
+	})
+	return goString(r.outBytes)
 }
 
-func (r *Result) FailureCount() uint64 {
-	return r.lib.resultFailureCount(r.ptr)
+func (r *Result) FailureCount(ctx *Context) uint64 {
+	_ = ctx.invoke("hegel_run_result_failure_count", func(ctx ctxT) Error {
+		return r.syms.resultFailureCount(ctx, r.raw, &r.outCount)
+	})
+	return r.outCount
 }
 
-func (r *Result) Failure(index uint64) (*Failure, error) {
-	f, err := wrap("hegel_run_result_failure", r.lib, func() failureT { return r.lib.resultFailure(r.ptr, index) }, nil)
-	return (*Failure)(f), err
+func (r *Result) Failure(ctx *Context, index uint64) (*Failure, error) {
+	ptr, err := allocate(ctx, "hegel_run_result_failure", func(ctx ctxT, raw *failureT) Error {
+		e := r.syms.resultFailure(ctx, r.raw, index, raw)
+		runtime.KeepAlive(r)
+		return e
+	}, nil)
+	return &Failure{pointer: ptr}, err
 }
 
-type Failure wrapper[failureT]
+// Failure wraps a hegel_failure_t. outBytes is reusable out-parameter scratch
+// (see [TestCase] for the rationale).
+type Failure struct {
+	*pointer[failureT]
 
-func (f *Failure) PanicMessage() string {
-	return f.lib.failurePanicMsg(f.ptr)
+	outBytes *byte
 }
 
-func (f *Failure) Origin() string {
-	return f.lib.failureOrigin(f.ptr)
+// Origin returns the failure's origin string — the stable identifier the
+// shrinker used to group probes for this bug.
+func (f *Failure) Origin(ctx *Context) string {
+	_ = ctx.invoke("hegel_failure_origin", func(ctx ctxT) Error {
+		return f.syms.failureOrigin(ctx, f.raw, &f.outBytes)
+	})
+	return goString(f.outBytes)
 }
 
 // ReproductionBlob returns the failure's base64 reproduction blob, suitable
 // for deterministic replay via [Settings.TestCaseFromBlob], or the empty
 // string if the engine produced no blob for this failure.
-func (f *Failure) ReproductionBlob() string {
-	return f.lib.failureReproductionBlob(f.ptr)
+func (f *Failure) ReproductionBlob(ctx *Context) string {
+	_ = ctx.invoke("hegel_failure_reproduction_blob", func(ctx ctxT) Error {
+		return f.syms.failureReproductionBlob(ctx, f.raw, &f.outBytes)
+	})
+	return goString(f.outBytes)
 }
 
 func slicePtr[E any](s []E) *E {
@@ -653,6 +792,22 @@ func slicePtr[E any](s []E) *E {
 		return &s[0]
 	}
 	return nil
+}
+
+// goString copies a NUL-terminated C string (as written into a `const char**`
+// out-parameter) into a Go string. A NULL pointer — which libhegel uses to mean
+// "no string" (e.g. the error message of a run that did not error) — yields "".
+// The bytes are copied immediately, so a borrowed/transient C buffer is safe.
+func goString(p *byte) string {
+	if p == nil {
+		return ""
+	}
+	// TODO: This is atrocious, can we fix?
+	n := 0
+	for q := unsafe.Pointer(p); *(*byte)(q) != 0; q = unsafe.Add(q, 1) {
+		n++
+	}
+	return strings.Clone(string(unsafe.Slice(p, n)))
 }
 
 // cStringArray builds a C `const char *const *` array from a slice of Go

@@ -46,19 +46,6 @@ func libhegelExt() string {
 	}
 }
 
-// candidatePaths returns the paths to try for libhegel. Resolution is limited
-// to an explicit HEGEL_LIBHEGEL_PATH override; with none set it returns nil and
-// loadFromPaths falls through to the checksum-verified auto-downloader. The
-// library does not hunt for a sibling hegel-rust checkout — pointing at a local
-// build is the justfile's job (it exports HEGEL_LIBHEGEL_PATH after running
-// build-libhegel).
-func candidatePaths() []string {
-	if override := os.Getenv(LibraryPathEnv); override != "" {
-		return []string{override}
-	}
-	return nil
-}
-
 // libhegelCacheDir returns the per-version cache directory under the user's
 // cache root, creating parent dirs as needed (but not the leaf — the caller
 // creates it). Falls back to a temp-dir-based location if UserCacheDir fails.
