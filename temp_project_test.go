@@ -10,8 +10,6 @@ import (
 	"regexp"
 	"strings"
 	"testing"
-
-	"hegel.dev/go/hegel/internal/libhegel"
 )
 
 // tempGoProject builds an isolated Go module in a temp directory that depends
@@ -126,13 +124,6 @@ func (p *tempGoProject) run(args []string) runOutput {
 	p.t.Helper()
 	cmd := exec.Command("go", args...)
 	cmd.Dir = p.dir
-
-	// The child process's cwd is the temp dir, so it might use the wrong libhegel.
-	if os.Getenv(libhegel.LibraryPathEnv) == "" {
-		_, path := libhegel.GlobalHandle()
-		cmd.Env = os.Environ()
-		cmd.Env = append(cmd.Env, libhegel.LibraryPathEnv+"="+path)
-	}
 
 	var stdout, stderr bytes.Buffer
 	cmd.Stdout, cmd.Stderr = &stdout, &stderr

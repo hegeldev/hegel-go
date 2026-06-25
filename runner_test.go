@@ -372,13 +372,14 @@ func TestRunHegelDisablesDatabaseInCI(t *testing.T) {
 
 // --- Stub-driven runner lifecycle error paths ---
 //
-// These tests inject a libhegel.Stub() Handle into runWithHandle to exercise
+// These tests inject a libhegel.Stub() Context into runWithContext to exercise
 // the engine setup/teardown error branches and the per-case op error branches
 // without the real library. The Stub pops the provided returns in strict call
-// order; a NULL handle (ptr 0) plus a non-empty lastErrorMessage forces the
-// wrap() error path. The bodies here never Draw — op coverage is driven by
-// calling *testCase methods directly. (Draw error injection is tested
-// separately below via newStubTestCase.)
+// order; a handle constructor that pops an Error (rather than a uintptr) fails
+// with that code, and the matching diagnostic is the next popped string. The
+// bodies here never Draw — op coverage is driven by calling *testCase methods
+// directly. (Draw error injection is tested separately below via
+// newStubTestCase.)
 
 // newStubTestCase builds a real *testCase whose libhegel operations are served
 // by a Stub. opReturns supplies the per-op return values (Error/bool/…)
@@ -391,19 +392,20 @@ func newStubTestCase(opReturns ...any) *testCase {
 	}, opReturns...)
 	lib := libhegel.Stub(returns...)
 	s := lib.SettingsNew()
-	run, _ := s.RunStart()
-	tc, _ := run.NextTestCase()
-	return &testCase{tc: tc}
+	run, _ := s.RunStart(lib)
+	tc, _ := run.NextTestCase(lib)
+	return &testCase{ctx: lib, tc: tc}
 }
 
 func TestRunWithHandleRunStartError(t *testing.T) {
 	t.Parallel()
 	lib := libhegel.Stub(
 		uintptr(1),
-		uintptr(0), // run_start returns NULL
+		libhegel.OK,        // derandomize
+		libhegel.E_BACKEND, // run_start fails
 		"run_start boom",
 	)
-	err := runWithHandle(lib, func(TestCase) {}, runOptions{})
+	err := runWithContext(lib, func(TestCase) {}, runOptions{})
 	if err == nil || !strings.Contains(err.Error(), "run_start boom") {
 		t.Fatalf("expected run_start error, got %v", err)
 	}
@@ -413,11 +415,12 @@ func TestRunWithHandleNextTestCaseError(t *testing.T) {
 	t.Parallel()
 	lib := libhegel.Stub(
 		uintptr(1),
+		libhegel.OK, // derandomize
 		uintptr(1),
-		uintptr(0),  // next_test_case returns NULL...
-		"next boom", // ...with an error message
+		libhegel.E_BACKEND, // next_test_case fails...
+		"next boom",        // ...with an error message
 	)
-	err := runWithHandle(lib, func(TestCase) {}, runOptions{})
+	err := runWithContext(lib, func(TestCase) {}, runOptions{})
 	if err == nil || !strings.Contains(err.Error(), "next boom") {
 		t.Fatalf("expected next_test_case error, got %v", err)
 	}
@@ -427,11 +430,12 @@ func TestRunWithHandleRunResultError(t *testing.T) {
 	t.Parallel()
 	lib := libhegel.Stub(
 		uintptr(1),
+		libhegel.OK, // derandomize
 		uintptr(1),
-		uintptr(0), "", // NULL + no error => run finished
-		uintptr(0), "result boom", // run_result NULL
+		uintptr(0),                        // next_test_case NULL => run finished
+		libhegel.E_BACKEND, "result boom", // run_result fails
 	)
-	err := runWithHandle(lib, func(TestCase) {}, runOptions{})
+	err := runWithContext(lib, func(TestCase) {}, runOptions{})
 	if err == nil || !strings.Contains(err.Error(), "result boom") {
 		t.Fatalf("expected run_result error, got %v", err)
 	}
@@ -441,15 +445,18 @@ func TestRunWithHandleCollectFailures(t *testing.T) {
 	t.Parallel()
 	lib := libhegel.Stub(
 		uintptr(1),
+		libhegel.OK, // derandomize
 		uintptr(1),
-		uintptr(0), "", // run finished
+		uintptr(0), // run finished
 		uintptr(1),
 		libhegel.RUN_STATUS_FAILED, // result status: failed
 		uint64(1),                  // one failure
 		uintptr(1),                 // failure handle
+		"blob-data",                // reproduction blob (replay)
+		uintptr(1),                 // test_case_from_blob handle (replay)
 		"prop_test.go:7",           // failure origin
 	)
-	err := runWithHandle(lib, func(TestCase) {}, runOptions{})
+	err := runWithContext(lib, func(TestCase) {}, runOptions{})
 	if err == nil {
 		t.Fatal("expected failure error")
 	}
@@ -458,18 +465,65 @@ func TestRunWithHandleCollectFailures(t *testing.T) {
 	}
 }
 
+// TestRunWithContextSingleModeFailure covers the single-test-case failure
+// branch: replay is skipped (no shrink/blob phase), so a FAILED run surfaces as
+// the bare errPropTestFailed sentinel without a TestCaseFromBlob round-trip.
+func TestRunWithContextSingleModeFailure(t *testing.T) {
+	t.Parallel()
+	lib := libhegel.Stub(
+		uintptr(1),  // settings_new
+		libhegel.OK, // derandomize
+		libhegel.OK, // mode (single-test-case)
+		uintptr(1),  // run_start
+		uintptr(1),  // next_test_case: one case
+		libhegel.OK, // mark_complete
+		uintptr(0),  // next_test_case: run finished
+		uintptr(1),  // run_result
+		libhegel.RUN_STATUS_FAILED,
+	)
+	err := runWithContext(lib, func(tc TestCase) { tc.(*testCase).Fail() }, runOptions{singleTestCase: true})
+	if !errors.Is(err, errPropTestFailed) {
+		t.Fatalf("expected single-mode prop-test failure, got %v", err)
+	}
+}
+
+// TestRunWithContextReplayBlobError covers replayCounterexample's error branch:
+// TestCaseFromBlob fails while reproducing the counterexample, and that error
+// is surfaced instead of the joined origin error.
+func TestRunWithContextReplayBlobError(t *testing.T) {
+	t.Parallel()
+	lib := libhegel.Stub(
+		uintptr(1),
+		libhegel.OK, // derandomize
+		uintptr(1),
+		uintptr(0), // run finished
+		uintptr(1),
+		libhegel.RUN_STATUS_FAILED,
+		uint64(1),          // one failure
+		uintptr(1),         // failure handle
+		"bad-blob",         // reproduction blob
+		libhegel.E_BACKEND, // test_case_from_blob fails...
+		"replay boom",      // ...with this diagnostic
+	)
+	err := runWithContext(lib, func(TestCase) {}, runOptions{})
+	if err == nil || !strings.Contains(err.Error(), "replay boom") {
+		t.Fatalf("expected replay error, got %v", err)
+	}
+}
+
 func TestRunWithHandleFailureError(t *testing.T) {
 	t.Parallel()
 	lib := libhegel.Stub(
 		uintptr(1),
+		libhegel.OK, // derandomize
 		uintptr(1),
-		uintptr(0), "",
+		uintptr(0),
 		uintptr(1),
-		libhegel.RUN_STATUS_FAILED, // not passed
-		uint64(1),                  // one failure
-		uintptr(0), "failure boom", // failure handle NULL
+		libhegel.RUN_STATUS_FAILED,         // not passed
+		uint64(1),                          // one failure
+		libhegel.E_BACKEND, "failure boom", // failure fetch fails
 	)
-	err := runWithHandle(lib, func(TestCase) {}, runOptions{})
+	err := runWithContext(lib, func(TestCase) {}, runOptions{})
 	if err == nil || !strings.Contains(err.Error(), "failure boom") {
 		t.Fatalf("expected failure-fetch error, got %v", err)
 	}
@@ -479,13 +533,14 @@ func TestRunWithHandleRunError(t *testing.T) {
 	t.Parallel()
 	lib := libhegel.Stub(
 		uintptr(1),
+		libhegel.OK, // derandomize
 		uintptr(1),
-		uintptr(0), "", // run finished
+		uintptr(0), // run finished
 		uintptr(1),
 		libhegel.RUN_STATUS_ERROR, // run errored (e.g. failed health check)
 		"FailedHealthCheck: FilterTooMuch — …", // run-level error message
 	)
-	err := runWithHandle(lib, func(TestCase) {}, runOptions{})
+	err := runWithContext(lib, func(TestCase) {}, runOptions{})
 	if err == nil {
 		t.Fatal("expected run-error error")
 	}
@@ -500,9 +555,16 @@ func TestRunWithHandleRunError(t *testing.T) {
 func TestBuildSettingsExercisesAllSetters(t *testing.T) {
 	t.Parallel()
 	lib := libhegel.Stub(
-		uintptr(1),     // settings_new
-		uintptr(1),     // run_start
-		uintptr(0), "", // next_test_case NULL => run finished
+		uintptr(1),                 // settings_new
+		libhegel.OK,                // test_cases
+		libhegel.OK,                // derandomize
+		libhegel.OK,                // seed
+		libhegel.OK,                // mode (single-test-case)
+		libhegel.OK,                // database
+		libhegel.OK,                // database_key
+		libhegel.OK,                // suppress_health_check
+		uintptr(1),                 // run_start
+		uintptr(0),                 // next_test_case NULL => run finished
 		uintptr(1),                 // run_result
 		libhegel.RUN_STATUS_PASSED, // passed
 	)
@@ -515,8 +577,44 @@ func TestBuildSettingsExercisesAllSetters(t *testing.T) {
 		databaseKey:         "TestBuildSettingsExercisesAllSetters",
 		suppressHealthCheck: []HealthCheck{FilterTooMuch},
 	}
-	if err := runWithHandle(lib, func(TestCase) {}, opts); err != nil {
+	if err := runWithContext(lib, func(TestCase) {}, opts); err != nil {
 		t.Fatalf("unexpected error: %v", err)
+	}
+}
+
+// TestBuildSettingsSetterError covers the setter-error branch in buildSettings:
+// a rejected settings option surfaces as an error from runWithContext rather
+// than being silently dropped. Derandomize is always applied, so a bare
+// runOptions{} reaches a setter before run_start.
+func TestBuildSettingsSetterError(t *testing.T) {
+	t.Parallel()
+	lib := libhegel.Stub(
+		uintptr(1),         // settings_new
+		libhegel.E_BACKEND, // derandomize fails
+		"setter boom",      // diagnostic read by invoke
+	)
+	err := runWithContext(lib, func(TestCase) {}, runOptions{})
+	if err == nil || !strings.Contains(err.Error(), "setter boom") {
+		t.Fatalf("expected settings-setter error, got %v", err)
+	}
+}
+
+// TestRunWithHandleMarkCompleteError covers the mark_complete error branch in
+// the run loop: a failure to record a test case's status is surfaced rather
+// than swallowed.
+func TestRunWithHandleMarkCompleteError(t *testing.T) {
+	t.Parallel()
+	lib := libhegel.Stub(
+		uintptr(1),         // settings_new
+		libhegel.OK,        // derandomize
+		uintptr(1),         // run_start
+		uintptr(1),         // next_test_case: one case
+		libhegel.E_BACKEND, // mark_complete fails
+		"mark boom",        // diagnostic read by invoke
+	)
+	err := runWithContext(lib, func(TestCase) {}, runOptions{})
+	if err == nil || !strings.Contains(err.Error(), "mark boom") {
+		t.Fatalf("expected mark_complete error, got %v", err)
 	}
 }
 
@@ -524,18 +622,20 @@ func TestRunWithHandleTargetPanic(t *testing.T) {
 	t.Parallel()
 	lib := libhegel.Stub(
 		uintptr(1),
+		libhegel.OK, // derandomize
+		libhegel.OK, // mode (single-test-case)
 		uintptr(1),
 		uintptr(1),         // one case
-		true,               // is_final_replay => user panics are not recovered
 		libhegel.E_BACKEND, // target fails
+		"boom",             // diagnostic read by invoke
 	)
-	// On the final replay skipUserPanic lets the panic propagate out of
-	// runWithHandle (so the Go runtime prints it for debuggers); it is not
+	// In single-test-case mode skipUserPanic lets the panic propagate out of
+	// runWithContext (so the Go runtime prints it for debuggers); it is not
 	// recovered into a status or error. expectErrorPanic asserts it escapes.
 	defer expectErrorPanic(t, libhegel.E_BACKEND)
-	runWithHandle(lib, func(tc TestCase) {
+	runWithContext(lib, func(tc TestCase) {
 		tc.Target(1.0, "x")
-	}, runOptions{})
+	}, runOptions{singleTestCase: true})
 }
 
 // stubOpCase drives a single test case whose body calls fn against the
@@ -545,16 +645,17 @@ func stubOpCase(t *testing.T, op any, fn func(*testCase)) {
 	t.Helper()
 	lib := libhegel.Stub(
 		uintptr(1),
+		libhegel.OK, // derandomize
 		uintptr(1),
 		uintptr(1),
-		false, // is_final_replay
 		op,
+		"boom",      // diagnostic read by invoke after the failing op
 		libhegel.OK, // mark_complete
-		uintptr(0), "",
+		uintptr(0),  // next_test_case NULL => run finished
 		uintptr(1),
 		libhegel.RUN_STATUS_PASSED,
 	)
-	if err := runWithHandle(lib, func(tc TestCase) { fn(tc.(*testCase)) }, runOptions{}); err != nil {
+	if err := runWithContext(lib, func(tc TestCase) { fn(tc.(*testCase)) }, runOptions{}); err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
 }
@@ -596,15 +697,16 @@ func TestRunWithHandleUnrecognizedShortCircuit(t *testing.T) {
 	t.Parallel()
 	lib := libhegel.Stub(
 		uintptr(1),
+		libhegel.OK, // derandomize
+		libhegel.OK, // mode (single-test-case)
 		uintptr(1),
 		uintptr(1),
-		true, // is_final_replay
 	)
 	var sentinel = errors.New("weird")
 	defer expectErrorPanic(t, sentinel)
-	runWithHandle(lib, func(tc TestCase) {
+	runWithContext(lib, func(tc TestCase) {
 		tc.abort(sentinel)
-	}, runOptions{})
+	}, runOptions{singleTestCase: true})
 }
 
 // TestAbortDoesNotDowngradeInteresting covers the guard in abort that refuses
@@ -651,14 +753,14 @@ func expectErrorPanic(t *testing.T, want error) {
 
 func TestDrawPanicsOnGenerateError(t *testing.T) {
 	t.Parallel()
-	tc := newStubTestCase(libhegel.E_BACKEND) // generate fails
+	tc := newStubTestCase(libhegel.E_BACKEND, "boom") // generate fails
 	defer expectErrorPanic(t, libhegel.E_BACKEND)
 	Draw[int](tc, Integers[int](0, 10))
 }
 
 func TestDrawListStartSpanError(t *testing.T) {
 	t.Parallel()
-	tc := newStubTestCase(libhegel.E_BACKEND) // start_span fails
+	tc := newStubTestCase(libhegel.E_BACKEND, "boom") // start_span fails
 	defer expectErrorPanic(t, libhegel.E_BACKEND)
 	Draw[[]int](tc, Lists[int](errGen[int]{}))
 }
@@ -668,6 +770,7 @@ func TestDrawListNewCollectionError(t *testing.T) {
 	tc := newStubTestCase(
 		libhegel.OK,        // start_span
 		libhegel.E_BACKEND, // new_collection fails
+		"boom",             // diagnostic read by invoke
 	)
 	defer expectErrorPanic(t, libhegel.E_BACKEND)
 	Draw[[]int](tc, Lists[int](errGen[int]{}))
@@ -679,6 +782,7 @@ func TestDrawListCollectionMoreError(t *testing.T) {
 		libhegel.OK,        // start_span
 		libhegel.OK,        // new_collection
 		libhegel.E_BACKEND, // collection_more fails => coll.Err()
+		"boom",             // diagnostic read by invoke
 	)
 	defer expectErrorPanic(t, libhegel.E_BACKEND)
 	Draw[[]int](tc, Lists[int](errGen[int]{}))
@@ -689,6 +793,7 @@ func TestDrawMapNewCollectionError(t *testing.T) {
 	tc := newStubTestCase(
 		libhegel.OK,        // start_span (LABEL_MAP)
 		libhegel.E_BACKEND, // new_collection fails
+		"boom",             // diagnostic read by invoke
 	)
 	defer expectErrorPanic(t, libhegel.E_BACKEND)
 	Draw[map[int]int](tc, Maps[int, int](errGen[int]{}, errGen[int]{}))
@@ -740,7 +845,7 @@ func TestDrawMapBasic(t *testing.T) {
 
 func TestDrawFilterStartSpanError(t *testing.T) {
 	t.Parallel()
-	tc := newStubTestCase(libhegel.E_BACKEND) // start_span(FILTER) fails
+	tc := newStubTestCase(libhegel.E_BACKEND, "boom") // start_span(FILTER) fails
 	defer expectErrorPanic(t, libhegel.E_BACKEND)
 	Draw[int](tc, &filteredGenerator[int]{
 		source:    Integers[int](0, 10),
@@ -753,7 +858,7 @@ func TestDrawFilterStartSpanError(t *testing.T) {
 func TestGenerateEmptySchema(t *testing.T) {
 	t.Parallel()
 	tc := newStubTestCase(libhegel.OK)
-	if _, err := tc.tc.Generate(nil); err != nil {
+	if _, err := tc.tc.Generate(tc.ctx, nil); err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
 }
@@ -779,7 +884,7 @@ func TestStubCollectionReject(t *testing.T) {
 // initial-invariant failure: the stub fails start_span for the first invariant.
 func TestStatefulInitialInvariantError(t *testing.T) {
 	t.Parallel()
-	tc := newStubTestCase(libhegel.E_BACKEND) // start_span(STATEFUL) fails
+	tc := newStubTestCase(libhegel.E_BACKEND, "boom") // start_span(STATEFUL) fails
 	sm := &stateMachine{invariants: []stateMachineRule{{name: "Inv", fn: func(TestCase) {}}}}
 	defer func() {
 		err, ok := recover().(error)

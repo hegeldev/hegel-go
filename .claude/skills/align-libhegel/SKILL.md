@@ -12,6 +12,29 @@ and the low-level wrapper in `internal/libhegel/` must be re-aligned. The main
 `hegel` package's exported API must **not** change as a result — only the
 internal binding layer.
 
+## The context-based ABI
+
+Every fallible libhegel call follows one convention, and the whole wrapper is
+shaped around it:
+
+- The **first argument** is a `hegel_context_t` (an error-reporting context).
+- The **return value** is an `Error` result code (`OK` is 0; failures are
+  negative — `E_INVALID_HANDLE`, `E_INVALID_ARG`, …).
+- Any **value the call produces** (a handle, a count, a bool, a byte buffer) is
+  written through a **trailing out-parameter**, not returned.
+- On a non-`OK` return, the human-readable message is read back from the context
+  via `hegel_context_last_error`.
+
+So `symbols` (the loaded library) is immutable and shared across goroutines,
+while the per-call error state lives on a `*Context`. The wrapper threads a
+`*Context` through every method and funnels every call through two helpers:
+
+- `ctx.invoke(op, fn)` — runs `fn(ctxT)`, and if it returns non-`OK`, reads
+  `hegel_context_last_error` and wraps it into a Go `error`.
+- `allocate(ctx, op, new, free)` — `invoke` for handle constructors: maps a
+  zero out-handle to a `nil` result (the engine's "no object" sentinel, e.g. a
+  finished run) and registers a GC cleanup that calls `free`.
+
 ## 1. Find the pinned version and fetch the matching header
 
 The version lives in `internal/libhegel/checksums.go` as `hegelVersion`.
@@ -46,7 +69,7 @@ The cached library lands at:
 
 ```bash
 ${XDG_CACHE_HOME:-$HOME/.cache}/hegel-go/libhegel/<VERSION>/libhegel-linux-amd64.so
-# e.g. ~/.cache/hegel-go/libhegel/0.19.1/libhegel-linux-amd64.so
+# e.g. ~/.cache/hegel-go/libhegel/0.23.0/libhegel-linux-amd64.so
 ```
 
 **When you need the symbol table**, run `nm -D` against that cached `.so` — no
@@ -59,46 +82,71 @@ nm -D "$LIB" | grep '^.* T hegel_' | sort
 ```
 
 The `nm` output is ground truth for which `hegel_*` symbols exist — diff it
-against the registration table in `libhegel.go`. A symbol the wrapper registers
-but the lib no longer exports makes `registerSymbols` fail and **every**
-integration test dies at load.
+against the registration table in `tryOpen` (`libhegel.go`). A symbol the wrapper
+registers but the lib no longer exports makes `registerSymbols` fail and
+**every** integration test dies at load.
 
 ## 3. Compare hegel.h against `internal/libhegel/libhegel.go`
 
 Walk every C declaration and check it against the wrapper. Categorize each:
 
-- **Removed symbol** → delete its `Handle` field, its registration-table entry,
+- **Removed symbol** → delete its `symbols` field, its registration-table entry,
   its `stub.go` closure, and any wrapper method. Re-route callers.
-- **Renamed/retyped symbol** (e.g. `hegel_run_result_passed` → `hegel_run_result_status`)
-  → update field type, registration name, wrapper method, and the `stub.go`
-  closure's signature/return type.
-- **New symbol** → add a `Handle` field, a registration entry, a wrapper method,
+- **Renamed/retyped symbol** (e.g. `hegel_run_result_passed`, a `bool`, became
+  `hegel_run_result_status`, a `hegel_run_status_t` written through an out-param)
+  → update the field signature, the registration name, the wrapper method, and
+  the `stub.go` closure's signature/out-param handling.
+- **New symbol** → add a `symbols` field, a registration entry, a wrapper method,
   a `stub.go` closure, and a test (see §5).
-- **Changed enum/constant values** (e.g. a new `HEGEL_LABEL_*`) → update the Go
-  `const` block. Binding-invented labels that aren't in upstream must be
-  renumbered to sit *past* the last upstream value so they can't collide.
+- **Changed signature** (a new arg, or a value that moved from return to
+  out-param) → remember the ABI convention: ctx first, `Error` return,
+  produced value through a trailing out-pointer. The field type, wrapper, and
+  stub closure all change together.
+- **Changed enum/constant values** (e.g. a new `HEGEL_LABEL_*`, or a reordered
+  `hegel_status_t`) → update the Go `const` block. Binding-invented labels that
+  aren't in upstream (`LABEL_COMPOSITE`, `LABEL_STATEFUL`) must be renumbered to
+  sit *past* the last upstream value so they can't collide.
 
-## 4. Editing the binding — the four files that move together
+## 4. Editing the binding — the four things that move together
 
 These must stay consistent or the build/coverage breaks:
 
-1. **`libhegel.go` — `Handle` struct**: one `func`-typed field per C symbol.
-2. **`libhegel.go` — `registerSymbols` table** in `tryOpen`: `{"hegel_x", &lib.x}`.
-3. **`stub.go` — the positional struct literal**: `Stub()` builds a `Handle`
-   with a **positional** composite literal. Field order in the literal MUST
-   match the `Handle` struct field order exactly. Adding/removing/reordering a
-   field means editing the literal in lockstep. Each closure mirrors the C
-   signature and either returns nothing (void setters) or pops one value via
-   `retval()` (matching the dynamic type the wrapper expects: `Error`,
-   `uintptr` for handles, `bool`, `string`, an enum like `RunStatus`, …).
-4. **`libhegel.go` — wrapper method**: thin, typed Go method on `Settings` /
-   `Run` / `TestCase` / `Result` / `Failure`. Failable calls return `error` via
-   `toError(op, ...)`; handle-returning constructors go through `wrap(...)`.
+1. **`libhegel.go` — `symbols` struct**: one `func`-typed field per C symbol.
+   Mirror the C signature exactly: `func(ctxT, <args>, <*outParam>) Error` for a
+   fallible call. The two exceptions are the C functions that return a value
+   directly rather than through a result code — only `hegel_context_last_error`
+   (`func(ctxT) string`) currently does this.
+2. **`libhegel.go` — `registerSymbols` table** in `tryOpen`: `{"hegel_x", &syms.x}`.
+3. **`stub.go` — the positional struct literal**: `Stub(returns ...any)` builds a
+   `symbols` with a **positional** composite literal (its first field is
+   `handle dlhandle`, set to `0`) and returns a `*Context`. Field order in the
+   literal MUST match the `symbols` struct field order exactly — adding,
+   removing, or reordering a field means editing the literal in lockstep. Each
+   closure mirrors the new C signature: it takes `ctxT` + args + out-pointers,
+   writes any produced value into the out-param, and returns an `Error`. Values
+   are supplied by the caller via `returns ...any` and popped in strict call
+   order through the closures' helpers:
+     - `retval()` — pop the next value (an `Error` for a plain fallible op, or a
+       typed scalar like `RunStatus` / `uint64` to write into a `*out`).
+     - `retHandle()` — for handle constructors: pop either an `Error` (the call
+       fails) or a `uintptr` (the produced handle; `0` = NULL/"no object").
+     - `writeStr(out **byte)` — pop a Go string and write it into a `const char**`
+       out-param as a NUL-terminated buffer.
+4. **`libhegel.go` — wrapper method**: a thin, typed Go method that threads a
+   `*Context`. Handle constructors live on `Context` (e.g. `SettingsNew`) or on
+   the parent handle (e.g. `Settings.RunStart`, `Run.NextTestCase`) and go
+   through `allocate(ctx, op, new, free)`. Other fallible calls go through
+   `ctx.invoke(op, fn)`. Reader methods (`Result.Status`, `Result.FailureCount`,
+   `Failure.Origin`, …) use the reusable `out*` scratch fields on the wrapper
+   struct (`TestCase`, `Result`, `Failure`) so the hot per-draw path doesn't
+   allocate a fresh out-param on every call.
 
 ### Regenerate the stringer output
 
 Enum types are listed in the `//go:generate` directive at the top of
-`libhegel.go`. After adding an enum type or changing any enum constant value:
+`libhegel.go` (currently
+`-type=Error,Status,Mode,Backend,Verbosity,RunStatus,HealthCheck,Phase,Label`).
+After adding an enum type or changing any enum constant value:
 
 ```bash
 go generate ./internal/libhegel        # uses `go tool stringer`
@@ -110,33 +158,49 @@ types to the `-type=` list. The generated `_string.go` is coverage-excluded.
 
 ## 5. Coverage and tests
 
-100% per-file coverage is enforced (see the `coverage` skill). New wrapper
-methods need coverage:
+100% per-file coverage is enforced (see the `coverage` skill). New or changed
+wrapper methods need coverage:
 
-- Methods the runner exercises (e.g. result/status handling) are covered by the
-  stub-driven tests in `runner_test.go` — update those stubs' return lists
-  when a symbol's type changes (e.g. a `bool` "passed" value becomes a
-  `libhegel.RunStatus`).
+- Methods the runner exercises (result/status handling, generate, spans,
+  mark_complete) are covered by the stub-driven tests in `runner_test.go` —
+  update those `Stub(...)` return lists when a symbol's output type or call
+  order changes (e.g. a `bool` "passed" value becoming a `RunStatus`).
 - Methods **not** wired into the runner (pools, state machines, blob replay,
-  primitive draws) are covered by direct stub tests in
-  `internal/libhegel/stub_test.go`. Construct wrapper values in-package
-  (`&TestCase{lib: Stub(...), ptr: 1}`) and call the method. Cover both the
-  happy path and every error branch (a guard that rejects bad input needs a
-  test that trips it).
+  primitive draws, the unwired settings setters) are covered by direct stub
+  tests in `internal/libhegel/stub_test.go`. Build a `*Context` with
+  `lib := Stub(...)`, construct the wrapper value in-package against its symbol
+  table —
+  `tc := &TestCase{pointer: &pointer[testCaseT]{syms: lib.syms, raw: 1}}` or
+  `s := &Settings{syms: lib.syms, raw: 1}` — and call the method, passing `lib`
+  as the `*Context`. Cover both the happy path and every error branch (a guard
+  that rejects bad input, like `cStringArray`'s interior-NUL check, needs a test
+  that trips it).
 - Prefer covering a method to annotating it `// coverage-ignore`. The ratchet in
   `.github/coverage-ratchet.json` auto-tightens when the annotation count drops,
   so removing now-covered ignores is free and good.
 
 ## 6. purego pitfalls
 
-- `const char *` return → type the field `func() string` (not `*byte`/`uintptr`).
-- `const char *` argument → pass a Go `string`; purego manages the memory.
+- A symbol that **returns** `const char *` directly → type the field
+  `func(ctxT) string` (not `*byte`/`uintptr`). Only `hegel_context_last_error`
+  does this today.
+- A symbol that **writes** a string through a `const char **` out-param → type
+  that argument `**byte` and read it back with `goString`, which copies the
+  NUL-terminated buffer immediately (a NULL pointer — libhegel's "no string" —
+  yields `""`). This is how `hegel_version`, `hegel_run_result_error`, and the
+  failure getters return strings.
+- Produced **handles and scalars** come back through trailing out-params
+  (`*settingsT`, `*runT`, `*uint64`, `*bool`, `*int64`, `*Collection`,
+  `*RunStatus`), never as the return value — the return is always the `Error`
+  code.
+- `const char *` **argument** → pass a Go `string`; purego manages the memory.
 - `const char *const *` (array of C strings) is **not** handled automatically.
-  Build a `[]*byte` of NUL-terminated buffers and pass `slicePtr(arr)` plus the
-  length; the buffers stay alive through the call via the `*byte` pointers in
-  the array (no `runtime.KeepAlive` needed for a typed `**byte` argument). A Go
-  string may contain an interior NUL but a C string can't — reject such input
-  with an error rather than letting C silently truncate it.
+  `cStringArray` builds a `[]*byte` of NUL-terminated buffers; pass
+  `slicePtr(arr)` plus the length. The buffers stay alive through the call via
+  the `*byte` pointers in the array (no `runtime.KeepAlive` needed for a typed
+  `**byte` argument). A Go string may contain an interior NUL but a C string
+  can't — `cStringArray` rejects such input with an error rather than letting C
+  silently truncate it.
 
 ## 7. Verify
 
