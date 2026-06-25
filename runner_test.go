@@ -880,11 +880,28 @@ func TestStubCollectionReject(t *testing.T) {
 	}
 }
 
+// TestStatefulNewStateMachineError covers stateMachine.Run's panic when the
+// engine rejects new_state_machine registration.
+func TestStatefulNewStateMachineError(t *testing.T) {
+	t.Parallel()
+	tc := newStubTestCase(libhegel.E_BACKEND, "boom") // new_state_machine fails
+	sm := &stateMachine{rules: []stateMachineRule{{name: "Rule", fn: func(TestCase) {}}}}
+	defer func() {
+		err, ok := recover().(error)
+		if !ok || !errors.Is(err, libhegel.E_BACKEND) {
+			t.Fatalf("expected E_BACKEND panic, got %v", err)
+		}
+	}()
+	sm.Run(tc)
+}
+
 // TestStatefulInitialInvariantError covers stateMachine.Run's panic on an
-// initial-invariant failure: the stub fails start_span for the first invariant.
+// initial-invariant failure: new_state_machine succeeds, then the stub fails
+// start_span for the first invariant.
 func TestStatefulInitialInvariantError(t *testing.T) {
 	t.Parallel()
-	tc := newStubTestCase(libhegel.E_BACKEND, "boom") // start_span(STATEFUL) fails
+	// OK registers the state machine; E_BACKEND then fails start_span(STATEFUL).
+	tc := newStubTestCase(libhegel.OK, libhegel.E_BACKEND, "boom")
 	sm := &stateMachine{invariants: []stateMachineRule{{name: "Inv", fn: func(TestCase) {}}}}
 	defer func() {
 		err, ok := recover().(error)

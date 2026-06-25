@@ -84,14 +84,31 @@ func newStateMachine[M any, T interface{ *M }](machine T) (*stateMachine, error)
 	return sm, nil
 }
 
+// names returns the method names of the given rules in registration order,
+// matching the rule indices the engine draws via [TestCase.stateMachineNextRule].
+func names(rules []stateMachineRule) []string {
+	out := make([]string, len(rules))
+	for i, r := range rules {
+		out[i] = r.name
+	}
+	return out
+}
+
 // Run drives a state machine.
 //
-// It runs every invariant once, then draws a step count, and for each step invokes a rule.
-// After each rule all invariants are re-run.
+// It registers the machine with the engine, runs every invariant once, then
+// draws a step count and for each step asks the engine which rule to run next
+// (the engine owns rule selection, including swarm testing) and invokes it.
+// After each successful rule all invariants are re-run.
 //
 // Rules that reject the current pre-state via [TestCase.Assume] are
 // skipped and another rule is drawn, up to a retry budget.
 func (sm *stateMachine) Run(tc TestCase) {
+	machine, err := tc.stateMachineNew(names(sm.rules), names(sm.invariants))
+	if err != nil {
+		tc.abort(err)
+	}
+
 	tc.Note("Initial invariant check.")
 	for _, inv := range sm.invariants {
 		if _, err := callRule(tc, inv.fn); err != nil {
@@ -116,9 +133,9 @@ func (sm *stateMachine) Run(tc TestCase) {
 	step := 0
 	for stepsSucceeded < nSteps && (isSingle || stepsAttempted < 10*nSteps || (stepsSucceeded == 0 && stepsAttempted < 1000)) {
 		step++
-		idx := 0
-		if len(sm.rules) > 1 {
-			idx = Draw(tc, Integers(0, len(sm.rules)-1))
+		idx, err := tc.stateMachineNextRule(machine)
+		if err != nil {
+			tc.abort(err)
 		}
 		rule := sm.rules[idx]
 		tc.Note(fmt.Sprintf("Step %d: %s", step, rule.name))
