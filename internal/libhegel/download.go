@@ -149,7 +149,11 @@ func downloadToFile(url, dest string) (string, error) {
 	if err := os.Chmod(tmpName, 0o755); err != nil { // coverage-ignore
 		return "", err
 	}
-	if err := os.Rename(tmpName, dest); err != nil { // coverage-ignore
+	// atomicRename replaces dest even when a concurrently-running test binary
+	// has already downloaded and loaded it. On Windows that requires POSIX
+	// rename semantics (a plain MoveFileEx fails with "Access is denied"
+	// against a LoadLibrary-locked DLL); on other platforms it is os.Rename.
+	if err := atomicRename(tmpName, dest); err != nil { // coverage-ignore
 		return "", err
 	}
 	return hex.EncodeToString(h.Sum(nil)), nil

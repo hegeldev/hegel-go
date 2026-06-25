@@ -68,25 +68,7 @@ jobs:
         with:
           go-version: ${{ matrix.go-version }}
 
-      - name: Stage libhegel from the matching GitHub release
-        id: libhegel
-        run: |
-          set -euo pipefail
-          VERSION=$(grep -oP 'const hegelVersion = "\K[^"]+' internal/libhegel/checksums.go)
-          ASSET="libhegel-linux-amd64.so"
-          URL_BASE="https://github.com/hegeldev/hegel-rust/releases/download/v${VERSION}"
-          DEST="${RUNNER_TEMP}/libhegel.so"
-          curl -fsSL -o "${DEST}" "${URL_BASE}/${ASSET}"
-          curl -fsSL -o "${DEST}.sha256" "${URL_BASE}/${ASSET}.sha256"
-          # The published .sha256 file is GNU sha256sum style: <digest>  <asset>.
-          # Rewrite it so it references the local path before verifying.
-          WANT=$(awk '{print $1}' "${DEST}.sha256")
-          echo "${WANT}  ${DEST}" | sha256sum -c -
-          echo "path=${DEST}" >> "$GITHUB_OUTPUT"
-
       - name: Run tests
-        env:
-          HEGEL_LIBHEGEL_PATH: ${{ steps.libhegel.outputs.path }}
         run: just test
 
       - name: Auto-update coverage annotations and ratchet
@@ -190,25 +172,8 @@ jobs:
         with:
           go-version: stable
 
-      - name: Stage libhegel from the matching GitHub release
-        id: libhegel
-        shell: bash
-        env:
-          ASSET: ${{ matrix.asset }}
-          LIBNAME: ${{ matrix.libname }}
-        run: |
-          set -euo pipefail
-          # awk (not grep -oP) for BSD/macOS portability.
-          VERSION=$(awk -F'"' '/const hegelVersion =/{print $2}' internal/libhegel/checksums.go)
-          DEST="${RUNNER_TEMP}/${LIBNAME}"
-          curl -fsSL -o "${DEST}" \
-            "https://github.com/hegeldev/hegel-rust/releases/download/v${VERSION}/${ASSET}"
-          echo "path=${DEST}" >> "$GITHUB_OUTPUT"
-
       - name: Run tests
         shell: bash
-        env:
-          HEGEL_LIBHEGEL_PATH: ${{ steps.libhegel.outputs.path }}
         run: go test ./...
 
   docs:
