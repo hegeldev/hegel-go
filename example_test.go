@@ -36,14 +36,14 @@ func ExampleTest_withDatabase() {
 		if n < 0 {
 			ht.Fatal("negative integer should not be generated")
 		}
-	}, hegel.WithDatabase(hegel.Database("my_hegel_database")))
+	}, hegel.WithDatabase("my_hegel_database"))
 }
 
 func ExampleTest_disableDatabase() {
 	t := &testing.T{}
 	hegel.Test(t, func(ht *hegel.T) {
 		_ = hegel.Draw(ht, hegel.Booleans())
-	}, hegel.WithDatabase(hegel.DatabaseDisabled()))
+	}, hegel.WithDatabase("")) // empty path disables persistence
 }
 
 func ExampleTest_withDerandomize() {

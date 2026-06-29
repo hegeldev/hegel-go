@@ -27,7 +27,6 @@ func readValues(t *testing.T, dir, label string) []int64 {
 }
 
 func TestDatabasePersistsFailingExamples(t *testing.T) {
-	clearCIEnv(t)
 	dbDir := t.TempDir()
 
 	entries, err := os.ReadDir(dbDir)
@@ -41,7 +40,7 @@ func TestDatabasePersistsFailingExamples(t *testing.T) {
 	err = run(func(tc TestCase) {
 		tc.Fail()
 	},
-		WithDatabase(Database(dbDir)),
+		WithDatabase(dbDir),
 		withDatabaseKey("test_database_persists"),
 	)
 	if err == nil {
@@ -72,7 +71,6 @@ func TestDatabaseKeyReplaysFailure(t *testing.T) {
 	}
 	dbStr := strings.ReplaceAll(dbPath, "\\", "/")
 
-	clearCIEnv(t)
 	t.Setenv("VALUES_DIR", valuesPath)
 
 	testCode := fmt.Sprintf(`package temptest
@@ -104,7 +102,7 @@ func TestReplay1(t *testing.T) {
 		if n >= 1_000_000 {
 			ht.Fatalf("n=%%d", n)
 		}
-	}, hegel.WithDatabase(hegel.Database(%q)))
+	}, hegel.WithDatabase(%q))
 }
 
 func TestReplay2(t *testing.T) {
@@ -114,7 +112,7 @@ func TestReplay2(t *testing.T) {
 		if n >= 1_000_000 {
 			ht.Fatalf("n=%%d", n)
 		}
-	}, hegel.WithDatabase(hegel.Database(%q)))
+	}, hegel.WithDatabase(%q))
 }
 `, dbStr, dbStr)
 

@@ -53,9 +53,7 @@ The user-facing surface lives in `hegel.go` (canonical package doc). Entry point
 - `hegel.Draw(ht, gen)` — draws a value inside a test body
 - `hegel.T` — passed to the [Test] body; methods include `Note`, `Fatal`, `Fatalf`
 - Generators: `Integers`, `Floats`, `Text`, `Booleans`, `Lists`, `Maps`, ...
-- Options: `WithTestCases(n)`, `WithDatabase(Database(path))`,
-  `WithDatabase(DatabaseDisabled())`, `WithDerandomize(bool)`, `WithSeed(n)`,
-  `SuppressHealthCheck(...)`, `WithSingleTestCase()`
+- Options: `WithTestCases(n)`, `WithDatabase(path)`, ...
 
 ## Testing Philosophy
 

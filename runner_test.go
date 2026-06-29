@@ -75,7 +75,7 @@ func TestConcurrentRunHegelTest(t *testing.T) {
 				if v < 0 || v > 1000 {
 					panic("out of range")
 				}
-			}, WithTestCases(50), WithDatabase(DatabaseDisabled()))
+			}, WithTestCases(50), WithDatabase(""))
 			if err != nil {
 				failures.Add(1)
 			}
@@ -117,7 +117,7 @@ func TestMustRunPanicsOnUserPanic(t *testing.T) {
 	}()
 	MustRun(func(tc TestCase) {
 		panic("nope")
-	}, WithTestCases(2), WithDatabase(DatabaseDisabled()))
+	}, WithTestCases(2), WithDatabase(""))
 }
 
 // TestMustRunPanicsOnReturnedError covers MustRun's panic(err) branch: failing
@@ -132,7 +132,7 @@ func TestMustRunPanicsOnReturnedError(t *testing.T) {
 	}()
 	MustRun(func(tc TestCase) {
 		tc.Fail()
-	}, WithTestCases(2), WithDatabase(DatabaseDisabled()))
+	}, WithTestCases(2), WithDatabase(""))
 }
 
 func TestMustRunSuccess(t *testing.T) {
@@ -166,7 +166,7 @@ func TestStateFailedPath(t *testing.T) {
 	t.Parallel()
 	err := Run(func(tc TestCase) {
 		tc.Errorf("forced failure")
-	}, WithTestCases(5), WithDatabase(DatabaseDisabled()))
+	}, WithTestCases(5), WithDatabase(""))
 	if err == nil {
 		t.Fatal("expected failure when Errorf is called")
 	}
@@ -176,58 +176,9 @@ func TestFatalSentinelPath(t *testing.T) {
 	t.Parallel()
 	err := Run(func(tc TestCase) {
 		tc.FailNow()
-	}, WithTestCases(5), WithDatabase(DatabaseDisabled()))
+	}, WithTestCases(5), WithDatabase(""))
 	if err == nil {
 		t.Fatal("expected failure when FailNow is called")
-	}
-}
-
-// --- isCI: expected-value and match-any branches ---
-
-func TestIsCIMatchExpectedValue(t *testing.T) {
-	clearCIEnv(t)
-	// GITHUB_ACTIONS is a non-matchAny var: only "true" counts.
-	t.Setenv("GITHUB_ACTIONS", "true")
-	if !isCI() {
-		t.Error("expected isCI() true when GITHUB_ACTIONS=true")
-	}
-}
-
-func TestIsCIExpectedValueMismatch(t *testing.T) {
-	clearCIEnv(t)
-	// Present but not the expected value: must not count as CI.
-	t.Setenv("GITHUB_ACTIONS", "false")
-	if isCI() {
-		t.Error("expected isCI() false when GITHUB_ACTIONS=false")
-	}
-}
-
-func TestIsCIMatchAny(t *testing.T) {
-	clearCIEnv(t)
-	// CI is a matchAny var: any value (even empty) counts.
-	t.Setenv("CI", "")
-	if !isCI() {
-		t.Error("expected isCI() true when matchAny var CI is set")
-	}
-}
-
-func TestIsCINoneSet(t *testing.T) {
-	clearCIEnv(t)
-	if isCI() {
-		t.Error("expected isCI() false when no CI var is set")
-	}
-}
-
-// TestRunUnderCIDisablesDatabase covers run()'s CI branch (derandomize on,
-// database disabled by default) by forcing a CI env var, independent of
-// whether the test process itself runs on a CI runner.
-func TestRunUnderCIDisablesDatabase(t *testing.T) {
-	clearCIEnv(t)
-	t.Setenv("CI", "true")
-	if err := Run(func(tc TestCase) {
-		_ = Draw[bool](tc, Booleans())
-	}, WithTestCases(3)); err != nil {
-		t.Errorf("Run under CI: %v", err)
 	}
 }
 
@@ -276,12 +227,39 @@ func TestAllHealthChecks(t *testing.T) {
 	}
 }
 
-func TestSuppressHealthCheckOption(t *testing.T) {
+func TestAllPhases(t *testing.T) {
 	t.Parallel()
-	o := runOptions{}
-	SuppressHealthCheck(FilterTooMuch, TooSlow)(&o)
-	if len(o.suppressHealthCheck) != 2 {
-		t.Errorf("expected 2 suppressed checks, got %d", len(o.suppressHealthCheck))
+	all := AllPhases()
+	if len(all) != 5 {
+		t.Errorf("AllPhases: expected 5, got %d", len(all))
+	}
+}
+
+// TestSettingsOptionsRecordApplier checks that each settings-backed option
+// records exactly one applier. The value each applier sets is exercised
+// end-to-end by TestBuildSettingsExercisesAllSetters (against a stub) and the
+// per-option integration tests (against the real engine).
+func TestSettingsOptionsRecordApplier(t *testing.T) {
+	t.Parallel()
+	cases := []struct {
+		name string
+		opt  Option
+	}{
+		{"WithTestCases", WithTestCases(42)},
+		{"WithSeed", WithSeed(12345)},
+		{"WithDerandomize", WithDerandomize(true)},
+		{"WithDatabase", WithDatabase("/tmp/foo")},
+		{"WithBackend", WithBackend(BackendURandom)},
+		{"WithVerbosity", WithVerbosity(VerbosityVerbose)},
+		{"WithReportMultipleFailures", WithReportMultipleFailures(true)},
+		{"WithPhases", WithPhases(PhaseGenerate, PhaseShrink)},
+		{"SuppressHealthCheck", SuppressHealthCheck(FilterTooMuch, TooSlow)},
+	}
+	for _, tc := range cases {
+		o := applyOpts([]Option{tc.opt})
+		if len(o.settingsAppliers) != 1 {
+			t.Errorf("%s: recorded %d appliers, want 1", tc.name, len(o.settingsAppliers))
+		}
 	}
 }
 
@@ -291,7 +269,7 @@ func TestSuppressHealthCheckIntegration(t *testing.T) {
 		tc.Assume(false) // always reject
 	}, WithTestCases(20),
 		SuppressHealthCheck(FilterTooMuch),
-		WithDatabase(DatabaseDisabled()))
+		WithDatabase(""))
 	if err != nil {
 		t.Errorf("unexpected error: %v", err)
 	}
@@ -299,47 +277,11 @@ func TestSuppressHealthCheckIntegration(t *testing.T) {
 
 // --- Options ---
 
-func TestWithTestCasesOption(t *testing.T) {
-	t.Parallel()
-	o := runOptions{}
-	WithTestCases(42)(&o)
-	if o.testCases != 42 {
-		t.Errorf("WithTestCases: expected 42, got %d", o.testCases)
-	}
-}
-
-func TestWithSeedOption(t *testing.T) {
-	t.Parallel()
-	o := runOptions{}
-	WithSeed(12345)(&o)
-	if o.seed == nil || *o.seed != 12345 {
-		t.Errorf("WithSeed: expected 12345, got %v", o.seed)
-	}
-}
-
-func TestDatabaseDisabledSetting(t *testing.T) {
-	t.Parallel()
-	o := runOptions{}
-	WithDatabase(DatabaseDisabled())(&o)
-	if o.database.state != databaseDisabled {
-		t.Errorf("WithDatabase(DatabaseDisabled): expected databaseDisabled, got %v", o.database.state)
-	}
-}
-
-func TestDatabasePathSetting(t *testing.T) {
-	t.Parallel()
-	o := runOptions{}
-	WithDatabase(Database("/tmp/foo"))(&o)
-	if o.database.state != databasePath || o.database.path != "/tmp/foo" {
-		t.Errorf("WithDatabase(Database): expected databasePath /tmp/foo, got %v %q", o.database.state, o.database.path)
-	}
-}
-
 func TestWithDerandomizeIntegration(t *testing.T) {
 	t.Parallel()
 	err := Run(func(tc TestCase) {
 		_ = Draw[int](tc, Integers[int](0, 100))
-	}, WithTestCases(5), WithDerandomize(true), WithDatabase(DatabaseDisabled()))
+	}, WithTestCases(5), WithDerandomize(true), WithDatabase(""))
 	if err != nil {
 		t.Errorf("derandomize integration: %v", err)
 	}
@@ -349,24 +291,56 @@ func TestWithSeedIntegration(t *testing.T) {
 	t.Parallel()
 	err := Run(func(tc TestCase) {
 		_ = Draw[int](tc, Integers[int](0, 100))
-	}, WithTestCases(5), WithSeed(42), WithDatabase(DatabaseDisabled()))
+	}, WithTestCases(5), WithSeed(42), WithDatabase(""))
 	if err != nil {
 		t.Errorf("seed integration: %v", err)
 	}
 }
 
-func TestRunHegelDisablesDatabaseInCI(t *testing.T) {
+func TestWithBackendIntegration(t *testing.T) {
 	t.Parallel()
-	// Apply opts directly without running so we can inspect.
-	if !isCI() {
-		t.Skip("only meaningful when CI env vars are set")
+	for _, b := range []Backend{BackendAuto, BackendDefault} {
+		err := Run(func(tc TestCase) {
+			_ = Draw[int](tc, Integers[int](0, 100))
+		}, WithTestCases(5), WithBackend(b), WithDatabase(""))
+		if err != nil {
+			t.Errorf("backend %v integration: %v", b, err)
+		}
 	}
-	o := runOptions{testCases: 100, derandomize: isCI()}
-	if isCI() {
-		o.database = DatabaseSetting{state: databaseDisabled}
+}
+
+func TestWithVerbosityIntegration(t *testing.T) {
+	t.Parallel()
+	err := Run(func(tc TestCase) {
+		_ = Draw[int](tc, Integers[int](0, 100))
+	}, WithTestCases(5), WithVerbosity(VerbosityQuiet), WithDatabase(""))
+	if err != nil {
+		t.Errorf("verbosity integration: %v", err)
 	}
-	if o.database.state != databaseDisabled {
-		t.Errorf("expected DB disabled in CI, got %v", o.database.state)
+}
+
+func TestWithPhasesIntegration(t *testing.T) {
+	t.Parallel()
+	// Restrict to generation only; a passing property still completes.
+	err := Run(func(tc TestCase) {
+		_ = Draw[int](tc, Integers[int](0, 100))
+	}, WithTestCases(5), WithPhases(PhaseGenerate), WithDatabase(""))
+	if err != nil {
+		t.Errorf("phases integration: %v", err)
+	}
+}
+
+// TestWithReportMultipleFailuresIntegration checks the option is accepted by
+// the engine on a passing property. (The distinct-failure count it controls is
+// keyed off per-call-site origins, which collapse to one in these white-box
+// tests, so the count itself isn't observable here.)
+func TestWithReportMultipleFailuresIntegration(t *testing.T) {
+	t.Parallel()
+	err := Run(func(tc TestCase) {
+		_ = Draw[int](tc, Integers[int](0, 100))
+	}, WithTestCases(5), WithReportMultipleFailures(true), WithDatabase(""))
+	if err != nil {
+		t.Errorf("report-multiple-failures integration: %v", err)
 	}
 }
 
@@ -405,7 +379,7 @@ func TestRunWithHandleRunStartError(t *testing.T) {
 		libhegel.E_BACKEND, // run_start fails
 		"run_start boom",
 	)
-	err := runWithContext(lib, func(TestCase) {}, runOptions{})
+	err := runWithContext(lib, func(TestCase) {}, applyOpts([]Option{WithDerandomize(false)}))
 	if err == nil || !strings.Contains(err.Error(), "run_start boom") {
 		t.Fatalf("expected run_start error, got %v", err)
 	}
@@ -420,7 +394,7 @@ func TestRunWithHandleNextTestCaseError(t *testing.T) {
 		libhegel.E_BACKEND, // next_test_case fails...
 		"next boom",        // ...with an error message
 	)
-	err := runWithContext(lib, func(TestCase) {}, runOptions{})
+	err := runWithContext(lib, func(TestCase) {}, applyOpts([]Option{WithDerandomize(false)}))
 	if err == nil || !strings.Contains(err.Error(), "next boom") {
 		t.Fatalf("expected next_test_case error, got %v", err)
 	}
@@ -435,7 +409,7 @@ func TestRunWithHandleRunResultError(t *testing.T) {
 		uintptr(0),                        // next_test_case NULL => run finished
 		libhegel.E_BACKEND, "result boom", // run_result fails
 	)
-	err := runWithContext(lib, func(TestCase) {}, runOptions{})
+	err := runWithContext(lib, func(TestCase) {}, applyOpts([]Option{WithDerandomize(false)}))
 	if err == nil || !strings.Contains(err.Error(), "result boom") {
 		t.Fatalf("expected run_result error, got %v", err)
 	}
@@ -456,7 +430,7 @@ func TestRunWithHandleCollectFailures(t *testing.T) {
 		uintptr(1),                 // test_case_from_blob handle (replay)
 		"prop_test.go:7",           // failure origin
 	)
-	err := runWithContext(lib, func(TestCase) {}, runOptions{})
+	err := runWithContext(lib, func(TestCase) {}, applyOpts([]Option{WithDerandomize(false)}))
 	if err == nil {
 		t.Fatal("expected failure error")
 	}
@@ -481,7 +455,7 @@ func TestRunWithContextSingleModeFailure(t *testing.T) {
 		uintptr(1),  // run_result
 		libhegel.RUN_STATUS_FAILED,
 	)
-	err := runWithContext(lib, func(tc TestCase) { tc.(*testCase).Fail() }, runOptions{singleTestCase: true})
+	err := runWithContext(lib, func(tc TestCase) { tc.(*testCase).Fail() }, applyOpts([]Option{WithDerandomize(false), WithSingleTestCase()}))
 	if !errors.Is(err, errPropTestFailed) {
 		t.Fatalf("expected single-mode prop-test failure, got %v", err)
 	}
@@ -505,7 +479,7 @@ func TestRunWithContextReplayBlobError(t *testing.T) {
 		libhegel.E_BACKEND, // test_case_from_blob fails...
 		"replay boom",      // ...with this diagnostic
 	)
-	err := runWithContext(lib, func(TestCase) {}, runOptions{})
+	err := runWithContext(lib, func(TestCase) {}, applyOpts([]Option{WithDerandomize(false)}))
 	if err == nil || !strings.Contains(err.Error(), "replay boom") {
 		t.Fatalf("expected replay error, got %v", err)
 	}
@@ -523,7 +497,7 @@ func TestRunWithHandleFailureError(t *testing.T) {
 		uint64(1),                          // one failure
 		libhegel.E_BACKEND, "failure boom", // failure fetch fails
 	)
-	err := runWithContext(lib, func(TestCase) {}, runOptions{})
+	err := runWithContext(lib, func(TestCase) {}, applyOpts([]Option{WithDerandomize(false)}))
 	if err == nil || !strings.Contains(err.Error(), "failure boom") {
 		t.Fatalf("expected failure-fetch error, got %v", err)
 	}
@@ -540,7 +514,7 @@ func TestRunWithHandleRunError(t *testing.T) {
 		libhegel.RUN_STATUS_ERROR, // run errored (e.g. failed health check)
 		"FailedHealthCheck: FilterTooMuch — …", // run-level error message
 	)
-	err := runWithContext(lib, func(TestCase) {}, runOptions{})
+	err := runWithContext(lib, func(TestCase) {}, applyOpts([]Option{WithDerandomize(false)}))
 	if err == nil {
 		t.Fatal("expected run-error error")
 	}
@@ -550,8 +524,9 @@ func TestRunWithHandleRunError(t *testing.T) {
 }
 
 // TestBuildSettingsExercisesAllSetters drives a clean (no-test-case) run with
-// rich options so buildSettings invokes every conditionally-applied settings
-// setter: Mode, TestCases, Seed, Database, DatabaseKey and SuppressHealthCheck.
+// every settings-backed option so buildSettings invokes each setter applier:
+// TestCases, Derandomize, Seed, Database, DatabaseKey, SuppressHealthCheck,
+// Backend, Verbosity, ReportMultipleFailures, Phases and Mode.
 func TestBuildSettingsExercisesAllSetters(t *testing.T) {
 	t.Parallel()
 	lib := libhegel.Stub(
@@ -559,24 +534,34 @@ func TestBuildSettingsExercisesAllSetters(t *testing.T) {
 		libhegel.OK,                // test_cases
 		libhegel.OK,                // derandomize
 		libhegel.OK,                // seed
-		libhegel.OK,                // mode (single-test-case)
 		libhegel.OK,                // database
 		libhegel.OK,                // database_key
 		libhegel.OK,                // suppress_health_check
+		libhegel.OK,                // backend
+		libhegel.OK,                // verbosity
+		libhegel.OK,                // report_multiple_failures
+		libhegel.OK,                // phases
+		libhegel.OK,                // mode (single-test-case)
 		uintptr(1),                 // run_start
 		uintptr(0),                 // next_test_case NULL => run finished
 		uintptr(1),                 // run_result
 		libhegel.RUN_STATUS_PASSED, // passed
 	)
-	seed := int64(7)
-	opts := runOptions{
-		testCases:           5,
-		seed:                &seed,
-		singleTestCase:      true,
-		database:            Database("/tmp/does-not-matter.db"),
-		databaseKey:         "TestBuildSettingsExercisesAllSetters",
-		suppressHealthCheck: []HealthCheck{FilterTooMuch},
-	}
+	// Apply every settings-backed option, in the same order the stub expects
+	// each setter to fire.
+	opts := applyOpts([]Option{
+		WithTestCases(5),
+		WithDerandomize(false),
+		WithSeed(7),
+		WithDatabase("/tmp/does-not-matter.db"),
+		withDatabaseKey("TestBuildSettingsExercisesAllSetters"),
+		SuppressHealthCheck(FilterTooMuch),
+		WithBackend(BackendURandom),
+		WithVerbosity(VerbosityVerbose),
+		WithReportMultipleFailures(true),
+		WithPhases(PhaseGenerate, PhaseShrink),
+		WithSingleTestCase(),
+	})
 	if err := runWithContext(lib, func(TestCase) {}, opts); err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -584,8 +569,8 @@ func TestBuildSettingsExercisesAllSetters(t *testing.T) {
 
 // TestBuildSettingsSetterError covers the setter-error branch in buildSettings:
 // a rejected settings option surfaces as an error from runWithContext rather
-// than being silently dropped. Derandomize is always applied, so a bare
-// runOptions{} reaches a setter before run_start.
+// than being silently dropped. A single derandomize applier reaches a setter
+// before run_start.
 func TestBuildSettingsSetterError(t *testing.T) {
 	t.Parallel()
 	lib := libhegel.Stub(
@@ -593,7 +578,7 @@ func TestBuildSettingsSetterError(t *testing.T) {
 		libhegel.E_BACKEND, // derandomize fails
 		"setter boom",      // diagnostic read by invoke
 	)
-	err := runWithContext(lib, func(TestCase) {}, runOptions{})
+	err := runWithContext(lib, func(TestCase) {}, applyOpts([]Option{WithDerandomize(false)}))
 	if err == nil || !strings.Contains(err.Error(), "setter boom") {
 		t.Fatalf("expected settings-setter error, got %v", err)
 	}
@@ -612,7 +597,7 @@ func TestRunWithHandleMarkCompleteError(t *testing.T) {
 		libhegel.E_BACKEND, // mark_complete fails
 		"mark boom",        // diagnostic read by invoke
 	)
-	err := runWithContext(lib, func(TestCase) {}, runOptions{})
+	err := runWithContext(lib, func(TestCase) {}, applyOpts([]Option{WithDerandomize(false)}))
 	if err == nil || !strings.Contains(err.Error(), "mark boom") {
 		t.Fatalf("expected mark_complete error, got %v", err)
 	}
@@ -635,7 +620,7 @@ func TestRunWithHandleTargetPanic(t *testing.T) {
 	defer expectErrorPanic(t, libhegel.E_BACKEND)
 	runWithContext(lib, func(tc TestCase) {
 		tc.Target(1.0, "x")
-	}, runOptions{singleTestCase: true})
+	}, applyOpts([]Option{WithDerandomize(false), WithSingleTestCase()}))
 }
 
 // stubOpCase drives a single test case whose body calls fn against the
@@ -655,7 +640,7 @@ func stubOpCase(t *testing.T, op any, fn func(*testCase)) {
 		uintptr(1),
 		libhegel.RUN_STATUS_PASSED,
 	)
-	if err := runWithContext(lib, func(tc TestCase) { fn(tc.(*testCase)) }, runOptions{}); err != nil {
+	if err := runWithContext(lib, func(tc TestCase) { fn(tc.(*testCase)) }, applyOpts([]Option{WithDerandomize(false)})); err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
 }
@@ -706,7 +691,7 @@ func TestRunWithHandleUnrecognizedShortCircuit(t *testing.T) {
 	defer expectErrorPanic(t, sentinel)
 	runWithContext(lib, func(tc TestCase) {
 		tc.abort(sentinel)
-	}, runOptions{singleTestCase: true})
+	}, applyOpts([]Option{WithDerandomize(false), WithSingleTestCase()}))
 }
 
 // TestAbortDoesNotDowngradeInteresting covers the guard in abort that refuses
@@ -809,7 +794,7 @@ func TestDrawMapKeyError(t *testing.T) {
 		Draw[map[int]int](tc, Maps[int, int](
 			errGen[int]{err: libhegel.E_ASSUME}, errGen[int]{},
 		).MinSize(1))
-	}, WithTestCases(5), WithDatabase(DatabaseDisabled()), SuppressHealthCheck(FilterTooMuch))
+	}, WithTestCases(5), WithDatabase(""), SuppressHealthCheck(FilterTooMuch))
 	if err != nil {
 		t.Fatalf("expected all-invalid pass, got %v", err)
 	}
@@ -826,7 +811,7 @@ func TestDrawMapValueError(t *testing.T) {
 		Draw[map[int]int](tc, Maps[int, int](
 			Integers[int](0, 5), errGen[int]{err: libhegel.E_ASSUME},
 		).MinSize(1))
-	}, WithTestCases(5), WithDatabase(DatabaseDisabled()), SuppressHealthCheck(FilterTooMuch))
+	}, WithTestCases(5), WithDatabase(""), SuppressHealthCheck(FilterTooMuch))
 	if err != nil {
 		t.Fatalf("expected all-invalid pass, got %v", err)
 	}
@@ -837,7 +822,7 @@ func TestDrawMapBasic(t *testing.T) {
 	t.Parallel()
 	err := run(func(tc TestCase) {
 		_ = Draw[map[int]int](tc, Maps[int, int](Integers[int](0, 5), Integers[int](0, 5)))
-	}, WithTestCases(5), WithDatabase(DatabaseDisabled()))
+	}, WithTestCases(5), WithDatabase(""))
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
