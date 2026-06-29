@@ -150,8 +150,8 @@ func (f *singleTestCaseFlag) Option() Option {
 	return WithSingleTestCase()
 }
 
-// databaseFlag wires --database to [WithDatabase]. A non-empty value selects
-// [Database]; an empty value (--database=) selects [DatabaseDisabled].
+// databaseFlag wires --database to [WithDatabase]. A non-empty value sets the
+// database directory; an empty value (--database=) disables persistence.
 type databaseFlag struct {
 	path string
 }
@@ -167,10 +167,7 @@ func (f *databaseFlag) Set(s string) error {
 
 // Option returns the option corresponding to this flag.
 func (f *databaseFlag) Option() Option {
-	if f.path == "" {
-		return WithDatabase(DatabaseDisabled())
-	}
-	return WithDatabase(Database(f.path))
+	return WithDatabase(f.path)
 }
 
 // suppressHealthCheckFlag wires --suppress-health-check to

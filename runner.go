@@ -264,55 +264,88 @@ func AllHealthChecks() []HealthCheck {
 	return []HealthCheck{FilterTooMuch, TooSlow, TestCasesTooLarge, LargeInitialTestCase}
 }
 
-// --- Test runner options ---
+// --- Engine knobs ---
 
-// databaseState distinguishes "user has not set the database" (engine
-// default), "user disabled the database", and "user supplied a path".
-type databaseState int
+// Backend selects the engine's source of randomness. Pass one to [WithBackend].
+type Backend = libhegel.Backend
 
 const (
-	databaseUnset databaseState = iota
-	databaseDisabled
-	databasePath
+	// BackendAuto chooses automatically (the default): urandom under
+	// Antithesis, otherwise the default seeded PRNG.
+	BackendAuto = libhegel.BACKEND_AUTO
+	// BackendDefault expands a single seeded PRNG; runs are reproducible from
+	// the seed and shrinking / replay work as usual.
+	BackendDefault = libhegel.BACKEND_DEFAULT
+	// BackendURandom reads fresh entropy from /dev/urandom on every draw.
+	// Intended for running under Antithesis; you almost certainly don't want it
+	// otherwise.
+	BackendURandom = libhegel.BACKEND_URANDOM
 )
 
-// DatabaseSetting configures example-database persistence for a test run.
-// Construct one with [Database] (a path) or [DatabaseDisabled] (no
-// persistence) and pass it to [WithDatabase].
-type DatabaseSetting struct {
-	state databaseState
-	path  string
+// Verbosity controls how much the engine logs during a run. Pass one to
+// [WithVerbosity].
+type Verbosity = libhegel.Verbosity
+
+const (
+	// VerbosityQuiet suppresses engine logging.
+	VerbosityQuiet = libhegel.VERBOSITY_QUIET
+	// VerbosityNormal is the default logging level.
+	VerbosityNormal = libhegel.VERBOSITY_NORMAL
+	// VerbosityVerbose enables verbose logging.
+	VerbosityVerbose = libhegel.VERBOSITY_VERBOSE
+	// VerbosityDebug enables debug logging.
+	VerbosityDebug = libhegel.VERBOSITY_DEBUG
+)
+
+// Phase identifies one phase of a property-test run. Phases can be combined and
+// passed to [WithPhases] to restrict which phases the engine runs.
+type Phase = libhegel.Phase
+
+const (
+	// PhaseExplicit runs explicitly-provided examples.
+	PhaseExplicit = libhegel.PHASE_EXPLICIT
+	// PhaseReuse replays examples from the example database.
+	PhaseReuse = libhegel.PHASE_REUSE
+	// PhaseGenerate generates new examples.
+	PhaseGenerate = libhegel.PHASE_GENERATE
+	// PhaseTarget runs targeted-property search.
+	PhaseTarget = libhegel.PHASE_TARGET
+	// PhaseShrink shrinks failing examples.
+	PhaseShrink = libhegel.PHASE_SHRINK
+)
+
+// AllPhases returns all phase variants.
+func AllPhases() []Phase {
+	return []Phase{PhaseExplicit, PhaseReuse, PhaseGenerate, PhaseTarget, PhaseShrink}
 }
 
-// Database returns a [DatabaseSetting] that persists failing examples to the
-// given directory.
-func Database(path string) DatabaseSetting {
-	return DatabaseSetting{state: databasePath, path: path}
-}
+// --- Test runner options ---
 
-// DatabaseDisabled returns a [DatabaseSetting] that disables example-database
-// persistence. No failing examples are saved or replayed.
-//
-// In CI environments, the database is disabled by default; this setting is
-// useful when you want to disable it explicitly outside of CI.
-func DatabaseDisabled() DatabaseSetting {
-	return DatabaseSetting{state: databaseDisabled}
-}
+// settingApplier mutates a libhegel settings object. Options that map to an
+// engine setting append one of these; [runOptions.buildSettings] runs them in
+// order, so a later applier overrides an earlier one (this is how user options
+// override the CI defaults seeded by [run]).
+type settingApplier func(*libhegel.Context, *libhegel.Settings) error
 
 // runOptions holds options for property tests.
+//
+// Settings-backed options are recorded as appliers rather than inert fields, so
+// "not set" is simply "no applier" — the engine default applies and there is no
+// set/unset bookkeeping. Only options the runner itself reads (beyond
+// configuring libhegel) keep dedicated fields.
 type runOptions struct {
-	testCases           int
-	suppressHealthCheck []HealthCheck
-	database            DatabaseSetting
-	derandomize         bool
-	seed                *int64
-	singleTestCase      bool
-	// databaseKey identifies the test for example-database lookups. Set by
-	// [Test] from t.Name(); nil for [Run]/[MustRun].
-	databaseKey string
+	settingsAppliers []settingApplier
+	// singleTestCase is read by the runner and replay logic, not just passed to
+	// libhegel as a mode.
+	singleTestCase bool
 	// output receives note/draw-report output during single-test-case mode
 	// and during the final replay of interesting cases. nil means no output.
 	output io.Writer
+}
+
+// addSetting appends a libhegel settings mutation applied at build time.
+func (o *runOptions) addSetting(apply settingApplier) {
+	o.settingsAppliers = append(o.settingsAppliers, apply)
 }
 
 // Option is a functional option for Test and Run.
@@ -320,45 +353,129 @@ type Option func(*runOptions)
 
 // WithTestCases sets the number of test cases to run.
 func WithTestCases(n int) Option {
-	return func(o *runOptions) { o.testCases = n }
+	return func(o *runOptions) {
+		o.addSetting(func(ctx *libhegel.Context, s *libhegel.Settings) error {
+			return s.TestCases(ctx, uint64(n))
+		})
+	}
 }
 
-// SuppressHealthCheck suppresses the given health checks so they do not cause test failure.
+// SuppressHealthCheck suppresses the given health checks so they do not cause
+// test failure.
+//
+// Each call sets the complete suppression mask; calls do not accumulate, so
+// when SuppressHealthCheck is passed more than once the last call wins. Pass
+// every check to suppress in a single call.
 func SuppressHealthCheck(checks ...HealthCheck) Option {
-	return func(o *runOptions) { o.suppressHealthCheck = append(o.suppressHealthCheck, checks...) }
+	var mask HealthCheck
+	for _, hc := range checks {
+		mask |= hc
+	}
+	return func(o *runOptions) {
+		o.addSetting(func(ctx *libhegel.Context, s *libhegel.Settings) error {
+			return s.SuppressHealthCheck(ctx, mask)
+		})
+	}
 }
 
-// WithDatabase configures example-database persistence for this test.
-// Construct the setting with [Database] (a path) or [DatabaseDisabled].
+// WithDatabase configures example-database persistence for this test. A
+// non-empty path persists failing examples to that directory; an empty path
+// disables persistence entirely, so no failing examples are saved or replayed.
 //
 // The default (when WithDatabase is not specified) is to use libhegel's default
 // database location, except in CI environments where the database is
 // automatically disabled.
-func WithDatabase(db DatabaseSetting) Option {
-	return func(o *runOptions) { o.database = db }
+func WithDatabase(path string) Option {
+	return func(o *runOptions) {
+		o.addSetting(func(ctx *libhegel.Context, s *libhegel.Settings) error {
+			return s.Database(ctx, path)
+		})
+	}
 }
 
 // WithDerandomize sets whether to use a fixed seed for reproducible runs.
 func WithDerandomize(derandomize bool) Option {
-	return func(o *runOptions) { o.derandomize = derandomize }
+	return func(o *runOptions) {
+		o.addSetting(func(ctx *libhegel.Context, s *libhegel.Settings) error {
+			return s.Derandomize(ctx, derandomize)
+		})
+	}
 }
 
 // WithSeed sets a fixed random seed for the test, making it deterministic.
 func WithSeed(seed int64) Option {
-	return func(o *runOptions) { o.seed = &seed }
+	return func(o *runOptions) {
+		o.addSetting(func(ctx *libhegel.Context, s *libhegel.Settings) error {
+			return s.Seed(ctx, uint64(seed), true)
+		})
+	}
+}
+
+// WithBackend selects the engine's randomness backend. See [Backend]. The
+// default is [BackendAuto].
+func WithBackend(b Backend) Option {
+	return func(o *runOptions) {
+		o.addSetting(func(ctx *libhegel.Context, s *libhegel.Settings) error {
+			return s.Backend(ctx, b)
+		})
+	}
+}
+
+// WithVerbosity sets how much the engine logs during a run. See [Verbosity].
+// The default is [VerbosityNormal].
+func WithVerbosity(v Verbosity) Option {
+	return func(o *runOptions) {
+		o.addSetting(func(ctx *libhegel.Context, s *libhegel.Settings) error {
+			return s.Verbosity(ctx, v)
+		})
+	}
+}
+
+// WithReportMultipleFailures sets whether the engine reports every distinct
+// counterexample it finds rather than stopping at the first.
+func WithReportMultipleFailures(report bool) Option {
+	return func(o *runOptions) {
+		o.addSetting(func(ctx *libhegel.Context, s *libhegel.Settings) error {
+			return s.ReportMultipleFailures(ctx, report)
+		})
+	}
+}
+
+// WithPhases restricts the run to the given test phases. See [Phase] and
+// [AllPhases]. When WithPhases is not specified the engine runs all phases.
+func WithPhases(phases ...Phase) Option {
+	var mask Phase
+	for _, p := range phases {
+		mask |= p
+	}
+	return func(o *runOptions) {
+		o.addSetting(func(ctx *libhegel.Context, s *libhegel.Settings) error {
+			return s.Phases(ctx, mask)
+		})
+	}
 }
 
 // WithSingleTestCase runs exactly one test case with no shrinking, replay, or
 // example database. Use it for long-running workloads or tests whose body is
 // not safely re-runnable on the same inputs.
 func WithSingleTestCase() Option {
-	return func(o *runOptions) { o.singleTestCase = true }
+	return func(o *runOptions) {
+		o.singleTestCase = true
+		o.addSetting(func(ctx *libhegel.Context, s *libhegel.Settings) error {
+			return s.Mode(ctx, libhegel.MODE_SINGLE_TEST_CASE)
+		})
+	}
 }
 
 // withDatabaseKey sets the example-database key. Unexported: only [Test]
-// supplies a key, deriving it from t.Name().
+// supplies a key, deriving it from t.Name(). The key is applied unconditionally;
+// libhegel ignores it when the database is disabled.
 func withDatabaseKey(key string) Option {
-	return func(o *runOptions) { o.databaseKey = key }
+	return func(o *runOptions) {
+		o.addSetting(func(ctx *libhegel.Context, s *libhegel.Settings) error {
+			return s.DatabaseKey(ctx, key)
+		})
+	}
 }
 
 // withOutput sets the writer that receives note and draw-report output
@@ -367,43 +484,6 @@ func withDatabaseKey(key string) Option {
 // [Workload] to its stdout. Tests use it to inspect output.
 func withOutput(w io.Writer) Option {
 	return func(o *runOptions) { o.output = w }
-}
-
-// ciEnvVar describes a single CI-detection env var. If matchAny is true, the
-// var counts as a CI signal whenever it is present in the environment.
-type ciEnvVar struct {
-	name     string
-	expected string
-	matchAny bool
-}
-
-var ciEnvVars = []ciEnvVar{
-	{name: "CI", matchAny: true},
-	{name: "__TOX_ENVIRONMENT_VARIABLE_ORIGINAL_CI", matchAny: true},
-	{name: "TF_BUILD", expected: "true"},
-	{name: "bamboo.buildKey", matchAny: true},
-	{name: "BUILDKITE", expected: "true"},
-	{name: "CIRCLECI", expected: "true"},
-	{name: "CIRRUS_CI", expected: "true"},
-	{name: "CODEBUILD_BUILD_ID", matchAny: true},
-	{name: "GITHUB_ACTIONS", expected: "true"},
-	{name: "GITLAB_CI", matchAny: true},
-	{name: "HEROKU_TEST_RUN_ID", matchAny: true},
-	{name: "TEAMCITY_VERSION", matchAny: true},
-}
-
-// isCI reports whether any well-known CI environment variable is set.
-func isCI() bool {
-	for _, v := range ciEnvVars {
-		val, ok := os.LookupEnv(v.name)
-		if !ok {
-			continue
-		}
-		if v.matchAny || val == v.expected {
-			return true
-		}
-	}
-	return false
 }
 
 // Run runs a property test and returns any error.
@@ -441,13 +521,7 @@ func Test(t *testing.T, fn func(*T), opts ...Option) {
 // entry points leave it nil. Note/draw-report output is routed via
 // [withOutput]; absent that option no output is produced.
 func run(fn testBody, opts ...Option) error {
-	inCI := isCI()
-	o := runOptions{
-		derandomize: inCI,
-	}
-	if inCI {
-		o.database = DatabaseSetting{state: databaseDisabled}
-	}
+	var o runOptions
 	for _, opt := range opts {
 		opt(&o)
 	}
@@ -457,7 +531,7 @@ func run(fn testBody, opts ...Option) error {
 }
 
 func runWithContext(ctx *libhegel.Context, fn testBody, opts runOptions) error {
-	s, err := buildSettings(ctx, opts)
+	s, err := opts.buildSettings(ctx)
 	if err != nil {
 		return err
 	}
@@ -512,47 +586,19 @@ func runWithContext(ctx *libhegel.Context, fn testBody, opts runOptions) error {
 	}
 }
 
-func buildSettings(ctx *libhegel.Context, opts runOptions) (*libhegel.Settings, error) {
+// buildSettings constructs the libhegel settings for this run by applying every
+// recorded setting in order; later appliers override earlier ones.
+//
+// Each applier is a fallible libhegel call; a non-nil error means the option
+// was rejected and must be surfaced rather than silently dropped. Errors are
+// collected (nil entries dropped by errors.Join) so a bad option is reported
+// instead of being lost.
+func (o runOptions) buildSettings(ctx *libhegel.Context) (*libhegel.Settings, error) {
 	s := ctx.SettingsNew()
 
-	// Each setter is a fallible libhegel call; a non-nil error means the option
-	// was rejected and must be surfaced rather than silently dropped. Collect
-	// every applicable setter's error (nil entries are dropped by errors.Join)
-	// so a bad option is reported instead of being lost.
 	var errs []error
-	if opts.testCases > 0 {
-		errs = append(errs, s.TestCases(ctx, uint64(opts.testCases)))
-	}
-	errs = append(errs, s.Derandomize(ctx, opts.derandomize))
-	if opts.seed != nil {
-		errs = append(errs, s.Seed(ctx, uint64(*opts.seed), true))
-	}
-	if opts.singleTestCase {
-		errs = append(errs, s.Mode(ctx, libhegel.MODE_SINGLE_TEST_CASE))
-	}
-
-	switch opts.database.state {
-	case databaseUnset:
-		// Don't call: libhegel uses its default.
-	case databaseDisabled:
-		// Empty string disables the database.
-		errs = append(errs, s.Database(ctx, ""))
-	case databasePath:
-		errs = append(errs, s.Database(ctx, opts.database.path))
-	default: // coverage-ignore (databaseState enum is closed)
-		return nil, fmt.Errorf("unknown database state %d", opts.database.state)
-	}
-
-	if opts.database.state != databaseDisabled && opts.databaseKey != "" {
-		errs = append(errs, s.DatabaseKey(ctx, opts.databaseKey))
-	}
-
-	if len(opts.suppressHealthCheck) > 0 {
-		var mask HealthCheck
-		for _, hc := range opts.suppressHealthCheck {
-			mask |= hc
-		}
-		errs = append(errs, s.SuppressHealthCheck(ctx, mask))
+	for _, apply := range o.settingsAppliers {
+		errs = append(errs, apply(ctx, s))
 	}
 
 	if err := errors.Join(errs...); err != nil {

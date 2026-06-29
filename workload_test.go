@@ -49,9 +49,11 @@ func TestTestCasesFlagSetOption(t *testing.T) {
 	if f.String() != "7" {
 		t.Errorf("String=%q want %q", f.String(), "7")
 	}
-	o := applyOpts([]Option{f.Option()})
-	if o.testCases != 7 {
-		t.Errorf("testCases=%d want 7", o.testCases)
+	if f.n != 7 {
+		t.Errorf("n=%d want 7", f.n)
+	}
+	if o := applyOpts([]Option{f.Option()}); len(o.settingsAppliers) != 1 {
+		t.Errorf("Option recorded %d appliers, want 1", len(o.settingsAppliers))
 	}
 }
 
@@ -75,9 +77,11 @@ func TestDerandomizeFlagSetOption(t *testing.T) {
 	if f.String() != "true" {
 		t.Errorf("String=%q want %q", f.String(), "true")
 	}
-	o := applyOpts([]Option{f.Option()})
-	if !o.derandomize {
+	if !f.derandomize {
 		t.Error("expected derandomize=true")
+	}
+	if o := applyOpts([]Option{f.Option()}); len(o.settingsAppliers) != 1 {
+		t.Errorf("Option recorded %d appliers, want 1", len(o.settingsAppliers))
 	}
 }
 
@@ -98,10 +102,11 @@ func TestDatabaseFlagPath(t *testing.T) {
 	if f.String() != "/tmp/db" {
 		t.Errorf("String=%q want %q", f.String(), "/tmp/db")
 	}
-	o := applyOpts([]Option{f.Option()})
-	want := Database("/tmp/db")
-	if o.database != want {
-		t.Errorf("database=%+v want %+v", o.database, want)
+	if f.path != "/tmp/db" {
+		t.Errorf("path=%q want /tmp/db", f.path)
+	}
+	if o := applyOpts([]Option{f.Option()}); len(o.settingsAppliers) != 1 {
+		t.Errorf("Option recorded %d appliers, want 1", len(o.settingsAppliers))
 	}
 }
 
@@ -111,9 +116,11 @@ func TestDatabaseFlagDisabledViaEmpty(t *testing.T) {
 	if err := f.Set(""); err != nil {
 		t.Fatalf("Set: %v", err)
 	}
-	o := applyOpts([]Option{f.Option()})
-	if o.database != DatabaseDisabled() {
-		t.Errorf("database=%+v want DatabaseDisabled()", o.database)
+	if f.path != "" {
+		t.Errorf("path=%q want empty", f.path)
+	}
+	if o := applyOpts([]Option{f.Option()}); len(o.settingsAppliers) != 1 {
+		t.Errorf("Option recorded %d appliers, want 1", len(o.settingsAppliers))
 	}
 }
 
@@ -129,10 +136,12 @@ func TestSuppressHealthCheckFlagRepeated(t *testing.T) {
 	if f.String() != "filter_too_much,too_slow" {
 		t.Errorf("String=%q", f.String())
 	}
-	o := applyOpts([]Option{f.Option()})
 	want := []HealthCheck{FilterTooMuch, TooSlow}
-	if !reflect.DeepEqual(o.suppressHealthCheck, want) {
-		t.Errorf("suppressHealthCheck=%v want %v", o.suppressHealthCheck, want)
+	if !reflect.DeepEqual(f.checks, want) {
+		t.Errorf("checks=%v want %v", f.checks, want)
+	}
+	if o := applyOpts([]Option{f.Option()}); len(o.settingsAppliers) != 1 {
+		t.Errorf("Option recorded %d appliers, want 1", len(o.settingsAppliers))
 	}
 }
 
@@ -222,6 +231,12 @@ func TestWorkloadBadHealthCheckReturnsError(t *testing.T) {
 }
 
 // --- Layering: Workload default < opts < CLI ---
+//
+// Each layer appends its own settings applier in order, so all layers are
+// preserved and the last one applied (CLI > opts > default) wins when
+// buildSettings replays them against libhegel (the engine setter is
+// last-call-wins). These tests assert that every layer contributes an applier,
+// in order; TestWorkloadParsesFlags exercises the composed result end-to-end.
 
 func TestWorkloadLayeringCLIOverrides(t *testing.T) {
 	t.Parallel()
@@ -234,8 +249,8 @@ func TestWorkloadLayeringCLIOverrides(t *testing.T) {
 	all = append(all, userOpts...)
 	all = append(all, tcFlag.Option())
 	o := applyOpts(all)
-	if o.testCases != 7 {
-		t.Errorf("CLI should win: testCases=%d want 7", o.testCases)
+	if len(o.settingsAppliers) != 3 {
+		t.Errorf("CLI layering: %d appliers, want 3 (default, opts, CLI)", len(o.settingsAppliers))
 	}
 }
 
@@ -244,8 +259,8 @@ func TestWorkloadLayeringOptsOverridesDefault(t *testing.T) {
 	userOpts := []Option{WithTestCases(13)}
 	all := append([]Option{WithTestCases(math.MaxInt)}, userOpts...)
 	o := applyOpts(all)
-	if o.testCases != 13 {
-		t.Errorf("opts should beat default: testCases=%d want 13", o.testCases)
+	if len(o.settingsAppliers) != 2 {
+		t.Errorf("opts layering: %d appliers, want 2 (default, opts)", len(o.settingsAppliers))
 	}
 }
 
@@ -253,8 +268,8 @@ func TestWorkloadLayeringDefaultAlone(t *testing.T) {
 	t.Parallel()
 	all := []Option{WithTestCases(math.MaxInt)}
 	o := applyOpts(all)
-	if o.testCases != math.MaxInt {
-		t.Errorf("default: testCases=%d want MaxInt", o.testCases)
+	if len(o.settingsAppliers) != 1 {
+		t.Errorf("default layering: %d appliers, want 1", len(o.settingsAppliers))
 	}
 }
 

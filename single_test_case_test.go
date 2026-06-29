@@ -73,7 +73,7 @@ func TestSingleTestCasePermissiveOptions(t *testing.T) {
 		WithSingleTestCase(),
 		WithTestCases(50),
 		WithDerandomize(true),
-		WithDatabase(DatabaseDisabled()),
+		WithDatabase(""),
 		SuppressHealthCheck(FilterTooMuch),
 	)
 	if err != nil {
