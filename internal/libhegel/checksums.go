@@ -9,7 +9,7 @@ package libhegel
 // downloader fetches the release at this tag from hegel-rust's GitHub
 // releases, and [TestLoadLibVersion] asserts that the loaded library
 // reports this version.
-const hegelVersion = "0.23.1"
+const hegelVersion = "0.23.2"
 
 // libhegelChecksums maps each downloadable release asset to the expected
 // SHA-256 hex digest of its contents for hegelVersion. The digests are baked
@@ -24,9 +24,9 @@ const hegelVersion = "0.23.1"
 // entry fail the download with a clear "no baked-in checksum" error rather
 // than silently skipping verification.
 var libhegelChecksums = map[string]string{
-	"libhegel-darwin-arm64.dylib": "d3a9eea3a66f94c9de214921d5904206e4cf9c9dd6509f69b617690df9d11609",
-	"libhegel-linux-amd64.so":     "9cdde5e46173239fe827aaf737f9c60cfc1126d8519569b3a9666978bd09d28d",
-	"libhegel-linux-arm64.so":     "812ef225fde1797f910d3be5e530a9dbcace2617a05d69d6f3fe22abb2b142b8",
-	"libhegel-windows-amd64.dll":  "17107e499a8a2d82f53a0a1cf09360f8db6f38c6f73ca2e027a492a578150205",
-	"libhegel-windows-arm64.dll":  "3d526b5179fbfb446dd1d2d992c47801782d68f3d1f7eee98edbbc4c9da5c6cb",
+	"libhegel-darwin-arm64.dylib": "6ee369bb06eabf98affd2bfd9ef7d69f2502cdad4b66ad8be757edfddfd35292",
+	"libhegel-linux-amd64.so":     "7facb737e45fb210f47a70a51b86b6d58f2367f911aea81c2b75e8e58189e818",
+	"libhegel-linux-arm64.so":     "648089d0083ae78ecad948a499003ada38c8f25df5dc52b94e17bc9863739f8a",
+	"libhegel-windows-amd64.dll":  "5c6cfccb929d6205605a549f1e24ef8ad02bf6ca482714abbe1746966cd93424",
+	"libhegel-windows-arm64.dll":  "dde18344bded8c009f236c17a911a6367d0a25c567aeae3e8f1213736aefff09",
 }
