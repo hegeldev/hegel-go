@@ -16,7 +16,7 @@ func TestLoadLibVersion(t *testing.T) {
 	}
 	defer lib.Close()
 
-	got := lib.Version()
+	got := lib.versionString()
 	if got != hegelVersion {
 		t.Fatalf("hegel_version: got %q, want %q (rebuild libhegel.so if it's stale)", got, hegelVersion)
 	}
