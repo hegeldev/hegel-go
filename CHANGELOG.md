@@ -1,5 +1,9 @@
 # Changelog
 
+## 0.6.10 - 2026-06-30
+
+Fix a use-after-free due to the GC collecting a hegel-rust object too soon.
+
 ## 0.6.9 - 2026-06-29
 
 This release changes `WithDatabase` to take a plain `string` path instead of a `DatabaseSetting` value. The `DatabaseSetting` type and its `Database` and `DatabaseDisabled` constructors have been removed. A non-empty path persists failing examples to that directory; an empty path disables persistence.
