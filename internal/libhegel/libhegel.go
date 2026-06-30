@@ -577,7 +577,7 @@ func (r *Run) RunResult(ctx *Context) (*Result, error) {
 		runtime.KeepAlive(r)
 		return e
 	}, nil)
-	return &Result{pointer: ptr}, err
+	return &Result{pointer: ptr, parent: r}, err
 }
 
 // TestCase wraps a hegel_test_case_t. The out* fields are reusable scratch for
@@ -720,8 +720,14 @@ func (tc *TestCase) MarkComplete(ctx *Context, status Status, origin string) err
 
 // Result wraps a hegel_run_result_t. The out* fields are reusable out-parameter
 // scratch (see [TestCase] for the rationale).
+//
+// The handle is borrowed from the parent [Run] — freeing the run invalidates
+// it — so the result retains the run to keep it reachable (and thus unfreed by
+// the GC) for as long as the result itself is live.
 type Result struct {
 	*pointer[resultT]
+
+	parent *Run
 
 	outStatus RunStatus
 	outCount  uint64
@@ -762,13 +768,19 @@ func (r *Result) Failure(ctx *Context, index uint64) (*Failure, error) {
 		runtime.KeepAlive(r)
 		return e
 	}, nil)
-	return &Failure{pointer: ptr}, err
+	return &Failure{pointer: ptr, parent: r.parent}, err
 }
 
 // Failure wraps a hegel_failure_t. outBytes is reusable out-parameter scratch
 // (see [TestCase] for the rationale).
+//
+// Like [Result], the handle is borrowed from the run behind the scenes, so the
+// failure retains the run to keep it reachable (and thus unfreed by the GC) for
+// as long as the failure itself is live.
 type Failure struct {
 	*pointer[failureT]
+
+	parent *Run
 
 	outBytes *byte
 }
