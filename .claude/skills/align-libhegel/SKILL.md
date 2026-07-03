@@ -216,3 +216,43 @@ Confirm the version smoke test actually ran against the real lib (not skipped):
 ```bash
 go test -run 'TestLoadLibVersion|TestLibhegelEndToEnd' -v ./internal/libhegel/
 ```
+
+## 8. Validation gate — independent completeness audit
+
+The steps above are done by the same context that made the edits, so they share
+its blind spots: a symbol you never noticed in the header is a symbol you also
+won't notice is unbound. Close that gap with a **fresh-context audit** as the
+final gate. Launch a separate agent (Task tool, `subagent_type:
+"general-purpose"`) that has *not* seen your edits and whose only job is to diff
+the header against the binding and report anything missing.
+
+Give the agent a self-contained prompt — it starts with no context, so spell
+out the version, the two files to compare, and the exact output you want:
+
+```
+Audit the libhegel FFI binding for completeness against the C header. Do NOT
+edit anything — this is a read-only verification.
+
+1. Read the pinned version from internal/libhegel/checksums.go (hegelVersion).
+2. Fetch the matching header:
+   curl -sSL https://raw.githubusercontent.com/hegeldev/hegel-rust/v<VERSION>/hegel-c/include/hegel.h
+   (note the `v` prefix on the tag).
+3. Extract every `hegel_*` function declared in the header.
+4. Cross-check each against internal/libhegel/libhegel.go: it must have (a) a
+   field in the `symbols` struct, (b) an entry in the `registerSymbols` table
+   in `tryOpen`, and (c) a wrapper method (or a documented reason it has none).
+   Also flag any registered symbol that is NOT in the header (a stale binding
+   that would break `registerSymbols` at load).
+5. For every symbol, confirm the Go field signature matches the C prototype
+   under the context-based ABI (ctx first, Error return, produced values via
+   trailing out-params).
+
+Report a table of every header function with OK / MISSING / SIGNATURE-MISMATCH,
+and a final verdict line. List discrepancies explicitly; do not fix them.
+```
+
+The agent's report is the gate: if it comes back clean, the alignment is
+complete. If it flags a `MISSING` or `SIGNATURE-MISMATCH`, return to §3–§5,
+fix it, and re-run this gate. This is a genuine independent check only because
+the agent rederives the header→binding mapping from scratch — do not paste your
+own diff or conclusions into its prompt.

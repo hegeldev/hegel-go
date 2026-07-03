@@ -56,6 +56,11 @@ const (
 	E_ALREADY_COMPLETE
 	E_NOT_COMPLETE
 	E_INTERNAL
+
+	// A single test-case handle was used from two threads at once. hegel-go
+	// drives each test case from one goroutine, so this is not expected; it is
+	// mapped here for completeness of the error space.
+	E_CONCURRENT_USE
 )
 
 type Status int32 // Equivalent of hegel_status_t
@@ -247,6 +252,7 @@ type symbols struct {
 	RunResult    func(ctxT, runT, *resultT) Error
 
 	TestCaseFromBlob func(ctxT, settingsT, string, *testCaseT) Error
+	TestCaseClone    func(ctxT, testCaseT, *testCaseT) Error
 	TestCaseFree     func(ctxT, testCaseT) Error
 
 	Generate             func(ctxT, testCaseT, *byte, uint64, **byte, *uint64) Error
@@ -264,11 +270,13 @@ type symbols struct {
 	Target               func(ctxT, testCaseT, float64, string) Error
 	MarkComplete         func(ctxT, testCaseT, Status, string) Error
 
+	ResultFree         func(ctxT, resultT) Error
 	ResultStatus       func(ctxT, resultT, *RunStatus) Error
 	ResultError        func(ctxT, resultT, **byte) Error
 	ResultFailureCount func(ctxT, resultT, *uint64) Error
 	ResultFailure      func(ctxT, resultT, uint64, *failureT) Error
 
+	FailureFree             func(ctxT, failureT) Error
 	FailureOrigin           func(ctxT, failureT, **byte) Error
 	FailureReproductionBlob func(ctxT, failureT, **byte) Error
 
@@ -420,6 +428,7 @@ func tryOpen(path string) (syms *symbols, err error) {
 		{"hegel_run_free", &syms.RunFree},
 
 		{"hegel_test_case_from_blob", &syms.TestCaseFromBlob},
+		{"hegel_test_case_clone", &syms.TestCaseClone},
 		{"hegel_test_case_free", &syms.TestCaseFree},
 
 		{"hegel_generate", &syms.Generate},
@@ -437,10 +446,12 @@ func tryOpen(path string) (syms *symbols, err error) {
 		{"hegel_target", &syms.Target},
 		{"hegel_mark_complete", &syms.MarkComplete},
 
+		{"hegel_run_result_free", &syms.ResultFree},
 		{"hegel_run_result_status", &syms.ResultStatus},
 		{"hegel_run_result_error", &syms.ResultError},
 		{"hegel_run_result_failure_count", &syms.ResultFailureCount},
 		{"hegel_run_result_failure", &syms.ResultFailure},
+		{"hegel_failure_free", &syms.FailureFree},
 		{"hegel_failure_origin", &syms.FailureOrigin},
 		{"hegel_failure_reproduction_blob", &syms.FailureReproductionBlob},
 
@@ -558,26 +569,32 @@ func (s *Settings) TestCaseFromBlob(ctx *Context, blob string) (tc *TestCase, er
 
 type Run pointer[runT]
 
-// Returns nil, nil when there are no more test cases.
+// NextTestCase blocks until the engine produces the next test case. The
+// returned handle is owned by the caller and freed automatically via the GC;
+// the run keeps its own internal reference, so freeing the handle never
+// disturbs the run. Returns nil, nil when there are no more test cases.
 func (r *Run) NextTestCase(ctx *Context) (*TestCase, error) {
 	ptr, err := allocate(ctx, "hegel_next_test_case", func(ctx ctxT, raw *testCaseT) Error {
 		e := r.syms.NextTestCase(ctx, r.raw, raw)
 		runtime.KeepAlive(r)
 		return e
-	}, nil)
+	}, r.syms.TestCaseFree)
 	if ptr == nil {
 		return nil, err
 	}
 	return &TestCase{pointer: ptr}, err
 }
 
+// RunResult reads the aggregated outcome of a finished run. The returned value
+// is a caller-owned snapshot, independent of the run — it stays valid after the
+// run is freed — and is released automatically via the GC.
 func (r *Run) RunResult(ctx *Context) (*Result, error) {
 	ptr, err := allocate(ctx, "hegel_run_result", func(ctx ctxT, raw *resultT) Error {
 		e := r.syms.RunResult(ctx, r.raw, raw)
 		runtime.KeepAlive(r)
 		return e
-	}, nil)
-	return &Result{pointer: ptr, parent: r}, err
+	}, r.syms.ResultFree)
+	return &Result{pointer: ptr}, err
 }
 
 // TestCase wraps a hegel_test_case_t. The out* fields are reusable scratch for
@@ -594,6 +611,26 @@ type TestCase struct {
 	outInt   int64
 	outColl  Collection
 	outSM    StateMachine
+}
+
+// Clone produces an independent handle onto the same underlying test case, so
+// it can be driven from another goroutine. The clone is a view, not a copy: it
+// draws from the same data source and shares completion state (marking any
+// handle in the family complete marks them all). Each handle has its own lock,
+// so clones may draw concurrently where a single shared handle would report
+// [E_CONCURRENT_USE]. The returned handle is owned by the caller and freed
+// automatically via the GC; the underlying test case stays alive until every
+// handle in the family is freed.
+func (tc *TestCase) Clone(ctx *Context) (*TestCase, error) {
+	ptr, err := allocate(ctx, "hegel_test_case_clone", func(ctx ctxT, raw *testCaseT) Error {
+		e := tc.syms.TestCaseClone(ctx, tc.raw, raw)
+		runtime.KeepAlive(tc)
+		return e
+	}, tc.syms.TestCaseFree)
+	if ptr == nil {
+		return nil, err
+	}
+	return &TestCase{pointer: ptr}, err
 }
 
 func (tc *TestCase) Generate(ctx *Context, schema []byte) ([]byte, error) {
@@ -721,13 +758,11 @@ func (tc *TestCase) MarkComplete(ctx *Context, status Status, origin string) err
 // Result wraps a hegel_run_result_t. The out* fields are reusable out-parameter
 // scratch (see [TestCase] for the rationale).
 //
-// The handle is borrowed from the parent [Run] — freeing the run invalidates
-// it — so the result retains the run to keep it reachable (and thus unfreed by
-// the GC) for as long as the result itself is live.
+// The handle is a caller-owned snapshot, independent of the [Run] it came from:
+// it stays valid after the run is freed and is released by its own GC cleanup
+// (hegel_run_result_free).
 type Result struct {
 	*pointer[resultT]
-
-	parent *Run
 
 	outStatus RunStatus
 	outCount  uint64
@@ -767,20 +802,18 @@ func (r *Result) Failure(ctx *Context, index uint64) (*Failure, error) {
 		e := r.syms.ResultFailure(ctx, r.raw, index, raw)
 		runtime.KeepAlive(r)
 		return e
-	}, nil)
-	return &Failure{pointer: ptr, parent: r.parent}, err
+	}, r.syms.FailureFree)
+	return &Failure{pointer: ptr}, err
 }
 
 // Failure wraps a hegel_failure_t. outBytes is reusable out-parameter scratch
 // (see [TestCase] for the rationale).
 //
-// Like [Result], the handle is borrowed from the run behind the scenes, so the
-// failure retains the run to keep it reachable (and thus unfreed by the GC) for
-// as long as the failure itself is live.
+// Like [Result], the handle is a caller-owned snapshot, independent of the run
+// it came from: it stays valid after the run is freed and is released by its
+// own GC cleanup (hegel_failure_free).
 type Failure struct {
 	*pointer[failureT]
-
-	parent *Run
 
 	outBytes *byte
 }

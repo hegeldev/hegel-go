@@ -69,12 +69,6 @@ func Stub(tb testingTB, returns ...any) *Context {
 				handles.free(lastHandle)
 			}
 
-			var parent any
-			if name == "RunResult" || name == "ResultFailure" {
-				// Special case for pointers which are borrowed from the parent.
-				parent = lastHandle
-			}
-
 			haveOutputParameters := false
 			for i := range ft.NumIn() {
 				arg, in := args[i], ft.In(i)
@@ -86,7 +80,7 @@ func Stub(tb testingTB, returns ...any) *Context {
 					arg.Elem().Set(reflect.ValueOf(retval()))
 				case in.ConvertibleTo(reflect.TypeFor[*uintptr]()):
 					h := reflect.ValueOf(retval()).Convert(in.Elem())
-					handles.register(h.Interface(), parent)
+					handles.track(h.Interface())
 					arg.Elem().Set(h)
 				default:
 					if haveOutputParameters { // coverage-ignore
@@ -128,11 +122,10 @@ func Stub(tb testingTB, returns ...any) *Context {
 type handleTracker struct {
 	mu    sync.Mutex
 	alive map[any]bool
-	edges map[any][]any // parent -> handles borrowed from it
 }
 
 func newHandleTracker() *handleTracker {
-	return &handleTracker{alive: map[any]bool{}, edges: map[any][]any{}}
+	return &handleTracker{alive: map[any]bool{}}
 }
 
 // A NULL handle (raw value 0) is libhegel's "no object" sentinel. The tracker
@@ -140,10 +133,8 @@ func newHandleTracker() *handleTracker {
 // or absent handle. Handles are stored boxed in the maps, keyed by their typed
 // value, so handles that share a raw value but differ in type stay distinct.
 
-// register records a produced handle, born alive. A nil parent marks an
-// owned root (one with its own free); otherwise the handle is borrowed from
-// parent and is freed when parent is. A NULL (zero) handle is ignored.
-func (h *handleTracker) register(handle, parent any) {
+// track records a produced handle, born alive. A NULL (zero) handle is ignored.
+func (h *handleTracker) track(handle any) {
 	if reflect.ValueOf(handle).Uint() == 0 {
 		return
 	}
@@ -151,27 +142,16 @@ func (h *handleTracker) register(handle, parent any) {
 	h.mu.Lock()
 	defer h.mu.Unlock()
 	h.alive[handle] = true
-	if parent != nil {
-		h.edges[parent] = append(h.edges[parent], handle)
-	}
 }
 
 // free marks a handle dead and cascades to everything borrowed from it.
 func (h *handleTracker) free(handle any) {
 	h.mu.Lock()
 	defer h.mu.Unlock()
-	h.freeLocked(handle)
-}
-
-func (h *handleTracker) freeLocked(handle any) {
 	// Mark dead rather than delete: a freed handle must stay distinguishable
 	// from a never-tracked one so handleCheck can tell a use-after-free from an
 	// untracked argument.
 	h.alive[handle] = false
-	for _, child := range h.edges[handle] {
-		h.freeLocked(child)
-	}
-	delete(h.edges, handle)
 }
 
 // check reports whether handle is a tracked handle that has been freed (a
