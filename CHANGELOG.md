@@ -1,5 +1,10 @@
 # Changelog
 
+## 0.6.11 - 2026-07-03
+
+Update include the callers PC in failure origin so that hegel-rust considers different PCs
+as individual errors.
+
 ## 0.6.10 - 2026-06-30
 
 Fix a use-after-free due to the GC collecting a hegel-rust object too soon.
