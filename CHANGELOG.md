@@ -1,5 +1,9 @@
 # Changelog
 
+## 0.6.12 - 2026-07-03
+
+This patch bumps our pinned libhegel ([hegel-rust](hegeldev/hegel-rust)) from [0.23.2](https://github.com/hegeldev/hegel-rust/releases/tag/v0.23.2) to [0.24.0](https://github.com/hegeldev/hegel-rust/releases/tag/v0.24.0).
+
 ## 0.6.11 - 2026-07-03
 
 Update include the callers PC in failure origin so that hegel-rust considers different PCs
