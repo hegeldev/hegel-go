@@ -85,7 +85,7 @@ func (s *testCase) setStatus(status libhegel.Status) {
 	s.status = status
 	s.origin = ""
 	if s.status == libhegel.STATUS_INTERESTING {
-		s.origin = findExternalCaller()
+		s.origin = findCaller(2, isNotHegelFrame)
 	}
 }
 
@@ -663,31 +663,36 @@ func replayFailures(ctx *libhegel.Context, s *libhegel.Settings, result *libhege
 	return fmt.Errorf("%w: %d failures %v", errPropTestFailed, len(origins), origins)
 }
 
-// findExternalCaller describes a recovered panic for [hegel_mark_complete]'s
-// origin field. The format is "<file>:<line>", where the file/line
-// come from the first non-hegel frame in the stack — i.e. the user's test
-// code, not internal helpers.
+// findCaller describes a recovered panic for [hegel_mark_complete]'s
+// origin field. The format is "<file>:<line> (<pc>)", where the file/line
+// and program counter come from the first frame matched by filter.
+// skip has the same meaning as runtime.Callers.
 //
-// The origin MUST be stable across every call site of the same panic so
-// libhegel can group failing inputs together for shrinking.
-func findExternalCaller() string {
+// The origin MUST be stable for the same call site and distinct between
+// different call sites so libhegel can group failing inputs together for
+// shrinking without conflating separate failures.
+//
+//go:noinline
+func findCaller(skip int, filter func(string) bool) string {
 	var pcs [32]uintptr
-	n := runtime.Callers(3, pcs[:])
+	n := runtime.Callers(skip+1, pcs[:])
 	frames := runtime.CallersFrames(pcs[:n])
 	file := ""
 	line := 0
+	var pc uintptr
 	for {
 		f, more := frames.Next()
 		if !more { // coverage-ignore
 			break
 		}
-		if !isHegelFrame(f.Function) {
+		if filter(f.Function) {
 			file = f.File
 			line = f.Line
+			pc = f.PC
 			break
 		}
 	}
-	return fmt.Sprintf("%s:%d", file, line)
+	return fmt.Sprintf("%s:%d (%#x)", file, line, pc)
 }
 
 func isHegelFrame(fn string) bool {
@@ -702,4 +707,8 @@ func isHegelFrame(fn string) bool {
 	// "hegel.dev/go/hegel_test.Func" → external (test package), not internal.
 	next := fn[len(pkg)]
 	return next == '.' || next == '/'
+}
+
+func isNotHegelFrame(fn string) bool {
+	return !isHegelFrame(fn)
 }

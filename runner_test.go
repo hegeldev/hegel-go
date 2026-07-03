@@ -182,7 +182,7 @@ func TestFatalSentinelPath(t *testing.T) {
 	}
 }
 
-// --- extractPanicOrigin / isHegelFrame ---
+// --- findCaller / isHegelFrame ---
 
 func TestIsHegelFrame(t *testing.T) {
 	t.Parallel()
@@ -205,15 +205,38 @@ func TestIsHegelFrame(t *testing.T) {
 	}
 }
 
-// TestExtractPanicOriginStableAcrossValues verifies that origin is stable per
-// (type, call site) — libhegel uses the origin as a shrink-grouping key, and
-// per-value origins would prevent the shrinker from converging.
-func TestExtractPanicOriginStableAcrossValues(t *testing.T) {
+func anyFrame(string) bool {
+	return true
+}
+
+// TestFindCallerStableAcrossValues verifies that origin is stable per call
+// site. libhegel uses the origin as a shrink-grouping key, and per-value
+// origins would prevent the shrinker from converging.
+func TestFindCallerStableAcrossValues(t *testing.T) {
 	t.Parallel()
-	a := findExternalCaller()
-	b := findExternalCaller()
+	var a, b string
+	for i := range 2 {
+		origin := findCaller(1, anyFrame)
+		if i == 0 {
+			a = origin
+		} else {
+			b = origin
+		}
+	}
 	if a != b {
 		t.Errorf("origin must be stable; got %q vs %q", a, b)
+	}
+	if !strings.Contains(a, " (0x") || !strings.HasSuffix(a, ")") {
+		t.Errorf("origin = %q, want file:line (0xpc)", a)
+	}
+}
+
+func TestFindCallerDistinguishesCallsitesInSameFunction(t *testing.T) {
+	t.Parallel()
+	a := findCaller(1, anyFrame)
+	b := findCaller(1, anyFrame)
+	if a == b {
+		t.Errorf("origin must distinguish callsites in the same function; got %q twice", a)
 	}
 }
 
