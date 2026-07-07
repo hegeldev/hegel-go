@@ -24,18 +24,6 @@ func TestLibhegelEndToEnd(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	// Hand-encoded CBOR for {"type": "integer", "min_value": 0, "max_value": 100}.
-	// Same as hegel-c/examples/echo.c.
-	schema := []byte{
-		0xA3,
-		0x64, 't', 'y', 'p', 'e',
-		0x67, 'i', 'n', 't', 'e', 'g', 'e', 'r',
-		0x69, 'm', 'i', 'n', '_', 'v', 'a', 'l', 'u', 'e',
-		0x00,
-		0x69, 'm', 'a', 'x', '_', 'v', 'a', 'l', 'u', 'e',
-		0x18, 0x64,
-	}
-
 	cases := 0
 	for {
 		tc, err := run.NextTestCase(ctx)
@@ -45,15 +33,14 @@ func TestLibhegelEndToEnd(t *testing.T) {
 		if tc == nil {
 			break
 		}
-		value, err := tc.Generate(ctx, schema)
+		// Draw an integer in [0, 100] to sanity-check the protocol.
+		value, err := tc.GenerateInteger(ctx, 0, 100)
 		if err != nil {
 			t.Fatalf("generate err=%v", err)
 		}
-		// Decode the single-byte unsigned integer to sanity-check the protocol.
-		if len(value) == 0 {
-			t.Fatalf("generate returned empty value")
+		if value < 0 || value > 100 {
+			t.Fatalf("generate returned out-of-range value %d", value)
 		}
-		_ = value[0] // we don't enforce a value; just confirm it's readable.
 		if err := tc.MarkComplete(ctx, STATUS_VALID, ""); err != nil {
 			t.Fatalf("mark_complete err=%v ", err)
 		}

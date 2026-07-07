@@ -12,13 +12,13 @@ import (
 // =============================================================================
 
 // TestBasicGeneratorFilterReturnsfilteredGenerator verifies that calling Filter
-// on a basicGenerator returns a *filteredGenerator.
+// on a primitive generator returns a *filteredGenerator.
 func TestBasicGeneratorFilterReturnsfilteredGenerator(t *testing.T) {
 	t.Parallel()
 	g := Integers[int](0, 100)
 	filtered := Filter(g, func(v int) bool { return true })
 	if _, ok := filtered.(*filteredGenerator[int]); !ok {
-		t.Fatalf("Filter(basicGenerator) should return *filteredGenerator[int], got %T", filtered)
+		t.Fatalf("Filter(Integers) should return *filteredGenerator[int], got %T", filtered)
 	}
 }
 

@@ -1,124 +1,34 @@
 package hegel
 
-// formats_test.go tests email, url, domain, date, time, and datetime generators.
+// formats_test.go tests email, url, domain, date, and datetime generators.
 
 import (
 	"strings"
 	"testing"
 	"time"
 	"unicode"
+
+	"hegel.dev/go/hegel/internal/libhegel"
 )
 
 // =============================================================================
-// Unit tests: verify schema structure for format generators
+// Domain MaxLength validation (draw returns an error out of [4, 255])
 // =============================================================================
 
-// TestEmailsSchema verifies that Emails() produces the correct schema.
-func TestEmailsSchema(t *testing.T) {
+// TestDomainsMaxLengthTooSmall covers the lower-bound rejection (a max_length
+// too small to fit any TLD). The engine validates it during generator
+// construction, so this drives the real build path.
+func TestDomainsMaxLengthTooSmall(t *testing.T) {
 	t.Parallel()
-	g := Emails()
-	bg, ok := g.(*basicGenerator[string])
-	if !ok {
-		t.Fatalf("Emails() should return *basicGenerator[string], got %T", g)
-	}
-	if bg.schema["type"] != "email" {
-		t.Errorf("type: expected email, got %v", bg.schema["type"])
-	}
-	if len(bg.schema) != 1 {
-		t.Errorf("Emails schema should have exactly 1 key, got %d: %v", len(bg.schema), bg.schema)
-	}
+	_, err := Domains().MaxLength(3).build(libhegel.NewContext())
+	assertErrorContains(t, "3", err)
 }
 
-// TestURLsSchema verifies that URLs() produces the correct schema.
-func TestURLsSchema(t *testing.T) {
+// TestDomainsMaxLengthTooLarge covers the upper-bound rejection (> 255).
+func TestDomainsMaxLengthTooLarge(t *testing.T) {
 	t.Parallel()
-	g := URLs()
-	bg, ok := g.(*basicGenerator[string])
-	if !ok {
-		t.Fatalf("URLs() should return *basicGenerator[string], got %T", g)
-	}
-	if bg.schema["type"] != "url" {
-		t.Errorf("type: expected url, got %v", bg.schema["type"])
-	}
-	if len(bg.schema) != 1 {
-		t.Errorf("URLs schema should have exactly 1 key, got %d: %v", len(bg.schema), bg.schema)
-	}
-}
-
-// TestDomainsSchemaNoMaxLength verifies that Domains() with no MaxLength uses the default (255).
-func TestDomainsSchemaNoMaxLength(t *testing.T) {
-	t.Parallel()
-	g := Domains()
-	bg, _, err := g.asBasic()
-	if err != nil {
-		t.Fatal(err)
-	}
-	schema := bg.schema
-	if schema["type"] != "domain" {
-		t.Errorf("type: expected domain, got %v", schema["type"])
-	}
-	maxLen, hasMax := schema["max_length"]
-	if !hasMax {
-		t.Fatal("max_length should always be present in domain schema")
-	}
-	ml, _ := extractCBORInt(maxLen)
-	if ml != 255 {
-		t.Errorf("default max_length: expected 255, got %d", ml)
-	}
-}
-
-// TestDomainsSchemaWithMaxLength verifies that Domains() with MaxLength includes it.
-func TestDomainsSchemaWithMaxLength(t *testing.T) {
-	t.Parallel()
-	g := Domains().MaxLength(63)
-	bg, _, err := g.asBasic()
-	if err != nil {
-		t.Fatal(err)
-	}
-	schema := bg.schema
-	if schema["type"] != "domain" {
-		t.Errorf("type: expected domain, got %v", schema["type"])
-	}
-	maxLen, ok := schema["max_length"]
-	if !ok {
-		t.Fatal("max_length should be present when MaxLength > 0")
-	}
-	ml, _ := extractCBORInt(maxLen)
-	if ml != 63 {
-		t.Errorf("max_length: expected 63, got %d", ml)
-	}
-}
-
-// TestDatesSchema verifies that Dates() produces the correct schema.
-func TestDatesSchema(t *testing.T) {
-	t.Parallel()
-	g := Dates()
-	bg, ok := g.(*basicGenerator[time.Time])
-	if !ok {
-		t.Fatalf("Dates() should return *basicGenerator[time.Time], got %T", g)
-	}
-	if bg.schema["type"] != "date" {
-		t.Errorf("type: expected date, got %v", bg.schema["type"])
-	}
-	if len(bg.schema) != 1 {
-		t.Errorf("Dates schema should have exactly 1 key, got %d: %v", len(bg.schema), bg.schema)
-	}
-}
-
-// TestDatetimesSchema verifies that Datetimes() produces the correct schema.
-func TestDatetimesSchema(t *testing.T) {
-	t.Parallel()
-	g := Datetimes()
-	bg, ok := g.(*basicGenerator[time.Time])
-	if !ok {
-		t.Fatalf("Datetimes() should return *basicGenerator[time.Time], got %T", g)
-	}
-	if bg.schema["type"] != "datetime" {
-		t.Errorf("type: expected datetime, got %v", bg.schema["type"])
-	}
-	if len(bg.schema) != 1 {
-		t.Errorf("Datetimes schema should have exactly 1 key, got %d: %v", len(bg.schema), bg.schema)
-	}
+	_, err := Domains().MaxLength(300).build(libhegel.NewContext())
+	assertErrorContains(t, "300", err)
 }
 
 // =============================================================================
@@ -181,26 +91,39 @@ func TestDomainsMaxLengthE2E(t *testing.T) {
 	}, WithTestCases(30))
 }
 
-// TestDatesE2E verifies that generated dates are valid time.Time values.
+// TestDatesE2E verifies that generated dates fall within the full Gregorian
+// range. Note: the minimum date 0001-01-01T00:00:00Z equals Go's time.Time
+// zero value, so IsZero() is not a validity check here — the year bound is.
 func TestDatesE2E(t *testing.T) {
 	t.Parallel()
 
 	Test(t, func(ht *T) {
 		v := Draw(ht, Dates())
-		if v.IsZero() {
-			panic("date is zero value")
+		if v.Year() < 1 || v.Year() > 9999 {
+			panic("date year out of range")
+		}
+		if v.Location() != time.UTC {
+			panic("date is not in UTC")
 		}
 	}, WithTestCases(30))
 }
 
-// TestDatetimesE2E verifies that generated datetimes are valid time.Time values.
+// TestDatetimesE2E verifies that generated datetimes fall within the full
+// Gregorian range with valid time components. As with dates, the minimum
+// datetime equals time.Time's zero value, so IsZero() is not used.
 func TestDatetimesE2E(t *testing.T) {
 	t.Parallel()
 
 	Test(t, func(ht *T) {
 		v := Draw(ht, Datetimes())
-		if v.IsZero() {
-			panic("datetime is zero value")
+		if v.Year() < 1 || v.Year() > 9999 {
+			panic("datetime year out of range")
+		}
+		if v.Hour() > 23 || v.Minute() > 59 || v.Second() > 59 {
+			panic("datetime time component out of range")
+		}
+		if v.Location() != time.UTC {
+			panic("datetime is not in UTC")
 		}
 	}, WithTestCases(30))
 }

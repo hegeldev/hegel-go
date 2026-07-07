@@ -2,8 +2,6 @@ package hegel
 
 import "hegel.dev/go/hegel/internal/libhegel"
 
-// --- Span label constants ---
-
 // --- Generator interface ---
 
 // Generator is the core abstraction for value generation in Hegel.
@@ -13,15 +11,6 @@ type Generator[T any] interface {
 	// draw produces a value from the Hegel engine using the given test case.
 	// Unexported to seal the interface to this package.
 	draw(tc TestCase) (T, error)
-
-	// asBasic returns the basic-schema form of this generator, when one exists.
-	// The three return values encode three distinct states:
-	//   (bg, true, nil)   — generator is basic; bg holds the schema and parser.
-	//   (nil, false, nil) — generator is composite (e.g. filtered, flat-mapped,
-	//                       or has non-basic element generators); no schema.
-	//   (nil, false, err) — configuration is invalid (e.g. min > max).
-	// Unexported to seal the interface to this package.
-	asBasic() (*basicGenerator[T], bool, error)
 }
 
 // TestCase is the test context for a Hegel property test.
@@ -72,12 +61,11 @@ type TestCase interface {
 	// Set the current status.
 	setStatus(status libhegel.Status)
 
-	// generate requests a value from the engine for schema. The schema is a
-	// JSON-shaped map (CBOR-encoded on the wire to libhegel). Returns the
-	// decoded value or a sentinel error on abort.
-	generate(schema map[string]any) (any, error)
+	// engine returns the libhegel context and test-case handle backing this
+	// test case, so generators can drive the typed primitive draws directly.
+	engine() (*libhegel.Context, *libhegel.TestCase)
 
-	// startSpan begins a generation span. label is one of the [spanLabel]
+	// startSpan begins a generation span. label is one of the [libhegel.Label]
 	// constants; the engine uses labels for shrinking.
 	startSpan(label libhegel.Label) error
 
@@ -133,32 +121,6 @@ func Draw[T any](tc TestCase, g Generator[T]) T {
 	return v
 }
 
-// --- basicGenerator ---
-
-// basicGenerator is a generator backed by a single JSON-schema sent to the
-// Hegel server. The parse function converts the raw CBOR value to T.
-type basicGenerator[T any] struct {
-	schema map[string]any
-	parse  func(any) T
-}
-
-// draw sends a generate command to the engine and returns the result.
-func (g *basicGenerator[T]) draw(tc TestCase) (T, error) {
-	v, err := tc.generate(g.schema)
-	if err != nil {
-		var zero T
-		return zero, err
-	}
-	return g.parse(v), nil
-}
-
-// asBasic returns the receiver — a basicGenerator is trivially basic.
-//
-//lint:ignore U1000 satisfies Generator interface; staticcheck misses generic dispatch
-func (g *basicGenerator[T]) asBasic() (*basicGenerator[T], bool, error) {
-	return g, true, nil
-}
-
 // --- mappedGenerator ---
 
 // mappedGenerator wraps a Generator[T] and transforms its output to U.
@@ -180,16 +142,6 @@ func (g *mappedGenerator[T, U]) draw(tc TestCase) (U, error) {
 		}
 		return g.fn(v), nil
 	})
-}
-
-// asBasic always returns not-basic. Map() composes basic-with-basic at
-// construction time, so a mappedGenerator only exists when wrapping a
-// non-basic source — collapsing it back through here would never match a
-// caller's expectations.
-//
-//lint:ignore U1000 satisfies Generator interface; staticcheck misses generic dispatch
-func (g *mappedGenerator[T, U]) asBasic() (*basicGenerator[U], bool, error) {
-	return nil, false, nil
 }
 
 // --- filteredGenerator ---
@@ -230,13 +182,6 @@ func (g *filteredGenerator[T]) draw(tc TestCase) (T, error) {
 	return zero, libhegel.E_ASSUME
 }
 
-// asBasic always returns not-basic — filtering cannot be expressed as a schema.
-//
-//lint:ignore U1000 satisfies Generator interface; staticcheck misses generic dispatch
-func (g *filteredGenerator[T]) asBasic() (*basicGenerator[T], bool, error) {
-	return nil, false, nil
-}
-
 // --- flatMappedGenerator ---
 
 // flatMappedGenerator generates a value from source, passes it to f, and then
@@ -260,28 +205,10 @@ func (g *flatMappedGenerator[T, U]) draw(tc TestCase) (U, error) {
 	})
 }
 
-// asBasic always returns not-basic — flat-map's dependent generator is dynamic.
-//
-//lint:ignore U1000 satisfies Generator interface; staticcheck misses generic dispatch
-func (g *flatMappedGenerator[T, U]) asBasic() (*basicGenerator[U], bool, error) {
-	return nil, false, nil
-}
-
 // --- Free function combinators ---
 
 // Map returns a new Generator that applies fn to each value from g.
 func Map[T, U any](g Generator[T], fn func(T) U) Generator[U] {
-	bg, ok, err := g.asBasic()
-	if err != nil {
-		panic(err.Error())
-	}
-	if ok {
-		prev := bg.parse
-		return &basicGenerator[U]{
-			schema: bg.schema,
-			parse:  func(v any) U { return fn(prev(v)) },
-		}
-	}
 	return &mappedGenerator[T, U]{inner: g, fn: fn}
 }
 
