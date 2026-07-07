@@ -28,6 +28,7 @@ import (
 	"slices"
 	"strings"
 	"sync"
+	"time"
 	"unsafe"
 )
 
@@ -199,6 +200,25 @@ const (
 	// this span themselves.
 	LABEL_FEATURE_FLAG
 
+	// The remaining upstream labels (17..30) are emitted internally by the
+	// engine's per-draw primitives; callers normally never open these spans
+	// themselves. They are mirrored here so the binding's constant values stay
+	// aligned with hegel_label_t.
+	LABEL_REGEX
+	LABEL_EMAIL
+	LABEL_URL
+	LABEL_DOMAIN
+	LABEL_DATE
+	LABEL_TIME
+	LABEL_DATETIME
+	LABEL_UUID
+	LABEL_IP_ADDRESS
+	LABEL_INTEGER
+	LABEL_FLOAT
+	LABEL_BOOLEAN
+	LABEL_BYTES
+	LABEL_STRING
+
 	// Binding-specific labels, beyond the upstream HEGEL_LABEL_* range. The
 	// engine treats span labels as opaque shrinker hints, so hegel-go reserves
 	// values past the last upstream constant for its own span structures.
@@ -211,12 +231,66 @@ type pointer[T ~uintptr] struct {
 	raw  T
 }
 
-type ctxT uintptr      // Equivalent of hegel_context_t
-type settingsT uintptr // Equivalent of hegel_settings_t
-type runT uintptr      // Equivalent of hegel_run_t
-type testCaseT uintptr // Equivalent of hegel_test_case_t
-type resultT uintptr   // Equivalent of hegel_run_result_t
-type failureT uintptr  // Equivalent of hegel_failure_t
+type ctxT uintptr       // Equivalent of hegel_context_t
+type settingsT uintptr  // Equivalent of hegel_settings_t
+type runT uintptr       // Equivalent of hegel_run_t
+type testCaseT uintptr  // Equivalent of hegel_test_case_t
+type resultT uintptr    // Equivalent of hegel_run_result_t
+type failureT uintptr   // Equivalent of hegel_failure_t
+type stringGenT uintptr // Equivalent of hegel_string_generator_t
+
+// Date mirrors hegel_date_t: a Gregorian calendar date passed to / returned
+// from hegel_generate_date by value.
+type Date struct {
+	Year  int32
+	Month uint8
+	Day   uint8
+	_     uint16 // pad to match C abi (purego limitation)
+}
+
+// ToTime converts the date to a [time.Time] at midnight UTC.
+func (d *Date) ToTime() time.Time {
+	return time.Date(int(d.Year), time.Month(d.Month), int(d.Day), 0, 0, 0, 0, time.UTC)
+}
+
+// Time mirrors hegel_time_t: a time of day passed to / returned from
+// hegel_generate_time by value.
+type Time struct {
+	Hour        uint8
+	Minute      uint8
+	Second      uint8
+	_           uint8 // pad to match C abi (purego limitation)
+	Microsecond uint32
+}
+
+// Datetime mirrors hegel_datetime_t: a naive datetime (no timezone).
+type Datetime struct {
+	Date Date
+	Time Time
+}
+
+// ToTime converts the naive datetime to a [time.Time] in UTC.
+func (dt *Datetime) ToTime() time.Time {
+	return time.Date(int(dt.Date.Year), time.Month(dt.Date.Month), int(dt.Date.Day),
+		int(dt.Time.Hour), int(dt.Time.Minute), int(dt.Time.Second),
+		int(dt.Time.Microsecond)*1000, time.UTC)
+}
+
+// bytesResult mirrors hegel_generate_bytes_result_t: an engine-allocated byte
+// buffer written by hegel_generate_bytes and released by
+// hegel_generate_bytes_result_free.
+type bytesResult struct {
+	data *byte
+	len  uint64
+}
+
+// stringResult mirrors hegel_generate_string_result_t: an engine-allocated,
+// length-delimited UTF-8 buffer (not NUL-terminated) written by
+// hegel_generate_string and released by hegel_generate_string_result_free.
+type stringResult struct {
+	data *byte
+	len  uint64
+}
 
 // symbols is the loaded libhegel shared library: the dlopen handle plus one Go
 // func per C entry point. It is immutable after load and freely shared across
@@ -255,7 +329,6 @@ type symbols struct {
 	TestCaseClone    func(ctxT, testCaseT, *testCaseT) Error
 	TestCaseFree     func(ctxT, testCaseT) Error
 
-	Generate             func(ctxT, testCaseT, *byte, uint64, **byte, *uint64) Error
 	StartSpan            func(ctxT, testCaseT, Label) Error
 	StopSpan             func(ctxT, testCaseT, bool) Error
 	NewCollection        func(ctxT, testCaseT, uint64, uint64, *Collection) Error
@@ -266,9 +339,34 @@ type symbols struct {
 	PoolGenerate         func(ctxT, testCaseT, int64, bool, *int64) Error
 	NewStateMachine      func(ctxT, testCaseT, cStringArrayPtr, uint64, cStringArrayPtr, uint64, *StateMachine) Error
 	StateMachineNextRule func(ctxT, testCaseT, StateMachine, *int64) Error
-	PrimitiveBoolean     func(ctxT, testCaseT, float64, bool, bool, *bool) Error
 	Target               func(ctxT, testCaseT, float64, string) Error
 	MarkComplete         func(ctxT, testCaseT, Status, string) Error
+
+	// Typed primitive draws (0.27.0 replaced the generic schema-driven
+	// hegel_generate with these).
+	GenerateBoolean    func(ctxT, testCaseT, float64, bool, bool, *bool) Error
+	GenerateInteger    func(ctxT, testCaseT, int64, int64, *int64) Error
+	GenerateIntegerBig func(ctxT, testCaseT, *byte, uint64, *byte, uint64, outBuf, uint64, *uint64) Error
+	GenerateFloat      func(ctxT, testCaseT, uint32, float64, float64, bool, bool, bool, bool, float64, *float64) Error
+	GenerateBytes      func(ctxT, testCaseT, uint64, uint64, *bytesResult) Error
+	GenerateBytesFree  func(ctxT, *bytesResult) Error
+	GenerateString     func(ctxT, testCaseT, stringGenT, *stringResult) Error
+	GenerateStringFree func(ctxT, *stringResult) Error
+	GenerateDate       func(ctxT, testCaseT, Date, Date, *Date) Error
+	GenerateTime       func(ctxT, testCaseT, Time, Time, *Time) Error
+	GenerateDatetime   func(ctxT, testCaseT, Datetime, Datetime, *Datetime) Error
+	GenerateUUID       func(ctxT, testCaseT, uint8, bool, outBuf) Error
+	GenerateIPv4       func(ctxT, testCaseT, outBuf) Error
+	GenerateIPv6       func(ctxT, testCaseT, outBuf) Error
+
+	// String-generator constructors (build the alphabet-and-shape spec passed
+	// to hegel_generate_string) and their shared free.
+	StringGeneratorText   func(ctxT, uint64, uint64, string, uint32, uint32, cStringArrayPtr, uint64, cStringArrayPtr, uint64, *byte, uint64, *byte, uint64, *stringGenT) Error
+	StringGeneratorRegex  func(ctxT, string, bool, stringGenT, *stringGenT) Error
+	StringGeneratorEmail  func(ctxT, *stringGenT) Error
+	StringGeneratorURL    func(ctxT, *stringGenT) Error
+	StringGeneratorDomain func(ctxT, uint64, *stringGenT) Error
+	StringGeneratorFree   func(ctxT, stringGenT) Error
 
 	ResultFree         func(ctxT, resultT) Error
 	ResultStatus       func(ctxT, resultT, *RunStatus) Error
@@ -431,7 +529,6 @@ func tryOpen(path string) (syms *symbols, err error) {
 		{"hegel_test_case_clone", &syms.TestCaseClone},
 		{"hegel_test_case_free", &syms.TestCaseFree},
 
-		{"hegel_generate", &syms.Generate},
 		{"hegel_start_span", &syms.StartSpan},
 		{"hegel_stop_span", &syms.StopSpan},
 		{"hegel_new_collection", &syms.NewCollection},
@@ -442,9 +539,30 @@ func tryOpen(path string) (syms *symbols, err error) {
 		{"hegel_pool_generate", &syms.PoolGenerate},
 		{"hegel_new_state_machine", &syms.NewStateMachine},
 		{"hegel_state_machine_next_rule", &syms.StateMachineNextRule},
-		{"hegel_primitive_boolean", &syms.PrimitiveBoolean},
 		{"hegel_target", &syms.Target},
 		{"hegel_mark_complete", &syms.MarkComplete},
+
+		{"hegel_generate_boolean", &syms.GenerateBoolean},
+		{"hegel_generate_integer", &syms.GenerateInteger},
+		{"hegel_generate_integer_big", &syms.GenerateIntegerBig},
+		{"hegel_generate_float", &syms.GenerateFloat},
+		{"hegel_generate_bytes", &syms.GenerateBytes},
+		{"hegel_generate_bytes_result_free", &syms.GenerateBytesFree},
+		{"hegel_generate_string", &syms.GenerateString},
+		{"hegel_generate_string_result_free", &syms.GenerateStringFree},
+		{"hegel_generate_date", &syms.GenerateDate},
+		{"hegel_generate_time", &syms.GenerateTime},
+		{"hegel_generate_datetime", &syms.GenerateDatetime},
+		{"hegel_generate_uuid", &syms.GenerateUUID},
+		{"hegel_generate_ipv4", &syms.GenerateIPv4},
+		{"hegel_generate_ipv6", &syms.GenerateIPv6},
+
+		{"hegel_string_generator_text", &syms.StringGeneratorText},
+		{"hegel_string_generator_regex", &syms.StringGeneratorRegex},
+		{"hegel_string_generator_email", &syms.StringGeneratorEmail},
+		{"hegel_string_generator_url", &syms.StringGeneratorURL},
+		{"hegel_string_generator_domain", &syms.StringGeneratorDomain},
+		{"hegel_string_generator_free", &syms.StringGeneratorFree},
 
 		{"hegel_run_result_free", &syms.ResultFree},
 		{"hegel_run_result_status", &syms.ResultStatus},
@@ -605,12 +723,21 @@ func (r *Run) RunResult(ctx *Context) (*Result, error) {
 type TestCase struct {
 	*pointer[testCaseT]
 
-	outBytes *byte
-	outSize  uint64
-	outBool  bool
-	outInt   int64
-	outColl  Collection
-	outSM    StateMachine
+	outBool      bool
+	outInt       int64
+	outFloat     float64
+	outColl      Collection
+	outSM        StateMachine
+	outDate      Date
+	outTime      Time
+	outDatetime  Datetime
+	outBytesRes  bytesResult
+	outStringRes stringResult
+	outLen       uint64
+	// outFixed backs the fixed-width byte outputs (UUID: 16 bytes, IPv6: 16,
+	// IPv4: 4) and the integer_big result buffer, so a draw passes a pointer
+	// into long-lived storage instead of allocating per call.
+	outFixed [16]byte
 }
 
 // Clone produces an independent handle onto the same underlying test case, so
@@ -633,14 +760,196 @@ func (tc *TestCase) Clone(ctx *Context) (*TestCase, error) {
 	return &TestCase{pointer: ptr}, err
 }
 
-func (tc *TestCase) Generate(ctx *Context, schema []byte) ([]byte, error) {
-	err := ctx.invoke("hegel_generate", func(ctx ctxT) Error {
-		return tc.syms.Generate(ctx, tc.raw, slicePtr(schema), uint64(len(schema)), &tc.outBytes, &tc.outSize)
+// GenerateBoolean draws a single boolean that is true with probability p. When
+// hasForced is true the result is forced to forced (consuming no entropy and
+// not shrunk).
+func (tc *TestCase) GenerateBoolean(ctx *Context, p float64, forced, hasForced bool) (bool, error) {
+	err := ctx.invoke("hegel_generate_boolean", func(ctx ctxT) Error {
+		return tc.syms.GenerateBoolean(ctx, tc.raw, p, forced, hasForced, &tc.outBool)
+	})
+	return tc.outBool, err
+}
+
+// GenerateInteger draws an integer in [minValue, maxValue]. Both bounds must
+// fit in int64; for wider bounds use [TestCase.GenerateIntegerBig].
+func (tc *TestCase) GenerateInteger(ctx *Context, minValue, maxValue int64) (int64, error) {
+	err := ctx.invoke("hegel_generate_integer", func(ctx ctxT) Error {
+		return tc.syms.GenerateInteger(ctx, tc.raw, minValue, maxValue, &tc.outInt)
+	})
+	return tc.outInt, err
+}
+
+// BigInt is an arbitrary-precision integer encoded as a two's-complement
+// little-endian byte buffer — the wire format hegel_generate_integer_big
+// consumes for its bounds and produces for its result.
+type BigInt []byte
+
+type integer interface {
+	~int | ~int8 | ~int16 | ~int32 | ~int64 |
+		~uint | ~uint8 | ~uint16 | ~uint32 | ~uint64 | ~uintptr
+}
+
+// NewBigInt encodes v as a minimal two's-complement little-endian [BigInt] — the
+// format hegel_generate_integer_big expects for its bounds. It handles both
+// signed and unsigned types across their full range: negative values are
+// encoded in two's complement (with a leading 0xff sign byte where needed), and
+// a non-negative value whose top bit would otherwise read as negative gets a
+// trailing 0x00 sign byte (so, e.g., an unsigned value above math.MaxInt64 stays
+// non-negative on the wire).
+func NewBigInt[T integer](v T) BigInt {
+	le := make(BigInt, 0, 9) // up to 8 magnitude bytes plus a sign byte
+	// Widen to 64 bits so the byte-at-a-time shift is well-defined even for an
+	// 8-bit T (`x >>= 8` on a possibly-8-bit value trips go vet). A signed T
+	// sign-extends into int64 and shifts arithmetically; an unsigned T stays
+	// non-negative in uint64 and shifts logically.
+	if ^T(0) < T(0) { // signed
+		x := int64(v)
+		for {
+			b := byte(x)
+			x >>= 8
+			le = append(le, b)
+			// Stop once the rest is pure sign extension and the last byte
+			// already carries the correct sign.
+			if (x == 0 && b&0x80 == 0) || (x == -1 && b&0x80 != 0) {
+				break
+			}
+		}
+		return le
+	}
+	x := uint64(v)
+	for {
+		b := byte(x)
+		x >>= 8
+		le = append(le, b)
+		// A non-negative value ends when nothing remains and the top bit is
+		// clear; otherwise a trailing 0x00 sign byte is emitted next.
+		if x == 0 && b&0x80 == 0 {
+			break
+		}
+	}
+	return le
+}
+
+// Uint64 decodes a [BigInt] holding a non-negative value into a uint64. Bytes
+// beyond the low eight must be zero (non-negative sign extension); a non-zero
+// high byte means the value overflows a uint64, and Uint64 panics rather than
+// silently truncating it.
+func (b BigInt) Uint64() uint64 {
+	var v uint64
+	for i, byteVal := range b {
+		if i >= 8 {
+			if byteVal != 0 {
+				panic(fmt.Sprintf("BigInt %v overflows uint64", []byte(b)))
+			}
+			continue
+		}
+		v |= uint64(byteVal) << (8 * i)
+	}
+	return v
+}
+
+// GenerateIntegerBig draws an arbitrary-precision integer in [minValue,
+// maxValue]. Bounds and result are two's-complement little-endian signed byte
+// buffers. Returns the drawn value's minimal little-endian bytes.
+func (tc *TestCase) GenerateIntegerBig(ctx *Context, minValue, maxValue BigInt) (BigInt, error) {
+	err := ctx.invoke("hegel_generate_integer_big", func(ctx ctxT) Error {
+		return tc.syms.GenerateIntegerBig(ctx, tc.raw,
+			slicePtr(minValue), uint64(len(minValue)),
+			slicePtr(maxValue), uint64(len(maxValue)),
+			outBuf(&tc.outFixed[0]), uint64(len(tc.outFixed)), &tc.outLen)
 	})
 	if err != nil {
 		return nil, err
 	}
-	return slices.Clone(unsafe.Slice(tc.outBytes, tc.outSize)), nil
+	return slices.Clone(BigInt(tc.outFixed[:tc.outLen])), nil
+}
+
+// GenerateFloat draws a float of the given width (32 or 64) in [minValue,
+// maxValue]. See hegel_generate_float for the meaning of each flag.
+func (tc *TestCase) GenerateFloat(ctx *Context, width uint32, minValue, maxValue float64, allowNaN, allowInfinity, excludeMin, excludeMax bool, smallestNonzero float64) (float64, error) {
+	err := ctx.invoke("hegel_generate_float", func(ctx ctxT) Error {
+		return tc.syms.GenerateFloat(ctx, tc.raw, width, minValue, maxValue, allowNaN, allowInfinity, excludeMin, excludeMax, smallestNonzero, &tc.outFloat)
+	})
+	return tc.outFloat, err
+}
+
+// GenerateBytes draws a byte string with length in [minSize, maxSize].
+func (tc *TestCase) GenerateBytes(ctx *Context, minSize, maxSize uint64) ([]byte, error) {
+	err := ctx.invoke("hegel_generate_bytes", func(ctx ctxT) Error {
+		return tc.syms.GenerateBytes(ctx, tc.raw, minSize, maxSize, &tc.outBytesRes)
+	})
+	if err != nil {
+		return nil, err
+	}
+	out := slices.Clone(unsafe.Slice(tc.outBytesRes.data, tc.outBytesRes.len))
+	_ = tc.syms.GenerateBytesFree(0, &tc.outBytesRes)
+	return out, nil
+}
+
+// GenerateString draws a string described by gen (built with a
+// [Context] string-generator constructor).
+func (tc *TestCase) GenerateString(ctx *Context, gen *StringGenerator) (string, error) {
+	err := ctx.invoke("hegel_generate_string", func(ctx ctxT) Error {
+		e := tc.syms.GenerateString(ctx, tc.raw, gen.raw, &tc.outStringRes)
+		runtime.KeepAlive(gen)
+		return e
+	})
+	if err != nil {
+		return "", err
+	}
+	// string(...) copies the length-delimited (not NUL-terminated) UTF-8 buffer.
+	out := string(unsafe.Slice(tc.outStringRes.data, tc.outStringRes.len))
+	_ = tc.syms.GenerateStringFree(0, &tc.outStringRes)
+	return out, nil
+}
+
+// GenerateDate draws a Gregorian calendar date in [minValue, maxValue].
+func (tc *TestCase) GenerateDate(ctx *Context, minValue, maxValue Date) (Date, error) {
+	err := ctx.invoke("hegel_generate_date", func(ctx ctxT) Error {
+		return tc.syms.GenerateDate(ctx, tc.raw, minValue, maxValue, &tc.outDate)
+	})
+	return tc.outDate, err
+}
+
+// GenerateTime draws a time of day in [minValue, maxValue].
+func (tc *TestCase) GenerateTime(ctx *Context, minValue, maxValue Time) (Time, error) {
+	err := ctx.invoke("hegel_generate_time", func(ctx ctxT) Error {
+		return tc.syms.GenerateTime(ctx, tc.raw, minValue, maxValue, &tc.outTime)
+	})
+	return tc.outTime, err
+}
+
+// GenerateDatetime draws a naive datetime in [minValue, maxValue].
+func (tc *TestCase) GenerateDatetime(ctx *Context, minValue, maxValue Datetime) (Datetime, error) {
+	err := ctx.invoke("hegel_generate_datetime", func(ctx ctxT) Error {
+		return tc.syms.GenerateDatetime(ctx, tc.raw, minValue, maxValue, &tc.outDatetime)
+	})
+	return tc.outDatetime, err
+}
+
+// GenerateUUID draws a UUID as 16 big-endian bytes. When hasVersion is set the
+// RFC 4122 version nibble is forced to version.
+func (tc *TestCase) GenerateUUID(ctx *Context, version uint8, hasVersion bool) ([16]byte, error) {
+	err := ctx.invoke("hegel_generate_uuid", func(ctx ctxT) Error {
+		return tc.syms.GenerateUUID(ctx, tc.raw, version, hasVersion, outBuf(&tc.outFixed[0]))
+	})
+	return tc.outFixed, err
+}
+
+// GenerateIPv4 draws an IPv4 address as 4 network-order bytes.
+func (tc *TestCase) GenerateIPv4(ctx *Context) ([4]byte, error) {
+	err := ctx.invoke("hegel_generate_ipv4", func(ctx ctxT) Error {
+		return tc.syms.GenerateIPv4(ctx, tc.raw, outBuf(&tc.outFixed[0]))
+	})
+	return [4]byte(tc.outFixed[:4]), err
+}
+
+// GenerateIPv6 draws an IPv6 address as 16 network-order bytes.
+func (tc *TestCase) GenerateIPv6(ctx *Context) ([16]byte, error) {
+	err := ctx.invoke("hegel_generate_ipv6", func(ctx ctxT) Error {
+		return tc.syms.GenerateIPv6(ctx, tc.raw, outBuf(&tc.outFixed[0]))
+	})
+	return tc.outFixed, err
 }
 
 func (tc *TestCase) StartSpan(ctx *Context, label Label) error {
@@ -731,16 +1040,6 @@ func (tc *TestCase) StateMachineNextRule(ctx *Context, machine StateMachine) (in
 		return tc.syms.StateMachineNextRule(ctx, tc.raw, machine, &tc.outInt)
 	})
 	return tc.outInt, err
-}
-
-// PrimitiveBoolean draws a single boolean that is true with probability p. When
-// hasForced is true the result is forced to forced (consuming no entropy and
-// not shrunk).
-func (tc *TestCase) PrimitiveBoolean(ctx *Context, p float64, forced, hasForced bool) (bool, error) {
-	err := ctx.invoke("hegel_primitive_boolean", func(ctx ctxT) Error {
-		return tc.syms.PrimitiveBoolean(ctx, tc.raw, p, forced, hasForced, &tc.outBool)
-	})
-	return tc.outBool, err
 }
 
 func (tc *TestCase) Target(ctx *Context, value float64, label string) error {
@@ -837,6 +1136,123 @@ func (f *Failure) ReproductionBlob(ctx *Context) string {
 	return goString(f.outBytes)
 }
 
+// StringGenerator wraps a hegel_string_generator_t: the immutable
+// alphabet-and-shape spec passed to [TestCase.GenerateString]. Build one with a
+// Context constructor; it is released automatically via the GC.
+type StringGenerator pointer[stringGenT]
+
+// StringGeneratorText builds a text string generator. A nil categories /
+// excludeCategories slice means "no restriction" (a NULL array); a non-nil
+// (possibly empty) slice is passed through, so an empty non-nil slice requests
+// an empty category set. includeChars / excludeChars are optional UTF-8
+// character buffers (nil for none). codec must be non-empty ("utf-8" selects
+// all of Unicode, matching the C NULL default).
+func (c *Context) StringGeneratorText(minSize, maxSize uint64, codec string, minCodepoint, maxCodepoint uint32, categories, excludeCategories []string, includeChars, excludeChars *string) (*StringGenerator, error) {
+	catsPtr, catsLen, err := cStringArrayArg(categories)
+	if err != nil {
+		return nil, fmt.Errorf("hegel_string_generator_text: categories: %w", err)
+	}
+	exclPtr, exclLen, err := cStringArrayArg(excludeCategories)
+	if err != nil {
+		return nil, fmt.Errorf("hegel_string_generator_text: exclude_categories: %w", err)
+	}
+	incPtr, incLen := cString(includeChars)
+	excPtr, excLen := cString(excludeChars)
+	ptr, err := allocate(c, "hegel_string_generator_text", func(ctx ctxT, raw *stringGenT) Error {
+		return c.syms.StringGeneratorText(ctx, minSize, maxSize, codec, minCodepoint, maxCodepoint,
+			catsPtr, catsLen, exclPtr, exclLen, incPtr, incLen, excPtr, excLen, raw)
+	}, c.syms.StringGeneratorFree)
+	if ptr == nil {
+		return nil, err
+	}
+	return (*StringGenerator)(ptr), err
+}
+
+// StringGeneratorRegex builds a regex string generator matching pattern
+// (Python-re syntax). When fullmatch is true the whole string matches.
+func (c *Context) StringGeneratorRegex(pattern string, fullmatch bool) (*StringGenerator, error) {
+	ptr, err := allocate(c, "hegel_string_generator_regex", func(ctx ctxT, raw *stringGenT) Error {
+		return c.syms.StringGeneratorRegex(ctx, pattern, fullmatch, 0, raw)
+	}, c.syms.StringGeneratorFree)
+	if ptr == nil {
+		return nil, err
+	}
+	return (*StringGenerator)(ptr), err
+}
+
+// StringGeneratorEmail builds an email-address string generator.
+func (c *Context) StringGeneratorEmail() (*StringGenerator, error) {
+	ptr, err := allocate(c, "hegel_string_generator_email", func(ctx ctxT, raw *stringGenT) Error {
+		return c.syms.StringGeneratorEmail(ctx, raw)
+	}, c.syms.StringGeneratorFree)
+	if ptr == nil {
+		return nil, err
+	}
+	return (*StringGenerator)(ptr), err
+}
+
+// StringGeneratorURL builds a URL string generator.
+func (c *Context) StringGeneratorURL() (*StringGenerator, error) {
+	ptr, err := allocate(c, "hegel_string_generator_url", func(ctx ctxT, raw *stringGenT) Error {
+		return c.syms.StringGeneratorURL(ctx, raw)
+	}, c.syms.StringGeneratorFree)
+	if ptr == nil {
+		return nil, err
+	}
+	return (*StringGenerator)(ptr), err
+}
+
+// StringGeneratorDomain builds a domain-name string generator with total length
+// at most maxLength (4..=255).
+func (c *Context) StringGeneratorDomain(maxLength uint64) (*StringGenerator, error) {
+	ptr, err := allocate(c, "hegel_string_generator_domain", func(ctx ctxT, raw *stringGenT) Error {
+		return c.syms.StringGeneratorDomain(ctx, maxLength, raw)
+	}, c.syms.StringGeneratorFree)
+	if ptr == nil {
+		return nil, err
+	}
+	return (*StringGenerator)(ptr), err
+}
+
+// cString returns the (pointer, byte length) pair for an optional
+// length-delimited byte buffer argument (a `const uint8_t *` plus its size_t
+// length). It is the inverse of goString: goString copies a C buffer into a Go
+// string, cString hands a Go string's bytes to C. A nil (or empty) string means
+// "absent" and yields a NULL pointer.
+func cString(s *string) (ptr *byte, n uint64) {
+	if s == nil || len(*s) == 0 {
+		return nil, 0
+	}
+	return unsafe.StringData(*s), uint64(len(*s))
+}
+
+// cStringArrayArg builds the (pointer, length) pair for a `const char *const *`
+// argument. The returned pointer is a typed cStringArrayPtr (**byte), so the GC
+// keeps both the pointer array and the NUL-terminated buffers it references
+// reachable across the FFI call without any separate keepalive value.
+//
+// Returns an error if any of the strings contain a NUL byte.
+func cStringArrayArg(ss []string) (ptr cStringArrayPtr, n uint64, err error) {
+	if ss == nil {
+		return nil, 0, nil
+	}
+	if len(ss) == 0 {
+		// A non-nil but empty slice: a scratch element gives a non-NULL base
+		// address with length 0, distinguishing "the empty set" from "absent".
+		ptrs := []*byte{nil}
+		return cStringArrayPtr(&ptrs[0]), 0, nil
+	}
+	ptrs := make([]*byte, len(ss))
+	for i, s := range ss {
+		if strings.IndexByte(s, 0) >= 0 {
+			return nil, 0, fmt.Errorf("string %q contains an interior NUL byte", s)
+		}
+		buf := append([]byte(s), 0) // NUL-terminate for C
+		ptrs[i] = &buf[0]
+	}
+	return cStringArrayPtr(&ptrs[0]), uint64(len(ss)), nil
+}
+
 func slicePtr[E any](s []E) *E {
 	if len(s) > 0 {
 		return &s[0]
@@ -868,6 +1284,13 @@ func goString(p *byte) string {
 // identically to **byte — it dispatches on reflect.Kind (still Ptr), not on
 // type identity.
 type cStringArrayPtr **byte
+
+// outBuf is the type of a fixed-width `uint8*` output buffer (the integer_big
+// result, and the UUID / IPv4 / IPv6 byte outputs). It is a defined type rather
+// than a bare *byte so [Stub] can tell these output buffers apart from the
+// *byte *input* buffers (integer_big bounds, string-generator character sets),
+// which the stub must leave untouched. purego marshals it identically to *byte.
+type outBuf *byte
 
 // cStringArray builds a C `const char *const *` array from a slice of Go
 // strings, returning the pointer array whose first element is what the C

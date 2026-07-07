@@ -30,13 +30,6 @@ func (g *compositeGenerator[T]) draw(tc TestCase) (T, error) {
 	})
 }
 
-// asBasic always returns not-basic — composite generators have no schema.
-//
-//lint:ignore U1000 satisfies Generator interface; staticcheck misses generic dispatch
-func (g *compositeGenerator[T]) asBasic() (*basicGenerator[T], bool, error) {
-	return nil, false, nil
-}
-
 // Composite returns a Generator backed by an imperative function.
 //
 // Inside fn, call [Draw] on other generators to assemble the value. The

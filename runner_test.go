@@ -397,6 +397,24 @@ func newStubTestCase(t testing.TB, opReturns ...any) *testCase {
 	return &testCase{ctx: lib, tc: tc}
 }
 
+// newRealTestCase returns a testCase backed by the real libhegel engine, for
+// tests that assert the engine's own validation of draw parameters (rather than
+// a Go-side pre-check). The first test case of a fresh run is sufficient.
+func newRealTestCase(t testing.TB) *testCase {
+	t.Helper()
+	ctx := libhegel.NewContext()
+	s := ctx.SettingsNew()
+	run, err := s.RunStart(ctx)
+	if err != nil {
+		t.Fatalf("RunStart: %v", err)
+	}
+	tc, err := run.NextTestCase(ctx)
+	if err != nil {
+		t.Fatalf("NextTestCase: %v", err)
+	}
+	return &testCase{ctx: ctx, tc: tc}
+}
+
 func TestRunWithHandleRunStartError(t *testing.T) {
 	t.Parallel()
 	lib := libhegel.Stub(t,
@@ -646,20 +664,26 @@ func TestRunWithHandleTargetPanic(t *testing.T) {
 // stubOpCase drives a single test case whose body calls fn against the
 // stub-backed *testCase, with one op return op. The body returns normally
 // (VALID), so the case completes cleanly.
-func stubOpCase(t *testing.T, op any, fn func(*testCase)) {
+// stubOpCase drives fn against a stubbed test case. ops supplies the failing
+// operation's scripted values — its output-parameter placeholder(s) followed by
+// the failing Error code — in call order.
+func stubOpCase(t *testing.T, fn func(*testCase), ops ...any) {
 	t.Helper()
-	lib := libhegel.Stub(t,
+	returns := []any{
 		uintptr(1), libhegel.OK, // settings_new
 		libhegel.OK,             // derandomize
 		uintptr(1), libhegel.OK, // run_start
 		uintptr(1), libhegel.OK, // next_test_case: one case
-		op,                      // the failing op
+	}
+	returns = append(returns, ops...) // the failing op's outputs + Error
+	returns = append(returns,
 		"boom",                  // diagnostic read by invoke after the failing op
 		libhegel.OK,             // mark_complete
 		uintptr(0), libhegel.OK, // next_test_case NULL => run finished
 		uintptr(1), libhegel.OK, // run_result
 		libhegel.RUN_STATUS_PASSED, libhegel.OK, // result status
 	)
+	lib := libhegel.Stub(t, returns...)
 	if err := runWithContext(lib, func(tc TestCase) { fn(tc.(*testCase)) }, applyOpts([]Option{WithDerandomize(false)})); err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -668,9 +692,9 @@ func stubOpCase(t *testing.T, op any, fn func(*testCase)) {
 func TestTestCaseStartSpanError(t *testing.T) {
 	t.Parallel()
 	var got error
-	stubOpCase(t, libhegel.E_BACKEND, func(tc *testCase) {
+	stubOpCase(t, func(tc *testCase) {
 		got = tc.startSpan(libhegel.LABEL_LIST)
-	})
+	}, libhegel.E_BACKEND)
 	if got == nil {
 		t.Fatal("expected startSpan error")
 	}
@@ -679,9 +703,9 @@ func TestTestCaseStartSpanError(t *testing.T) {
 func TestTestCaseStopSpanError(t *testing.T) {
 	t.Parallel()
 	var got error
-	stubOpCase(t, libhegel.E_BACKEND, func(tc *testCase) {
+	stubOpCase(t, func(tc *testCase) {
 		got = tc.stopSpan(false)
-	})
+	}, libhegel.E_BACKEND)
 	if got == nil {
 		t.Fatal("expected stopSpan error")
 	}
@@ -690,9 +714,11 @@ func TestTestCaseStopSpanError(t *testing.T) {
 func TestTestCaseNewCollectionError(t *testing.T) {
 	t.Parallel()
 	var got error
-	stubOpCase(t, libhegel.E_BACKEND, func(tc *testCase) {
+	// new_collection writes its *Collection out-param (placeholder) before
+	// returning the failing Error.
+	stubOpCase(t, func(tc *testCase) {
 		_, got = tc.newCollection(0, nil)
-	})
+	}, libhegel.Collection(0), libhegel.E_BACKEND)
 	if got == nil {
 		t.Fatal("expected newCollection error")
 	}
@@ -732,16 +758,12 @@ func TestAbortDoesNotDowngradeInteresting(t *testing.T) {
 
 // --- Draw error injection (via newStubTestCase) ---
 
-// errGen is a non-basic generator whose draw returns a fixed (value, error).
-// It forces the collection path of Lists/Maps (asBasic => not basic) and lets
-// tests inject element/key draw errors.
+// errGen is a generator whose draw returns a fixed (zero, error). It lets tests
+// inject element/key draw errors into the collection loop of Lists/Maps.
 type errGen[T any] struct{ err error }
 
 //lint:ignore U1000 satisfies Generator interface; staticcheck misses generic dispatch
 func (g errGen[T]) draw(TestCase) (T, error) { var z T; return z, g.err }
-
-//lint:ignore U1000 satisfies Generator interface; staticcheck misses generic dispatch
-func (g errGen[T]) asBasic() (*basicGenerator[T], bool, error) { return nil, false, nil }
 
 // expectErrorPanic is deferred to recover a Draw panic and assert its error.
 func expectErrorPanic(t *testing.T, want error) {
@@ -758,9 +780,9 @@ func expectErrorPanic(t *testing.T, want error) {
 
 func TestDrawPanicsOnGenerateError(t *testing.T) {
 	t.Parallel()
-	// generate fills its bytes/length out-parameters before returning the
-	// (failing) Error, so the stub consumes a placeholder for each first.
-	tc := newStubTestCase(t, "", uint64(0), libhegel.E_BACKEND, "boom")
+	// generate_integer writes its int64 out-parameter (placeholder) before
+	// returning the failing Error.
+	tc := newStubTestCase(t, int64(0), libhegel.E_BACKEND, "boom")
 	defer expectErrorPanic(t, libhegel.E_BACKEND)
 	Draw[int](tc, Integers[int](0, 10))
 }
@@ -775,9 +797,10 @@ func TestDrawListStartSpanError(t *testing.T) {
 func TestDrawListNewCollectionError(t *testing.T) {
 	t.Parallel()
 	tc := newStubTestCase(t,
-		libhegel.OK,        // start_span
-		libhegel.E_BACKEND, // new_collection fails
-		"boom",             // diagnostic read by invoke
+		libhegel.OK,            // start_span
+		libhegel.Collection(0), // new_collection out-param placeholder
+		libhegel.E_BACKEND,     // new_collection fails
+		"boom",                 // diagnostic read by invoke
 	)
 	defer expectErrorPanic(t, libhegel.E_BACKEND)
 	Draw[[]int](tc, Lists[int](errGen[int]{}))
@@ -786,10 +809,12 @@ func TestDrawListNewCollectionError(t *testing.T) {
 func TestDrawListCollectionMoreError(t *testing.T) {
 	t.Parallel()
 	tc := newStubTestCase(t,
-		libhegel.OK,        // start_span
-		libhegel.OK,        // new_collection
-		libhegel.E_BACKEND, // collection_more fails => coll.Err()
-		"boom",             // diagnostic read by invoke
+		libhegel.OK,            // start_span
+		libhegel.Collection(0), // new_collection out-param placeholder
+		libhegel.OK,            // new_collection
+		false,                  // collection_more out-param placeholder
+		libhegel.E_BACKEND,     // collection_more fails => coll.Err()
+		"boom",                 // diagnostic read by invoke
 	)
 	defer expectErrorPanic(t, libhegel.E_BACKEND)
 	Draw[[]int](tc, Lists[int](errGen[int]{}))
@@ -798,9 +823,10 @@ func TestDrawListCollectionMoreError(t *testing.T) {
 func TestDrawMapNewCollectionError(t *testing.T) {
 	t.Parallel()
 	tc := newStubTestCase(t,
-		libhegel.OK,        // start_span (LABEL_MAP)
-		libhegel.E_BACKEND, // new_collection fails
-		"boom",             // diagnostic read by invoke
+		libhegel.OK,            // start_span (LABEL_MAP)
+		libhegel.Collection(0), // new_collection out-param placeholder
+		libhegel.E_BACKEND,     // new_collection fails
+		"boom",                 // diagnostic read by invoke
 	)
 	defer expectErrorPanic(t, libhegel.E_BACKEND)
 	Draw[map[int]int](tc, Maps[int, int](errGen[int]{}, errGen[int]{}))
@@ -839,7 +865,7 @@ func TestDrawMapValueError(t *testing.T) {
 	}
 }
 
-// TestDrawMapBasic covers the all-basic map schema path (basic keys + values).
+// TestDrawMapBasic covers the map collection path with primitive keys + values.
 func TestDrawMapBasic(t *testing.T) {
 	t.Parallel()
 	err := run(func(tc TestCase) {
@@ -860,22 +886,13 @@ func TestDrawFilterStartSpanError(t *testing.T) {
 	})
 }
 
-// TestGenerateEmptySchema covers slicePtr's empty-slice (nil pointer) branch by
-// asking the stub to generate from an empty schema.
-func TestGenerateEmptySchema(t *testing.T) {
-	t.Parallel()
-	tc := newStubTestCase(t, "", uint64(0), libhegel.OK) // generate: bytes, length, result
-	if _, err := tc.tc.Generate(tc.ctx, nil); err != nil {
-		t.Fatalf("unexpected error: %v", err)
-	}
-}
-
 // TestStubCollectionReject covers the collection_reject path against the stub.
 func TestStubCollectionReject(t *testing.T) {
 	t.Parallel()
 	tc := newStubTestCase(t,
-		libhegel.OK, // new_collection
-		libhegel.OK, // collection_reject
+		libhegel.Collection(0), // new_collection out-param placeholder
+		libhegel.OK,            // new_collection
+		libhegel.OK,            // collection_reject
 	)
 	coll, err := tc.newCollection(0, nil)
 	if err != nil {
@@ -891,7 +908,9 @@ func TestStubCollectionReject(t *testing.T) {
 // engine rejects new_state_machine registration.
 func TestStatefulNewStateMachineError(t *testing.T) {
 	t.Parallel()
-	tc := newStubTestCase(t, libhegel.E_BACKEND, "boom") // new_state_machine fails
+	// new_state_machine writes its *StateMachine out-param (placeholder) before
+	// returning the failing Error.
+	tc := newStubTestCase(t, libhegel.StateMachine(0), libhegel.E_BACKEND, "boom")
 	sm := &stateMachine{rules: []stateMachineRule{{name: "Rule", fn: func(TestCase) {}}}}
 	defer func() {
 		err, ok := recover().(error)
@@ -907,8 +926,9 @@ func TestStatefulNewStateMachineError(t *testing.T) {
 // start_span for the first invariant.
 func TestStatefulInitialInvariantError(t *testing.T) {
 	t.Parallel()
-	// OK registers the state machine; E_BACKEND then fails start_span(STATEFUL).
-	tc := newStubTestCase(t, libhegel.OK, libhegel.E_BACKEND, "boom")
+	// new_state_machine writes its *StateMachine out-param (placeholder) + OK to
+	// register the machine; E_BACKEND then fails start_span(STATEFUL).
+	tc := newStubTestCase(t, libhegel.StateMachine(0), libhegel.OK, libhegel.E_BACKEND, "boom")
 	sm := &stateMachine{invariants: []stateMachineRule{{name: "Inv", fn: func(TestCase) {}}}}
 	defer func() {
 		err, ok := recover().(error)

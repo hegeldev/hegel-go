@@ -2,9 +2,11 @@ package hegel
 
 import (
 	"fmt"
-	"math/big"
+	"math"
 	"time"
 	"unsafe"
+
+	"hegel.dev/go/hegel/internal/libhegel"
 )
 
 type integer interface {
@@ -16,53 +18,25 @@ type float interface {
 	~float32 | ~float64
 }
 
-// --- Built-in generators ---
+// genFunc adapts a draw closure to a [Generator]. Generators whose only state
+// is captured configuration are expressed as a genFunc rather than a dedicated
+// type.
+type genFunc[T any] func(tc TestCase) (T, error)
 
-// extractInt extracts an integer value from a CBOR-decoded value.
-// Used internally by generators that need to convert CBOR integers.
-func extractInt(v any) int64 {
-	switch x := v.(type) {
-	case int64:
-		return x
-	case uint64:
-		return int64(x)
-	case big.Int:
-		return x.Int64()
-	case *big.Int:
-		return x.Int64()
-	default: // coverage-ignore
-		panic(fmt.Sprintf("expected int, got %T", v))
+//lint:ignore U1000 satisfies Generator interface; staticcheck misses generic dispatch
+func (f genFunc[T]) draw(tc TestCase) (T, error) { return f(tc) }
+
+// --- Integers ---
+
+// fitsInt64 reports whether v is representable as an int64. Signed integer
+// types are always within range; an unsigned value is only out of range when it
+// exceeds math.MaxInt64.
+func fitsInt64[T integer](v T) bool {
+	var zero T
+	if ^zero > zero { // unsigned
+		return uint64(v) <= math.MaxInt64
 	}
-}
-
-// extractFloat extracts a float64 from a CBOR-decoded value.
-func extractFloat(v any) float64 {
-	switch x := v.(type) {
-	case float64:
-		return x
-	case float32:
-		return float64(x)
-	case int64:
-		return float64(x)
-	case uint64:
-		return float64(x)
-	default: // coverage-ignore
-		panic(fmt.Sprintf("expected float, got %T", v))
-	}
-}
-
-// extractIntAs extracts an integer from a CBOR-decoded value and converts it to T.
-func extractIntAs[T integer](v any) T {
-	return T(extractInt(v))
-}
-
-// extractFloatAs extracts a float from a CBOR-decoded value and converts it to T.
-func extractFloatAs[T float](v any) T {
-	return T(extractFloat(v))
-}
-
-func extractString(v any) string {
-	return v.(string)
+	return true
 }
 
 // Integers returns a Generator that produces integer values in [minVal, maxVal].
@@ -74,25 +48,23 @@ func Integers[T integer](minVal, maxVal T) Generator[T] {
 	if minVal > maxVal {
 		panic(fmt.Sprintf("Cannot have max_value=%d < min_value=%d", maxVal, minVal))
 	}
-	// Encode bounds in the widest type that preserves T's range.
-	var minSchema, maxSchema any
-	var zero T
-	if ^zero > zero {
-		minSchema = uint64(minVal)
-		maxSchema = uint64(maxVal)
-	} else {
-		minSchema = int64(minVal)
-		maxSchema = int64(maxVal)
-	}
-	return &basicGenerator[T]{
-		schema: map[string]any{
-			"type":      "integer",
-			"min_value": minSchema,
-			"max_value": maxSchema,
-		},
-		parse: extractIntAs[T],
-	}
+	return genFunc[T](func(tc TestCase) (T, error) {
+		ctx, ltc := tc.engine()
+		if fitsInt64(minVal) && fitsInt64(maxVal) {
+			v, err := ltc.GenerateInteger(ctx, int64(minVal), int64(maxVal))
+			return T(v), err
+		}
+		// Only unsigned bounds above math.MaxInt64 reach here; both are
+		// non-negative and fit in a uint64.
+		raw, err := ltc.GenerateIntegerBig(ctx, libhegel.NewBigInt(minVal), libhegel.NewBigInt(maxVal))
+		if err != nil {
+			return 0, err
+		}
+		return T(raw.Uint64()), nil
+	})
 }
+
+// --- Floats ---
 
 // FloatGenerator configures and generates floating-point values of type T.
 // Use [Floats] to create one, then chain builder methods to configure bounds
@@ -156,68 +128,71 @@ func (g FloatGenerator[T]) ExcludeMax() FloatGenerator[T] {
 	return g
 }
 
-// asBasic validates the configuration and returns the basic generator with
-// its wire schema. Returns an error on invalid combinations of settings.
-func (g FloatGenerator[T]) asBasic() (*basicGenerator[T], bool, error) {
+// params validates the configuration and returns the arguments for
+// hegel_generate_float. Returns an error on invalid combinations of settings.
+func (g FloatGenerator[T]) params() (width uint32, minVal, maxVal float64, nan, inf bool, smallestNonzero float64, err error) {
 	hasMin := g.minVal != nil
 	hasMax := g.maxVal != nil
 
-	nan := !hasMin && !hasMax
+	nan = !hasMin && !hasMax
 	if g.allowNaN != nil {
 		nan = *g.allowNaN
 	}
-	inf := !hasMin || !hasMax
+	inf = !hasMin || !hasMax
 	if g.allowInf != nil {
 		inf = *g.allowInf
 	}
 
 	if nan && (hasMin || hasMax) {
-		return nil, false, fmt.Errorf("cannot have allow_nan=true with min_value or max_value")
+		return 0, 0, 0, false, false, 0, fmt.Errorf("cannot have allow_nan=true with min_value or max_value")
 	}
-	if hasMin && hasMax && *g.minVal > *g.maxVal {
-		return nil, false, fmt.Errorf("cannot have max_value=%v < min_value=%v", *g.maxVal, *g.minVal)
-	}
+	// max_value < min_value is validated by the engine (hegel_generate_float),
+	// which also accounts for exclusive-bound adjustment; no Go-side check.
 	if inf && hasMin && hasMax {
-		return nil, false, fmt.Errorf("cannot have allow_infinity=true with both min_value and max_value")
+		return 0, 0, 0, false, false, 0, fmt.Errorf("cannot have allow_infinity=true with both min_value and max_value")
 	}
 
-	width := int64(unsafe.Sizeof(T(1.0)) * 8)
-	schema := map[string]any{
-		"type":           "float",
-		"allow_nan":      nan,
-		"allow_infinity": inf,
-		"exclude_min":    g.excludeMin,
-		"exclude_max":    g.excludeMax,
-		"width":          width,
-	}
+	width = uint32(unsafe.Sizeof(T(1.0)) * 8)
+	minVal = math.Inf(-1)
 	if hasMin {
-		schema["min_value"] = *g.minVal
+		minVal = *g.minVal
 	}
+	maxVal = math.Inf(1)
 	if hasMax {
-		schema["max_value"] = *g.maxVal
+		maxVal = *g.maxVal
 	}
-	return &basicGenerator[T]{schema: schema, parse: extractFloatAs[T]}, true, nil
+	// The smallest positive magnitude the engine may draw; the width-specific
+	// smallest subnormal imposes no restriction.
+	smallestNonzero = math.SmallestNonzeroFloat64
+	if width == 32 {
+		smallestNonzero = math.SmallestNonzeroFloat32
+	}
+	return width, minVal, maxVal, nan, inf, smallestNonzero, nil
 }
 
-// draw produces a floating-point value from the Hegel server.
+// draw produces a floating-point value from the engine.
 func (g FloatGenerator[T]) draw(tc TestCase) (T, error) {
-	bg, _, err := g.asBasic()
+	width, minVal, maxVal, nan, inf, smallest, err := g.params()
 	if err != nil {
 		var zero T
 		return zero, err
 	}
-	return bg.draw(tc)
+	ctx, ltc := tc.engine()
+	v, err := ltc.GenerateFloat(ctx, width, minVal, maxVal, nan, inf, g.excludeMin, g.excludeMax, smallest)
+	return T(v), err
 }
+
+// --- Booleans ---
 
 // Booleans returns a Generator that produces boolean values.
 func Booleans() Generator[bool] {
-	return &basicGenerator[bool]{
-		schema: map[string]any{
-			"type": "boolean",
-		},
-		parse: func(v any) bool { return v.(bool) },
-	}
+	return genFunc[bool](func(tc TestCase) (bool, error) {
+		ctx, ltc := tc.engine()
+		return ltc.GenerateBoolean(ctx, 0.5, false, false)
+	})
 }
+
+// --- Text and characters ---
 
 // surrogateCategories lists Unicode general categories that include surrogate
 // codepoints. Go strings are UTF-8 and cannot represent surrogates, so these
@@ -237,60 +212,51 @@ type characterFields struct {
 	hasCategoriesSet  bool
 }
 
-// toSchema returns schema fields for the character filtering options,
-// automatically injecting surrogate exclusion for Go's UTF-8 strings.
-func (cf *characterFields) toSchema() (map[string]any, error) {
-	schema := map[string]any{}
+// textArgs returns the character-set arguments for
+// [libhegel.Context.StringGeneratorText], automatically injecting surrogate
+// exclusion for Go's UTF-8 strings. Returns an error when a requested category
+// includes surrogate codepoints.
+func (cf *characterFields) textArgs() (codec string, minCP, maxCP uint32, categories, excludeCategories []string, err error) {
+	codec = "utf-8"
 	if cf.codec != nil {
-		schema["codec"] = *cf.codec
+		codec = *cf.codec
 	}
+	maxCP = math.MaxUint32
 	if cf.minCodepoint != nil {
-		schema["min_codepoint"] = int64(*cf.minCodepoint)
+		minCP = uint32(*cf.minCodepoint)
 	}
 	if cf.maxCodepoint != nil {
-		schema["max_codepoint"] = int64(*cf.maxCodepoint)
+		maxCP = uint32(*cf.maxCodepoint)
 	}
 	if cf.hasCategoriesSet {
 		for _, cat := range cf.categories {
 			for _, sc := range surrogateCategories {
 				if cat == sc {
-					return nil, fmt.Errorf(
+					return "", 0, 0, nil, nil, fmt.Errorf(
 						"category %q includes surrogate codepoints (Cs), "+
 							"which Go strings cannot represent", cat)
 				}
 			}
 		}
-		cats := make([]any, len(cf.categories))
-		for i, c := range cf.categories {
-			cats[i] = c
+		// A non-nil (possibly empty) categories slice requests exactly that set.
+		categories = cf.categories
+		if categories == nil {
+			categories = []string{}
 		}
-		schema["categories"] = cats
-	} else {
-		excl := make([]string, len(cf.excludeCategories))
-		copy(excl, cf.excludeCategories)
-		hasCs := false
-		for _, c := range excl {
-			if c == "Cs" {
-				hasCs = true
-				break
-			}
-		}
-		if !hasCs {
-			excl = append(excl, "Cs")
-		}
-		cats := make([]any, len(excl))
-		for i, c := range excl {
-			cats[i] = c
-		}
-		schema["exclude_categories"] = cats
+		return codec, minCP, maxCP, categories, nil, nil
 	}
-	if cf.includeCharacters != nil {
-		schema["include_characters"] = *cf.includeCharacters
+	excl := append([]string{}, cf.excludeCategories...)
+	hasCs := false
+	for _, c := range excl {
+		if c == "Cs" {
+			hasCs = true
+			break
+		}
 	}
-	if cf.excludeCharacters != nil {
-		schema["exclude_characters"] = *cf.excludeCharacters
+	if !hasCs {
+		excl = append(excl, "Cs")
 	}
-	return schema, nil
+	return codec, minCP, maxCP, nil, excl, nil
 }
 
 // TextGenerator configures and generates Unicode text strings.
@@ -392,44 +358,35 @@ func (g TextGenerator) Alphabet(chars string) TextGenerator {
 	return g
 }
 
-// asBasic validates the configuration and returns the basic generator with
-// its wire schema. Returns an error on invalid combinations of settings.
-func (g TextGenerator) asBasic() (*basicGenerator[string], bool, error) {
+// draw validates the configuration, constructs the libhegel string generator,
+// and generates a value. Configuration errors are returned before the engine is
+// touched, so validation is exercisable without a live engine.
+func (g TextGenerator) draw(tc TestCase) (string, error) {
 	if g.minSize < 0 {
-		return nil, false, fmt.Errorf("min_size=%d must be non-negative", g.minSize)
+		return "", fmt.Errorf("min_size=%d must be non-negative", g.minSize)
 	}
 	if g.hasMax && g.maxSize < 0 {
-		return nil, false, fmt.Errorf("max_size=%d must be non-negative", g.maxSize)
+		return "", fmt.Errorf("max_size=%d must be non-negative", g.maxSize)
 	}
-	if g.hasMax && g.minSize > g.maxSize {
-		return nil, false, fmt.Errorf("cannot have max_size=%d < min_size=%d", g.maxSize, g.minSize)
-	}
+	// max_size < min_size is validated by the engine (hegel_string_generator_text).
 	if g.alphabetCalled && g.charParamCalled {
-		return nil, false, fmt.Errorf("cannot combine Alphabet with character filtering methods")
+		return "", fmt.Errorf("cannot combine Alphabet with character filtering methods")
 	}
-	schema := map[string]any{
-		"type":     "string",
-		"min_size": int64(g.minSize),
-	}
+	maxSize := uint64(math.MaxUint64)
 	if g.hasMax {
-		schema["max_size"] = int64(g.maxSize)
+		maxSize = uint64(g.maxSize)
 	}
-	charSchema, err := g.charFields.toSchema()
-	if err != nil {
-		return nil, false, err
-	}
-	for k, v := range charSchema {
-		schema[k] = v
-	}
-	return &basicGenerator[string]{schema: schema, parse: extractString}, true, nil
-}
-
-func (g TextGenerator) draw(tc TestCase) (string, error) {
-	bg, _, err := g.asBasic()
+	codec, minCP, maxCP, cats, exclCats, err := g.charFields.textArgs()
 	if err != nil {
 		return "", err
 	}
-	return bg.draw(tc)
+	ctx, ltc := tc.engine()
+	sg, err := ctx.StringGeneratorText(uint64(g.minSize), maxSize, codec, minCP, maxCP,
+		cats, exclCats, g.charFields.includeCharacters, g.charFields.excludeCharacters)
+	if err != nil {
+		return "", err
+	}
+	return ltc.GenerateString(ctx, sg)
 }
 
 // CharactersGenerator configures and generates single-character strings.
@@ -487,31 +444,23 @@ func (g CharactersGenerator) ExcludeCharacters(chars string) CharactersGenerator
 	return g
 }
 
-// asBasic validates the configuration and returns the basic generator with
-// its wire schema. Returns an error on invalid combinations of settings.
-func (g CharactersGenerator) asBasic() (*basicGenerator[string], bool, error) {
-	schema := map[string]any{
-		"type":     "string",
-		"min_size": int64(1),
-		"max_size": int64(1),
-	}
-	charSchema, err := g.charFields.toSchema()
-	if err != nil {
-		return nil, false, err
-	}
-	for k, v := range charSchema {
-		schema[k] = v
-	}
-	return &basicGenerator[string]{schema: schema, parse: extractString}, true, nil
-}
-
+// draw constructs a single-codepoint libhegel string generator and generates a
+// value. Configuration errors are returned before the engine is touched.
 func (g CharactersGenerator) draw(tc TestCase) (string, error) {
-	bg, _, err := g.asBasic()
+	codec, minCP, maxCP, cats, exclCats, err := g.charFields.textArgs()
 	if err != nil {
 		return "", err
 	}
-	return bg.draw(tc)
+	ctx, ltc := tc.engine()
+	sg, err := ctx.StringGeneratorText(1, 1, codec, minCP, maxCP,
+		cats, exclCats, g.charFields.includeCharacters, g.charFields.excludeCharacters)
+	if err != nil {
+		return "", err
+	}
+	return ltc.GenerateString(ctx, sg)
 }
+
+// --- Binary ---
 
 // Binary returns a Generator that produces byte slices with length in [minSize, maxSize].
 //
@@ -523,32 +472,42 @@ func Binary(minSize int, maxSize int) Generator[[]byte] {
 	if maxSize >= 0 && minSize > maxSize {
 		panic(fmt.Sprintf("Cannot have max_size=%d < min_size=%d", maxSize, minSize))
 	}
-	schema := map[string]any{
-		"type":     "binary",
-		"min_size": int64(minSize),
-	}
+	maxVal := uint64(math.MaxUint64)
 	if maxSize >= 0 {
-		schema["max_size"] = int64(maxSize)
+		maxVal = uint64(maxSize)
 	}
-	return &basicGenerator[[]byte]{schema: schema, parse: func(v any) []byte { return v.([]byte) }}
+	return genFunc[[]byte](func(tc TestCase) ([]byte, error) {
+		ctx, ltc := tc.engine()
+		return ltc.GenerateBytes(ctx, uint64(minSize), maxVal)
+	})
 }
+
+// --- String formats ---
 
 // Emails returns a Generator that produces email address strings.
 func Emails() Generator[string] {
-	return &basicGenerator[string]{
-		schema: map[string]any{"type": "email"},
-		parse:  extractString,
-	}
+	return genFunc[string](func(tc TestCase) (string, error) {
+		ctx, ltc := tc.engine()
+		sg, err := ctx.StringGeneratorEmail()
+		if err != nil { // coverage-ignore (email generator construction never fails)
+			return "", err
+		}
+		return ltc.GenerateString(ctx, sg)
+	})
 }
 
 // URLs returns a Generator that produces URL strings according to RFC3986.
 //
-// The schema is either "http" or "https".
+// The scheme is either "http" or "https".
 func URLs() Generator[string] {
-	return &basicGenerator[string]{
-		schema: map[string]any{"type": "url"},
-		parse:  extractString,
-	}
+	return genFunc[string](func(tc TestCase) (string, error) {
+		ctx, ltc := tc.engine()
+		sg, err := ctx.StringGeneratorURL()
+		if err != nil { // coverage-ignore (url generator construction never fails)
+			return "", err
+		}
+		return ltc.GenerateString(ctx, sg)
+	})
 }
 
 const defaultDomainMaxLength = 255
@@ -573,67 +532,82 @@ func (g DomainGenerator) MaxLength(n int) DomainGenerator {
 	return g
 }
 
-// asBasic validates the configuration and returns the basic generator with
-// its wire schema. Returns an error if max_length is outside [4, 255].
-func (g DomainGenerator) asBasic() (*basicGenerator[string], bool, error) {
+// build constructs the libhegel domain string generator. The max_length bound
+// (RFC 1035: at most 255 octets, and large enough to fit at least one label
+// plus a TLD) is validated by the engine (hegel_string_generator_domain).
+func (g DomainGenerator) build(ctx *libhegel.Context) (*libhegel.StringGenerator, error) {
 	maxLen := defaultDomainMaxLength
 	if g.hasMax {
 		maxLen = g.maxLength
 	}
-	if maxLen < 4 || maxLen > 255 {
-		return nil, false, fmt.Errorf("max_length=%d must be between 4 and 255", maxLen)
-	}
-	return &basicGenerator[string]{
-		schema: map[string]any{
-			"type":       "domain",
-			"max_length": int64(maxLen),
-		},
-		parse: extractString,
-	}, true, nil
+	return ctx.StringGeneratorDomain(uint64(maxLen))
 }
 
 func (g DomainGenerator) draw(tc TestCase) (string, error) {
-	bg, _, err := g.asBasic()
+	ctx, ltc := tc.engine()
+	sg, err := g.build(ctx)
 	if err != nil {
 		return "", err
 	}
-	return bg.draw(tc)
+	return ltc.GenerateString(ctx, sg)
 }
 
-// Dates returns a Generator that produces time.Time values from ISO 8601 date strings (YYYY-MM-DD).
+// FromRegex returns a Generator that produces strings matching the given regular expression.
+func FromRegex(pattern string, fullmatch bool) Generator[string] {
+	return genFunc[string](func(tc TestCase) (string, error) {
+		ctx, ltc := tc.engine()
+		sg, err := ctx.StringGeneratorRegex(pattern, fullmatch)
+		if err != nil {
+			return "", err
+		}
+		return ltc.GenerateString(ctx, sg)
+	})
+}
+
+// --- Dates and datetimes ---
+
+// fullDateMin / fullDateMax are the conventional full Gregorian date range.
+var (
+	fullDateMin = libhegel.Date{Year: 1, Month: 1, Day: 1}
+	fullDateMax = libhegel.Date{Year: 9999, Month: 12, Day: 31}
+	fullTimeMax = libhegel.Time{Hour: 23, Minute: 59, Second: 59, Microsecond: 999999}
+)
+
+// Dates returns a Generator that produces time.Time values (date only, at
+// midnight UTC).
 func Dates() Generator[time.Time] {
-	return &basicGenerator[time.Time]{
-		schema: map[string]any{"type": "date"},
-		parse: func(a any) time.Time {
-			t, err := time.Parse("2006-01-02", a.(string))
-			if err != nil { // coverage-ignore
-				panic(fmt.Sprintf("failed to parse date %q: %v", a, err))
-			}
-			return t
-		},
-	}
+	return genFunc[time.Time](func(tc TestCase) (time.Time, error) {
+		ctx, ltc := tc.engine()
+		d, err := ltc.GenerateDate(ctx, fullDateMin, fullDateMax)
+		if err != nil {
+			return time.Time{}, err
+		}
+		return d.ToTime(), nil
+	})
 }
 
-// Datetimes returns a Generator that produces time.Time values from ISO 8601 datetime strings.
+// Datetimes returns a Generator that produces time.Time values (naive datetime
+// in UTC).
 func Datetimes() Generator[time.Time] {
-	return &basicGenerator[time.Time]{
-		schema: map[string]any{"type": "datetime"},
-		parse: func(a any) time.Time {
-			t, err := time.Parse("2006-01-02T15:04:05", a.(string))
-			if err != nil { // coverage-ignore
-				panic(fmt.Sprintf("failed to parse datetime %q: %v", a, err))
-			}
-			return t
-		},
-	}
+	return genFunc[time.Time](func(tc TestCase) (time.Time, error) {
+		ctx, ltc := tc.engine()
+		dt, err := ltc.GenerateDatetime(ctx,
+			libhegel.Datetime{Date: fullDateMin},
+			libhegel.Datetime{Date: fullDateMax, Time: fullTimeMax})
+		if err != nil {
+			return time.Time{}, err
+		}
+		return dt.ToTime(), nil
+	})
 }
+
+// --- Constants and sampling ---
 
 // Just returns a Generator that always produces the given constant value.
 func Just[T any](value T) Generator[T] {
-	return &basicGenerator[T]{
-		schema: map[string]any{"type": "constant", "value": nil},
-		parse:  func(_ any) T { return value },
-	}
+	return genFunc[T](func(tc TestCase) (T, error) {
+		return value, nil
+	})
 }
 
 // SampledFrom returns a Generator that picks at random from values.
@@ -645,27 +619,13 @@ func SampledFrom[T any](values []T) Generator[T] {
 	}
 	elements := make([]T, len(values))
 	copy(elements, values)
-	return &basicGenerator[T]{
-		schema: map[string]any{
-			"type":      "integer",
-			"min_value": int64(0),
-			"max_value": int64(len(elements) - 1),
-		},
-		parse: func(v any) T {
-			idx := extractInt(v)
-			return elements[idx]
-		},
-	}
-}
-
-// FromRegex returns a Generator that produces strings matching the given regular expression.
-func FromRegex(pattern string, fullmatch bool) Generator[string] {
-	return &basicGenerator[string]{
-		schema: map[string]any{
-			"type":      "regex",
-			"pattern":   pattern,
-			"fullmatch": fullmatch,
-		},
-		parse: extractString,
-	}
+	return genFunc[T](func(tc TestCase) (T, error) {
+		ctx, ltc := tc.engine()
+		idx, err := ltc.GenerateInteger(ctx, 0, int64(len(elements)-1))
+		if err != nil {
+			var zero T
+			return zero, err
+		}
+		return elements[idx], nil
+	})
 }

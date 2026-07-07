@@ -72,17 +72,16 @@ func TestStubUnwiredSetters(t *testing.T) {
 // runner does not drive against a Stub so their plumbing is covered: the
 // variable pool, the engine-owned state machine (including the C-string-array
 // marshalling in NewStateMachine), and the forced-boolean primitive. Each is a
-// fallible call whose output parameters are all of the kinds the stub ignores
-// (*int64 / *bool / cStringArrayPtr inputs / the int64-based *StateMachine), so
-// each consumes exactly one Error return value.
+// fallible call that writes one scripted output value (an id, index, or bool)
+// through a trailing out-parameter before its Error return.
 func TestStubUnwiredPrimitives(t *testing.T) {
 	lib := Stub(t,
-		OK, // new_pool
-		OK, // pool_add
-		OK, // pool_generate
-		OK, // new_state_machine
-		OK, // state_machine_next_rule
-		OK, // primitive_boolean
+		int64(7), OK, // new_pool: pool id
+		int64(1), OK, // pool_add: variable id
+		int64(1), OK, // pool_generate: variable id
+		StateMachine(3), OK, // new_state_machine: machine id
+		int64(0), OK, // state_machine_next_rule: rule index
+		true, OK, // generate_boolean: value
 	)
 	tc := &TestCase{pointer: &pointer[testCaseT]{syms: lib.syms, raw: 1}}
 
@@ -104,8 +103,129 @@ func TestStubUnwiredPrimitives(t *testing.T) {
 	if _, err := tc.StateMachineNextRule(lib, machine); err != nil {
 		t.Fatalf("StateMachineNextRule: %v", err)
 	}
-	if _, err := tc.PrimitiveBoolean(lib, 0.5, false, false); err != nil {
-		t.Fatalf("PrimitiveBoolean: %v", err)
+	if _, err := tc.GenerateBoolean(lib, 0.5, false, false); err != nil {
+		t.Fatalf("GenerateBoolean: %v", err)
+	}
+}
+
+// TestStubTypedPrimitives exercises the typed primitive draws that write scalar,
+// struct, and byte-buffer outputs, covering every new output-parameter kind the
+// stub scripts.
+func TestStubTypedPrimitives(t *testing.T) {
+	lib := Stub(t,
+		int64(42), OK, // generate_integer
+		3.5, OK, // generate_float
+		[]byte("xy"), OK, // generate_bytes (result struct)
+		Date{Year: 2000, Month: 1, Day: 2}, OK, // generate_date
+		Time{Hour: 1, Minute: 2, Second: 3}, OK, // generate_time
+		Datetime{Date: Date{Year: 2000, Month: 1, Day: 1}}, OK, // generate_datetime
+		[]byte{1, 2, 3, 4}, OK, // generate_ipv4 (outBuf)
+	)
+	tc := &TestCase{pointer: &pointer[testCaseT]{syms: lib.syms, raw: 1}}
+
+	if v, err := tc.GenerateInteger(lib, 0, 100); err != nil || v != 42 {
+		t.Fatalf("GenerateInteger: v=%d err=%v", v, err)
+	}
+	if v, err := tc.GenerateFloat(lib, 64, 0, 1, false, false, false, false, 5e-324); err != nil || v != 3.5 {
+		t.Fatalf("GenerateFloat: v=%v err=%v", v, err)
+	}
+	if v, err := tc.GenerateBytes(lib, 0, 8); err != nil || string(v) != "xy" {
+		t.Fatalf("GenerateBytes: v=%q err=%v", v, err)
+	}
+	if v, err := tc.GenerateDate(lib, Date{}, Date{}); err != nil || v.Day != 2 {
+		t.Fatalf("GenerateDate: v=%+v err=%v", v, err)
+	}
+	if v, err := tc.GenerateTime(lib, Time{}, Time{}); err != nil || v.Second != 3 {
+		t.Fatalf("GenerateTime: v=%+v err=%v", v, err)
+	}
+	if v, err := tc.GenerateDatetime(lib, Datetime{}, Datetime{}); err != nil || v.Date.Year != 2000 {
+		t.Fatalf("GenerateDatetime: v=%+v err=%v", v, err)
+	}
+	if v, err := tc.GenerateIPv4(lib); err != nil || v != [4]byte{1, 2, 3, 4} {
+		t.Fatalf("GenerateIPv4: v=%v err=%v", v, err)
+	}
+}
+
+// TestStubStringGenerators covers the string-generator constructors and the
+// string draw: each constructor yields a handle, and GenerateString writes a
+// result struct the wrapper copies out.
+func TestStubStringGenerators(t *testing.T) {
+	lib := Stub(t,
+		uintptr(1), OK, // string_generator_text handle + result
+		"hello", OK, // generate_string
+		uintptr(2), OK, // string_generator_email
+		uintptr(3), OK, // string_generator_url
+		uintptr(4), OK, // string_generator_domain
+		uintptr(5), OK, // string_generator_regex
+	)
+	tc := &TestCase{pointer: &pointer[testCaseT]{syms: lib.syms, raw: 1}}
+
+	gen, err := lib.StringGeneratorText(0, 8, "utf-8", 0, 0x10FFFF, nil, []string{"Cs"}, nil, nil)
+	if err != nil || gen == nil {
+		t.Fatalf("StringGeneratorText: gen=%v err=%v", gen, err)
+	}
+	if v, err := tc.GenerateString(lib, gen); err != nil || v != "hello" {
+		t.Fatalf("GenerateString: v=%q err=%v", v, err)
+	}
+	if _, err := lib.StringGeneratorEmail(); err != nil {
+		t.Fatalf("StringGeneratorEmail: %v", err)
+	}
+	if _, err := lib.StringGeneratorURL(); err != nil {
+		t.Fatalf("StringGeneratorURL: %v", err)
+	}
+	if _, err := lib.StringGeneratorDomain(255); err != nil {
+		t.Fatalf("StringGeneratorDomain: %v", err)
+	}
+	if _, err := lib.StringGeneratorRegex("a+", true); err != nil {
+		t.Fatalf("StringGeneratorRegex: %v", err)
+	}
+}
+
+// TestStubStringGeneratorNULNames covers cStringArrayArg's interior-NUL guard.
+func TestStubStringGeneratorNULNames(t *testing.T) {
+	lib := Stub(t) // must error before the C call
+	if _, err := lib.StringGeneratorText(0, 8, "utf-8", 0, 0, []string{"a\x00b"}, nil, nil, nil); err == nil {
+		t.Error("expected error for NUL in a category name")
+	}
+	if _, err := lib.StringGeneratorText(0, 8, "utf-8", 0, 0, nil, []string{"x\x00"}, nil, nil); err == nil {
+		t.Error("expected error for NUL in an exclude-category name")
+	}
+}
+
+// TestStubStringGeneratorEmptyNames covers cStringArrayArg's empty-but-non-nil
+// branch: an empty category set must reach libhegel as a non-NULL, length-0
+// array (distinct from a nil slice, which is absent).
+func TestStubStringGeneratorEmptyNames(t *testing.T) {
+	lib := Stub(t, uintptr(1), OK) // string_generator_text handle
+	gen, err := lib.StringGeneratorText(0, 8, "utf-8", 0, 0, []string{}, nil, nil, nil)
+	if err != nil || gen == nil {
+		t.Fatalf("StringGeneratorText with empty categories: gen=%v err=%v", gen, err)
+	}
+}
+
+// TestStubStringGeneratorIncludeChars covers cString's non-nil branch: an
+// optional include/exclude character buffer is aliased straight into the call.
+func TestStubStringGeneratorIncludeChars(t *testing.T) {
+	lib := Stub(t, uintptr(1), OK) // string_generator_text handle
+	inc, exc := "abc", "xyz"
+	gen, err := lib.StringGeneratorText(0, 8, "utf-8", 0, 0, nil, nil, &inc, &exc)
+	if err != nil || gen == nil {
+		t.Fatalf("StringGeneratorText with include/exclude chars: gen=%v err=%v", gen, err)
+	}
+}
+
+// TestStubIntegerBig covers the arbitrary-precision integer draw, whose result
+// arrives through an outBuf plus a *uint64 length.
+func TestStubIntegerBig(t *testing.T) {
+	lib := Stub(t, []byte{0x2a}, uint64(1), OK) // value bytes, length, result
+	tc := &TestCase{pointer: &pointer[testCaseT]{syms: lib.syms, raw: 1}}
+
+	got, err := tc.GenerateIntegerBig(lib, []byte{0x00}, []byte{0xff})
+	if err != nil {
+		t.Fatalf("GenerateIntegerBig: %v", err)
+	}
+	if len(got) != 1 || got[0] != 0x2a {
+		t.Errorf("GenerateIntegerBig: got %v", got)
 	}
 }
 
@@ -185,23 +305,6 @@ func TestStubCloneError(t *testing.T) {
 	}
 	if !strings.Contains(err.Error(), "null tc") {
 		t.Errorf("expected diagnostic in error, got %q", err)
-	}
-}
-
-// TestStubGenerateSuccess covers a call with multiple out-parameters:
-// hegel_generate writes both the generated bytes (**byte) and their length
-// (*uint64), each consuming its own scripted value in order, followed by the
-// Error return value.
-func TestStubGenerateSuccess(t *testing.T) {
-	lib := Stub(t, "abc", uint64(3), OK) // bytes, length, then result
-	tc := &TestCase{pointer: &pointer[testCaseT]{syms: lib.syms, raw: 1}}
-
-	got, err := tc.Generate(lib, []byte("schema"))
-	if err != nil {
-		t.Fatalf("Generate: %v", err)
-	}
-	if string(got) != "abc" {
-		t.Errorf("Generate: got %q, want %q", got, "abc")
 	}
 }
 

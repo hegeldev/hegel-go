@@ -13,64 +13,17 @@ type oneOfGenerator[T any] struct {
 	generators []Generator[T]
 }
 
-// asBasic returns a basic generator with a one_of schema when every branch
-// is basic. Returns (nil, false, nil) when any branch is not.
-//
-// The wire shape for one_of responses is [index, value]: the server tells us
-// which branch produced the value, so we dispatch to the matching parse fn
-// without baking a tag into the schema.
-func (g *oneOfGenerator[T]) asBasic() (*basicGenerator[T], bool, error) {
-	basics := make([]*basicGenerator[T], 0, len(g.generators))
-	for _, branch := range g.generators {
-		bg, ok, err := branch.asBasic()
-		if err != nil {
-			return nil, false, err
-		}
-		if !ok {
-			return nil, false, nil
-		}
-		basics = append(basics, bg)
-	}
-
-	schemas := make([]any, len(basics))
-	parseFns := make([]func(any) T, len(basics))
-	for i, bg := range basics {
-		schemas[i] = bg.schema
-		parseFns[i] = bg.parse
-	}
-
-	return &basicGenerator[T]{
-		schema: map[string]any{"type": "one_of", "generators": schemas},
-		parse: func(raw any) T {
-			elems := raw.([]any)
-			idx := extractInt(elems[0])
-			return parseFns[idx](elems[1])
-		},
-	}, true, nil
-}
-
-// draw produces a value by dispatching to the basic schema when possible,
-// falling back to a server-side index draw otherwise.
+// draw produces a value by drawing a branch index under a ONE_OF span, then
+// drawing from the chosen branch.
 func (g *oneOfGenerator[T]) draw(tc TestCase) (T, error) {
 	var zero T
-	bg, ok, err := g.asBasic()
-	if err != nil {
-		return zero, err
-	}
-	if ok {
-		return bg.draw(tc)
-	}
 	return withSpan(tc, libhegel.LABEL_ONE_OF, func() (T, error) {
-		n := len(g.generators)
-		idx, err := tc.generate(map[string]any{
-			"type":      "integer",
-			"min_value": int64(0),
-			"max_value": int64(n - 1),
-		})
-		if err != nil { // coverage-ignore
+		ctx, ltc := tc.engine()
+		idx, err := ltc.GenerateInteger(ctx, 0, int64(len(g.generators)-1))
+		if err != nil {
 			return zero, err
 		}
-		return g.generators[extractInt(idx)].draw(tc)
+		return g.generators[idx].draw(tc)
 	})
 }
 
@@ -96,64 +49,16 @@ type optionalGenerator[T any] struct {
 	inner Generator[T]
 }
 
-// asBasic returns a basic generator with a one_of schema (a null branch and
-// an inner-value branch) when inner is basic. Returns (nil, false, nil) when
-// inner is not.
-//
-// The wire shape for one_of responses is [index, value]: branch 0 is null,
-// branch 1 is the inner value, so we dispatch on the server-supplied index
-// without baking a tag into the schema.
-func (g *optionalGenerator[T]) asBasic() (*basicGenerator[*T], bool, error) {
-	innerBasic, ok, err := g.inner.asBasic()
-	if err != nil {
-		return nil, false, err
-	}
-	if !ok {
-		return nil, false, nil
-	}
-
-	innerParse := innerBasic.parse
-	schema := map[string]any{
-		"type": "one_of",
-		"generators": []any{
-			map[string]any{"type": "constant", "value": nil},
-			innerBasic.schema,
-		},
-	}
-	return &basicGenerator[*T]{
-		schema: schema,
-		parse: func(raw any) *T {
-			elems := raw.([]any)
-			idx := extractInt(elems[0])
-			if idx == 0 {
-				return nil
-			}
-			v := innerParse(elems[1])
-			return &v
-		},
-	}, true, nil
-}
-
-// draw generates either nil or a value by dispatching to the basic schema
-// when inner is basic, falling back to a server-side index draw otherwise.
+// draw produces nil (branch 0) or a value from inner (branch 1), choosing the
+// branch under an OPTIONAL span.
 func (g *optionalGenerator[T]) draw(tc TestCase) (*T, error) {
-	bg, ok, err := g.asBasic()
-	if err != nil {
-		return nil, err
-	}
-	if ok {
-		return bg.draw(tc)
-	}
-	return withSpan(tc, libhegel.LABEL_ONE_OF, func() (*T, error) {
-		idx, err := tc.generate(map[string]any{
-			"type":      "integer",
-			"min_value": int64(0),
-			"max_value": int64(1),
-		})
-		if err != nil { // coverage-ignore
+	return withSpan(tc, libhegel.LABEL_OPTIONAL, func() (*T, error) {
+		ctx, ltc := tc.engine()
+		idx, err := ltc.GenerateInteger(ctx, 0, 1)
+		if err != nil {
 			return nil, err
 		}
-		if extractInt(idx) == 0 {
+		if idx == 0 {
 			return nil, nil
 		}
 		v, err := g.inner.draw(tc)
@@ -170,7 +75,7 @@ func (g *optionalGenerator[T]) draw(tc TestCase) (*T, error) {
 // Use [IPAddresses] to create one, then chain builder methods to configure it.
 type IPAddressGenerator struct {
 	// version is 0 (unset; both v4 and v6), 4, or 6.
-	version int64
+	version int
 }
 
 var _ Generator[netip.Addr] = IPAddressGenerator{}
@@ -192,36 +97,45 @@ func (g IPAddressGenerator) IPv6() IPAddressGenerator {
 	return g
 }
 
-// asBasic always returns a basic generator: when version is set it produces a
-// single-type schema; otherwise it delegates to OneOf of the two basic
-// branches, which itself yields a basic.
-func (g IPAddressGenerator) asBasic() (*basicGenerator[netip.Addr], bool, error) {
-	addrTransform := func(a any) netip.Addr {
-		return netip.MustParseAddr(a.(string))
-	}
-	if g.version != 0 {
-		return &basicGenerator[netip.Addr]{
-			schema: map[string]any{"type": "ip_address", "version": g.version},
-			parse:  addrTransform,
-		}, true, nil
-	}
-	return OneOf(
-		&basicGenerator[netip.Addr]{
-			schema: map[string]any{"type": "ip_address", "version": int64(4)},
-			parse:  addrTransform,
-		},
-		&basicGenerator[netip.Addr]{
-			schema: map[string]any{"type": "ip_address", "version": int64(6)},
-			parse:  addrTransform,
-		},
-	).asBasic()
-}
-
-// draw produces an IP address by dispatching to the basic schema returned by asBasic.
-func (g IPAddressGenerator) draw(tc TestCase) (netip.Addr, error) {
-	bg, _, err := g.asBasic()
-	if err != nil { // coverage-ignore
+// drawV4 draws an IPv4 address.
+func drawV4(tc TestCase) (netip.Addr, error) {
+	ctx, ltc := tc.engine()
+	b, err := ltc.GenerateIPv4(ctx)
+	if err != nil {
 		return netip.Addr{}, err
 	}
-	return bg.draw(tc)
+	return netip.AddrFrom4(b), nil
+}
+
+// drawV6 draws an IPv6 address.
+func drawV6(tc TestCase) (netip.Addr, error) {
+	ctx, ltc := tc.engine()
+	b, err := ltc.GenerateIPv6(ctx)
+	if err != nil {
+		return netip.Addr{}, err
+	}
+	return netip.AddrFrom16(b), nil
+}
+
+// draw produces an IP address, choosing between v4 and v6 under a ONE_OF span
+// when no version was pinned.
+func (g IPAddressGenerator) draw(tc TestCase) (netip.Addr, error) {
+	switch g.version {
+	case 4:
+		return drawV4(tc)
+	case 6:
+		return drawV6(tc)
+	default:
+		return withSpan(tc, libhegel.LABEL_ONE_OF, func() (netip.Addr, error) {
+			ctx, ltc := tc.engine()
+			idx, err := ltc.GenerateInteger(ctx, 0, 1)
+			if err != nil {
+				return netip.Addr{}, err
+			}
+			if idx == 0 {
+				return drawV4(tc)
+			}
+			return drawV6(tc)
+		})
+	}
 }

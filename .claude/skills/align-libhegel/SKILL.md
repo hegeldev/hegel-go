@@ -193,14 +193,52 @@ wrapper methods need coverage:
   (`*settingsT`, `*runT`, `*uint64`, `*bool`, `*int64`, `*Collection`,
   `*RunStatus`), never as the return value — the return is always the `Error`
   code.
+- **Keeping Go memory alive across a call is automatic — do not thread a
+  `keepalive` return value or sprinkle `runtime.KeepAlive`.** The GC keeps Go
+  memory reachable for the duration of a call as long as it is passed as a
+  *typed pointer* (`*byte`, `**byte`, `*Date`, …) rather than flattened to a
+  `uintptr`. A typed pointer argument is a live root through the call, and the
+  GC traces transitively from it (a `**byte` pins the pointer array *and* every
+  buffer its elements point at). Memory is lost only if you drop to `uintptr` —
+  then the GC can't see it and may free/move it mid-call. So a helper that
+  produces a C-facing pointer should return just `(ptr, len)`; a separate
+  `keepalive` slice is a code smell that means someone thought a typed pointer
+  needs propping up. It doesn't.
 - `const char *` **argument** → pass a Go `string`; purego manages the memory.
+- A **length-delimited byte buffer** argument (`const uint8_t *` plus a `size_t`
+  length, e.g. `include_characters`) → build it with `cString`, the inverse of
+  `goString`: it aliases the Go string's bytes via `unsafe.StringData` (no
+  `[]byte` copy) and returns `(*byte, len)`. A nil/empty string yields a NULL
+  pointer. No keepalive — the returned `*byte` is what keeps the string
+  reachable (see the bullet above).
 - `const char *const *` (array of C strings) is **not** handled automatically.
-  `cStringArray` builds a `[]*byte` of NUL-terminated buffers; pass
-  `slicePtr(arr)` plus the length. The buffers stay alive through the call via
-  the `*byte` pointers in the array (no `runtime.KeepAlive` needed for a typed
-  `**byte` argument). A Go string may contain an interior NUL but a C string
-  can't — `cStringArray` rejects such input with an error rather than letting C
-  silently truncate it.
+  `cStringArrayArg` builds a `[]*byte` of NUL-terminated buffers and returns
+  `(cStringArrayPtr, len, err)`. The typed `**byte` return keeps both the
+  pointer array and its buffers reachable across the call — no keepalive. A Go
+  string may contain an interior NUL but a C string can't, so `cStringArrayArg`
+  rejects such input with an error rather than letting C silently truncate it. A
+  nil slice yields a NULL pointer ("absent"); a non-nil empty slice yields a
+  non-NULL, length-0 pointer ("the empty set"), which libhegel treats as
+  distinct.
+- A **struct passed by value** (e.g. `hegel_date_t` / `hegel_time_t` /
+  `hegel_datetime_t` as a `hegel_generate_*` bound) needs **explicit padding
+  fields**. purego packs struct fields into argument registers sequentially by
+  field size and only flushes an eightbyte at an exact 64-bit boundary — it
+  does *not* honor the struct's natural alignment padding. So a Go struct whose
+  C counterpart has interior or trailing padding (like `hegel_time_t`, where
+  `microsecond` sits at offset 4 after a 1-byte pad) must spell that padding out
+  as real blank fields (`_ uint8`, `_ uint16`, …) at the right offsets, or the
+  fields land in the wrong registers and the C side reads garbage (the classic
+  symptom: a drawn bound like `23:59:59` arriving as `59:63:66`). Add the padding
+  directly to the exported struct — the same explicit layout also matches C in
+  memory, so one struct type serves both the by-value inputs and the pointer
+  output, with no separate ABI/conversion type. Blank padding fields marshal
+  fine (purego reads them as their zero value). Structs of two eightbytes or
+  fewer pass in registers; a `//go:generate`-free way to sanity-check a new one
+  is a throwaway real-lib draw asserting the bound round-trips. This affects only
+  by-**value** struct arguments; a struct written through an out-pointer
+  (`*Date`) uses the natural in-memory layout and needs no special handling
+  beyond the shared padded definition.
 
 ## 7. Verify
 

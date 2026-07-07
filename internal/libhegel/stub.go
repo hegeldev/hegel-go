@@ -5,6 +5,7 @@ import (
 	"runtime"
 	"strings"
 	"sync"
+	"unsafe"
 )
 
 type testingTB interface {
@@ -69,31 +70,40 @@ func Stub(tb testingTB, returns ...any) *Context {
 				handles.free(lastHandle)
 			}
 
-			haveOutputParameters := false
-			for i := range ft.NumIn() {
-				arg, in := args[i], ft.In(i)
-				switch {
-				case in == reflect.TypeFor[**byte]():
-					buf := append([]byte(retval().(string)), 0)
-					arg.Elem().Set(reflect.ValueOf(&buf[0]))
-				case in == reflect.TypeFor[*uint64](), in == reflect.TypeFor[*RunStatus]():
-					arg.Elem().Set(reflect.ValueOf(retval()))
-				case in.ConvertibleTo(reflect.TypeFor[*uintptr]()):
-					h := reflect.ValueOf(retval()).Convert(in.Elem())
-					handles.track(h.Interface())
-					arg.Elem().Set(h)
-				default:
-					if haveOutputParameters { // coverage-ignore
-						tb.Errorf("libhegel stub: %s: unsupported output parameter %s", name, in)
+			// Destructors free their argument rather than producing output, so
+			// they never consume a scripted return value for it — even now that
+			// some (e.g. GenerateBytesFree) take a *bytesResult/*stringResult
+			// pointer that would otherwise match an output-param case below.
+			if !dtor {
+				for i := range ft.NumIn() {
+					arg, in := args[i], ft.In(i)
+					switch {
+					case in == reflect.TypeFor[**byte]():
+						buf := append([]byte(retval().(string)), 0)
+						arg.Elem().Set(reflect.ValueOf(&buf[0]))
+					case in == reflect.TypeFor[*uint64](), in == reflect.TypeFor[*RunStatus](),
+						in == reflect.TypeFor[*bool](), in == reflect.TypeFor[*int64](),
+						in == reflect.TypeFor[*float64](), in == reflect.TypeFor[*Collection](),
+						in == reflect.TypeFor[*StateMachine](), in == reflect.TypeFor[*Date](),
+						in == reflect.TypeFor[*Time](), in == reflect.TypeFor[*Datetime]():
+						arg.Elem().Set(reflect.ValueOf(retval()))
+					case in == reflect.TypeFor[outBuf]():
+						b := retval().([]byte)
+						copy(unsafe.Slice((*byte)(arg.Interface().(outBuf)), len(b)), b)
+					case in == reflect.TypeFor[*bytesResult]():
+						b := retval().([]byte)
+						arg.Elem().Set(reflect.ValueOf(bytesResult{data: slicePtr(b), len: uint64(len(b))}))
+					case in == reflect.TypeFor[*stringResult]():
+						b := []byte(retval().(string))
+						arg.Elem().Set(reflect.ValueOf(stringResult{data: slicePtr(b), len: uint64(len(b))}))
+					case in.ConvertibleTo(reflect.TypeFor[*uintptr]()):
+						h := reflect.ValueOf(retval()).Convert(in.Elem())
+						handles.track(h.Interface())
+						arg.Elem().Set(h)
+					default:
+						continue
 					}
-					continue
 				}
-
-				haveOutputParameters = true
-			}
-
-			if dtor && haveOutputParameters { // coverage-ignore
-				tb.Errorf("libhegel stub: %s: destructor has output paramenter", name)
 			}
 
 			out := ft.Out(0)

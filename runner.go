@@ -126,16 +126,8 @@ func (s *testCase) recoverAbort() {
 	}
 }
 
-func (s *testCase) generate(schema map[string]any) (any, error) {
-	schemaBytes, err := encodeCBOR(schema)
-	if err != nil { // coverage-ignore (fixed-shape maps always encode)
-		panic(fmt.Sprintf("encode schema: %v", err))
-	}
-	valueBytes, err := s.tc.Generate(s.ctx, schemaBytes)
-	if err != nil {
-		return nil, err
-	}
-	return decodeCBOR(valueBytes)
+func (s *testCase) engine() (*libhegel.Context, *libhegel.TestCase) {
+	return s.ctx, s.tc
 }
 
 func (s *testCase) isSingleTestCase() bool {

@@ -3,7 +3,7 @@ module hegel.dev/go/hegel
 go 1.25.0
 
 require (
-	github.com/ebitengine/purego v0.10.1
+	github.com/ebitengine/purego v0.11.0-alpha.6.0.20260707033313-5f49e7c49322
 	github.com/fxamacker/cbor/v2 v2.9.0
 	golang.org/x/sys v0.44.0
 )

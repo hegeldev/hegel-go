@@ -23,25 +23,6 @@ func TestCompositeReturnsCompositeGenerator(t *testing.T) {
 	}
 }
 
-// TestCompositeGeneratorAsBasicReturnsNotBasic verifies that compositeGenerator
-// is never basic — composite generators have no schema.
-func TestCompositeGeneratorAsBasicReturnsNotBasic(t *testing.T) {
-	t.Parallel()
-	gen := Composite(func(s TestCase) int {
-		return Draw(s, Integers[int](0, 10))
-	})
-	bg, ok, err := gen.(*compositeGenerator[int]).asBasic()
-	if err != nil {
-		t.Fatalf("asBasic returned error: %v", err)
-	}
-	if ok {
-		t.Fatal("compositeGenerator should never be basic")
-	}
-	if bg != nil {
-		t.Fatal("compositeGenerator.asBasic should return nil bg")
-	}
-}
-
 // TestCompositeGeneratorMapReturnsMappedGenerator verifies that Map on a
 // composite generator returns a *mappedGenerator (the non-basic path).
 func TestCompositeGeneratorMapReturnsMappedGenerator(t *testing.T) {

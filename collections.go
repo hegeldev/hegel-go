@@ -36,67 +36,20 @@ func (g ListGenerator[T]) MaxSize(n int) ListGenerator[T] {
 	return g
 }
 
-// asBasic validates the configuration and returns a basic generator when the
-// element generator is itself basic. Returns (nil, false, nil) when the
-// element generator is non-basic.
-func (g ListGenerator[T]) asBasic() (*basicGenerator[[]T], bool, error) {
+// draw produces a list using the engine's collection protocol.
+func (g ListGenerator[T]) draw(tc TestCase) ([]T, error) {
 	if g.minSize < 0 {
-		return nil, false, fmt.Errorf("min_size=%d must be non-negative", g.minSize)
+		return nil, fmt.Errorf("min_size=%d must be non-negative", g.minSize)
 	}
 	if g.hasMax && g.maxSize < 0 {
-		return nil, false, fmt.Errorf("max_size=%d must be non-negative", g.maxSize)
+		return nil, fmt.Errorf("max_size=%d must be non-negative", g.maxSize)
 	}
 	if g.hasMax && g.minSize > g.maxSize {
-		return nil, false, fmt.Errorf("cannot have max_size=%d < min_size=%d", g.maxSize, g.minSize)
-	}
-
-	bg, ok, err := g.elements.asBasic()
-	if err != nil {
-		return nil, false, err
-	}
-	if !ok {
-		return nil, false, nil
-	}
-
-	rawSchema := map[string]any{
-		"type":     "list",
-		"elements": bg.schema,
-		"min_size": int64(g.minSize),
-	}
-	if g.hasMax {
-		rawSchema["max_size"] = int64(g.maxSize)
-	}
-	elemParse := bg.parse
-	return &basicGenerator[[]T]{
-		schema: rawSchema,
-		parse: func(raw any) []T {
-			rawSlice, ok := raw.([]any)
-			if !ok {
-				return nil
-			}
-			result := make([]T, len(rawSlice))
-			for i, x := range rawSlice {
-				result[i] = elemParse(x)
-			}
-			return result
-		},
-	}, true, nil
-}
-
-// draw produces a list by dispatching to the basic schema when possible,
-// falling back to the collection protocol otherwise.
-func (g ListGenerator[T]) draw(tc TestCase) ([]T, error) {
-	bg, ok, err := g.asBasic()
-	if err != nil {
-		return nil, err
-	}
-	if ok {
-		return bg.draw(tc)
+		return nil, fmt.Errorf("cannot have max_size=%d < min_size=%d", g.maxSize, g.minSize)
 	}
 	var maxSize *int
 	if g.hasMax {
-		m := g.maxSize
-		maxSize = &m
+		maxSize = &g.maxSize
 	}
 	return withSpan(tc, libhegel.LABEL_LIST, func() ([]T, error) {
 		var result []T
@@ -149,65 +102,21 @@ func (g MapGenerator[K, V]) MaxSize(n int) MapGenerator[K, V] {
 	return g
 }
 
-// asBasic validates the configuration and returns a basic generator when both
-// key and value generators are basic. Returns (nil, false, nil) when either
-// is non-basic.
-func (g MapGenerator[K, V]) asBasic() (*basicGenerator[map[K]V], bool, error) {
+// draw produces a map using the engine's collection protocol, rejecting
+// duplicate keys so the engine retries.
+func (g MapGenerator[K, V]) draw(tc TestCase) (map[K]V, error) {
 	if g.minSize < 0 {
-		return nil, false, fmt.Errorf("min_size=%d must be non-negative", g.minSize)
+		return nil, fmt.Errorf("min_size=%d must be non-negative", g.minSize)
 	}
 	if g.hasMax && g.maxSize < 0 {
-		return nil, false, fmt.Errorf("max_size=%d must be non-negative", g.maxSize)
+		return nil, fmt.Errorf("max_size=%d must be non-negative", g.maxSize)
 	}
 	if g.hasMax && g.minSize > g.maxSize {
-		return nil, false, fmt.Errorf("cannot have max_size=%d < min_size=%d", g.maxSize, g.minSize)
-	}
-
-	keyBasic, keyOk, err := g.keys.asBasic()
-	if err != nil {
-		return nil, false, err
-	}
-	valBasic, valOk, err := g.values.asBasic()
-	if err != nil {
-		return nil, false, err
-	}
-	if !keyOk || !valOk {
-		return nil, false, nil
-	}
-
-	rawSchema := map[string]any{
-		"type":     "dict",
-		"keys":     keyBasic.schema,
-		"values":   valBasic.schema,
-		"min_size": int64(g.minSize),
-	}
-	if g.hasMax {
-		rawSchema["max_size"] = int64(g.maxSize)
-	}
-	keyParse := keyBasic.parse
-	valParse := valBasic.parse
-	return &basicGenerator[map[K]V]{
-		schema: rawSchema,
-		parse: func(v any) map[K]V {
-			return pairsToMap[K, V](v, keyParse, valParse)
-		},
-	}, true, nil
-}
-
-// draw produces a map by dispatching to the basic schema when possible,
-// falling back to the collection protocol otherwise.
-func (g MapGenerator[K, V]) draw(tc TestCase) (map[K]V, error) {
-	bg, ok, err := g.asBasic()
-	if err != nil {
-		return nil, err
-	}
-	if ok {
-		return bg.draw(tc)
+		return nil, fmt.Errorf("cannot have max_size=%d < min_size=%d", g.maxSize, g.minSize)
 	}
 	var maxSize *int
 	if g.hasMax {
-		m := g.maxSize
-		maxSize = &m
+		maxSize = &g.maxSize
 	}
 	return withSpan(tc, libhegel.LABEL_MAP, func() (map[K]V, error) {
 		result := map[K]V{}
@@ -235,21 +144,4 @@ func (g MapGenerator[K, V]) draw(tc TestCase) (map[K]V, error) {
 		}
 		return result, nil
 	})
-}
-
-// pairsToMap converts a CBOR-decoded pair list [[k,v], ...] to a map[K]V.
-func pairsToMap[K comparable, V any](v any, keyParse func(any) K, valParse func(any) V) map[K]V {
-	result := map[K]V{}
-	pairs, ok := v.([]any)
-	if !ok {
-		return result
-	}
-	for _, pair := range pairs {
-		kv, ok := pair.([]any)
-		if !ok || len(kv) < 2 {
-			continue
-		}
-		result[keyParse(kv[0])] = valParse(kv[1])
-	}
-	return result
 }

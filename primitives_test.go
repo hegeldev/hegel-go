@@ -1,8 +1,8 @@
 package hegel
 
 // primitives_test.go contains e2e integration tests for the primitive
-// generator functions: Integers, Floats, Booleans, Text, Binary.
-// Schema unit tests live in generators_test.go.
+// generator functions: Integers, Floats, Booleans, Text, Binary — plus unit
+// tests for the character-set argument mapping and config validation.
 
 import (
 	"fmt"
@@ -129,229 +129,128 @@ func TestBinaryE2E_Unbounded(t *testing.T) {
 	}, WithTestCases(50))
 }
 
-func TestFloatGeneratorBuildsBasicGenerator(t *testing.T) {
-	t.Parallel()
-	gen := Floats[float64]().Min(0).Max(1).AllowNaN(false).AllowInfinity(false)
-
-	bg, ok, err := gen.asBasic()
-	if err != nil {
-		t.Fatal(err)
-	}
-	if !ok {
-		t.Fatal("Floats should be basic")
-	}
-	if bg.schema["type"] != "float" {
-		t.Fatalf("schema type: expected 'float', got %v", bg.schema["type"])
-	}
-}
-
-func TestListsFloatBuilderUsesBasicPath(t *testing.T) {
-	t.Parallel()
-	gen := Lists(Floats[float64]().Min(0).Max(1).AllowNaN(false).AllowInfinity(false)).MaxSize(3)
-
-	bg, ok, err := gen.asBasic()
-	if err != nil {
-		t.Fatal(err)
-	}
-	if !ok {
-		t.Fatal("Lists(Floats(...)) should be basic")
-	}
-
-	elemSchema, ok := bg.schema["elements"].(map[string]any)
-	if !ok {
-		t.Fatalf("schema elements: expected map[string]any, got %T", bg.schema["elements"])
-	}
-	if elemSchema["type"] != "float" {
-		t.Fatalf("elements type: expected 'float', got %v", elemSchema["type"])
-	}
-}
-
 // =============================================================================
-// TextGenerator builder methods
+// characterFields.textArgs unit tests
 // =============================================================================
 
-func TestTextCodecSchema(t *testing.T) {
+// TestTextArgsDefaults verifies the default character-set arguments: the utf-8
+// codec, no codepoint constraint, and surrogate auto-exclusion.
+func TestCharFieldsArgsDefaults(t *testing.T) {
 	t.Parallel()
-	bg, _, err := Text().MaxSize(10).Codec("ascii").asBasic()
+	g := Text().MaxSize(10)
+	codec, minCP, maxCP, cats, excl, err := g.charFields.textArgs()
 	if err != nil {
 		t.Fatal(err)
 	}
-	if bg.schema["codec"] != "ascii" {
-		t.Errorf("codec: expected 'ascii', got %v", bg.schema["codec"])
+	if codec != "utf-8" {
+		t.Errorf("codec: expected utf-8, got %q", codec)
+	}
+	if minCP != 0 {
+		t.Errorf("minCP: expected 0, got %d", minCP)
+	}
+	if maxCP != math.MaxUint32 {
+		t.Errorf("maxCP: expected math.MaxUint32, got %d", maxCP)
+	}
+	if cats != nil {
+		t.Errorf("categories: expected nil, got %v", cats)
+	}
+	if len(excl) != 1 || excl[0] != "Cs" {
+		t.Errorf("excludeCategories: expected [Cs], got %v", excl)
 	}
 }
 
-func TestTextMinCodepointSchema(t *testing.T) {
+// TestTextArgsCodecAndCodepoints verifies that Codec / MinCodepoint /
+// MaxCodepoint flow through to the returned arguments.
+func TestCharFieldsArgsCodecCodepoints(t *testing.T) {
 	t.Parallel()
-	bg, _, err := Text().MaxSize(10).MinCodepoint(32).asBasic()
+	g := Text().MaxSize(10).Codec("ascii").MinCodepoint(32).MaxCodepoint(127)
+	codec, minCP, maxCP, _, _, err := g.charFields.textArgs()
 	if err != nil {
 		t.Fatal(err)
 	}
-	if bg.schema["min_codepoint"] != int64(32) {
-		t.Errorf("min_codepoint: expected 32, got %v", bg.schema["min_codepoint"])
+	if codec != "ascii" {
+		t.Errorf("codec: expected ascii, got %q", codec)
+	}
+	if minCP != 32 {
+		t.Errorf("minCP: expected 32, got %d", minCP)
+	}
+	if maxCP != 127 {
+		t.Errorf("maxCP: expected 127, got %d", maxCP)
 	}
 }
 
-func TestTextMaxCodepointSchema(t *testing.T) {
+// TestTextArgsCategories verifies that an explicit Categories set is passed
+// through and no exclude set is produced.
+func TestCharFieldsArgsCategories(t *testing.T) {
 	t.Parallel()
-	bg, _, err := Text().MaxSize(10).MaxCodepoint(127).asBasic()
+	g := Text().MaxSize(10).Categories([]string{"L", "Nd"})
+	_, _, _, cats, excl, err := g.charFields.textArgs()
 	if err != nil {
 		t.Fatal(err)
 	}
-	if bg.schema["max_codepoint"] != int64(127) {
-		t.Errorf("max_codepoint: expected 127, got %v", bg.schema["max_codepoint"])
+	if len(cats) != 2 || cats[0] != "L" || cats[1] != "Nd" {
+		t.Errorf("categories: expected [L Nd], got %v", cats)
+	}
+	if excl != nil {
+		t.Errorf("excludeCategories: expected nil, got %v", excl)
 	}
 }
 
-func TestTextCategoriesSchema(t *testing.T) {
+// TestTextArgsExcludeCategoriesAddsCs verifies that Cs is auto-added to the
+// exclude set exactly once (never duplicated).
+func TestCharFieldsArgsExcludeAddsCs(t *testing.T) {
 	t.Parallel()
-	bg, _, err := Text().MaxSize(10).Categories([]string{"L"}).asBasic()
+	g := Text().MaxSize(10).ExcludeCategories([]string{"Cs", "Zs"})
+	_, _, _, _, excl, err := g.charFields.textArgs()
 	if err != nil {
 		t.Fatal(err)
 	}
-	cats, ok := bg.schema["categories"].([]any)
-	if !ok {
-		t.Fatal("categories should be present")
-	}
-	if len(cats) != 1 || cats[0] != "L" {
-		t.Errorf("categories: expected [L], got %v", cats)
-	}
-}
-
-func TestTextExcludeCategoriesSchema(t *testing.T) {
-	t.Parallel()
-	bg, _, err := Text().MaxSize(10).ExcludeCategories([]string{"Zs"}).asBasic()
-	if err != nil {
-		t.Fatal(err)
-	}
-	cats, ok := bg.schema["exclude_categories"].([]any)
-	if !ok {
-		t.Fatal("exclude_categories should be present")
-	}
-	found := map[string]bool{}
-	for _, c := range cats {
-		found[c.(string)] = true
-	}
-	if !found["Zs"] {
-		t.Error("exclude_categories should contain Zs")
-	}
-	if !found["Cs"] {
-		t.Error("exclude_categories should auto-add Cs")
-	}
-}
-
-func TestTextIncludeCharactersSchema(t *testing.T) {
-	t.Parallel()
-	bg, _, err := Text().MaxSize(10).IncludeCharacters("!@#").asBasic()
-	if err != nil {
-		t.Fatal(err)
-	}
-	if bg.schema["include_characters"] != "!@#" {
-		t.Errorf("include_characters: expected '!@#', got %v", bg.schema["include_characters"])
-	}
-}
-
-func TestTextExcludeCharactersSchema(t *testing.T) {
-	t.Parallel()
-	bg, _, err := Text().MaxSize(10).ExcludeCharacters("xyz").asBasic()
-	if err != nil {
-		t.Fatal(err)
-	}
-	if bg.schema["exclude_characters"] != "xyz" {
-		t.Errorf("exclude_characters: expected 'xyz', got %v", bg.schema["exclude_characters"])
-	}
-}
-
-func TestTextExcludeCategoriesNoDuplicateCs(t *testing.T) {
-	t.Parallel()
-	bg, _, err := Text().MaxSize(10).ExcludeCategories([]string{"Cs", "Zs"}).asBasic()
-	if err != nil {
-		t.Fatal(err)
-	}
-	cats := bg.schema["exclude_categories"].([]any)
 	csCount := 0
-	for _, c := range cats {
-		if c.(string) == "Cs" {
+	hasZs := false
+	for _, c := range excl {
+		if c == "Cs" {
 			csCount++
+		}
+		if c == "Zs" {
+			hasZs = true
 		}
 	}
 	if csCount != 1 {
-		t.Errorf("Cs should appear exactly once, got %d", csCount)
+		t.Errorf("Cs should appear exactly once, got %d in %v", csCount, excl)
+	}
+	if !hasZs {
+		t.Errorf("excludeCategories should contain Zs, got %v", excl)
 	}
 }
 
-func TestTextAlphabetSchema(t *testing.T) {
+// TestTextArgsSurrogateCategoryRejected verifies that requesting a category
+// that includes surrogate codepoints is an error (Go strings are UTF-8).
+func TestCharFieldsArgsSurrogateRejected(t *testing.T) {
 	t.Parallel()
-	bg, _, err := Text().MaxSize(10).Alphabet("abc").asBasic()
-	if err != nil {
-		t.Fatal(err)
-	}
-	cats, ok := bg.schema["categories"].([]any)
-	if !ok {
-		t.Fatal("categories should be present (Alphabet sets empty categories list)")
-	}
-	if len(cats) != 0 {
-		t.Errorf("categories: expected empty list, got %v", cats)
-	}
-	if bg.schema["include_characters"] != "abc" {
-		t.Errorf("include_characters: expected 'abc', got %v", bg.schema["include_characters"])
-	}
+	g := Text().MaxSize(10).Categories([]string{"Cs"})
+	_, _, _, _, _, err := g.charFields.textArgs()
+	assertErrorContains(t, "surrogate", err)
 }
+
+// =============================================================================
+// Config validation (returned before the engine is touched)
+// =============================================================================
 
 func TestTextAlphabetConflictsWithCharParams(t *testing.T) {
 	t.Parallel()
-	_, _, err := Text().MaxSize(10).Codec("ascii").Alphabet("abc").asBasic()
+	_, err := Text().MaxSize(10).Codec("ascii").Alphabet("abc").draw(newStubTestCase(t))
 	assertErrorContains(t, "cannot combine", err)
 }
 
 func TestTextNegativeMaxSize(t *testing.T) {
 	t.Parallel()
-	_, _, err := Text().MaxSize(-1).asBasic()
+	_, err := Text().MaxSize(-1).draw(newStubTestCase(t))
 	assertErrorContains(t, "max_size=-1 must be non-negative", err)
 }
 
 // =============================================================================
-// CharactersGenerator tests
+// CharactersGenerator E2E
 // =============================================================================
-
-func TestCharactersSchema(t *testing.T) {
-	t.Parallel()
-	bg, _, err := Characters().asBasic()
-	if err != nil {
-		t.Fatal(err)
-	}
-	if bg.schema["type"] != "string" {
-		t.Errorf("type: expected 'string', got %v", bg.schema["type"])
-	}
-	if bg.schema["min_size"] != int64(1) {
-		t.Errorf("min_size: expected 1, got %v", bg.schema["min_size"])
-	}
-	if bg.schema["max_size"] != int64(1) {
-		t.Errorf("max_size: expected 1, got %v", bg.schema["max_size"])
-	}
-}
-
-func TestCharactersAsBasic(t *testing.T) {
-	t.Parallel()
-	_, ok, err := Characters().asBasic()
-	if err != nil {
-		t.Fatal(err)
-	}
-	if !ok {
-		t.Fatal("Characters() should be basic")
-	}
-}
-
-func TestTextAsBasic(t *testing.T) {
-	t.Parallel()
-	_, ok, err := Text().MaxSize(10).asBasic()
-	if err != nil {
-		t.Fatal(err)
-	}
-	if !ok {
-		t.Fatal("Text() should be basic")
-	}
-}
 
 func TestCharactersE2E(t *testing.T) {
 	t.Parallel()
