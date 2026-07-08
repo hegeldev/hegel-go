@@ -106,6 +106,22 @@ Walk every C declaration and check it against the wrapper. Categorize each:
   `hegel_status_t`) → update the Go `const` block. Binding-invented labels that
   aren't in upstream (`LABEL_COMPOSITE`, `LABEL_STATEFUL`) must be renumbered to
   sit *past* the last upstream value so they can't collide.
+- **Enum-typed param widened to a fixed-width integer** (e.g.
+  `hegel_settings_set_mode(…, hegel_mode_t mode)` became `(…, uint32_t mode)`;
+  same for `set_backend`, `set_verbosity`, `mark_complete`'s `status`) → the Go
+  enum's **base type must mirror the parameter's exact width and signedness
+  literally**, even though it's ABI-transparent. Change `type Mode int32` to
+  `type Mode uint32` so it matches the `uint32_t` param, not the (still-signed)
+  C `enum` it descends from. This is a real ABI difference to encode even
+  though purego marshals a signed and an unsigned 32-bit value into the argument
+  register identically for the small non-negative values these enums hold — so
+  the integration tests pass either way and a mismatch will **not** be caught by
+  the test suite; only a literal read of the header catches it. A base-type
+  change needs a `go generate ./internal/libhegel` (§4), but the generated
+  `_string.go` is usually byte-identical (the index assertions and string tables
+  don't depend on signedness). Note the asymmetry: a value written through an
+  out-param typed as the enum pointer (`hegel_run_status_t *`, i.e. `RunStatus`)
+  is *not* widened and keeps mirroring the enum (`int32`).
 
 ## 4. Editing the binding — the four things that move together
 
@@ -284,6 +300,14 @@ edit anything — this is a read-only verification.
 5. For every symbol, confirm the Go field signature matches the C prototype
    under the context-based ABI (ctx first, Error return, produced values via
    trailing out-params).
+6. Check every integer parameter's width AND signedness against the C type,
+   including enum-typed params. A C param typed `uint32_t` (even one that
+   carries a semantically-enum value, e.g. `hegel_mode_t`/`hegel_status_t`
+   values passed through a widened `uint32_t` slot) must be bound by a
+   Go type whose base is `uint32`, not `int32` — flag a signed Go enum
+   bound to an unsigned C param as SIGNATURE-MISMATCH. This mismatch is
+   invisible to the runtime tests (purego marshals both identically for small
+   values), so this literal-read check is the only thing that catches it.
 
 Report a table of every header function with OK / MISSING / SIGNATURE-MISMATCH,
 and a final verdict line. List discrepancies explicitly; do not fix them.
