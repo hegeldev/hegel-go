@@ -306,7 +306,7 @@ type symbols struct {
 	ContextFree      func(ctxT) Error
 	ContextLastError func(ctxT) string
 
-	SettingsNew                       func(ctxT, *settingsT) Error
+	SettingsNew                       func(ctxT, out[settingsT]) Error
 	SettingsFree                      func(ctxT, settingsT) Error
 	SettingsSetMode                   func(ctxT, settingsT, Mode) Error
 	SettingsSetBackend                func(ctxT, settingsT, Backend) Error
@@ -320,65 +320,65 @@ type symbols struct {
 	SettingsSetPhases                 func(ctxT, settingsT, Phase) Error
 	SettingsSetSuppressHealthCheck    func(ctxT, settingsT, HealthCheck) Error
 
-	RunStart     func(ctxT, settingsT, *runT) Error
+	RunStart     func(ctxT, settingsT, out[runT]) Error
 	RunFree      func(ctxT, runT) Error
-	NextTestCase func(ctxT, runT, *testCaseT) Error
-	RunResult    func(ctxT, runT, *resultT) Error
+	NextTestCase func(ctxT, runT, out[testCaseT]) Error
+	RunResult    func(ctxT, runT, out[resultT]) Error
 
-	TestCaseFromBlob func(ctxT, settingsT, string, *testCaseT) Error
-	TestCaseClone    func(ctxT, testCaseT, *testCaseT) Error
+	TestCaseFromBlob func(ctxT, settingsT, string, out[testCaseT]) Error
+	TestCaseClone    func(ctxT, testCaseT, out[testCaseT]) Error
 	TestCaseFree     func(ctxT, testCaseT) Error
 
 	StartSpan            func(ctxT, testCaseT, Label) Error
 	StopSpan             func(ctxT, testCaseT, bool) Error
-	NewCollection        func(ctxT, testCaseT, uint64, uint64, *Collection) Error
-	CollectionMore       func(ctxT, testCaseT, Collection, *bool) Error
+	NewCollection        func(ctxT, testCaseT, uint64, uint64, out[Collection]) Error
+	CollectionMore       func(ctxT, testCaseT, Collection, out[bool]) Error
 	CollectionReject     func(ctxT, testCaseT, Collection, string) Error
-	NewPool              func(ctxT, testCaseT, *int64) Error
-	PoolAdd              func(ctxT, testCaseT, int64, *int64) Error
-	PoolGenerate         func(ctxT, testCaseT, int64, bool, *int64) Error
-	NewStateMachine      func(ctxT, testCaseT, cStringArrayPtr, uint64, cStringArrayPtr, uint64, *StateMachine) Error
-	StateMachineNextRule func(ctxT, testCaseT, StateMachine, *int64) Error
+	NewPool              func(ctxT, testCaseT, out[int64]) Error
+	PoolAdd              func(ctxT, testCaseT, int64, out[int64]) Error
+	PoolGenerate         func(ctxT, testCaseT, int64, bool, out[int64]) Error
+	NewStateMachine      func(ctxT, testCaseT, **byte, uint64, **byte, uint64, out[StateMachine]) Error
+	StateMachineNextRule func(ctxT, testCaseT, StateMachine, out[int64]) Error
 	Target               func(ctxT, testCaseT, float64, string) Error
 	MarkComplete         func(ctxT, testCaseT, Status, string) Error
 
 	// Typed primitive draws (0.27.0 replaced the generic schema-driven
 	// hegel_generate with these).
-	GenerateBoolean    func(ctxT, testCaseT, float64, bool, bool, *bool) Error
-	GenerateInteger    func(ctxT, testCaseT, int64, int64, *int64) Error
-	GenerateIntegerBig func(ctxT, testCaseT, *byte, uint64, *byte, uint64, outBuf, uint64, *uint64) Error
-	GenerateFloat      func(ctxT, testCaseT, uint32, float64, float64, bool, bool, bool, bool, float64, *float64) Error
-	GenerateBytes      func(ctxT, testCaseT, uint64, uint64, *bytesResult) Error
+	GenerateBoolean    func(ctxT, testCaseT, float64, bool, bool, out[bool]) Error
+	GenerateInteger    func(ctxT, testCaseT, int64, int64, out[int64]) Error
+	GenerateIntegerBig func(ctxT, testCaseT, *byte, uint64, *byte, uint64, out[byte], uint64, out[uint64]) Error
+	GenerateFloat      func(ctxT, testCaseT, uint32, float64, float64, bool, bool, bool, bool, float64, out[float64]) Error
+	GenerateBytes      func(ctxT, testCaseT, uint64, uint64, out[bytesResult]) Error
 	GenerateBytesFree  func(ctxT, *bytesResult) Error
-	GenerateString     func(ctxT, testCaseT, stringGenT, *stringResult) Error
+	GenerateString     func(ctxT, testCaseT, stringGenT, out[stringResult]) Error
 	GenerateStringFree func(ctxT, *stringResult) Error
-	GenerateDate       func(ctxT, testCaseT, Date, Date, *Date) Error
-	GenerateTime       func(ctxT, testCaseT, Time, Time, *Time) Error
-	GenerateDatetime   func(ctxT, testCaseT, Datetime, Datetime, *Datetime) Error
-	GenerateUUID       func(ctxT, testCaseT, uint8, bool, outBuf) Error
-	GenerateIPv4       func(ctxT, testCaseT, outBuf) Error
-	GenerateIPv6       func(ctxT, testCaseT, outBuf) Error
+	GenerateDate       func(ctxT, testCaseT, Date, Date, out[Date]) Error
+	GenerateTime       func(ctxT, testCaseT, Time, Time, out[Time]) Error
+	GenerateDatetime   func(ctxT, testCaseT, Datetime, Datetime, out[Datetime]) Error
+	GenerateUUID       func(ctxT, testCaseT, uint8, bool, out[byte]) Error
+	GenerateIPv4       func(ctxT, testCaseT, out[byte]) Error
+	GenerateIPv6       func(ctxT, testCaseT, out[byte]) Error
 
 	// String-generator constructors (build the alphabet-and-shape spec passed
 	// to hegel_generate_string) and their shared free.
-	StringGeneratorText   func(ctxT, uint64, uint64, string, uint32, uint32, cStringArrayPtr, uint64, cStringArrayPtr, uint64, *byte, uint64, *byte, uint64, *stringGenT) Error
-	StringGeneratorRegex  func(ctxT, string, bool, stringGenT, *stringGenT) Error
-	StringGeneratorEmail  func(ctxT, *stringGenT) Error
-	StringGeneratorURL    func(ctxT, *stringGenT) Error
-	StringGeneratorDomain func(ctxT, uint64, *stringGenT) Error
+	StringGeneratorText   func(ctxT, uint64, uint64, string, uint32, uint32, **byte, uint64, **byte, uint64, *byte, uint64, *byte, uint64, out[stringGenT]) Error
+	StringGeneratorRegex  func(ctxT, string, bool, stringGenT, out[stringGenT]) Error
+	StringGeneratorEmail  func(ctxT, out[stringGenT]) Error
+	StringGeneratorURL    func(ctxT, out[stringGenT]) Error
+	StringGeneratorDomain func(ctxT, uint64, out[stringGenT]) Error
 	StringGeneratorFree   func(ctxT, stringGenT) Error
 
 	ResultFree         func(ctxT, resultT) Error
-	ResultStatus       func(ctxT, resultT, *RunStatus) Error
-	ResultError        func(ctxT, resultT, **byte) Error
-	ResultFailureCount func(ctxT, resultT, *uint64) Error
-	ResultFailure      func(ctxT, resultT, uint64, *failureT) Error
+	ResultStatus       func(ctxT, resultT, out[RunStatus]) Error
+	ResultError        func(ctxT, resultT, out[*byte]) Error
+	ResultFailureCount func(ctxT, resultT, out[uint64]) Error
+	ResultFailure      func(ctxT, resultT, uint64, out[failureT]) Error
 
 	FailureFree             func(ctxT, failureT) Error
-	FailureOrigin           func(ctxT, failureT, **byte) Error
-	FailureReproductionBlob func(ctxT, failureT, **byte) Error
+	FailureOrigin           func(ctxT, failureT, out[*byte]) Error
+	FailureReproductionBlob func(ctxT, failureT, out[*byte]) Error
 
-	Version func(ctxT, **byte) Error
+	Version func(ctxT, out[*byte]) Error
 }
 
 type Context pointer[ctxT]
@@ -462,9 +462,9 @@ func (s *symbols) Close() error {
 
 // versionString reports the loaded library's version (hegel_version).
 func (s *symbols) versionString() string {
-	var out *byte
-	_ = s.Version(0, &out)
-	return goString(out)
+	var p *byte
+	_ = s.Version(0, &p)
+	return goString(p)
 }
 
 func load() (*symbols, error) {
@@ -856,7 +856,7 @@ func (tc *TestCase) GenerateIntegerBig(ctx *Context, minValue, maxValue BigInt) 
 		return tc.syms.GenerateIntegerBig(ctx, tc.raw,
 			slicePtr(minValue), uint64(len(minValue)),
 			slicePtr(maxValue), uint64(len(maxValue)),
-			outBuf(&tc.outFixed[0]), uint64(len(tc.outFixed)), &tc.outLen)
+			&tc.outFixed[0], uint64(len(tc.outFixed)), &tc.outLen)
 	})
 	if err != nil {
 		return nil, err
@@ -881,9 +881,9 @@ func (tc *TestCase) GenerateBytes(ctx *Context, minSize, maxSize uint64) ([]byte
 	if err != nil {
 		return nil, err
 	}
-	out := slices.Clone(unsafe.Slice(tc.outBytesRes.data, tc.outBytesRes.len))
+	b := slices.Clone(unsafe.Slice(tc.outBytesRes.data, tc.outBytesRes.len))
 	_ = tc.syms.GenerateBytesFree(0, &tc.outBytesRes)
-	return out, nil
+	return b, nil
 }
 
 // GenerateString draws a string described by gen (built with a
@@ -898,9 +898,9 @@ func (tc *TestCase) GenerateString(ctx *Context, gen *StringGenerator) (string, 
 		return "", err
 	}
 	// string(...) copies the length-delimited (not NUL-terminated) UTF-8 buffer.
-	out := string(unsafe.Slice(tc.outStringRes.data, tc.outStringRes.len))
+	s := string(unsafe.Slice(tc.outStringRes.data, tc.outStringRes.len))
 	_ = tc.syms.GenerateStringFree(0, &tc.outStringRes)
-	return out, nil
+	return s, nil
 }
 
 // GenerateDate draws a Gregorian calendar date in [minValue, maxValue].
@@ -931,7 +931,7 @@ func (tc *TestCase) GenerateDatetime(ctx *Context, minValue, maxValue Datetime) 
 // RFC 4122 version nibble is forced to version.
 func (tc *TestCase) GenerateUUID(ctx *Context, version uint8, hasVersion bool) ([16]byte, error) {
 	err := ctx.invoke("hegel_generate_uuid", func(ctx ctxT) Error {
-		return tc.syms.GenerateUUID(ctx, tc.raw, version, hasVersion, outBuf(&tc.outFixed[0]))
+		return tc.syms.GenerateUUID(ctx, tc.raw, version, hasVersion, &tc.outFixed[0])
 	})
 	return tc.outFixed, err
 }
@@ -939,7 +939,7 @@ func (tc *TestCase) GenerateUUID(ctx *Context, version uint8, hasVersion bool) (
 // GenerateIPv4 draws an IPv4 address as 4 network-order bytes.
 func (tc *TestCase) GenerateIPv4(ctx *Context) ([4]byte, error) {
 	err := ctx.invoke("hegel_generate_ipv4", func(ctx ctxT) Error {
-		return tc.syms.GenerateIPv4(ctx, tc.raw, outBuf(&tc.outFixed[0]))
+		return tc.syms.GenerateIPv4(ctx, tc.raw, &tc.outFixed[0])
 	})
 	return [4]byte(tc.outFixed[:4]), err
 }
@@ -947,7 +947,7 @@ func (tc *TestCase) GenerateIPv4(ctx *Context) ([4]byte, error) {
 // GenerateIPv6 draws an IPv6 address as 16 network-order bytes.
 func (tc *TestCase) GenerateIPv6(ctx *Context) ([16]byte, error) {
 	err := ctx.invoke("hegel_generate_ipv6", func(ctx ctxT) Error {
-		return tc.syms.GenerateIPv6(ctx, tc.raw, outBuf(&tc.outFixed[0]))
+		return tc.syms.GenerateIPv6(ctx, tc.raw, &tc.outFixed[0])
 	})
 	return tc.outFixed, err
 }
@@ -1025,8 +1025,8 @@ func (tc *TestCase) NewStateMachine(ctx *Context, ruleNames, invariantNames []st
 	err = ctx.invoke("hegel_new_state_machine", func(ctx ctxT) Error {
 		return tc.syms.NewStateMachine(
 			ctx, tc.raw,
-			cStringArrayPtr(slicePtr(rules)), uint64(len(ruleNames)),
-			cStringArrayPtr(slicePtr(invariants)), uint64(len(invariantNames)),
+			slicePtr(rules), uint64(len(ruleNames)),
+			slicePtr(invariants), uint64(len(invariantNames)),
 			&tc.outSM,
 		)
 	})
@@ -1227,12 +1227,14 @@ func cString(s *string) (ptr *byte, n uint64) {
 }
 
 // cStringArrayArg builds the (pointer, length) pair for a `const char *const *`
-// argument. The returned pointer is a typed cStringArrayPtr (**byte), so the GC
-// keeps both the pointer array and the NUL-terminated buffers it references
-// reachable across the FFI call without any separate keepalive value.
+// argument. The returned **byte points at the first element of the pointer
+// array, so the GC keeps both that array and the NUL-terminated buffers it
+// references reachable across the FFI call without any separate keepalive
+// value. It is a bare input pointer (not an out[...] sentinel), so [Stub]
+// leaves it untouched.
 //
 // Returns an error if any of the strings contain a NUL byte.
-func cStringArrayArg(ss []string) (ptr cStringArrayPtr, n uint64, err error) {
+func cStringArrayArg(ss []string) (ptr **byte, n uint64, err error) {
 	if ss == nil {
 		return nil, 0, nil
 	}
@@ -1240,7 +1242,7 @@ func cStringArrayArg(ss []string) (ptr cStringArrayPtr, n uint64, err error) {
 		// A non-nil but empty slice: a scratch element gives a non-NULL base
 		// address with length 0, distinguishing "the empty set" from "absent".
 		ptrs := []*byte{nil}
-		return cStringArrayPtr(&ptrs[0]), 0, nil
+		return &ptrs[0], 0, nil
 	}
 	ptrs := make([]*byte, len(ss))
 	for i, s := range ss {
@@ -1250,7 +1252,7 @@ func cStringArrayArg(ss []string) (ptr cStringArrayPtr, n uint64, err error) {
 		buf := append([]byte(s), 0) // NUL-terminate for C
 		ptrs[i] = &buf[0]
 	}
-	return cStringArrayPtr(&ptrs[0]), uint64(len(ss)), nil
+	return &ptrs[0], uint64(len(ss)), nil
 }
 
 func slicePtr[E any](s []E) *E {
@@ -1276,21 +1278,21 @@ func goString(p *byte) string {
 	return strings.Clone(string(unsafe.Slice(p, n)))
 }
 
-// cStringArrayPtr is the type of a C `const char *const *` argument: a pointer
-// to the first element of a NUL-terminated-string pointer array built by
-// [cStringArray]. It is a defined type rather than a bare **byte so the
-// signature-driven test stub ([Stub]) can distinguish these array *inputs* from
-// the **byte *output* parameters other symbols use. purego marshals it
-// identically to **byte — it dispatches on reflect.Kind (still Ptr), not on
-// type identity.
-type cStringArrayPtr **byte
-
-// outBuf is the type of a fixed-width `uint8*` output buffer (the integer_big
-// result, and the UUID / IPv4 / IPv6 byte outputs). It is a defined type rather
-// than a bare *byte so [Stub] can tell these output buffers apart from the
-// *byte *input* buffers (integer_big bounds, string-generator character sets),
-// which the stub must leave untouched. purego marshals it identically to *byte.
-type outBuf *byte
+// out[T] marks a C output parameter: a pointer through which a libhegel call
+// writes its result. It is the single sentinel for outputs — every other
+// pointer in a symbol signature is an input the stub must leave untouched.
+//
+// It exists so the signature-driven test stub ([Stub]) can tell outputs from
+// inputs without ambiguity: a bare `*byte` / `**byte` (integer_big bounds,
+// string-generator character sets, `const char *const *` string arrays) is an
+// input, while `out[byte]` / `out[*byte]` are the corresponding outputs (the
+// fixed-width UUID / IP / integer_big buffers, and the `const char*` string
+// out-params). [Stub] recognizes outputs by reflect.Type identity and by the
+// structural shape of handle out-params — never by type name.
+//
+// Since its underlying type is a pointer, purego marshals out[T] identically to
+// *T: it dispatches on reflect.Kind (Ptr), not on type identity.
+type out[T any] *T
 
 // cStringArray builds a C `const char *const *` array from a slice of Go
 // strings, returning the pointer array whose first element is what the C
