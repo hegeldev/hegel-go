@@ -64,7 +64,7 @@ const (
 	E_CONCURRENT_USE
 )
 
-type Status int32 // Equivalent of hegel_status_t
+type Status uint32 // Equivalent of hegel_status_t (passed as a uint32_t param)
 
 const (
 	STATUS_VALID Status = iota
@@ -73,14 +73,14 @@ const (
 	STATUS_INTERESTING
 )
 
-type Mode int32 // Equivalent of hegel_mode_t
+type Mode uint32 // Equivalent of hegel_mode_t (passed as a uint32_t param)
 
 const (
 	MODE_TEST_RUN Mode = iota
 	MODE_SINGLE_TEST_CASE
 )
 
-type Backend int32 // Equivalent of hegel_backend_t
+type Backend uint32 // Equivalent of hegel_backend_t (passed as a uint32_t param)
 
 const (
 	// Choose automatically (the default): urandom under Antithesis, otherwise
@@ -96,7 +96,7 @@ const (
 	BACKEND_URANDOM
 )
 
-type Verbosity int32 // Equivalent of hegel_verbosity_t
+type Verbosity uint32 // Equivalent of hegel_verbosity_t (passed as a uint32_t param)
 
 const (
 	VERBOSITY_QUIET Verbosity = iota
