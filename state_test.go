@@ -230,7 +230,8 @@ func TestTestCaseLogWritesToOut(t *testing.T) {
 func TestTReportDrawEmits(t *testing.T) {
 	t.Parallel()
 	ht := makeEmittingT(t, &bytes.Buffer{})
-	ht.reportDraw(0, 42)
+	ht.reportDraw(0, 42, "")
+	ht.reportDraw(0, 42, "or any other generated value")
 }
 
 // =============================================================================

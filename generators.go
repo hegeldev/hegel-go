@@ -94,8 +94,19 @@ type TestCase interface {
 	// reportDraw emits one draw-report line for value through the
 	// implementation's note channel, or no-ops when notes are suppressed.
 	// skip is the number of stack frames to skip when resolving the source
-	// position of the originating [Draw] call.
-	reportDraw(skip int, value any)
+	// position of the originating [Draw] call. comment, when non-empty, is an
+	// explain-phase annotation appended to the line in Go comment syntax.
+	reportDraw(skip int, value any, comment string)
+
+	// explainRegionStart opens an explain-annotation region: the choice
+	// index the enclosing draw starts at, and whether tracking is active
+	// (only on the final replay of a failure the engine annotated).
+	explainRegionStart() (uint64, bool)
+
+	// explainComment closes an explain-annotation region: if the choice
+	// slice consumed since start carries an annotation, it is returned
+	// (consumed, so a slice reports at most once) — otherwise "".
+	explainComment(start uint64) string
 
 	// inSpan reports whether the test case is inside one or more
 	// generation spans.
@@ -110,13 +121,18 @@ func Draw[T any](tc TestCase, g Generator[T]) T {
 	if h, ok := tc.(interface{ Helper() }); ok {
 		h.Helper()
 	}
+	start, tracking := tc.explainRegionStart()
 	v, err := g.draw(tc)
 	if err != nil {
 		tc.abort(err)
 	}
 	// Nested draws are reported as part of the parent's value.
 	if !tc.inSpan() {
-		tc.reportDraw(1, v)
+		comment := ""
+		if tracking {
+			comment = tc.explainComment(start)
+		}
+		tc.reportDraw(1, v, comment)
 	}
 	return v
 }

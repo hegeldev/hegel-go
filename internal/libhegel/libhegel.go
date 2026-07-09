@@ -139,6 +139,7 @@ const (
 	PHASE_GENERATE
 	PHASE_TARGET
 	PHASE_SHRINK
+	PHASE_EXPLAIN
 )
 
 type Collection int64
@@ -377,6 +378,10 @@ type symbols struct {
 	FailureFree             func(ctxT, failureT) Error
 	FailureOrigin           func(ctxT, failureT, out[*byte]) Error
 	FailureReproductionBlob func(ctxT, failureT, out[*byte]) Error
+	FailureCommentCount     func(ctxT, failureT, out[uint64]) Error
+	FailureComment          func(ctxT, failureT, uint64, out[uint64], out[uint64], out[*byte]) Error
+
+	TestCaseChoiceCount func(ctxT, testCaseT, out[uint64]) Error
 
 	Version func(ctxT, out[*byte]) Error
 }
@@ -572,6 +577,10 @@ func tryOpen(path string) (syms *symbols, err error) {
 		{"hegel_failure_free", &syms.FailureFree},
 		{"hegel_failure_origin", &syms.FailureOrigin},
 		{"hegel_failure_reproduction_blob", &syms.FailureReproductionBlob},
+		{"hegel_failure_comment_count", &syms.FailureCommentCount},
+		{"hegel_failure_comment", &syms.FailureComment},
+
+		{"hegel_test_case_choice_count", &syms.TestCaseChoiceCount},
 
 		{"hegel_version", &syms.Version},
 	})
@@ -734,6 +743,7 @@ type TestCase struct {
 	outBytesRes  bytesResult
 	outStringRes stringResult
 	outLen       uint64
+	outCount     uint64
 	// outFixed backs the fixed-width byte outputs (UUID: 16 bytes, IPv6: 16,
 	// IPv4: 4) and the integer_big result buffer, so a draw passes a pointer
 	// into long-lived storage instead of allocating per call.
@@ -1114,7 +1124,9 @@ func (r *Result) Failure(ctx *Context, index uint64) (*Failure, error) {
 type Failure struct {
 	*pointer[failureT]
 
-	outBytes *byte
+	outBytes  *byte
+	outCount  uint64
+	outCount2 uint64
 }
 
 // Origin returns the failure's origin string — the stable identifier the
@@ -1134,6 +1146,39 @@ func (f *Failure) ReproductionBlob(ctx *Context) string {
 		return f.syms.FailureReproductionBlob(ctx, f.raw, &f.outBytes)
 	})
 	return goString(f.outBytes)
+}
+
+// CommentCount returns the number of explain-phase annotations on this
+// failure: choice slices of the shrunk counterexample whose value the engine
+// found to be irrelevant to the failure. Zero when the explain phase was
+// disabled, skipped, or found nothing to say.
+func (f *Failure) CommentCount(ctx *Context) uint64 {
+	_ = ctx.invoke("hegel_failure_comment_count", func(ctx ctxT) Error {
+		return f.syms.FailureCommentCount(ctx, f.raw, &f.outCount)
+	})
+	return f.outCount
+}
+
+// Comment returns one explain-phase annotation: the half-open choice slice
+// [start, end) of the shrunk counterexample it applies to, and its text
+// (without any comment syntax). The whole-test "varied together" note uses
+// the marker slice (0, 0).
+func (f *Failure) Comment(ctx *Context, index uint64) (start, end uint64, text string) {
+	_ = ctx.invoke("hegel_failure_comment", func(ctx ctxT) Error {
+		return f.syms.FailureComment(ctx, f.raw, index, &f.outCount, &f.outCount2, &f.outBytes)
+	})
+	return f.outCount, f.outCount2, goString(f.outBytes)
+}
+
+// ChoiceCount returns the number of choices this test case's stream has
+// recorded so far. Snapshotting it around a draw yields the choice slice the
+// draw consumed, which is how explain-phase annotations are matched to
+// reported draws on the final replay.
+func (tc *TestCase) ChoiceCount(ctx *Context) uint64 {
+	_ = ctx.invoke("hegel_test_case_choice_count", func(ctx ctxT) Error {
+		return tc.syms.TestCaseChoiceCount(ctx, tc.raw, &tc.outCount)
+	})
+	return tc.outCount
 }
 
 // StringGenerator wraps a hegel_string_generator_t: the immutable

@@ -253,8 +253,8 @@ func TestAllHealthChecks(t *testing.T) {
 func TestAllPhases(t *testing.T) {
 	t.Parallel()
 	all := AllPhases()
-	if len(all) != 5 {
-		t.Errorf("AllPhases: expected 5, got %d", len(all))
+	if len(all) != 6 {
+		t.Errorf("AllPhases: expected 6, got %d", len(all))
 	}
 }
 
@@ -470,6 +470,7 @@ func TestRunWithHandleCollectFailures(t *testing.T) {
 		uintptr(1), libhegel.OK, // failure handle
 		"blob-data", libhegel.OK, // reproduction blob (replay)
 		uintptr(1), libhegel.OK, // test_case_from_blob handle (replay)
+		uint64(0), libhegel.OK, // failure comment count (no explain annotations)
 		"prop_test.go:7", libhegel.OK, // failure origin
 	)
 	err := runWithContext(lib, func(TestCase) {}, applyOpts([]Option{WithDerandomize(false)}))

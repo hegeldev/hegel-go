@@ -1,5 +1,19 @@
 # Changelog
 
+## Unreleased
+
+The engine's explain phase, on by default (disable with `hegel.WithPhases`
+minus `hegel.PhaseExplain`): after shrinking, parts of the minimal
+counterexample whose value is irrelevant to the failure are annotated on
+the final replay's draw-report lines as `// or any other generated value`.
+When several draws vary freely, a trailing note reports whether varying
+them together still always failed.
+
+Requires the next libhegel release (`hegel_failure_comment_count`,
+`hegel_failure_comment`, `hegel_test_case_choice_count`); until the pin is
+bumped, point `HEGEL_LIBHEGEL_PATH` at a libhegel built from hegel-rust's
+`DRMacIver/pretty-printing` branch.
+
 ## 0.6.15 - 2026-07-08
 
 This patch bumps our pinned libhegel ([hegel-rust](hegeldev/hegel-rust)) from [0.27.0](https://github.com/hegeldev/hegel-rust/releases/tag/v0.27.0) to [0.28.0](https://github.com/hegeldev/hegel-rust/releases/tag/v0.28.0).

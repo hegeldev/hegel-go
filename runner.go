@@ -25,6 +25,18 @@ type testCase struct {
 	aborted        bool      // set if test case run was short circuited
 	out            io.Writer // nil for exploratory cases; set for final replay / single-case
 	depth          int       // current span nesting depth
+
+	// Explain-phase annotations for this test case, keyed by the choice
+	// slice [start, end) of the shrunk counterexample they describe.
+	// Installed before the final replay of an engine-annotated failure and
+	// consumed — each at most once — as reported draws match them; nil
+	// everywhere else.
+	explainComments map[[2]uint64]string
+	// The whole-test "varied together" note, emitted as a trailing summary
+	// line once any slice annotation has actually been reported (a note
+	// about invisible parts would only confuse).
+	togetherNote   string
+	explainMatched bool
 }
 
 // --- Sentinel errors ---
@@ -49,12 +61,54 @@ func (s *testCase) Note(message string) {
 	}
 }
 
-func (s *testCase) reportDraw(skip int, value any) {
+func (s *testCase) reportDraw(skip int, value any, comment string) {
 	if s.out == nil {
 		return
 	}
 	loc, msg := formatDrawReport(skip+1, value)
-	fmt.Fprintf(s.out, "%s: %s\n", loc, msg)
+	fmt.Fprintf(s.out, "%s: %s%s\n", loc, msg, formatExplainComment(comment))
+}
+
+// explainRegionStart opens an explain-annotation region around a draw. A
+// no-op (and a single map-nil check) on every case except the final replay
+// of a failure the engine annotated.
+func (s *testCase) explainRegionStart() (uint64, bool) {
+	if len(s.explainComments) == 0 {
+		return 0, false
+	}
+	return s.tc.ChoiceCount(s.ctx), true
+}
+
+// explainComment closes an explain-annotation region: if the choice slice
+// consumed since start carries an annotation it is returned (and consumed,
+// so a slice reports at most once).
+func (s *testCase) explainComment(start uint64) string {
+	end := s.tc.ChoiceCount(s.ctx)
+	comment, ok := s.explainComments[[2]uint64{start, end}]
+	if !ok {
+		return ""
+	}
+	delete(s.explainComments, [2]uint64{start, end})
+	s.explainMatched = true
+	return comment
+}
+
+// formatExplainComment renders an explain-phase annotation as a trailing Go
+// line comment, or "" when there is none.
+func formatExplainComment(comment string) string {
+	if comment == "" {
+		return ""
+	}
+	return " // " + comment
+}
+
+// reportTogetherNote emits the whole-test "varied together" note as a
+// trailing summary line, if the explain phase produced one and at least one
+// annotated part was actually reported.
+func (s *testCase) reportTogetherNote() {
+	if s.togetherNote != "" && s.explainMatched {
+		s.Note("// " + s.togetherNote)
+	}
 }
 
 func (s *testCase) Errorf(format string, args ...any) {
@@ -304,11 +358,17 @@ const (
 	PhaseTarget = libhegel.PHASE_TARGET
 	// PhaseShrink shrinks failing examples.
 	PhaseShrink = libhegel.PHASE_SHRINK
+	// PhaseExplain annotates the minimal counterexample: after shrinking, the
+	// engine varies each part and marks the parts whose value is irrelevant
+	// to the failure; the final replay reports them as
+	// `// or any other generated value` on the affected draw lines.
+	// Requires [PhaseShrink].
+	PhaseExplain = libhegel.PHASE_EXPLAIN
 )
 
 // AllPhases returns all phase variants.
 func AllPhases() []Phase {
-	return []Phase{PhaseExplicit, PhaseReuse, PhaseGenerate, PhaseTarget, PhaseShrink}
+	return []Phase{PhaseExplicit, PhaseReuse, PhaseGenerate, PhaseTarget, PhaseShrink, PhaseExplain}
 }
 
 // --- Test runner options ---
@@ -548,7 +608,7 @@ func runWithContext(ctx *libhegel.Context, fn testBody, opts runOptions) error {
 			break
 		}
 
-		origin, status := driveOneCase(ctx, tc, fn, output, skipUserPanic, opts.singleTestCase)
+		origin, status := driveOneCase(ctx, tc, fn, output, skipUserPanic, opts.singleTestCase, nil)
 		if err := tc.MarkComplete(ctx, status, origin); err != nil {
 			return err
 		}
@@ -600,13 +660,20 @@ func (o runOptions) buildSettings(ctx *libhegel.Context) (*libhegel.Settings, er
 	return s, nil
 }
 
-func driveOneCase(ctx *libhegel.Context, tc *libhegel.TestCase, fn testBody, output io.Writer, skipUserPanic, singleTestCase bool) (origin string, status libhegel.Status) {
+func driveOneCase(ctx *libhegel.Context, tc *libhegel.TestCase, fn testBody, output io.Writer, skipUserPanic, singleTestCase bool, explain *explainReport) (origin string, status libhegel.Status) {
 	state := &testCase{
 		ctx:            ctx,
 		tc:             tc,
 		singleTestCase: singleTestCase,
 		out:            output,
 	}
+	if explain != nil {
+		state.explainComments = explain.comments
+		state.togetherNote = explain.togetherNote
+	}
+	// Registered first among the output-affecting defers so it runs last,
+	// after the body's own notes and any recovered failure state settle.
+	defer state.reportTogetherNote()
 	// Registered first so it runs last: publish the case's final status and
 	// origin into the named returns. When fn panics (FailNow/abort/user panic)
 	// the normal return below is skipped, so without this the named returns
@@ -649,10 +716,39 @@ func replayFailures(ctx *libhegel.Context, s *libhegel.Settings, result *libhege
 		if err != nil {
 			return err
 		}
-		driveOneCase(ctx, tc, fn, opts.output, true, false)
+		driveOneCase(ctx, tc, fn, opts.output, true, false, readExplainReport(ctx, fail))
 		origins = append(origins, fail.Origin(ctx))
 	}
 	return fmt.Errorf("%w: %d failures %v", errPropTestFailed, len(origins), origins)
+}
+
+// explainReport carries a failure's explain-phase annotations into its final
+// replay: the choice slices of the shrunk counterexample whose value the
+// engine found irrelevant to the failure, plus the whole-test note produced
+// by re-varying every annotated slice together.
+type explainReport struct {
+	comments     map[[2]uint64]string
+	togetherNote string
+}
+
+// readExplainReport reads a failure's explain-phase annotations off the
+// engine, or nil when there are none. The whole-test note travels under the
+// marker slice (0, 0).
+func readExplainReport(ctx *libhegel.Context, fail *libhegel.Failure) *explainReport {
+	count := fail.CommentCount(ctx)
+	if count == 0 {
+		return nil
+	}
+	report := &explainReport{comments: make(map[[2]uint64]string, count)}
+	for i := range count {
+		start, end, text := fail.Comment(ctx, i)
+		if start == 0 && end == 0 {
+			report.togetherNote = text
+		} else {
+			report.comments[[2]uint64{start, end}] = text
+		}
+	}
+	return report
 }
 
 // findCaller describes a recovered panic for [hegel_mark_complete]'s

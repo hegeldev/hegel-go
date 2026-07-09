@@ -139,11 +139,11 @@ func (t *T) Run(_ string, _ func(*testing.T)) bool {
 	panic("nested t.Run is not supported inside a property test")
 }
 
-func (t *T) reportDraw(skip int, value any) {
+func (t *T) reportDraw(skip int, value any, comment string) {
 	if t.out == nil {
 		return
 	}
 	_, msg := formatDrawReport(skip+1, value)
 	t.Helper()
-	t.T.Log(msg)
+	t.T.Log(msg + formatExplainComment(comment))
 }
