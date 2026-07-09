@@ -32,10 +32,10 @@ func TestExplainAnnotatesIrrelevantDraw(t *testing.T) {
 	if len(lines) != 2 {
 		t.Fatalf("expected two draw lines, got:\n%s", captured)
 	}
-	if !strings.HasSuffix(lines[0], " = 0 // or any other generated value") {
+	if !strings.HasSuffix(lines[0], " := 0 // or any other generated value") {
 		t.Fatalf("expected the first draw annotated, got:\n%s", captured)
 	}
-	if !strings.HasSuffix(lines[1], " = 0") {
+	if !strings.HasSuffix(lines[1], " := 0") {
 		t.Fatalf("expected the second draw unannotated, got:\n%s", captured)
 	}
 }
@@ -81,9 +81,10 @@ func TestExplainAnnotatesListElementsIndividually(t *testing.T) {
 	}
 	captured := buf.String()
 	want := regexp.MustCompile(
-		`xs = \[\]int\{0, // or any other generated value\n` +
-			`\s*0, // or any other generated value\n` +
-			`\s*0\n` +
+		`xs := \[\]int\{\n` +
+			`    0, // or any other generated value\n` +
+			`    0, // or any other generated value\n` +
+			`    0,\n` +
 			`\}`)
 	if !want.MatchString(captured) {
 		t.Fatalf("expected per-element annotations on the first two elements, got:\n%s", captured)
@@ -151,6 +152,6 @@ b := hegel.Draw(ht, hegel.Integers(-100, 100))
 if b >= 0 {
 	ht.Fatal("BOOM-explain")
 }`, "hegel.WithTestCases(50)", "hegel.WithSeed(0)").
-		expectFailure(`(?m)draw_1 = 0 // or any other generated value$`).
+		expectFailure(`(?m)draw_1 := 0 // or any other generated value$`).
 		goTest()
 }

@@ -60,6 +60,11 @@ type testCase struct {
 // engine's default.
 const reportWidth = 79
 
+// reportIndent is the indentation of a broken composite literal's elements.
+// gofmt indents with a single tab; the engine's printer indents with spaces,
+// so the report approximates it at four columns.
+const reportIndent = 4
+
 // document returns the test case's engine-hosted report, fetching the
 // family's document on first use.
 func (s *testCase) document() *libhegel.Printer {
@@ -81,6 +86,8 @@ func (r *reporter) text(s string)                    { r.doc.Text(r.ctx, s) }
 func (r *reporter) breakable(sep string)             { r.doc.Breakable(r.ctx, sep) }
 func (r *reporter) hardBreak()                       { r.doc.HardBreak(r.ctx) }
 func (r *reporter) comment(s string)                 { r.doc.Comment(r.ctx, s) }
+func (r *reporter) ifBreak(s string)                 { r.doc.IfBreak(r.ctx, s) }
+func (r *reporter) shiftIndent(delta int64)          { r.doc.ShiftIndent(r.ctx, delta) }
 func (r *reporter) beginGroup(n uint64, open string) { r.doc.BeginGroup(r.ctx, n, open) }
 func (r *reporter) endGroup(n uint64, close string)  { r.doc.EndGroup(r.ctx, n, close) }
 func (r *reporter) beginSpeculative()                { r.doc.BeginSpeculative(r.ctx) }

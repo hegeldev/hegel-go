@@ -81,8 +81,10 @@ func (g ListGenerator[T]) draw(tc TestCase) ([]T, error) {
 
 // printDraw is the printing twin of draw: the slice's composite-literal
 // delimiters print around each element's own printing draw, so an
-// explain-phase annotation can attach to a single element. Consumes exactly
-// the choices draw consumes.
+// explain-phase annotation can attach to a single element. The layout is
+// gofmt's: flat as `[]T{a, b}`, broken with each element on its own line,
+// a trailing comma, and the close brace at the outer indentation. Consumes
+// exactly the choices draw consumes.
 func (g ListGenerator[T]) printDraw(tc TestCase, rep *reporter) ([]T, error) {
 	if err := g.validate(); err != nil {
 		return nil, err
@@ -97,9 +99,12 @@ func (g ListGenerator[T]) printDraw(tc TestCase, rep *reporter) ([]T, error) {
 		if err != nil {
 			return nil, err
 		}
-		rep.beginGroup(1, fmt.Sprintf("[]%s{", typeName[T]()))
+		rep.beginGroup(0, fmt.Sprintf("[]%s{", typeName[T]()))
+		rep.shiftIndent(reportIndent)
 		for coll.More() {
-			if len(result) > 0 {
+			if len(result) == 0 {
+				rep.breakable("")
+			} else {
 				rep.text(",")
 				rep.breakable(" ")
 			}
@@ -112,7 +117,12 @@ func (g ListGenerator[T]) printDraw(tc TestCase, rep *reporter) ([]T, error) {
 		if err := coll.Err(); err != nil {
 			return nil, err
 		}
-		rep.endGroup(1, "}")
+		rep.shiftIndent(-reportIndent)
+		if len(result) > 0 {
+			rep.ifBreak(",")
+			rep.breakable("")
+		}
+		rep.endGroup(0, "}")
 		return result, nil
 	})
 }
@@ -203,8 +213,9 @@ func (g MapGenerator[K, V]) draw(tc TestCase) (map[K]V, error) {
 // printDraw is the printing twin of draw: entries print in draw order (%#v
 // sorts map keys; the report shows the order they were generated), each
 // inside a speculative region — its separator included — so an entry
-// retracted for a duplicate key leaves no text behind. Consumes exactly the
-// choices draw consumes.
+// retracted for a duplicate key leaves no text behind. The layout is
+// gofmt's, as in [ListGenerator.printDraw]. Consumes exactly the choices
+// draw consumes.
 func (g MapGenerator[K, V]) printDraw(tc TestCase, rep *reporter) (map[K]V, error) {
 	if err := g.validate(); err != nil {
 		return nil, err
@@ -219,10 +230,13 @@ func (g MapGenerator[K, V]) printDraw(tc TestCase, rep *reporter) (map[K]V, erro
 		if err != nil {
 			return nil, err
 		}
-		rep.beginGroup(1, fmt.Sprintf("map[%s]%s{", typeName[K](), typeName[V]()))
+		rep.beginGroup(0, fmt.Sprintf("map[%s]%s{", typeName[K](), typeName[V]()))
+		rep.shiftIndent(reportIndent)
 		for coll.More() {
 			rep.beginSpeculative()
-			if len(result) > 0 {
+			if len(result) == 0 {
+				rep.breakable("")
+			} else {
 				rep.text(",")
 				rep.breakable(" ")
 			}
@@ -236,7 +250,7 @@ func (g MapGenerator[K, V]) printDraw(tc TestCase, rep *reporter) (map[K]V, erro
 				coll.Reject("duplicate key")
 				continue
 			}
-			rep.text(":")
+			rep.text(": ")
 			v, err := drawAndPrint(tc, g.values, rep)
 			if err != nil {
 				rep.abortSpeculative()
@@ -248,7 +262,12 @@ func (g MapGenerator[K, V]) printDraw(tc TestCase, rep *reporter) (map[K]V, erro
 		if err := coll.Err(); err != nil {
 			return nil, err
 		}
-		rep.endGroup(1, "}")
+		rep.shiftIndent(-reportIndent)
+		if len(result) > 0 {
+			rep.ifBreak(",")
+			rep.breakable("")
+		}
+		rep.endGroup(0, "}")
 		return result, nil
 	})
 }

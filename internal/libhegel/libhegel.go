@@ -397,7 +397,9 @@ type symbols struct {
 	PrinterFree              func(ctxT, printerT) Error
 	PrinterText              func(ctxT, printerT, string, uint64) Error
 	PrinterBreakable         func(ctxT, printerT, string, uint64) Error
+	PrinterIfBreak           func(ctxT, printerT, string, uint64) Error
 	PrinterHardBreak         func(ctxT, printerT) Error
+	PrinterShiftIndent       func(ctxT, printerT, int64) Error
 	PrinterComment           func(ctxT, printerT, string, uint64) Error
 	PrinterBeginGroup        func(ctxT, printerT, uint64, string, uint64) Error
 	PrinterEndGroup          func(ctxT, printerT, uint64, string, uint64) Error
@@ -618,7 +620,9 @@ func tryOpen(path string) (syms *symbols, err error) {
 		{"hegel_printer_free", &syms.PrinterFree},
 		{"hegel_printer_text", &syms.PrinterText},
 		{"hegel_printer_breakable", &syms.PrinterBreakable},
+		{"hegel_printer_if_break", &syms.PrinterIfBreak},
 		{"hegel_printer_hard_break", &syms.PrinterHardBreak},
+		{"hegel_printer_shift_indent", &syms.PrinterShiftIndent},
 		{"hegel_printer_comment", &syms.PrinterComment},
 		{"hegel_printer_begin_group", &syms.PrinterBeginGroup},
 		{"hegel_printer_end_group", &syms.PrinterEndGroup},
@@ -1365,6 +1369,29 @@ func (p *Printer) Text(ctx *Context, s string) {
 func (p *Printer) Breakable(ctx *Context, sep string) {
 	_ = ctx.invoke("hegel_printer_breakable", func(ctx ctxT) Error {
 		e := p.syms.PrinterBreakable(ctx, p.raw, sep, uint64(len(sep)))
+		runtime.KeepAlive(p)
+		return e
+	})
+}
+
+// IfBreak emits text only if the innermost open group renders broken; a
+// group that fits on one line renders nothing here. The text never counts
+// toward width. This is how a layout expresses text only the multi-line
+// form needs — e.g. Go's mandatory trailing comma before a composite
+// literal's closing brace.
+func (p *Printer) IfBreak(ctx *Context, s string) {
+	_ = ctx.invoke("hegel_printer_if_break", func(ctx ctxT) Error {
+		e := p.syms.PrinterIfBreak(ctx, p.raw, s, uint64(len(s)))
+		runtime.KeepAlive(p)
+		return e
+	})
+}
+
+// ShiftIndent moves the indentation applied after later line breaks by
+// delta columns, independent of group indentation.
+func (p *Printer) ShiftIndent(ctx *Context, delta int64) {
+	_ = ctx.invoke("hegel_printer_shift_indent", func(ctx ctxT) Error {
+		e := p.syms.PrinterShiftIndent(ctx, p.raw, delta)
 		runtime.KeepAlive(p)
 		return e
 	})

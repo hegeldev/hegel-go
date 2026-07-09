@@ -2,6 +2,7 @@ package hegel
 
 import (
 	"bytes"
+	"go/parser"
 	"io"
 	"regexp"
 	"strings"
@@ -32,8 +33,30 @@ func TestListPrintsCompositionally(t *testing.T) {
 		xs := Draw(tc, Lists(Integers(7, 7)).MinSize(3).MaxSize(3))
 		_ = xs
 	})
-	if !strings.Contains(out, "xs = []int{7, 7, 7}") {
+	if !strings.Contains(out, "xs := []int{7, 7, 7}") {
 		t.Fatalf("expected a composite-literal list, got:\n%s", out)
+	}
+}
+
+// A list too wide for one line breaks the way gofmt would: every element on
+// its own line, a trailing comma, and the close brace at the outer
+// indentation. The report must be valid Go — the trailing comma is
+// mandatory in the broken form — so the draw line is required to parse.
+func TestBrokenListPrintsInGofmtShape(t *testing.T) {
+	t.Parallel()
+	out := runPrinting(t, func(tc TestCase) {
+		xs := Draw(tc, Lists(Integers(100, 100)).MinSize(20).MaxSize(20))
+		_ = xs
+	})
+	if !strings.HasPrefix(out, "xs := []int{\n    100,\n") {
+		t.Fatalf("expected the first element on its own line, got:\n%s", out)
+	}
+	if !strings.HasSuffix(out, "    100,\n}\n") {
+		t.Fatalf("expected a trailing comma and the close brace on its own line, got:\n%s", out)
+	}
+	src := "package p\n\nfunc f() {\n" + out + "\t_ = xs\n}\n"
+	if _, err := parser.ParseFile(newSourceCache().fset, "report.go", src, 0); err != nil {
+		t.Fatalf("report is not valid Go: %v\nreport:\n%s", err, out)
 	}
 }
 
@@ -43,7 +66,7 @@ func TestEmptyListPrints(t *testing.T) {
 		xs := Draw(tc, Lists(Integers(0, 100)).MaxSize(0))
 		_ = xs
 	})
-	if !strings.Contains(out, "xs = []int{}") {
+	if !strings.Contains(out, "xs := []int{}") {
 		t.Fatalf("expected an empty composite literal, got:\n%s", out)
 	}
 }
@@ -65,7 +88,7 @@ func TestMapPrintsInDrawOrderRetractingDuplicates(t *testing.T) {
 		m := Draw(tc, Maps(keys, Integers(9, 9)).MinSize(2).MaxSize(2))
 		_ = m
 	})
-	if !strings.Contains(out, "m = map[int]int{7:9, 3:9}") {
+	if !strings.Contains(out, "m := map[int]int{7: 9, 3: 9}") {
 		t.Fatalf("expected draw-order map entries with the duplicate retracted, got:\n%s", out)
 	}
 }
@@ -76,7 +99,7 @@ func TestOneOfPrintsChosenBranch(t *testing.T) {
 		n := Draw(tc, OneOf(Integers(3, 3), Integers(3, 3)))
 		_ = n
 	})
-	if !strings.Contains(out, "n = 3") {
+	if !strings.Contains(out, "n := 3") {
 		t.Fatalf("expected the chosen branch's value, got:\n%s", out)
 	}
 }
@@ -96,7 +119,7 @@ func TestOptionalPrintsPresentAsAmpersand(t *testing.T) {
 	if err == nil {
 		t.Fatal("expected the property to fail")
 	}
-	if !strings.Contains(buf.String(), "p = &0") {
+	if !strings.Contains(buf.String(), "p := &0") {
 		t.Fatalf("expected the present arm printed as &0, got:\n%s", buf.String())
 	}
 }
@@ -113,7 +136,7 @@ func TestOptionalPrintsAbsentAsNil(t *testing.T) {
 	if err == nil {
 		t.Fatal("expected the property to fail")
 	}
-	if !strings.Contains(buf.String(), "p = nil") {
+	if !strings.Contains(buf.String(), "p := nil") {
 		t.Fatalf("expected the absent arm printed as nil, got:\n%s", buf.String())
 	}
 }
@@ -132,7 +155,7 @@ func TestFilterPrintsOnlyAcceptedAttempt(t *testing.T) {
 		n := Draw(tc, gen)
 		_ = n
 	})
-	if !regexp.MustCompile(`(?m): n = 9$`).MatchString(out) {
+	if !regexp.MustCompile(`(?m)^n := 9$`).MatchString(out) {
 		t.Fatalf("expected only the accepted attempt's value, got:\n%s", out)
 	}
 }
@@ -163,7 +186,7 @@ func TestFlatMapPrintsDependentValue(t *testing.T) {
 		}))
 		_ = n
 	})
-	if !regexp.MustCompile(`(?m): n = 6$`).MatchString(out) {
+	if !regexp.MustCompile(`(?m)^n := 6$`).MatchString(out) {
 		t.Fatalf("expected only the dependent value, got:\n%s", out)
 	}
 }
@@ -180,7 +203,7 @@ func TestNoteInsideDrawBuffersUntilAfterTheLine(t *testing.T) {
 		n := Draw(tc, gen)
 		_ = n
 	})
-	if !regexp.MustCompile(`(?m): n = 5\nmid-draw note$`).MatchString(out) {
+	if !regexp.MustCompile(`(?m)^n := 5\nmid-draw note$`).MatchString(out) {
 		t.Fatalf("expected the note on its own line after the draw line, got:\n%s", out)
 	}
 }
@@ -257,13 +280,16 @@ func TestListsPrintDrawCollectionError(t *testing.T) {
 
 func TestListsPrintDrawElementErrorPropagates(t *testing.T) {
 	t.Parallel()
-	// start_span, collection_new, printer_begin_group, collection_more=true,
-	// then the element draw fails in params().
+	// start_span, collection_new, printer_begin_group, printer_shift_indent,
+	// collection_more=true, the first element's leading breakable, then the
+	// element draw fails in params().
 	tc, rep := stubReporter(t,
 		libhegel.OK,
 		libhegel.Collection(0), libhegel.OK,
 		libhegel.OK,
+		libhegel.OK,
 		true, libhegel.OK,
+		libhegel.OK,
 	)
 	_, err := Lists(invalidFloats()).printDraw(tc, rep)
 	assertErrorContains(t, "allow_nan", err)
@@ -275,6 +301,7 @@ func TestListsPrintDrawMoreError(t *testing.T) {
 	tc, rep := stubReporter(t,
 		libhegel.OK,
 		libhegel.Collection(0), libhegel.OK,
+		libhegel.OK,
 		libhegel.OK,
 		false, libhegel.E_BACKEND, "boom",
 	)
@@ -293,14 +320,17 @@ func TestMapsPrintDrawCollectionError(t *testing.T) {
 
 func TestMapsPrintDrawKeyErrorPropagates(t *testing.T) {
 	t.Parallel()
-	// start_span, collection_new, printer_begin_group, collection_more=true,
-	// printer_begin_speculative, the key draw fails in params(), and the
-	// entry's region is retracted (printer_abort_speculative).
+	// start_span, collection_new, printer_begin_group, printer_shift_indent,
+	// collection_more=true, printer_begin_speculative, the first entry's
+	// leading breakable, the key draw fails in params(), and the entry's
+	// region is retracted (printer_abort_speculative).
 	tc, rep := stubReporter(t,
 		libhegel.OK,
 		libhegel.Collection(0), libhegel.OK,
 		libhegel.OK,
+		libhegel.OK,
 		true, libhegel.OK,
+		libhegel.OK,
 		libhegel.OK,
 		libhegel.OK,
 	)
@@ -311,12 +341,14 @@ func TestMapsPrintDrawKeyErrorPropagates(t *testing.T) {
 func TestMapsPrintDrawValueErrorPropagates(t *testing.T) {
 	t.Parallel()
 	// As above, but the key draw succeeds (generate_integer plus its
-	// printer_text) and printer_text(":") precedes the failing value draw.
+	// printer_text) and printer_text(": ") precedes the failing value draw.
 	tc, rep := stubReporter(t,
 		libhegel.OK,
 		libhegel.Collection(0), libhegel.OK,
 		libhegel.OK,
+		libhegel.OK,
 		true, libhegel.OK,
+		libhegel.OK,
 		libhegel.OK,
 		int64(0), libhegel.OK,
 		libhegel.OK,
@@ -332,6 +364,7 @@ func TestMapsPrintDrawMoreError(t *testing.T) {
 	tc, rep := stubReporter(t,
 		libhegel.OK,
 		libhegel.Collection(0), libhegel.OK,
+		libhegel.OK,
 		libhegel.OK,
 		false, libhegel.E_BACKEND, "boom",
 	)

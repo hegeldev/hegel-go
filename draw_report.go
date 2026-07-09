@@ -5,7 +5,6 @@ import (
 	"go/ast"
 	"go/parser"
 	"go/token"
-	"path/filepath"
 	"runtime"
 	"sync"
 )
@@ -148,12 +147,12 @@ func callerFileLine(skip int) (file string, line int) {
 	return file, line
 }
 
-// drawCallSite resolves the caller's source position and returns the
-// file:line location plus the binding name receiving the draw ("" when
-// there is no unambiguous single name). skip is the number of frames above
-// this one to skip (Draw passes 1 to point at the user's call site).
-func drawCallSite(skip int) (location, name string) {
+// drawBindingName resolves the caller's source position and returns the
+// binding name receiving the draw ("" when there is no unambiguous single
+// name). skip is the number of frames above this one to skip (Draw passes 1
+// to point at the user's call site).
+func drawBindingName(skip int) string {
 	file, line := callerFileLine(skip + 1)
-	name, _ = drawReportSource.nameAt(file, line)
-	return fmt.Sprintf("%s:%d", filepath.Base(file), line), name
+	name, _ := drawReportSource.nameAt(file, line)
+	return name
 }

@@ -174,11 +174,11 @@ type TestCase interface {
 //
 // On an emitting test case (the final replay of a failure, or under
 // [WithSingleTestCase]) a top-level draw prints into the case's report as a
-// `file:line: name = value` line, where name is the binding receiving the
-// draw. Nested draws (inside a span) are reported as part of the parent's
-// value. The whole line sits in a speculative region, so a draw that
-// unwinds — a failed assumption, an exhausted choice budget — retracts the
-// partial line instead of corrupting the report.
+// `name := value` line, where name is the binding receiving the draw.
+// Nested draws (inside a span) are reported as part of the parent's value.
+// The whole line sits in a speculative region, so a draw that unwinds — a
+// failed assumption, an exhausted choice budget — retracts the partial line
+// instead of corrupting the report.
 func Draw[T any](tc TestCase, g Generator[T]) T {
 	if h, ok := tc.(interface{ Helper() }); ok {
 		h.Helper()
@@ -191,8 +191,7 @@ func Draw[T any](tc TestCase, g Generator[T]) T {
 		}
 		return v
 	}
-	loc, srcName := drawCallSite(1)
-	name := tc.displayDrawName(srcName)
+	name := tc.displayDrawName(drawBindingName(1))
 	committed := false
 	rep.beginSpeculative()
 	tc.beginPrintingDraw()
@@ -202,7 +201,7 @@ func Draw[T any](tc TestCase, g Generator[T]) T {
 		}
 		tc.endPrintingDraw()
 	}()
-	rep.text(fmt.Sprintf("%s: %s = ", loc, name))
+	rep.text(fmt.Sprintf("%s := ", name))
 	v, err := drawAndPrint(tc, g, rep)
 	if err != nil {
 		tc.abort(err)
