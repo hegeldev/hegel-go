@@ -245,7 +245,7 @@ func TestTextAlphabetConflictsWithCharParams(t *testing.T) {
 func TestTextNegativeMaxSize(t *testing.T) {
 	t.Parallel()
 	_, err := Text().MaxSize(-1).draw(newStubTestCase(t))
-	assertErrorContains(t, "max_size=-1 must be non-negative", err)
+	assertErrorContains(t, "Text: MaxSize -1 must be non-negative", err)
 }
 
 // =============================================================================

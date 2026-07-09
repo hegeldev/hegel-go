@@ -46,7 +46,7 @@ func fitsInt64[T integer](v T) bool {
 //	hegel.Integers[uint](0, math.MaxUint)
 func Integers[T integer](minVal, maxVal T) Generator[T] {
 	if minVal > maxVal {
-		panic(fmt.Sprintf("Cannot have max_value=%d < min_value=%d", maxVal, minVal))
+		panic(fmt.Sprintf("Integers: max %d < min %d", maxVal, minVal))
 	}
 	return genFunc[T](func(tc TestCase) (T, error) {
 		ctx, ltc := tc.engine()
@@ -144,12 +144,12 @@ func (g FloatGenerator[T]) params() (width uint32, minVal, maxVal float64, nan, 
 	}
 
 	if nan && (hasMin || hasMax) {
-		return 0, 0, 0, false, false, 0, fmt.Errorf("cannot have allow_nan=true with min_value or max_value")
+		return 0, 0, 0, false, false, 0, fmt.Errorf("Floats: cannot combine AllowNaN(true) with Min or Max")
 	}
-	// max_value < min_value is validated by the engine (hegel_generate_float),
+	// Max < Min is validated by the engine (hegel_generate_float),
 	// which also accounts for exclusive-bound adjustment; no Go-side check.
 	if inf && hasMin && hasMax {
-		return 0, 0, 0, false, false, 0, fmt.Errorf("cannot have allow_infinity=true with both min_value and max_value")
+		return 0, 0, 0, false, false, 0, fmt.Errorf("Floats: cannot combine AllowInfinity(true) with both Min and Max")
 	}
 
 	width = uint32(unsafe.Sizeof(T(1.0)) * 8)
@@ -363,12 +363,12 @@ func (g TextGenerator) Alphabet(chars string) TextGenerator {
 // touched, so validation is exercisable without a live engine.
 func (g TextGenerator) draw(tc TestCase) (string, error) {
 	if g.minSize < 0 {
-		return "", fmt.Errorf("min_size=%d must be non-negative", g.minSize)
+		return "", fmt.Errorf("Text: MinSize %d must be non-negative", g.minSize)
 	}
 	if g.hasMax && g.maxSize < 0 {
-		return "", fmt.Errorf("max_size=%d must be non-negative", g.maxSize)
+		return "", fmt.Errorf("Text: MaxSize %d must be non-negative", g.maxSize)
 	}
-	// max_size < min_size is validated by the engine (hegel_string_generator_text).
+	// MaxSize < MinSize is validated by the engine (hegel_string_generator_text).
 	if g.alphabetCalled && g.charParamCalled {
 		return "", fmt.Errorf("cannot combine Alphabet with character filtering methods")
 	}
@@ -467,10 +467,10 @@ func (g CharactersGenerator) draw(tc TestCase) (string, error) {
 // Pass maxSize < 0 for unbounded.
 func Binary(minSize int, maxSize int) Generator[[]byte] {
 	if minSize < 0 {
-		panic(fmt.Sprintf("min_size=%d must be non-negative", minSize))
+		panic(fmt.Sprintf("Binary: minSize %d must be non-negative", minSize))
 	}
 	if maxSize >= 0 && minSize > maxSize {
-		panic(fmt.Sprintf("Cannot have max_size=%d < min_size=%d", maxSize, minSize))
+		panic(fmt.Sprintf("Binary: maxSize %d < minSize %d", maxSize, minSize))
 	}
 	maxVal := uint64(math.MaxUint64)
 	if maxSize >= 0 {

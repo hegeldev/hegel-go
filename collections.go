@@ -39,13 +39,13 @@ func (g ListGenerator[T]) MaxSize(n int) ListGenerator[T] {
 // draw produces a list using the engine's collection protocol.
 func (g ListGenerator[T]) draw(tc TestCase) ([]T, error) {
 	if g.minSize < 0 {
-		return nil, fmt.Errorf("min_size=%d must be non-negative", g.minSize)
+		return nil, fmt.Errorf("Lists: MinSize %d must be non-negative", g.minSize)
 	}
 	if g.hasMax && g.maxSize < 0 {
-		return nil, fmt.Errorf("max_size=%d must be non-negative", g.maxSize)
+		return nil, fmt.Errorf("Lists: MaxSize %d must be non-negative", g.maxSize)
 	}
 	if g.hasMax && g.minSize > g.maxSize {
-		return nil, fmt.Errorf("cannot have max_size=%d < min_size=%d", g.maxSize, g.minSize)
+		return nil, fmt.Errorf("Lists: MaxSize %d < MinSize %d", g.maxSize, g.minSize)
 	}
 	var maxSize *int
 	if g.hasMax {
@@ -106,13 +106,13 @@ func (g MapGenerator[K, V]) MaxSize(n int) MapGenerator[K, V] {
 // duplicate keys so the engine retries.
 func (g MapGenerator[K, V]) draw(tc TestCase) (map[K]V, error) {
 	if g.minSize < 0 {
-		return nil, fmt.Errorf("min_size=%d must be non-negative", g.minSize)
+		return nil, fmt.Errorf("Maps: MinSize %d must be non-negative", g.minSize)
 	}
 	if g.hasMax && g.maxSize < 0 {
-		return nil, fmt.Errorf("max_size=%d must be non-negative", g.maxSize)
+		return nil, fmt.Errorf("Maps: MaxSize %d must be non-negative", g.maxSize)
 	}
 	if g.hasMax && g.minSize > g.maxSize {
-		return nil, fmt.Errorf("cannot have max_size=%d < min_size=%d", g.maxSize, g.minSize)
+		return nil, fmt.Errorf("Maps: MaxSize %d < MinSize %d", g.maxSize, g.minSize)
 	}
 	var maxSize *int
 	if g.hasMax {

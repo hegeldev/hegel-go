@@ -35,7 +35,7 @@ func assertErrorContains(t *testing.T, substr string, err error) {
 }
 
 func TestIntegersMinGreaterThanMax(t *testing.T) {
-	assertPanicsWithMessage(t, "max_value", func() { Integers(10, 5) })
+	assertPanicsWithMessage(t, "Integers: max 5 < min 10", func() { Integers(10, 5) })
 }
 
 func TestIntegersEqualMinMax(t *testing.T) {
@@ -43,24 +43,24 @@ func TestIntegersEqualMinMax(t *testing.T) {
 }
 
 func TestIntegersFromMinGreaterThanMax(t *testing.T) {
-	assertPanicsWithMessage(t, "max_value", func() { Integers[int64](10, 5) })
+	assertPanicsWithMessage(t, "Integers: max 5 < min 10", func() { Integers[int64](10, 5) })
 }
 
-// Float allow_nan / allow_infinity validation happens in params(), before any
+// Float AllowNaN / AllowInfinity validation happens in params(), before any
 // engine call, so draw(nil) surfaces the error without touching the test case.
-// (max_value < min_value is validated by the engine instead — see below.)
+// (Max < Min is validated by the engine instead — see below.)
 
 func TestFloatsAllowNaNWithMin(t *testing.T) {
 	_, err := Floats[float64]().Min(0.0).AllowNaN(true).draw(nil)
-	assertErrorContains(t, "allow_nan", err)
+	assertErrorContains(t, "Floats: cannot combine AllowNaN(true) with Min or Max", err)
 }
 
 func TestFloatsAllowNaNWithMax(t *testing.T) {
 	_, err := Floats[float64]().Max(10.0).AllowNaN(true).draw(nil)
-	assertErrorContains(t, "allow_nan", err)
+	assertErrorContains(t, "Floats: cannot combine AllowNaN(true) with Min or Max", err)
 }
 
-// max_value < min_value is validated by the engine, so this drives a real
+// Max < Min is validated by the engine, so this drives a real
 // test case rather than draw(nil).
 func TestFloatsMinGreaterThanMax(t *testing.T) {
 	_, err := Floats[float64]().Min(10.0).Max(5.0).draw(newRealTestCase(t))
@@ -69,7 +69,7 @@ func TestFloatsMinGreaterThanMax(t *testing.T) {
 
 func TestFloatsAllowInfinityWithBothBounds(t *testing.T) {
 	_, err := Floats[float64]().Min(0.0).Max(10.0).AllowInfinity(true).draw(nil)
-	assertErrorContains(t, "allow_infinity", err)
+	assertErrorContains(t, "Floats: cannot combine AllowInfinity(true) with both Min and Max", err)
 }
 
 // Text / Characters validation happens in build(), which the draw acquires the
@@ -78,10 +78,10 @@ func TestFloatsAllowInfinityWithBothBounds(t *testing.T) {
 
 func TestTextMinSizeNegative(t *testing.T) {
 	_, err := Text().MinSize(-1).MaxSize(10).draw(newStubTestCase(t))
-	assertErrorContains(t, "min_size", err)
+	assertErrorContains(t, "Text: MinSize -1 must be non-negative", err)
 }
 
-// max_size < min_size is validated by the engine (during string-generator
+// MaxSize < MinSize is validated by the engine (during string-generator
 // construction), so this drives the real build path.
 func TestTextMinGreaterThanMax(t *testing.T) {
 	_, err := Text().MinSize(10).MaxSize(5).draw(newRealTestCase(t))
@@ -127,11 +127,11 @@ func TestCharactersInvertedCodepointRange(t *testing.T) {
 }
 
 func TestBinaryMinSizeNegative(t *testing.T) {
-	assertPanicsWithMessage(t, "min_size", func() { Binary(-1, 10) })
+	assertPanicsWithMessage(t, "Binary: minSize -1 must be non-negative", func() { Binary(-1, 10) })
 }
 
 func TestBinaryMinGreaterThanMax(t *testing.T) {
-	assertPanicsWithMessage(t, "max_size", func() { Binary(10, 5) })
+	assertPanicsWithMessage(t, "Binary: maxSize 5 < minSize 10", func() { Binary(10, 5) })
 }
 
 // Lists / Maps validation happens in validate(), before withSpan / engine, so
@@ -139,32 +139,32 @@ func TestBinaryMinGreaterThanMax(t *testing.T) {
 
 func TestListsMinGreaterThanMax(t *testing.T) {
 	_, err := Lists(Booleans()).MinSize(10).MaxSize(5).draw(nil)
-	assertErrorContains(t, "max_size", err)
+	assertErrorContains(t, "Lists: MaxSize 5 < MinSize 10", err)
 }
 
 func TestListsMinSizeNegative(t *testing.T) {
 	_, err := Lists(Booleans()).MinSize(-1).draw(nil)
-	assertErrorContains(t, "min_size", err)
+	assertErrorContains(t, "Lists: MinSize -1 must be non-negative", err)
 }
 
 func TestListsMaxSizeNegative(t *testing.T) {
 	_, err := Lists(Booleans()).MaxSize(-1).draw(nil)
-	assertErrorContains(t, "max_size", err)
+	assertErrorContains(t, "Lists: MaxSize -1 must be non-negative", err)
 }
 
 func TestMapsMinSizeNegative(t *testing.T) {
 	_, err := Maps(Integers(0, 100), Integers(0, 100)).MinSize(-1).draw(nil)
-	assertErrorContains(t, "min_size", err)
+	assertErrorContains(t, "Maps: MinSize -1 must be non-negative", err)
 }
 
 func TestMapsMaxSizeNegative(t *testing.T) {
 	_, err := Maps(Integers(0, 100), Integers(0, 100)).MaxSize(-1).draw(nil)
-	assertErrorContains(t, "max_size", err)
+	assertErrorContains(t, "Maps: MaxSize -1 must be non-negative", err)
 }
 
 func TestMapsMinGreaterThanMax(t *testing.T) {
 	_, err := Maps(Integers(0, 100), Integers(0, 100)).MinSize(10).MaxSize(5).draw(nil)
-	assertErrorContains(t, "max_size", err)
+	assertErrorContains(t, "Maps: MaxSize 5 < MinSize 10", err)
 }
 
 // Domains max_length validation is done by the engine, so these drive the real
@@ -207,13 +207,13 @@ func TestListsInnerErrorPropagates(t *testing.T) {
 	// draw (invalidFloats) fails in params() before any engine call.
 	tc := newStubTestCase(t, libhegel.OK, libhegel.Collection(0), libhegel.OK, true, libhegel.OK)
 	_, err := Lists(invalidFloats()).draw(tc)
-	assertErrorContains(t, "allow_nan", err)
+	assertErrorContains(t, "AllowNaN", err)
 }
 
 func TestMapsKeyErrorPropagates(t *testing.T) {
 	tc := newStubTestCase(t, libhegel.OK, libhegel.Collection(0), libhegel.OK, true, libhegel.OK)
 	_, err := Maps[float64, int](invalidFloats(), Integers(0, 1)).draw(tc)
-	assertErrorContains(t, "allow_nan", err)
+	assertErrorContains(t, "AllowNaN", err)
 }
 
 func TestMapsValueErrorPropagates(t *testing.T) {
@@ -221,7 +221,7 @@ func TestMapsValueErrorPropagates(t *testing.T) {
 	// consumes one generate_integer output.
 	tc := newStubTestCase(t, libhegel.OK, libhegel.Collection(0), libhegel.OK, true, libhegel.OK, int64(0), libhegel.OK)
 	_, err := Maps[int, float64](Integers(0, 1), invalidFloats()).draw(tc)
-	assertErrorContains(t, "allow_nan", err)
+	assertErrorContains(t, "AllowNaN", err)
 }
 
 func TestOneOfBranchErrorPropagates(t *testing.T) {
@@ -229,7 +229,7 @@ func TestOneOfBranchErrorPropagates(t *testing.T) {
 	// draw fails in params().
 	tc := newStubTestCase(t, libhegel.OK, int64(0), libhegel.OK)
 	_, err := OneOf(invalidFloats()).draw(tc)
-	assertErrorContains(t, "allow_nan", err)
+	assertErrorContains(t, "AllowNaN", err)
 }
 
 func TestOptionalInnerErrorPropagates(t *testing.T) {
@@ -237,7 +237,7 @@ func TestOptionalInnerErrorPropagates(t *testing.T) {
 	// inner draw fails in params().
 	tc := newStubTestCase(t, libhegel.OK, int64(1), libhegel.OK)
 	_, err := Optional(invalidFloats()).draw(tc)
-	assertErrorContains(t, "allow_nan", err)
+	assertErrorContains(t, "AllowNaN", err)
 }
 
 // --- draw() surfaces invalid configuration ---
@@ -245,13 +245,13 @@ func TestOptionalInnerErrorPropagates(t *testing.T) {
 func TestListsDrawInvalidConfigReturnsError(t *testing.T) {
 	gen := Lists(Booleans()).MinSize(-1)
 	_, err := gen.draw(nil)
-	assertErrorContains(t, "min_size", err)
+	assertErrorContains(t, "Lists: MinSize -1 must be non-negative", err)
 }
 
 func TestMapsDrawInvalidConfigReturnsError(t *testing.T) {
 	gen := Maps(Integers(0, 1), Integers(0, 1)).MinSize(-1)
 	_, err := gen.draw(nil)
-	assertErrorContains(t, "min_size", err)
+	assertErrorContains(t, "Maps: MinSize -1 must be non-negative", err)
 }
 
 // TestMapInvalidSourceReturnsErrorOnDraw verifies that Map no longer validates
@@ -262,7 +262,7 @@ func TestMapInvalidSourceReturnsErrorOnDraw(t *testing.T) {
 	// start_span(MAPPED), then the inner draw fails in params().
 	tc := newStubTestCase(t, libhegel.OK)
 	_, err := gen.draw(tc)
-	assertErrorContains(t, "allow_nan", err)
+	assertErrorContains(t, "AllowNaN", err)
 }
 
 func TestFloatsDrawInvalidConfigReturnsError(t *testing.T) {
@@ -274,7 +274,7 @@ func TestFloatsDrawInvalidConfigReturnsError(t *testing.T) {
 func TestTextDrawInvalidConfigReturnsError(t *testing.T) {
 	gen := Text().MinSize(-1).MaxSize(5)
 	_, err := gen.draw(newStubTestCase(t))
-	assertErrorContains(t, "min_size", err)
+	assertErrorContains(t, "Text: MinSize -1 must be non-negative", err)
 }
 
 func TestCharactersDrawInvalidConfigReturnsError(t *testing.T) {
