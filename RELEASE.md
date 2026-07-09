@@ -5,19 +5,19 @@ line with the other Hegel frontends: drawn values, notes, and
 `ht.Log`/`ht.Error`/`ht.Fatal` messages collect in an engine-hosted
 document, rendered together when the test case completes.
 
-Draw lines now read `name := value`, where `name` is the binding
-receiving the draw (`xs := hegel.Draw(...)` reports as `xs := …`; draws
-without a single binding name are numbered `draw_1`, `draw_2`, …).
-Notes and failure messages keep their `file:line:` prefix, matching
-`testing.T`'s own log decoration. Values print compositionally, laid out
-the way gofmt would: a list or map too wide for one line breaks with one
-element per line, a trailing comma, and the close brace on its own line,
-so a draw line pastes back into a test as valid Go. Lists and maps print
-element by element through their element generators, `Optional` prints
-`nil` or `&value` (previously the pointer's address), map entries print
-in the order they were drawn (previously `%#v`'s sorted-key order), and
-a note made inside a composite's body lands after the draw's line
-instead of mid-line.
+Draw lines now read `file:line: name := value`, where `name` is the
+binding receiving the draw (`xs := hegel.Draw(...)` reports as
+`xs := …`; draws without a single binding name are numbered `draw_1`,
+`draw_2`, …), replacing the echoed source statement. Values print
+compositionally, laid out the way gofmt would: a list or map too wide
+for one line breaks with one element per line, a trailing comma, and
+the close brace on its own line, so a draw's value pastes back into a
+test as valid Go. Lists and maps print element by element through
+their element generators, `Optional` prints `nil` or `&value`
+(previously the pointer's address), map entries print in the order
+they were drawn (previously `%#v`'s sorted-key order), and a note made
+inside a composite's body lands after the draw's line instead of
+mid-line.
 
 The engine's explain phase is on by default (disable with
 `hegel.WithPhases` minus `hegel.PhaseExplain`): after shrinking, parts of

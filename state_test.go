@@ -239,7 +239,7 @@ func TestTDrawEmitsIntoReport(t *testing.T) {
 		n := Draw(ht, Integers(0, 100))
 		_ = n
 	})
-	if !strings.Contains(out, "n := ") {
+	if !strings.Contains(out, "state_test.go:") || !strings.Contains(out, "n := ") {
 		t.Fatalf("expected a named draw line in the report, got %q", out)
 	}
 }

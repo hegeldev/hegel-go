@@ -231,10 +231,10 @@ func TestDrawReportInProcess(t *testing.T) {
 		t.Fatalf("runHegel: %v", err)
 	}
 	captured := buf.String()
-	if !regexp.MustCompile(`(?m)^n := \d+$`).MatchString(captured) {
+	if !regexp.MustCompile(`(?m)^draw_report_test\.go:\d+: n := \d+$`).MatchString(captured) {
 		t.Fatalf("expected a named draw line, got:\n%s", captured)
 	}
-	if !regexp.MustCompile(`(?m)^draw_1 := \d+$`).MatchString(captured) {
+	if !regexp.MustCompile(`(?m)^draw_report_test\.go:\d+: draw_1 := \d+$`).MatchString(captured) {
 		t.Fatalf("expected a numbered draw line for the blank binding, got:\n%s", captured)
 	}
 }
@@ -253,10 +253,10 @@ func TestDrawReportRepeatedName(t *testing.T) {
 		t.Fatalf("runHegel: %v", err)
 	}
 	captured := buf.String()
-	if !regexp.MustCompile(`(?m)^n := \d+$`).MatchString(captured) {
+	if !regexp.MustCompile(`(?m)^draw_report_test\.go:\d+: n := \d+$`).MatchString(captured) {
 		t.Fatalf("expected a bare first draw line, got:\n%s", captured)
 	}
-	if !regexp.MustCompile(`(?m)^n_2 := \d+$`).MatchString(captured) {
+	if !regexp.MustCompile(`(?m)^draw_report_test\.go:\d+: n_2 := \d+$`).MatchString(captured) {
 		t.Fatalf("expected a numbered second draw line, got:\n%s", captured)
 	}
 }
@@ -308,7 +308,7 @@ func TestDrawReportSuppressedInsideComposite(t *testing.T) {
 	if got != 1 {
 		t.Fatalf("expected exactly 1 draw line in output, got %d:\n%s", got, captured)
 	}
-	if !regexp.MustCompile(`(?m)^total := \d+$`).MatchString(captured) {
+	if !regexp.MustCompile(`(?m)^draw_report_test\.go:\d+: total := \d+$`).MatchString(captured) {
 		t.Fatalf("expected the outer binding's draw line, got:\n%s", captured)
 	}
 }

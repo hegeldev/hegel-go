@@ -174,7 +174,8 @@ type TestCase interface {
 //
 // On an emitting test case (the final replay of a failure, or under
 // [WithSingleTestCase]) a top-level draw prints into the case's report as a
-// `name := value` line, where name is the binding receiving the draw.
+// `file:line: name := value` line, where name is the binding receiving the
+// draw.
 // Nested draws (inside a span) are reported as part of the parent's value.
 // The whole line sits in a speculative region, so a draw that unwinds — a
 // failed assumption, an exhausted choice budget — retracts the partial line
@@ -191,7 +192,8 @@ func Draw[T any](tc TestCase, g Generator[T]) T {
 		}
 		return v
 	}
-	name := tc.displayDrawName(drawBindingName(1))
+	loc, srcName := drawCallSite(1)
+	name := tc.displayDrawName(srcName)
 	committed := false
 	rep.beginSpeculative()
 	tc.beginPrintingDraw()
@@ -201,7 +203,7 @@ func Draw[T any](tc TestCase, g Generator[T]) T {
 		}
 		tc.endPrintingDraw()
 	}()
-	rep.text(fmt.Sprintf("%s := ", name))
+	rep.text(fmt.Sprintf("%s: %s := ", loc, name))
 	v, err := drawAndPrint(tc, g, rep)
 	if err != nil {
 		tc.abort(err)

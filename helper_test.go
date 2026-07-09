@@ -54,7 +54,7 @@ func TestDrawDecoratesWithUserFileLine(t *testing.T) {
 		testBody(`n := hegel.Draw(ht, hegel.Integers(0, 100))
 _ = n
 panic("force final replay")`, "hegel.WithTestCases(1)").
-		expectFailure(`(?m)^\s+n := \d+`).
+		expectFailure(`(?m)^\s+hegel_test\.go:\d+: n := \d+`).
 		goTest()
 }
 

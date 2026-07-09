@@ -48,13 +48,14 @@ func TestBrokenListPrintsInGofmtShape(t *testing.T) {
 		xs := Draw(tc, Lists(Integers(100, 100)).MinSize(20).MaxSize(20))
 		_ = xs
 	})
-	if !strings.HasPrefix(out, "xs := []int{\n    100,\n") {
+	if !regexp.MustCompile(`(?m): xs := \[\]int\{\n    100,\n`).MatchString(out) {
 		t.Fatalf("expected the first element on its own line, got:\n%s", out)
 	}
 	if !strings.HasSuffix(out, "    100,\n}\n") {
 		t.Fatalf("expected a trailing comma and the close brace on its own line, got:\n%s", out)
 	}
-	src := "package p\n\nfunc f() {\n" + out + "\t_ = xs\n}\n"
+	stmt := out[strings.Index(out, "xs :="):]
+	src := "package p\n\nfunc f() {\n" + stmt + "\t_ = xs\n}\n"
 	if _, err := parser.ParseFile(newSourceCache().fset, "report.go", src, 0); err != nil {
 		t.Fatalf("report is not valid Go: %v\nreport:\n%s", err, out)
 	}
@@ -155,7 +156,7 @@ func TestFilterPrintsOnlyAcceptedAttempt(t *testing.T) {
 		n := Draw(tc, gen)
 		_ = n
 	})
-	if !regexp.MustCompile(`(?m)^n := 9$`).MatchString(out) {
+	if !regexp.MustCompile(`(?m): n := 9$`).MatchString(out) {
 		t.Fatalf("expected only the accepted attempt's value, got:\n%s", out)
 	}
 }
@@ -186,7 +187,7 @@ func TestFlatMapPrintsDependentValue(t *testing.T) {
 		}))
 		_ = n
 	})
-	if !regexp.MustCompile(`(?m)^n := 6$`).MatchString(out) {
+	if !regexp.MustCompile(`(?m): n := 6$`).MatchString(out) {
 		t.Fatalf("expected only the dependent value, got:\n%s", out)
 	}
 }
@@ -203,7 +204,7 @@ func TestNoteInsideDrawBuffersUntilAfterTheLine(t *testing.T) {
 		n := Draw(tc, gen)
 		_ = n
 	})
-	if !regexp.MustCompile(`(?m)^n := 5\nmid-draw note$`).MatchString(out) {
+	if !regexp.MustCompile(`(?m): n := 5\nmid-draw note$`).MatchString(out) {
 		t.Fatalf("expected the note on its own line after the draw line, got:\n%s", out)
 	}
 }

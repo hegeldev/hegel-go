@@ -81,7 +81,7 @@ func TestExplainAnnotatesListElementsIndividually(t *testing.T) {
 	}
 	captured := buf.String()
 	want := regexp.MustCompile(
-		`xs := \[\]int\{\n` +
+		`: xs := \[\]int\{\n` +
 			`    0, // or any other generated value\n` +
 			`    0, // or any other generated value\n` +
 			`    0,\n` +
