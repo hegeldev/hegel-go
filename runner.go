@@ -294,7 +294,9 @@ const (
 type Phase = libhegel.Phase
 
 const (
-	// PhaseExplicit runs explicitly-provided examples.
+	// PhaseExplicit is reserved for future use: it would run explicitly-provided
+	// examples, but hegel-go currently has no way to provide them, so enabling
+	// or disabling this phase is a no-op.
 	PhaseExplicit = libhegel.PHASE_EXPLICIT
 	// PhaseReuse replays examples from the example database.
 	PhaseReuse = libhegel.PHASE_REUSE
