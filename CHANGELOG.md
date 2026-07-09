@@ -27,6 +27,14 @@ a single irrelevant list element is annotated on its own line. When
 several draws vary freely, a leading note reports whether varying them
 together still always failed.
 
+Fixed a rare crash: a wrapper's GC cleanup could free its native libhegel
+handle while a call on that same handle was still executing, because the
+raw handle is invisible to the collector and the wrapper's last use can
+precede the call's return (observed once as a SIGSEGV inside
+`hegel_mark_complete`). Every native call now pins its handle's wrapper
+with `runtime.KeepAlive`, and a test enforces the rule for all future
+bindings.
+
 Requires the next libhegel release (the `hegel_printer_*` document API,
 `hegel_note`, `hegel_failure_comment*`, and
 `hegel_test_case_choice_count`); until the pin is bumped, point

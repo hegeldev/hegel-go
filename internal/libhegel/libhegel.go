@@ -461,16 +461,21 @@ func (c *Context) invoke(op string, fn func(ctx ctxT) Error) error {
 
 	e := fn(ptr)
 	if e == OK {
+		runtime.KeepAlive(c)
 		return nil
 	}
 
+	var err error
 	if c != nil {
 		if msg := c.syms.ContextLastError(c.raw); msg != "" {
-			return fmt.Errorf("%s: %w: %s", op, e, msg)
+			err = fmt.Errorf("%s: %w: %s", op, e, msg)
 		}
 	}
-
-	return fmt.Errorf("%s: %w", op, e)
+	if err == nil {
+		err = fmt.Errorf("%s: %w", op, e)
+	}
+	runtime.KeepAlive(c)
+	return err
 }
 
 // globalSymbols loads the libhegel shared library once and returns the shared,
@@ -646,68 +651,90 @@ func (c *Context) SettingsNew() *Settings {
 
 func (s *Settings) Mode(ctx *Context, m Mode) error {
 	return ctx.invoke("hegel_settings_set_mode", func(ctx ctxT) Error {
-		return s.syms.SettingsSetMode(ctx, s.raw, m)
+		e := s.syms.SettingsSetMode(ctx, s.raw, m)
+		runtime.KeepAlive(s)
+		return e
 	})
 }
 
 // Backend selects the engine's randomness backend. See [Backend].
 func (s *Settings) Backend(ctx *Context, b Backend) error {
 	return ctx.invoke("hegel_settings_set_backend", func(ctx ctxT) Error {
-		return s.syms.SettingsSetBackend(ctx, s.raw, b)
+		e := s.syms.SettingsSetBackend(ctx, s.raw, b)
+		runtime.KeepAlive(s)
+		return e
 	})
 }
 
 func (s *Settings) TestCases(ctx *Context, n uint64) error {
 	return ctx.invoke("hegel_settings_set_test_cases", func(ctx ctxT) Error {
-		return s.syms.SettingsSetTestCases(ctx, s.raw, n)
+		e := s.syms.SettingsSetTestCases(ctx, s.raw, n)
+		runtime.KeepAlive(s)
+		return e
 	})
 }
 
 func (s *Settings) Verbosity(ctx *Context, v Verbosity) error {
 	return ctx.invoke("hegel_settings_set_verbosity", func(ctx ctxT) Error {
-		return s.syms.SettingsSetVerbosity(ctx, s.raw, v)
+		e := s.syms.SettingsSetVerbosity(ctx, s.raw, v)
+		runtime.KeepAlive(s)
+		return e
 	})
 }
 
 func (s *Settings) Seed(ctx *Context, seed uint64, hasSeed bool) error {
 	return ctx.invoke("hegel_settings_set_seed", func(ctx ctxT) Error {
-		return s.syms.SettingsSetSeed(ctx, s.raw, seed, hasSeed)
+		e := s.syms.SettingsSetSeed(ctx, s.raw, seed, hasSeed)
+		runtime.KeepAlive(s)
+		return e
 	})
 }
 
 func (s *Settings) Derandomize(ctx *Context, on bool) error {
 	return ctx.invoke("hegel_settings_set_derandomize", func(ctx ctxT) Error {
-		return s.syms.SettingsSetDerandomize(ctx, s.raw, on)
+		e := s.syms.SettingsSetDerandomize(ctx, s.raw, on)
+		runtime.KeepAlive(s)
+		return e
 	})
 }
 
 func (s *Settings) ReportMultipleFailures(ctx *Context, yes bool) error {
 	return ctx.invoke("hegel_settings_set_report_multiple_failures", func(ctx ctxT) Error {
-		return s.syms.SettingsSetReportMultipleFailures(ctx, s.raw, yes)
+		e := s.syms.SettingsSetReportMultipleFailures(ctx, s.raw, yes)
+		runtime.KeepAlive(s)
+		return e
 	})
 }
 
 func (s *Settings) Database(ctx *Context, path string) error {
 	return ctx.invoke("hegel_settings_set_database", func(ctx ctxT) Error {
-		return s.syms.SettingsSetDatabase(ctx, s.raw, path)
+		e := s.syms.SettingsSetDatabase(ctx, s.raw, path)
+		runtime.KeepAlive(s)
+		return e
 	})
 }
 
 func (s *Settings) DatabaseKey(ctx *Context, key string) error {
 	return ctx.invoke("hegel_settings_set_database_key", func(ctx ctxT) Error {
-		return s.syms.SettingsSetDatabaseKey(ctx, s.raw, key)
+		e := s.syms.SettingsSetDatabaseKey(ctx, s.raw, key)
+		runtime.KeepAlive(s)
+		return e
 	})
 }
 
 func (s *Settings) Phases(ctx *Context, p Phase) error {
 	return ctx.invoke("hegel_settings_set_phases", func(ctx ctxT) Error {
-		return s.syms.SettingsSetPhases(ctx, s.raw, p)
+		e := s.syms.SettingsSetPhases(ctx, s.raw, p)
+		runtime.KeepAlive(s)
+		return e
 	})
 }
 
 func (s *Settings) SuppressHealthCheck(ctx *Context, checks HealthCheck) error {
 	return ctx.invoke("hegel_settings_set_suppress_health_check", func(ctx ctxT) Error {
-		return s.syms.SettingsSetSuppressHealthCheck(ctx, s.raw, checks)
+		e := s.syms.SettingsSetSuppressHealthCheck(ctx, s.raw, checks)
+		runtime.KeepAlive(s)
+		return e
 	})
 }
 
@@ -818,7 +845,9 @@ func (tc *TestCase) Clone(ctx *Context) (*TestCase, error) {
 // not shrunk).
 func (tc *TestCase) GenerateBoolean(ctx *Context, p float64, forced, hasForced bool) (bool, error) {
 	err := ctx.invoke("hegel_generate_boolean", func(ctx ctxT) Error {
-		return tc.syms.GenerateBoolean(ctx, tc.raw, p, forced, hasForced, &tc.outBool)
+		e := tc.syms.GenerateBoolean(ctx, tc.raw, p, forced, hasForced, &tc.outBool)
+		runtime.KeepAlive(tc)
+		return e
 	})
 	return tc.outBool, err
 }
@@ -827,7 +856,9 @@ func (tc *TestCase) GenerateBoolean(ctx *Context, p float64, forced, hasForced b
 // fit in int64; for wider bounds use [TestCase.GenerateIntegerBig].
 func (tc *TestCase) GenerateInteger(ctx *Context, minValue, maxValue int64) (int64, error) {
 	err := ctx.invoke("hegel_generate_integer", func(ctx ctxT) Error {
-		return tc.syms.GenerateInteger(ctx, tc.raw, minValue, maxValue, &tc.outInt)
+		e := tc.syms.GenerateInteger(ctx, tc.raw, minValue, maxValue, &tc.outInt)
+		runtime.KeepAlive(tc)
+		return e
 	})
 	return tc.outInt, err
 }
@@ -906,10 +937,12 @@ func (b BigInt) Uint64() uint64 {
 // buffers. Returns the drawn value's minimal little-endian bytes.
 func (tc *TestCase) GenerateIntegerBig(ctx *Context, minValue, maxValue BigInt) (BigInt, error) {
 	err := ctx.invoke("hegel_generate_integer_big", func(ctx ctxT) Error {
-		return tc.syms.GenerateIntegerBig(ctx, tc.raw,
+		e := tc.syms.GenerateIntegerBig(ctx, tc.raw,
 			slicePtr(minValue), uint64(len(minValue)),
 			slicePtr(maxValue), uint64(len(maxValue)),
 			&tc.outFixed[0], uint64(len(tc.outFixed)), &tc.outLen)
+		runtime.KeepAlive(tc)
+		return e
 	})
 	if err != nil {
 		return nil, err
@@ -921,7 +954,9 @@ func (tc *TestCase) GenerateIntegerBig(ctx *Context, minValue, maxValue BigInt) 
 // maxValue]. See hegel_generate_float for the meaning of each flag.
 func (tc *TestCase) GenerateFloat(ctx *Context, width uint32, minValue, maxValue float64, allowNaN, allowInfinity, excludeMin, excludeMax bool, smallestNonzero float64) (float64, error) {
 	err := ctx.invoke("hegel_generate_float", func(ctx ctxT) Error {
-		return tc.syms.GenerateFloat(ctx, tc.raw, width, minValue, maxValue, allowNaN, allowInfinity, excludeMin, excludeMax, smallestNonzero, &tc.outFloat)
+		e := tc.syms.GenerateFloat(ctx, tc.raw, width, minValue, maxValue, allowNaN, allowInfinity, excludeMin, excludeMax, smallestNonzero, &tc.outFloat)
+		runtime.KeepAlive(tc)
+		return e
 	})
 	return tc.outFloat, err
 }
@@ -929,7 +964,9 @@ func (tc *TestCase) GenerateFloat(ctx *Context, width uint32, minValue, maxValue
 // GenerateBytes draws a byte string with length in [minSize, maxSize].
 func (tc *TestCase) GenerateBytes(ctx *Context, minSize, maxSize uint64) ([]byte, error) {
 	err := ctx.invoke("hegel_generate_bytes", func(ctx ctxT) Error {
-		return tc.syms.GenerateBytes(ctx, tc.raw, minSize, maxSize, &tc.outBytesRes)
+		e := tc.syms.GenerateBytes(ctx, tc.raw, minSize, maxSize, &tc.outBytesRes)
+		runtime.KeepAlive(tc)
+		return e
 	})
 	if err != nil {
 		return nil, err
@@ -944,6 +981,7 @@ func (tc *TestCase) GenerateBytes(ctx *Context, minSize, maxSize uint64) ([]byte
 func (tc *TestCase) GenerateString(ctx *Context, gen *StringGenerator) (string, error) {
 	err := ctx.invoke("hegel_generate_string", func(ctx ctxT) Error {
 		e := tc.syms.GenerateString(ctx, tc.raw, gen.raw, &tc.outStringRes)
+		runtime.KeepAlive(tc)
 		runtime.KeepAlive(gen)
 		return e
 	})
@@ -959,7 +997,9 @@ func (tc *TestCase) GenerateString(ctx *Context, gen *StringGenerator) (string, 
 // GenerateDate draws a Gregorian calendar date in [minValue, maxValue].
 func (tc *TestCase) GenerateDate(ctx *Context, minValue, maxValue Date) (Date, error) {
 	err := ctx.invoke("hegel_generate_date", func(ctx ctxT) Error {
-		return tc.syms.GenerateDate(ctx, tc.raw, minValue, maxValue, &tc.outDate)
+		e := tc.syms.GenerateDate(ctx, tc.raw, minValue, maxValue, &tc.outDate)
+		runtime.KeepAlive(tc)
+		return e
 	})
 	return tc.outDate, err
 }
@@ -967,7 +1007,9 @@ func (tc *TestCase) GenerateDate(ctx *Context, minValue, maxValue Date) (Date, e
 // GenerateTime draws a time of day in [minValue, maxValue].
 func (tc *TestCase) GenerateTime(ctx *Context, minValue, maxValue Time) (Time, error) {
 	err := ctx.invoke("hegel_generate_time", func(ctx ctxT) Error {
-		return tc.syms.GenerateTime(ctx, tc.raw, minValue, maxValue, &tc.outTime)
+		e := tc.syms.GenerateTime(ctx, tc.raw, minValue, maxValue, &tc.outTime)
+		runtime.KeepAlive(tc)
+		return e
 	})
 	return tc.outTime, err
 }
@@ -975,7 +1017,9 @@ func (tc *TestCase) GenerateTime(ctx *Context, minValue, maxValue Time) (Time, e
 // GenerateDatetime draws a naive datetime in [minValue, maxValue].
 func (tc *TestCase) GenerateDatetime(ctx *Context, minValue, maxValue Datetime) (Datetime, error) {
 	err := ctx.invoke("hegel_generate_datetime", func(ctx ctxT) Error {
-		return tc.syms.GenerateDatetime(ctx, tc.raw, minValue, maxValue, &tc.outDatetime)
+		e := tc.syms.GenerateDatetime(ctx, tc.raw, minValue, maxValue, &tc.outDatetime)
+		runtime.KeepAlive(tc)
+		return e
 	})
 	return tc.outDatetime, err
 }
@@ -984,7 +1028,9 @@ func (tc *TestCase) GenerateDatetime(ctx *Context, minValue, maxValue Datetime) 
 // RFC 4122 version nibble is forced to version.
 func (tc *TestCase) GenerateUUID(ctx *Context, version uint8, hasVersion bool) ([16]byte, error) {
 	err := ctx.invoke("hegel_generate_uuid", func(ctx ctxT) Error {
-		return tc.syms.GenerateUUID(ctx, tc.raw, version, hasVersion, &tc.outFixed[0])
+		e := tc.syms.GenerateUUID(ctx, tc.raw, version, hasVersion, &tc.outFixed[0])
+		runtime.KeepAlive(tc)
+		return e
 	})
 	return tc.outFixed, err
 }
@@ -992,7 +1038,9 @@ func (tc *TestCase) GenerateUUID(ctx *Context, version uint8, hasVersion bool) (
 // GenerateIPv4 draws an IPv4 address as 4 network-order bytes.
 func (tc *TestCase) GenerateIPv4(ctx *Context) ([4]byte, error) {
 	err := ctx.invoke("hegel_generate_ipv4", func(ctx ctxT) Error {
-		return tc.syms.GenerateIPv4(ctx, tc.raw, &tc.outFixed[0])
+		e := tc.syms.GenerateIPv4(ctx, tc.raw, &tc.outFixed[0])
+		runtime.KeepAlive(tc)
+		return e
 	})
 	return [4]byte(tc.outFixed[:4]), err
 }
@@ -1000,47 +1048,61 @@ func (tc *TestCase) GenerateIPv4(ctx *Context) ([4]byte, error) {
 // GenerateIPv6 draws an IPv6 address as 16 network-order bytes.
 func (tc *TestCase) GenerateIPv6(ctx *Context) ([16]byte, error) {
 	err := ctx.invoke("hegel_generate_ipv6", func(ctx ctxT) Error {
-		return tc.syms.GenerateIPv6(ctx, tc.raw, &tc.outFixed[0])
+		e := tc.syms.GenerateIPv6(ctx, tc.raw, &tc.outFixed[0])
+		runtime.KeepAlive(tc)
+		return e
 	})
 	return tc.outFixed, err
 }
 
 func (tc *TestCase) StartSpan(ctx *Context, label Label) error {
 	return ctx.invoke("hegel_start_span", func(ctx ctxT) Error {
-		return tc.syms.StartSpan(ctx, tc.raw, label)
+		e := tc.syms.StartSpan(ctx, tc.raw, label)
+		runtime.KeepAlive(tc)
+		return e
 	})
 }
 
 func (tc *TestCase) StopSpan(ctx *Context, discard bool) error {
 	return ctx.invoke("hegel_stop_span", func(ctx ctxT) Error {
-		return tc.syms.StopSpan(ctx, tc.raw, discard)
+		e := tc.syms.StopSpan(ctx, tc.raw, discard)
+		runtime.KeepAlive(tc)
+		return e
 	})
 }
 
 func (tc *TestCase) NewCollection(ctx *Context, min, max uint64) (Collection, error) {
 	err := ctx.invoke("hegel_new_collection", func(ctx ctxT) Error {
-		return tc.syms.NewCollection(ctx, tc.raw, min, max, &tc.outColl)
+		e := tc.syms.NewCollection(ctx, tc.raw, min, max, &tc.outColl)
+		runtime.KeepAlive(tc)
+		return e
 	})
 	return tc.outColl, err
 }
 
 func (tc *TestCase) CollectionMore(ctx *Context, coll Collection) (bool, error) {
 	err := ctx.invoke("hegel_collection_more", func(ctx ctxT) Error {
-		return tc.syms.CollectionMore(ctx, tc.raw, coll, &tc.outBool)
+		e := tc.syms.CollectionMore(ctx, tc.raw, coll, &tc.outBool)
+		runtime.KeepAlive(tc)
+		return e
 	})
 	return tc.outBool, err
 }
 
 func (tc *TestCase) CollectionReject(ctx *Context, coll Collection, why string) error {
 	return ctx.invoke("hegel_collection_reject", func(ctx ctxT) Error {
-		return tc.syms.CollectionReject(ctx, tc.raw, coll, why)
+		e := tc.syms.CollectionReject(ctx, tc.raw, coll, why)
+		runtime.KeepAlive(tc)
+		return e
 	})
 }
 
 // NewPool creates an engine-managed variable pool for stateful testing.
 func (tc *TestCase) NewPool(ctx *Context) (int64, error) {
 	err := ctx.invoke("hegel_new_pool", func(ctx ctxT) Error {
-		return tc.syms.NewPool(ctx, tc.raw, &tc.outInt)
+		e := tc.syms.NewPool(ctx, tc.raw, &tc.outInt)
+		runtime.KeepAlive(tc)
+		return e
 	})
 	return tc.outInt, err
 }
@@ -1048,7 +1110,9 @@ func (tc *TestCase) NewPool(ctx *Context) (int64, error) {
 // PoolAdd registers a new variable in the pool, returning the engine-assigned id.
 func (tc *TestCase) PoolAdd(ctx *Context, pool int64) (int64, error) {
 	err := ctx.invoke("hegel_pool_add", func(ctx ctxT) Error {
-		return tc.syms.PoolAdd(ctx, tc.raw, pool, &tc.outInt)
+		e := tc.syms.PoolAdd(ctx, tc.raw, pool, &tc.outInt)
+		runtime.KeepAlive(tc)
+		return e
 	})
 	return tc.outInt, err
 }
@@ -1058,7 +1122,9 @@ func (tc *TestCase) PoolAdd(ctx *Context, pool int64) (int64, error) {
 // drawn variable is removed from the pool.
 func (tc *TestCase) PoolGenerate(ctx *Context, pool int64, consume bool) (int64, error) {
 	err := ctx.invoke("hegel_pool_generate", func(ctx ctxT) Error {
-		return tc.syms.PoolGenerate(ctx, tc.raw, pool, consume, &tc.outInt)
+		e := tc.syms.PoolGenerate(ctx, tc.raw, pool, consume, &tc.outInt)
+		runtime.KeepAlive(tc)
+		return e
 	})
 	return tc.outInt, err
 }
@@ -1076,12 +1142,14 @@ func (tc *TestCase) NewStateMachine(ctx *Context, ruleNames, invariantNames []st
 		return 0, fmt.Errorf("hegel_new_state_machine: invariant names: %w", err)
 	}
 	err = ctx.invoke("hegel_new_state_machine", func(ctx ctxT) Error {
-		return tc.syms.NewStateMachine(
+		e := tc.syms.NewStateMachine(
 			ctx, tc.raw,
 			slicePtr(rules), uint64(len(ruleNames)),
 			slicePtr(invariants), uint64(len(invariantNames)),
 			&tc.outSM,
 		)
+		runtime.KeepAlive(tc)
+		return e
 	})
 	return tc.outSM, err
 }
@@ -1090,20 +1158,26 @@ func (tc *TestCase) NewStateMachine(ctx *Context, ruleNames, invariantNames []st
 // [0, num_rules), letting the engine choose and shrink the rule sequence.
 func (tc *TestCase) StateMachineNextRule(ctx *Context, machine StateMachine) (int64, error) {
 	err := ctx.invoke("hegel_state_machine_next_rule", func(ctx ctxT) Error {
-		return tc.syms.StateMachineNextRule(ctx, tc.raw, machine, &tc.outInt)
+		e := tc.syms.StateMachineNextRule(ctx, tc.raw, machine, &tc.outInt)
+		runtime.KeepAlive(tc)
+		return e
 	})
 	return tc.outInt, err
 }
 
 func (tc *TestCase) Target(ctx *Context, value float64, label string) error {
 	return ctx.invoke("hegel_target", func(ctx ctxT) Error {
-		return tc.syms.Target(ctx, tc.raw, value, label)
+		e := tc.syms.Target(ctx, tc.raw, value, label)
+		runtime.KeepAlive(tc)
+		return e
 	})
 }
 
 func (tc *TestCase) MarkComplete(ctx *Context, status Status, origin string) error {
 	return ctx.invoke("hegel_mark_complete", func(ctx ctxT) Error {
-		return tc.syms.MarkComplete(ctx, tc.raw, status, origin)
+		e := tc.syms.MarkComplete(ctx, tc.raw, status, origin)
+		runtime.KeepAlive(tc)
+		return e
 	})
 }
 
@@ -1128,7 +1202,9 @@ func (r *Result) Status(ctx *Context) RunStatus {
 	// handle, which we never produce) is never mistaken for a pass.
 	r.outStatus = RUN_STATUS_ERROR
 	_ = ctx.invoke("hegel_run_result_status", func(ctx ctxT) Error {
-		return r.syms.ResultStatus(ctx, r.raw, &r.outStatus)
+		e := r.syms.ResultStatus(ctx, r.raw, &r.outStatus)
+		runtime.KeepAlive(r)
+		return e
 	})
 	return r.outStatus
 }
@@ -1137,14 +1213,18 @@ func (r *Result) Status(ctx *Context) RunStatus {
 // [RUN_STATUS_ERROR], or the empty string otherwise.
 func (r *Result) ErrorMessage(ctx *Context) string {
 	_ = ctx.invoke("hegel_run_result_error", func(ctx ctxT) Error {
-		return r.syms.ResultError(ctx, r.raw, &r.outBytes)
+		e := r.syms.ResultError(ctx, r.raw, &r.outBytes)
+		runtime.KeepAlive(r)
+		return e
 	})
 	return goString(r.outBytes)
 }
 
 func (r *Result) FailureCount(ctx *Context) uint64 {
 	_ = ctx.invoke("hegel_run_result_failure_count", func(ctx ctxT) Error {
-		return r.syms.ResultFailureCount(ctx, r.raw, &r.outCount)
+		e := r.syms.ResultFailureCount(ctx, r.raw, &r.outCount)
+		runtime.KeepAlive(r)
+		return e
 	})
 	return r.outCount
 }
@@ -1176,7 +1256,9 @@ type Failure struct {
 // shrinker used to group probes for this bug.
 func (f *Failure) Origin(ctx *Context) string {
 	_ = ctx.invoke("hegel_failure_origin", func(ctx ctxT) Error {
-		return f.syms.FailureOrigin(ctx, f.raw, &f.outBytes)
+		e := f.syms.FailureOrigin(ctx, f.raw, &f.outBytes)
+		runtime.KeepAlive(f)
+		return e
 	})
 	return goString(f.outBytes)
 }
@@ -1186,7 +1268,9 @@ func (f *Failure) Origin(ctx *Context) string {
 // string if the engine produced no blob for this failure.
 func (f *Failure) ReproductionBlob(ctx *Context) string {
 	_ = ctx.invoke("hegel_failure_reproduction_blob", func(ctx ctxT) Error {
-		return f.syms.FailureReproductionBlob(ctx, f.raw, &f.outBytes)
+		e := f.syms.FailureReproductionBlob(ctx, f.raw, &f.outBytes)
+		runtime.KeepAlive(f)
+		return e
 	})
 	return goString(f.outBytes)
 }
@@ -1197,7 +1281,9 @@ func (f *Failure) ReproductionBlob(ctx *Context) string {
 // disabled, skipped, or found nothing to say.
 func (f *Failure) CommentCount(ctx *Context) uint64 {
 	_ = ctx.invoke("hegel_failure_comment_count", func(ctx ctxT) Error {
-		return f.syms.FailureCommentCount(ctx, f.raw, &f.outCount)
+		e := f.syms.FailureCommentCount(ctx, f.raw, &f.outCount)
+		runtime.KeepAlive(f)
+		return e
 	})
 	return f.outCount
 }
@@ -1208,7 +1294,9 @@ func (f *Failure) CommentCount(ctx *Context) uint64 {
 // the marker slice (0, 0).
 func (f *Failure) Comment(ctx *Context, index uint64) (start, end uint64, text string) {
 	_ = ctx.invoke("hegel_failure_comment", func(ctx ctxT) Error {
-		return f.syms.FailureComment(ctx, f.raw, index, &f.outCount, &f.outCount2, &f.outBytes)
+		e := f.syms.FailureComment(ctx, f.raw, index, &f.outCount, &f.outCount2, &f.outBytes)
+		runtime.KeepAlive(f)
+		return e
 	})
 	return f.outCount, f.outCount2, goString(f.outBytes)
 }
@@ -1219,7 +1307,9 @@ func (f *Failure) Comment(ctx *Context, index uint64) (start, end uint64, text s
 // reported draws on the final replay.
 func (tc *TestCase) ChoiceCount(ctx *Context) uint64 {
 	_ = ctx.invoke("hegel_test_case_choice_count", func(ctx ctxT) Error {
-		return tc.syms.TestCaseChoiceCount(ctx, tc.raw, &tc.outCount)
+		e := tc.syms.TestCaseChoiceCount(ctx, tc.raw, &tc.outCount)
+		runtime.KeepAlive(tc)
+		return e
 	})
 	return tc.outCount
 }
@@ -1243,7 +1333,9 @@ func (tc *TestCase) Printer(ctx *Context, maxWidth uint64) *Printer {
 // the order they were appended.
 func (tc *TestCase) Note(ctx *Context, text string) {
 	_ = ctx.invoke("hegel_note", func(ctx ctxT) Error {
-		return tc.syms.Note(ctx, tc.raw, text, uint64(len(text)))
+		e := tc.syms.Note(ctx, tc.raw, text, uint64(len(text)))
+		runtime.KeepAlive(tc)
+		return e
 	})
 }
 
@@ -1261,7 +1353,9 @@ type Printer struct {
 // structure is expressed with [Printer.HardBreak].
 func (p *Printer) Text(ctx *Context, s string) {
 	_ = ctx.invoke("hegel_printer_text", func(ctx ctxT) Error {
-		return p.syms.PrinterText(ctx, p.raw, s, uint64(len(s)))
+		e := p.syms.PrinterText(ctx, p.raw, s, uint64(len(s)))
+		runtime.KeepAlive(p)
+		return e
 	})
 }
 
@@ -1270,14 +1364,18 @@ func (p *Printer) Text(ctx *Context, s string) {
 // group breaks.
 func (p *Printer) Breakable(ctx *Context, sep string) {
 	_ = ctx.invoke("hegel_printer_breakable", func(ctx ctxT) Error {
-		return p.syms.PrinterBreakable(ctx, p.raw, sep, uint64(len(sep)))
+		e := p.syms.PrinterBreakable(ctx, p.raw, sep, uint64(len(sep)))
+		runtime.KeepAlive(p)
+		return e
 	})
 }
 
 // HardBreak emits an unconditional newline plus the current indentation.
 func (p *Printer) HardBreak(ctx *Context) {
 	_ = ctx.invoke("hegel_printer_hard_break", func(ctx ctxT) Error {
-		return p.syms.PrinterHardBreak(ctx, p.raw)
+		e := p.syms.PrinterHardBreak(ctx, p.raw)
+		runtime.KeepAlive(p)
+		return e
 	})
 }
 
@@ -1285,14 +1383,18 @@ func (p *Printer) HardBreak(ctx *Context) {
 // by indent. Break decisions are all-or-nothing per group.
 func (p *Printer) BeginGroup(ctx *Context, indent uint64, open string) {
 	_ = ctx.invoke("hegel_printer_begin_group", func(ctx ctxT) Error {
-		return p.syms.PrinterBeginGroup(ctx, p.raw, indent, open, uint64(len(open)))
+		e := p.syms.PrinterBeginGroup(ctx, p.raw, indent, open, uint64(len(open)))
+		runtime.KeepAlive(p)
+		return e
 	})
 }
 
 // EndGroup closes the innermost group: dedents by dedent, then emits close.
 func (p *Printer) EndGroup(ctx *Context, dedent uint64, close string) {
 	_ = ctx.invoke("hegel_printer_end_group", func(ctx ctxT) Error {
-		return p.syms.PrinterEndGroup(ctx, p.raw, dedent, close, uint64(len(close)))
+		e := p.syms.PrinterEndGroup(ctx, p.raw, dedent, close, uint64(len(close)))
+		runtime.KeepAlive(p)
+		return e
 	})
 }
 
@@ -1301,21 +1403,27 @@ func (p *Printer) EndGroup(ctx *Context, dedent uint64, close string) {
 // duplicate, a filter retry) leaves no text behind.
 func (p *Printer) BeginSpeculative(ctx *Context) {
 	_ = ctx.invoke("hegel_printer_begin_speculative", func(ctx ctxT) Error {
-		return p.syms.PrinterBeginSpeculative(ctx, p.raw)
+		e := p.syms.PrinterBeginSpeculative(ctx, p.raw)
+		runtime.KeepAlive(p)
+		return e
 	})
 }
 
 // CommitSpeculative keeps the innermost speculative region's content.
 func (p *Printer) CommitSpeculative(ctx *Context) {
 	_ = ctx.invoke("hegel_printer_commit_speculative", func(ctx ctxT) Error {
-		return p.syms.PrinterCommitSpeculative(ctx, p.raw)
+		e := p.syms.PrinterCommitSpeculative(ctx, p.raw)
+		runtime.KeepAlive(p)
+		return e
 	})
 }
 
 // AbortSpeculative discards the innermost speculative region's content.
 func (p *Printer) AbortSpeculative(ctx *Context) {
 	_ = ctx.invoke("hegel_printer_abort_speculative", func(ctx ctxT) Error {
-		return p.syms.PrinterAbortSpeculative(ctx, p.raw)
+		e := p.syms.PrinterAbortSpeculative(ctx, p.raw)
+		runtime.KeepAlive(p)
+		return e
 	})
 }
 
@@ -1325,7 +1433,9 @@ func (p *Printer) AbortSpeculative(ctx *Context) {
 // accounting.
 func (p *Printer) Comment(ctx *Context, s string) {
 	_ = ctx.invoke("hegel_printer_comment", func(ctx ctxT) Error {
-		return p.syms.PrinterComment(ctx, p.raw, s, uint64(len(s)))
+		e := p.syms.PrinterComment(ctx, p.raw, s, uint64(len(s)))
+		runtime.KeepAlive(p)
+		return e
 	})
 }
 
@@ -1347,10 +1457,14 @@ func (p *Printer) Value(ctx *Context) string {
 	// Resolving with no deferred session outstanding reports a usage error;
 	// rendering is valid either way, so that error is deliberately ignored.
 	_ = ctx.invoke("hegel_printer_resolve", func(ctx ctxT) Error {
-		return p.syms.PrinterResolve(ctx, p.raw)
+		e := p.syms.PrinterResolve(ctx, p.raw)
+		runtime.KeepAlive(p)
+		return e
 	})
 	err := ctx.invoke("hegel_printer_value", func(ctx ctxT) Error {
-		return p.syms.PrinterValue(ctx, p.raw, &p.outValue)
+		e := p.syms.PrinterValue(ctx, p.raw, &p.outValue)
+		runtime.KeepAlive(p)
+		return e
 	})
 	if err != nil {
 		return ""
