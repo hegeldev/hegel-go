@@ -1,15 +1,5 @@
 # Changelog
 
-## Unreleased
-
-Fixed a rare crash: a wrapper's GC cleanup could free its native libhegel
-handle while a call on that same handle was still executing, because the
-raw handle is invisible to the collector and the wrapper's last use can
-precede the call's return (observed once as a SIGSEGV inside
-`hegel_mark_complete`). Every native call now pins its handle's wrapper
-with `runtime.KeepAlive`, and a test enforces the rule for all future
-bindings.
-
 ## 0.6.15 - 2026-07-08
 
 This patch bumps our pinned libhegel ([hegel-rust](hegeldev/hegel-rust)) from [0.27.0](https://github.com/hegeldev/hegel-rust/releases/tag/v0.27.0) to [0.28.0](https://github.com/hegeldev/hegel-rust/releases/tag/v0.28.0).
