@@ -3,7 +3,6 @@ package hegel
 import (
 	"fmt"
 	"path/filepath"
-	"runtime"
 	"testing"
 
 	"hegel.dev/go/hegel/internal/libhegel"
@@ -55,10 +54,7 @@ func (t *T) logToReport(skip int, msg string) {
 	if t.out == nil {
 		return
 	}
-	_, file, line, ok := runtime.Caller(skip + 1)
-	if !ok { // coverage-ignore
-		panic(fmt.Errorf("runtime.Caller(%d) failed", skip+1))
-	}
+	file, line := callerFileLine(skip + 1)
 	t.testCase.Note(fmt.Sprintf("%s:%d: %s", filepath.Base(file), line, msg))
 }
 

@@ -27,6 +27,21 @@ func (g *oneOfGenerator[T]) draw(tc TestCase) (T, error) {
 	})
 }
 
+// printDraw is the printing twin of draw: the branch index draws silently
+// and the chosen branch prints its own value. Consumes exactly the choices
+// draw consumes.
+func (g *oneOfGenerator[T]) printDraw(tc TestCase, rep *reporter) (T, error) {
+	var zero T
+	return withSpan(tc, libhegel.LABEL_ONE_OF, func() (T, error) {
+		ctx, ltc := tc.engine()
+		idx, err := ltc.GenerateInteger(ctx, 0, int64(len(g.generators)-1))
+		if err != nil {
+			return zero, err
+		}
+		return drawAndPrint(tc, g.generators[idx], rep)
+	})
+}
+
 // OneOf returns a Generator that produces values from one of the given generators.
 //
 // Requires at least 1 generator.
@@ -62,6 +77,30 @@ func (g *optionalGenerator[T]) draw(tc TestCase) (*T, error) {
 			return nil, nil
 		}
 		v, err := g.inner.draw(tc)
+		if err != nil {
+			return nil, err
+		}
+		return &v, nil
+	})
+}
+
+// printDraw is the printing twin of draw: nil prints as nil, and a present
+// value prints as &value through the inner generator's own printing draw
+// (the %#v fallback would print the pointer's address). Consumes exactly the
+// choices draw consumes.
+func (g *optionalGenerator[T]) printDraw(tc TestCase, rep *reporter) (*T, error) {
+	return withSpan(tc, libhegel.LABEL_OPTIONAL, func() (*T, error) {
+		ctx, ltc := tc.engine()
+		idx, err := ltc.GenerateInteger(ctx, 0, 1)
+		if err != nil {
+			return nil, err
+		}
+		if idx == 0 {
+			rep.text("nil")
+			return nil, nil
+		}
+		rep.text("&")
+		v, err := drawAndPrint(tc, g.inner, rep)
 		if err != nil {
 			return nil, err
 		}

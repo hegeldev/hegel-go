@@ -1,6 +1,11 @@
 package hegel
 
-import "hegel.dev/go/hegel/internal/libhegel"
+import (
+	"fmt"
+	"reflect"
+
+	"hegel.dev/go/hegel/internal/libhegel"
+)
 
 // --- Generator interface ---
 
@@ -11,6 +16,49 @@ type Generator[T any] interface {
 	// draw produces a value from the Hegel engine using the given test case.
 	// Unexported to seal the interface to this package.
 	draw(tc TestCase) (T, error)
+}
+
+// printableGenerator is implemented by the structural generators (Lists,
+// Maps, OneOf, Optional, Filter, FlatMap) that can print a value's
+// representation while drawing it, emitting their delimiters around their
+// component generators' own printing draws. That interleaving is what lets
+// an explain-phase annotation attach to exactly the printed part it
+// describes — a single slice element, one map entry.
+//
+// printDraw must consume exactly the choices (and spans) draw consumes: the
+// engine explores with the silent path and replays failures with the
+// printing path, so any divergence makes the failing replay flaky.
+// Everything else prints by value: draw, then the %#v rendering.
+type printableGenerator[T any] interface {
+	printDraw(tc TestCase, rep *reporter) (T, error)
+}
+
+// drawAndPrint draws from g while printing its representation into rep, as
+// one tracked explain-annotation region: if the choice slice the draw
+// consumes carries an engine annotation, it is attached as a trailing
+// comment. Compositional generators route their component draws back
+// through here, so every nested printed region can carry its own annotation.
+func drawAndPrint[T any](tc TestCase, g Generator[T], rep *reporter) (T, error) {
+	start, tracking := tc.explainRegionStart()
+	var v T
+	var err error
+	if pg, ok := g.(printableGenerator[T]); ok {
+		v, err = pg.printDraw(tc, rep)
+	} else {
+		v, err = g.draw(tc)
+		if err == nil {
+			rep.text(fmt.Sprintf("%#v", v))
+		}
+	}
+	if err != nil {
+		return v, err
+	}
+	if tracking {
+		if comment := tc.explainComment(start); comment != "" {
+			rep.comment(" // " + comment)
+		}
+	}
+	return v, nil
 }
 
 // TestCase is the test context for a Hegel property test.
@@ -91,12 +139,13 @@ type TestCase interface {
 	// engine's choice budget is exhausted.
 	stateMachineNextRule(machine libhegel.StateMachine) (int64, error)
 
-	// reportDraw emits one draw-report line for value through the
-	// implementation's note channel, or no-ops when notes are suppressed.
-	// skip is the number of stack frames to skip when resolving the source
-	// position of the originating [Draw] call. comment, when non-empty, is an
-	// explain-phase annotation appended to the line in Go comment syntax.
-	reportDraw(skip int, value any, comment string)
+	// reporter returns the test case's report writer, or nil when this case
+	// does not emit (every exploratory case).
+	reporter() *reporter
+
+	// displayDrawName allocates the display name for a draw from its source
+	// binding name ("" when there is no unambiguous one).
+	displayDrawName(name string) string
 
 	// explainRegionStart opens an explain-annotation region: the choice
 	// index the enclosing draw starts at, and whether tracking is active
@@ -111,30 +160,62 @@ type TestCase interface {
 	// inSpan reports whether the test case is inside one or more
 	// generation spans.
 	inSpan() bool
+
+	// beginPrintingDraw marks a top-level printing draw as in progress:
+	// notes made during it buffer instead of landing mid-line.
+	beginPrintingDraw()
+
+	// endPrintingDraw clears the printing-draw mark and emits the buffered
+	// notes after the draw's line.
+	endPrintingDraw()
 }
 
 // Draw produces a value from a Generator using the given TestCase context.
+//
+// On an emitting test case (the final replay of a failure, or under
+// [WithSingleTestCase]) a top-level draw prints into the case's report as a
+// `file:line: name = value` line, where name is the binding receiving the
+// draw. Nested draws (inside a span) are reported as part of the parent's
+// value. The whole line sits in a speculative region, so a draw that
+// unwinds — a failed assumption, an exhausted choice budget — retracts the
+// partial line instead of corrupting the report.
 func Draw[T any](tc TestCase, g Generator[T]) T {
-	// Mark this frame as a helper so t.Log file:line decoration walks past
-	// it to the user's call site. testCase has no-op Helper; *T inherits
-	// from *testing.T.
 	if h, ok := tc.(interface{ Helper() }); ok {
 		h.Helper()
 	}
-	start, tracking := tc.explainRegionStart()
-	v, err := g.draw(tc)
+	rep := tc.reporter()
+	if rep == nil || tc.inSpan() {
+		v, err := g.draw(tc)
+		if err != nil {
+			tc.abort(err)
+		}
+		return v
+	}
+	loc, srcName := drawCallSite(1)
+	name := tc.displayDrawName(srcName)
+	committed := false
+	rep.beginSpeculative()
+	tc.beginPrintingDraw()
+	defer func() {
+		if !committed {
+			rep.abortSpeculative()
+		}
+		tc.endPrintingDraw()
+	}()
+	rep.text(fmt.Sprintf("%s: %s = ", loc, name))
+	v, err := drawAndPrint(tc, g, rep)
 	if err != nil {
 		tc.abort(err)
 	}
-	// Nested draws are reported as part of the parent's value.
-	if !tc.inSpan() {
-		comment := ""
-		if tracking {
-			comment = tc.explainComment(start)
-		}
-		tc.reportDraw(1, v, comment)
-	}
+	rep.hardBreak()
+	rep.commitSpeculative()
+	committed = true
 	return v
+}
+
+// typeName renders T the way %#v spells it in composite literals.
+func typeName[T any]() string {
+	return reflect.TypeFor[T]().String()
 }
 
 // --- mappedGenerator ---
@@ -172,16 +253,18 @@ type filteredGenerator[T any] struct {
 //lint:ignore U1000 used by filteredGenerator.draw, which is reached via Generator interface
 const maxFilterAttempts = 3
 
-// draw tries up to maxFilterAttempts times to produce a value satisfying predicate.
-//
-//lint:ignore U1000 satisfies Generator interface; staticcheck misses generic dispatch
-func (g *filteredGenerator[T]) draw(tc TestCase) (T, error) {
+// attemptLoop tries up to maxFilterAttempts times to produce a value
+// satisfying predicate, running each attempt inside a FILTER span (discarded
+// on rejection). attempt does the drawing — silently for draw, printing for
+// printDraw — so both paths share the span discipline and consume identical
+// choices.
+func (g *filteredGenerator[T]) attemptLoop(tc TestCase, attempt func() (T, error)) (T, error) {
 	var zero T
 	for range maxFilterAttempts {
 		if err := tc.startSpan(libhegel.LABEL_FILTER); err != nil {
 			return zero, err
 		}
-		value, err := g.source.draw(tc)
+		value, err := attempt()
 		if err != nil {
 			return zero, err
 		}
@@ -196,6 +279,40 @@ func (g *filteredGenerator[T]) draw(tc TestCase) (T, error) {
 		}
 	}
 	return zero, libhegel.E_ASSUME
+}
+
+// draw tries up to maxFilterAttempts times to produce a value satisfying predicate.
+//
+//lint:ignore U1000 satisfies Generator interface; staticcheck misses generic dispatch
+func (g *filteredGenerator[T]) draw(tc TestCase) (T, error) {
+	return g.attemptLoop(tc, func() (T, error) {
+		return g.source.draw(tc)
+	})
+}
+
+// printDraw is the printing twin of draw: each attempt prints inside a
+// speculative region, so only the accepted attempt's text survives. The last
+// region's fate follows the loop's verdict — a nil error means its attempt
+// was accepted, any error (a rejected budget, a failed draw) means its text
+// must be retracted.
+func (g *filteredGenerator[T]) printDraw(tc TestCase, rep *reporter) (T, error) {
+	var opened bool
+	value, err := g.attemptLoop(tc, func() (T, error) {
+		if opened { // the previous attempt was rejected; retract its text
+			rep.abortSpeculative()
+		}
+		opened = true
+		rep.beginSpeculative()
+		return drawAndPrint(tc, g.source, rep)
+	})
+	if opened {
+		if err == nil {
+			rep.commitSpeculative()
+		} else {
+			rep.abortSpeculative()
+		}
+	}
+	return value, err
 }
 
 // --- flatMappedGenerator ---
@@ -218,6 +335,20 @@ func (g *flatMappedGenerator[T, U]) draw(tc TestCase) (U, error) {
 			return zero, err
 		}
 		return g.f(first).draw(tc)
+	})
+}
+
+// printDraw is the printing twin of draw: the source draws silently (its
+// value only parameterizes the dependent generator) and the dependent
+// generator prints the produced value.
+func (g *flatMappedGenerator[T, U]) printDraw(tc TestCase, rep *reporter) (U, error) {
+	return withSpan(tc, libhegel.LABEL_FLAT_MAP, func() (U, error) {
+		var zero U
+		first, err := g.source.draw(tc)
+		if err != nil {
+			return zero, err
+		}
+		return drawAndPrint(tc, g.f(first), rep)
 	})
 }
 

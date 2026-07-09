@@ -46,16 +46,15 @@ panic("force final replay")`, "hegel.WithTestCases(1)").
 		goTest()
 }
 
-// TestDrawDecoratesWithUserFileLine verifies the helper marking on Draw lets
-// the noteFn-driven t.Log decoration point at the user's file. When Draw runs
-// under *T the formatter omits its own file:line prefix so the t.Log
-// decoration is the only one present.
+// TestDrawDecoratesWithUserFileLine verifies a Draw's report line points at
+// the user's file and carries the binding name receiving the value.
 func TestDrawDecoratesWithUserFileLine(t *testing.T) {
 	t.Parallel()
 	newTempGoProject(t).
-		testBody(`_ = hegel.Draw(ht, hegel.Integers(0, 100))
+		testBody(`n := hegel.Draw(ht, hegel.Integers(0, 100))
+_ = n
 panic("force final replay")`, "hegel.WithTestCases(1)").
-		expectFailure(`(?m)^\s+hegel_test\.go:\d+: _ = hegel\.Draw\(ht, hegel\.Integers\(0, 100\)\)`).
+		expectFailure(`(?m)^\s+hegel_test\.go:\d+: n = \d+`).
 		goTest()
 }
 

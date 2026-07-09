@@ -2,6 +2,7 @@ package hegel
 
 import (
 	"bytes"
+	"regexp"
 	"strings"
 	"testing"
 )
@@ -59,6 +60,33 @@ func TestExplainTogetherNote(t *testing.T) {
 	if !strings.HasPrefix(captured,
 		"// The test always failed when commented parts were varied together.\n") {
 		t.Fatalf("expected the leading together note, got:\n%s", captured)
+	}
+}
+
+// Compositional printing gives explain annotations element-level
+// granularity: only the list elements that don't matter to the failure are
+// annotated, and the comments force the composite literal to break so each
+// annotated element sits on its own line.
+func TestExplainAnnotatesListElementsIndividually(t *testing.T) {
+	t.Parallel()
+	var buf bytes.Buffer
+	err := run(func(tc TestCase) {
+		xs := Draw(tc, Lists(Integers(-100, 100)).MinSize(3).MaxSize(3))
+		if xs[2] >= 0 {
+			tc.FailNow()
+		}
+	}, WithTestCases(50), WithSeed(0), withOutput(&buf))
+	if err == nil {
+		t.Fatal("expected the property to fail")
+	}
+	captured := buf.String()
+	want := regexp.MustCompile(
+		`xs = \[\]int\{0, // or any other generated value\n` +
+			`\s*0, // or any other generated value\n` +
+			`\s*0\n` +
+			`\}`)
+	if !want.MatchString(captured) {
+		t.Fatalf("expected per-element annotations on the first two elements, got:\n%s", captured)
 	}
 }
 
@@ -123,6 +151,6 @@ b := hegel.Draw(ht, hegel.Integers(-100, 100))
 if b >= 0 {
 	ht.Fatal("BOOM-explain")
 }`, "hegel.WithTestCases(50)", "hegel.WithSeed(0)").
-		expectFailure(`(?m)hegel\.Integers\(-100, 100\)\) = 0 // or any other generated value$`).
+		expectFailure(`(?m)draw_1 = 0 // or any other generated value$`).
 		goTest()
 }

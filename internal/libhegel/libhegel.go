@@ -394,14 +394,20 @@ type symbols struct {
 	TestCasePrinter     func(ctxT, testCaseT, uint64, out[printerT]) Error
 	Note                func(ctxT, testCaseT, string, uint64) Error
 
-	PrinterFree      func(ctxT, printerT) Error
-	PrinterText      func(ctxT, printerT, string, uint64) Error
-	PrinterHardBreak func(ctxT, printerT) Error
-	PrinterComment   func(ctxT, printerT, string, uint64) Error
-	PrinterDeferred  func(ctxT, printerT, out[printerT]) Error
-	PrinterResolve   func(ctxT, printerT) Error
-	PrinterValue     func(ctxT, printerT, out[printerValueResult]) Error
-	PrinterValueFree func(ctxT, *printerValueResult) Error
+	PrinterFree              func(ctxT, printerT) Error
+	PrinterText              func(ctxT, printerT, string, uint64) Error
+	PrinterBreakable         func(ctxT, printerT, string, uint64) Error
+	PrinterHardBreak         func(ctxT, printerT) Error
+	PrinterComment           func(ctxT, printerT, string, uint64) Error
+	PrinterBeginGroup        func(ctxT, printerT, uint64, string, uint64) Error
+	PrinterEndGroup          func(ctxT, printerT, uint64, string, uint64) Error
+	PrinterBeginSpeculative  func(ctxT, printerT) Error
+	PrinterCommitSpeculative func(ctxT, printerT) Error
+	PrinterAbortSpeculative  func(ctxT, printerT) Error
+	PrinterDeferred          func(ctxT, printerT, out[printerT]) Error
+	PrinterResolve           func(ctxT, printerT) Error
+	PrinterValue             func(ctxT, printerT, out[printerValueResult]) Error
+	PrinterValueFree         func(ctxT, *printerValueResult) Error
 
 	Version func(ctxT, out[*byte]) Error
 }
@@ -606,8 +612,14 @@ func tryOpen(path string) (syms *symbols, err error) {
 
 		{"hegel_printer_free", &syms.PrinterFree},
 		{"hegel_printer_text", &syms.PrinterText},
+		{"hegel_printer_breakable", &syms.PrinterBreakable},
 		{"hegel_printer_hard_break", &syms.PrinterHardBreak},
 		{"hegel_printer_comment", &syms.PrinterComment},
+		{"hegel_printer_begin_group", &syms.PrinterBeginGroup},
+		{"hegel_printer_end_group", &syms.PrinterEndGroup},
+		{"hegel_printer_begin_speculative", &syms.PrinterBeginSpeculative},
+		{"hegel_printer_commit_speculative", &syms.PrinterCommitSpeculative},
+		{"hegel_printer_abort_speculative", &syms.PrinterAbortSpeculative},
 		{"hegel_printer_deferred", &syms.PrinterDeferred},
 		{"hegel_printer_resolve", &syms.PrinterResolve},
 		{"hegel_printer_value", &syms.PrinterValue},
@@ -1253,10 +1265,57 @@ func (p *Printer) Text(ctx *Context, s string) {
 	})
 }
 
+// Breakable emits a break point rendering as sep when the enclosing group
+// fits on one line, and as a newline plus the current indentation when the
+// group breaks.
+func (p *Printer) Breakable(ctx *Context, sep string) {
+	_ = ctx.invoke("hegel_printer_breakable", func(ctx ctxT) Error {
+		return p.syms.PrinterBreakable(ctx, p.raw, sep, uint64(len(sep)))
+	})
+}
+
 // HardBreak emits an unconditional newline plus the current indentation.
 func (p *Printer) HardBreak(ctx *Context) {
 	_ = ctx.invoke("hegel_printer_hard_break", func(ctx ctxT) Error {
 		return p.syms.PrinterHardBreak(ctx, p.raw)
+	})
+}
+
+// BeginGroup opens a group: emits open, then indents subsequent break points
+// by indent. Break decisions are all-or-nothing per group.
+func (p *Printer) BeginGroup(ctx *Context, indent uint64, open string) {
+	_ = ctx.invoke("hegel_printer_begin_group", func(ctx ctxT) Error {
+		return p.syms.PrinterBeginGroup(ctx, p.raw, indent, open, uint64(len(open)))
+	})
+}
+
+// EndGroup closes the innermost group: dedents by dedent, then emits close.
+func (p *Printer) EndGroup(ctx *Context, dedent uint64, close string) {
+	_ = ctx.invoke("hegel_printer_end_group", func(ctx ctxT) Error {
+		return p.syms.PrinterEndGroup(ctx, p.raw, dedent, close, uint64(len(close)))
+	})
+}
+
+// BeginSpeculative opens a speculative region: subsequent output buffers
+// until committed or aborted, which is how a retracted draw (a rejected
+// duplicate, a filter retry) leaves no text behind.
+func (p *Printer) BeginSpeculative(ctx *Context) {
+	_ = ctx.invoke("hegel_printer_begin_speculative", func(ctx ctxT) Error {
+		return p.syms.PrinterBeginSpeculative(ctx, p.raw)
+	})
+}
+
+// CommitSpeculative keeps the innermost speculative region's content.
+func (p *Printer) CommitSpeculative(ctx *Context) {
+	_ = ctx.invoke("hegel_printer_commit_speculative", func(ctx ctxT) Error {
+		return p.syms.PrinterCommitSpeculative(ctx, p.raw)
+	})
+}
+
+// AbortSpeculative discards the innermost speculative region's content.
+func (p *Printer) AbortSpeculative(ctx *Context) {
+	_ = ctx.invoke("hegel_printer_abort_speculative", func(ctx ctxT) Error {
+		return p.syms.PrinterAbortSpeculative(ctx, p.raw)
 	})
 }
 

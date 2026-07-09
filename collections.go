@@ -36,16 +36,24 @@ func (g ListGenerator[T]) MaxSize(n int) ListGenerator[T] {
 	return g
 }
 
-// draw produces a list using the engine's collection protocol.
-func (g ListGenerator[T]) draw(tc TestCase) ([]T, error) {
+// validate rejects impossible size configurations.
+func (g ListGenerator[T]) validate() error {
 	if g.minSize < 0 {
-		return nil, fmt.Errorf("min_size=%d must be non-negative", g.minSize)
+		return fmt.Errorf("min_size=%d must be non-negative", g.minSize)
 	}
 	if g.hasMax && g.maxSize < 0 {
-		return nil, fmt.Errorf("max_size=%d must be non-negative", g.maxSize)
+		return fmt.Errorf("max_size=%d must be non-negative", g.maxSize)
 	}
 	if g.hasMax && g.minSize > g.maxSize {
-		return nil, fmt.Errorf("cannot have max_size=%d < min_size=%d", g.maxSize, g.minSize)
+		return fmt.Errorf("cannot have max_size=%d < min_size=%d", g.maxSize, g.minSize)
+	}
+	return nil
+}
+
+// draw produces a list using the engine's collection protocol.
+func (g ListGenerator[T]) draw(tc TestCase) ([]T, error) {
+	if err := g.validate(); err != nil {
+		return nil, err
 	}
 	var maxSize *int
 	if g.hasMax {
@@ -67,6 +75,44 @@ func (g ListGenerator[T]) draw(tc TestCase) ([]T, error) {
 		if err := coll.Err(); err != nil {
 			return nil, err
 		}
+		return result, nil
+	})
+}
+
+// printDraw is the printing twin of draw: the slice's composite-literal
+// delimiters print around each element's own printing draw, so an
+// explain-phase annotation can attach to a single element. Consumes exactly
+// the choices draw consumes.
+func (g ListGenerator[T]) printDraw(tc TestCase, rep *reporter) ([]T, error) {
+	if err := g.validate(); err != nil {
+		return nil, err
+	}
+	var maxSize *int
+	if g.hasMax {
+		maxSize = &g.maxSize
+	}
+	return withSpan(tc, libhegel.LABEL_LIST, func() ([]T, error) {
+		var result []T
+		coll, err := tc.newCollection(g.minSize, maxSize)
+		if err != nil {
+			return nil, err
+		}
+		rep.beginGroup(1, fmt.Sprintf("[]%s{", typeName[T]()))
+		for coll.More() {
+			if len(result) > 0 {
+				rep.text(",")
+				rep.breakable(" ")
+			}
+			v, err := drawAndPrint(tc, g.elements, rep)
+			if err != nil {
+				return nil, err
+			}
+			result = append(result, v)
+		}
+		if err := coll.Err(); err != nil {
+			return nil, err
+		}
+		rep.endGroup(1, "}")
 		return result, nil
 	})
 }
@@ -102,17 +148,25 @@ func (g MapGenerator[K, V]) MaxSize(n int) MapGenerator[K, V] {
 	return g
 }
 
+// validate rejects impossible size configurations.
+func (g MapGenerator[K, V]) validate() error {
+	if g.minSize < 0 {
+		return fmt.Errorf("min_size=%d must be non-negative", g.minSize)
+	}
+	if g.hasMax && g.maxSize < 0 {
+		return fmt.Errorf("max_size=%d must be non-negative", g.maxSize)
+	}
+	if g.hasMax && g.minSize > g.maxSize {
+		return fmt.Errorf("cannot have max_size=%d < min_size=%d", g.maxSize, g.minSize)
+	}
+	return nil
+}
+
 // draw produces a map using the engine's collection protocol, rejecting
 // duplicate keys so the engine retries.
 func (g MapGenerator[K, V]) draw(tc TestCase) (map[K]V, error) {
-	if g.minSize < 0 {
-		return nil, fmt.Errorf("min_size=%d must be non-negative", g.minSize)
-	}
-	if g.hasMax && g.maxSize < 0 {
-		return nil, fmt.Errorf("max_size=%d must be non-negative", g.maxSize)
-	}
-	if g.hasMax && g.minSize > g.maxSize {
-		return nil, fmt.Errorf("cannot have max_size=%d < min_size=%d", g.maxSize, g.minSize)
+	if err := g.validate(); err != nil {
+		return nil, err
 	}
 	var maxSize *int
 	if g.hasMax {
@@ -142,6 +196,59 @@ func (g MapGenerator[K, V]) draw(tc TestCase) (map[K]V, error) {
 		if err := coll.Err(); err != nil {
 			return nil, err
 		}
+		return result, nil
+	})
+}
+
+// printDraw is the printing twin of draw: entries print in draw order (%#v
+// sorts map keys; the report shows the order they were generated), each
+// inside a speculative region — its separator included — so an entry
+// retracted for a duplicate key leaves no text behind. Consumes exactly the
+// choices draw consumes.
+func (g MapGenerator[K, V]) printDraw(tc TestCase, rep *reporter) (map[K]V, error) {
+	if err := g.validate(); err != nil {
+		return nil, err
+	}
+	var maxSize *int
+	if g.hasMax {
+		maxSize = &g.maxSize
+	}
+	return withSpan(tc, libhegel.LABEL_MAP, func() (map[K]V, error) {
+		result := map[K]V{}
+		coll, err := tc.newCollection(g.minSize, maxSize)
+		if err != nil {
+			return nil, err
+		}
+		rep.beginGroup(1, fmt.Sprintf("map[%s]%s{", typeName[K](), typeName[V]()))
+		for coll.More() {
+			rep.beginSpeculative()
+			if len(result) > 0 {
+				rep.text(",")
+				rep.breakable(" ")
+			}
+			k, err := drawAndPrint(tc, g.keys, rep)
+			if err != nil {
+				rep.abortSpeculative()
+				return nil, err
+			}
+			if _, exists := result[k]; exists {
+				rep.abortSpeculative()
+				coll.Reject("duplicate key")
+				continue
+			}
+			rep.text(":")
+			v, err := drawAndPrint(tc, g.values, rep)
+			if err != nil {
+				rep.abortSpeculative()
+				return nil, err
+			}
+			rep.commitSpeculative()
+			result[k] = v
+		}
+		if err := coll.Err(); err != nil {
+			return nil, err
+		}
+		rep.endGroup(1, "}")
 		return result, nil
 	})
 }

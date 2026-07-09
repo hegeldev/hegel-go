@@ -4,11 +4,9 @@ import (
 	"fmt"
 	"go/ast"
 	"go/parser"
-	"go/printer"
 	"go/token"
 	"path/filepath"
 	"runtime"
-	"strings"
 	"sync"
 )
 
@@ -24,36 +22,37 @@ type cachedFile struct {
 	err  error
 }
 
-// sourceCache resolves source positions to printed-statement text. Parse
-// results — both successes and errors — are cached, so a missing or
-// unparseable file is read at most once per process.
+// sourceCache resolves source positions to the binding name receiving a
+// draw. Parse results — both successes and errors — are cached, so a missing
+// or unparseable file is read at most once per process.
 type sourceCache struct {
-	mu         sync.RWMutex
-	fset       *token.FileSet
-	files      map[string]cachedFile
-	statements map[fileLine]string
+	mu    sync.RWMutex
+	fset  *token.FileSet
+	files map[string]cachedFile
+	names map[fileLine]string
 }
 
 func newSourceCache() *sourceCache {
 	return &sourceCache{
-		fset:       token.NewFileSet(),
-		files:      make(map[string]cachedFile),
-		statements: make(map[fileLine]string),
+		fset:  token.NewFileSet(),
+		files: make(map[string]cachedFile),
+		names: make(map[fileLine]string),
 	}
 }
 
-// statementAt returns the source text of the smallest AST statement whose
-// position range covers line in file. Returns "" with err == nil when the
-// file parsed but no statement matches; returns "" with err != nil when the
-// file could not be parsed.
-func (c *sourceCache) statementAt(file string, line int) (string, error) {
+// nameAt returns the binding name receiving the draw at line in file — the
+// sole left-hand side of the assignment or declaration there — or "" when no
+// single name is receiving it (a blank identifier, a multi-value assignment,
+// a Draw nested inside a larger expression, or unparseable source). A ""
+// name falls back to draw_N numbering at the report site.
+func (c *sourceCache) nameAt(file string, line int) (string, error) {
 	key := fileLine{file: file, line: line}
 
 	c.mu.RLock()
-	stmt, ok := c.statements[key]
+	name, ok := c.names[key]
 	c.mu.RUnlock()
 	if ok {
-		return stmt, nil
+		return name, nil
 	}
 
 	c.mu.Lock()
@@ -62,12 +61,12 @@ func (c *sourceCache) statementAt(file string, line int) (string, error) {
 }
 
 // extractLocked re-checks the cache (a racing goroutine may have populated it
-// between statementAt's RLock and Lock) and otherwise parses the source and
-// records the smallest statement covering the target line. Caller must hold
-// c.mu for writing.
+// between nameAt's RLock and Lock) and otherwise parses the source and
+// records the binding name of the innermost statement covering the target
+// line. Caller must hold c.mu for writing.
 func (c *sourceCache) extractLocked(key fileLine) (string, error) {
-	if stmt, ok := c.statements[key]; ok {
-		return stmt, nil
+	if name, ok := c.names[key]; ok {
+		return name, nil
 	}
 
 	f, err := c.loadLocked(key.file)
@@ -75,8 +74,7 @@ func (c *sourceCache) extractLocked(key fileLine) (string, error) {
 		return "", err
 	}
 
-	stmt := ""
-	var best ast.Node
+	var best ast.Stmt
 	tokFile := c.fset.File(f.FileStart)
 	ast.Inspect(f, func(n ast.Node) bool {
 		if n == nil {
@@ -88,21 +86,44 @@ func (c *sourceCache) extractLocked(key fileLine) (string, error) {
 			return false
 		}
 		// Prefer the innermost enclosing statement, but stop at expression
-		// granularity so we report whole assignments, not sub-expressions.
-		if _, isStmt := n.(ast.Stmt); isStmt {
-			best = n
+		// granularity so the whole assignment is considered, not
+		// sub-expressions. Blocks don't count: a closure argument's body
+		// opening on the binding's own line must not shadow the binding.
+		if stmt, isStmt := n.(ast.Stmt); isStmt {
+			if _, isBlock := n.(*ast.BlockStmt); !isBlock {
+				best = stmt
+			}
 		}
 		return true
 	})
-	if best != nil {
-		var buf strings.Builder
-		cfg := printer.Config{Mode: printer.UseSpaces, Tabwidth: 4}
-		if perr := cfg.Fprint(&buf, c.fset, best); perr == nil {
-			stmt = buf.String()
+	name := bindingName(best)
+	c.names[key] = name
+	return name, nil
+}
+
+// bindingName extracts the single identifier a statement binds: the left-hand
+// side of `x := …` / `x = …` or the name of `var x = …`. Returns "" for
+// anything else — a blank identifier, several names, or no binding at all.
+func bindingName(stmt ast.Stmt) string {
+	switch s := stmt.(type) {
+	case *ast.AssignStmt:
+		if len(s.Lhs) != 1 || len(s.Rhs) != 1 {
+			return ""
+		}
+		if ident, ok := s.Lhs[0].(*ast.Ident); ok && ident.Name != "_" {
+			return ident.Name
+		}
+	case *ast.DeclStmt:
+		decl, ok := s.Decl.(*ast.GenDecl)
+		if !ok || len(decl.Specs) != 1 {
+			return ""
+		}
+		spec, ok := decl.Specs[0].(*ast.ValueSpec)
+		if ok && len(spec.Names) == 1 && len(spec.Values) == 1 && spec.Names[0].Name != "_" {
+			return spec.Names[0].Name
 		}
 	}
-	c.statements[key] = stmt
-	return stmt, nil
+	return ""
 }
 
 // loadLocked returns the parsed AST for file, parsing it on first request.
@@ -117,25 +138,22 @@ func (c *sourceCache) loadLocked(file string) (*ast.File, error) {
 	return f, err
 }
 
-// formatDrawReport resolves the caller's source position via runtime.Caller
-// and returns the file:line location and a printed "statement = value" line
-// for the originating Draw call. skip is the number of frames above this one
-// to skip (Draw passes 1 to point at the user's call site).
-func formatDrawReport(skip int, value any) (location, statement string) {
+// callerFileLine resolves runtime.Caller relative to the calling function:
+// skip = 0 names the caller itself, 1 its caller, and so on.
+func callerFileLine(skip int) (file string, line int) {
 	_, file, line, ok := runtime.Caller(skip + 1)
 	if !ok { // coverage-ignore
 		panic(fmt.Errorf("runtime.Caller(%d) failed", skip+1))
 	}
-	stmt, _ := drawReportSource.statementAt(file, line)
-	location, stmt = formatDrawLine(file, line, stmt, value)
-	return location, stmt
+	return file, line
 }
 
-func formatDrawLine(file string, line int, stmt string, value any) (location, statement string) {
-	if stmt == "" {
-		stmt = fmt.Sprintf("hegel.Draw[%T](...) = %#v", value, value)
-	} else {
-		stmt = fmt.Sprintf("%s = %#v", stmt, value)
-	}
-	return fmt.Sprintf("%s:%d", filepath.Base(file), line), stmt
+// drawCallSite resolves the caller's source position and returns the
+// file:line location plus the binding name receiving the draw ("" when
+// there is no unambiguous single name). skip is the number of frames above
+// this one to skip (Draw passes 1 to point at the user's call site).
+func drawCallSite(skip int) (location, name string) {
+	file, line := callerFileLine(skip + 1)
+	name, _ = drawReportSource.nameAt(file, line)
+	return fmt.Sprintf("%s:%d", filepath.Base(file), line), name
 }

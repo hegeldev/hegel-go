@@ -64,7 +64,7 @@ func TestMatchesBuiltin(t *testing.T) {
 This test will fail when run with `go test`! Hegel will produce a minimal failing test case for us:
 
 ```
-example_test.go:46: slice1 := hegel.Draw(ht, hegel.Lists(hegel.Integers(math.MinInt, math.MaxInt))) = []int{0, 0}
+example_test.go:46: slice1 = []int{0, 0}
 example_test.go:50: slices not equal: [0 0] != [0]
 ```
 

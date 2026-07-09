@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"os"
 	"path/filepath"
+	"regexp"
 	"strings"
 	"testing"
 )
@@ -18,24 +19,94 @@ func writeTempSource(t *testing.T, body string) string {
 	return path
 }
 
-const happyPathSource = `package x
+const bindingSource = `package x
 
 func f() int {
-	return 42
+	x := g()
+	_ = g()
+	a, b := g2()
+	var y = g()
+	var z int = g()
+	var (
+		p = g()
+		q = g()
+	)
+	var noval int
+	type localT int
+	m[0] = g()
+	return x + y + z
 }
 `
 
-func TestSourceCacheStatementAt(t *testing.T) {
+func TestSourceCacheNameAt(t *testing.T) {
 	t.Parallel()
-	path := writeTempSource(t, happyPathSource)
+	path := writeTempSource(t, bindingSource)
 	c := newSourceCache()
 
-	got, err := c.statementAt(path, 4)
-	if err != nil {
-		t.Fatalf("statementAt: unexpected err %v", err)
+	cases := []struct {
+		line int
+		want string
+	}{
+		{4, "x"},  // x := g()
+		{5, ""},   // blank identifier
+		{6, ""},   // two names on the left-hand side
+		{7, "y"},  // var y = g()
+		{8, "z"},  // var z int = g()
+		{10, ""},  // grouped var block declares several names
+		{13, ""},  // var noval int has no value
+		{14, ""},  // type declaration binds no value
+		{15, ""},  // assignment target is not an identifier
+		{16, ""},  // return statement binds nothing
+		{999, ""}, // past the end of the file
 	}
-	if !strings.Contains(got, "return 42") {
-		t.Fatalf("statementAt: got %q, want substring %q", got, "return 42")
+	for _, tc := range cases {
+		got, err := c.nameAt(path, tc.line)
+		if err != nil {
+			t.Fatalf("nameAt(line=%d): unexpected err %v", tc.line, err)
+		}
+		if got != tc.want {
+			t.Fatalf("nameAt(line=%d): got %q, want %q", tc.line, got, tc.want)
+		}
+	}
+}
+
+const multiLineBindingSource = `package x
+
+func f() []int {
+	xs := []int{
+		1,
+		2,
+	}
+	n := g(func() int {
+		return 3
+	})
+	return xs
+}
+`
+
+// Asking for an interior line of a multi-line assignment should still find
+// the binding — exercises the pos <= line <= end span check.
+func TestSourceCacheMultiLineBinding(t *testing.T) {
+	t.Parallel()
+	path := writeTempSource(t, multiLineBindingSource)
+	c := newSourceCache()
+
+	got, err := c.nameAt(path, 5)
+	if err != nil {
+		t.Fatalf("nameAt: unexpected err %v", err)
+	}
+	if got != "xs" {
+		t.Fatalf("nameAt: got %q, want %q", got, "xs")
+	}
+
+	// A closure argument opens its block on the binding's own line; the
+	// block must not shadow the binding.
+	got, err = c.nameAt(path, 8)
+	if err != nil {
+		t.Fatalf("nameAt: unexpected err %v", err)
+	}
+	if got != "n" {
+		t.Fatalf("nameAt: got %q, want %q", got, "n")
 	}
 }
 
@@ -44,26 +115,26 @@ func TestSourceCacheMissingFile(t *testing.T) {
 	c := newSourceCache()
 	missing := filepath.Join(t.TempDir(), "nope.go")
 
-	got, err := c.statementAt(missing, 1)
+	got, err := c.nameAt(missing, 1)
 	if err == nil {
-		t.Fatalf("statementAt(missing): expected err, got nil")
+		t.Fatalf("nameAt(missing): expected err, got nil")
 	}
 	if got != "" {
-		t.Fatalf("statementAt(missing): got %q, want empty", got)
+		t.Fatalf("nameAt(missing): got %q, want empty", got)
 	}
 	// Failures are cached so we don't re-read a file we already know is
-	// broken. The file entry is recorded; no statement is recorded.
-	if len(c.files) != 1 || len(c.statements) != 0 {
-		t.Fatalf("unexpected cache after failure: files=%d statements=%d", len(c.files), len(c.statements))
+	// broken. The file entry is recorded; no name is recorded.
+	if len(c.files) != 1 || len(c.names) != 0 {
+		t.Fatalf("unexpected cache after failure: files=%d names=%d", len(c.files), len(c.names))
 	}
 	// Repeat the lookup; the second call hits the file cache and returns
 	// the same error without re-parsing.
-	got2, err2 := c.statementAt(missing, 1)
+	got2, err2 := c.nameAt(missing, 1)
 	if err2 == nil {
-		t.Fatal("statementAt(missing) repeat: expected err, got nil")
+		t.Fatal("nameAt(missing) repeat: expected err, got nil")
 	}
 	if got2 != "" {
-		t.Fatalf("statementAt(missing) repeat: got %q, want empty", got2)
+		t.Fatalf("nameAt(missing) repeat: got %q, want empty", got2)
 	}
 }
 
@@ -72,45 +143,31 @@ func TestSourceCacheParseError(t *testing.T) {
 	path := writeTempSource(t, "this is not go\n")
 	c := newSourceCache()
 
-	got, err := c.statementAt(path, 1)
+	got, err := c.nameAt(path, 1)
 	if err == nil {
-		t.Fatalf("statementAt(invalid): expected err, got nil")
+		t.Fatalf("nameAt(invalid): expected err, got nil")
 	}
 	if got != "" {
-		t.Fatalf("statementAt(invalid): got %q, want empty", got)
+		t.Fatalf("nameAt(invalid): got %q, want empty", got)
 	}
 }
 
-func TestSourceCacheLineOutOfRange(t *testing.T) {
+func TestSourceCacheNameHit(t *testing.T) {
 	t.Parallel()
-	path := writeTempSource(t, happyPathSource)
+	path := writeTempSource(t, bindingSource)
 	c := newSourceCache()
 
-	got, err := c.statementAt(path, 999)
-	if err != nil {
-		t.Fatalf("statementAt(line=999): unexpected err %v", err)
-	}
-	if got != "" {
-		t.Fatalf("statementAt(line=999): got %q, want empty", got)
-	}
-}
-
-func TestSourceCacheStatementHit(t *testing.T) {
-	t.Parallel()
-	path := writeTempSource(t, happyPathSource)
-	c := newSourceCache()
-
-	first, err := c.statementAt(path, 4)
-	if err != nil || first == "" {
+	first, err := c.nameAt(path, 4)
+	if err != nil || first != "x" {
 		t.Fatalf("first lookup: %q err=%v", first, err)
 	}
 
 	// Delete the file; the second call with the same key must hit the
-	// statement cache without touching disk.
+	// name cache without touching disk.
 	if err := os.Remove(path); err != nil { // coverage-ignore
 		t.Fatalf("remove: %v", err)
 	}
-	second, err := c.statementAt(path, 4)
+	second, err := c.nameAt(path, 4)
 	if err != nil {
 		t.Fatalf("second lookup: unexpected err %v", err)
 	}
@@ -123,96 +180,43 @@ func TestSourceCacheExtractLockedRevalidates(t *testing.T) {
 	t.Parallel()
 	c := newSourceCache()
 	key := fileLine{file: "preempted.go", line: 1}
-	// Simulate another goroutine populating the statement cache between
-	// statementAt's read-lock miss and the write-lock acquisition. extractLocked
-	// must re-check and return the existing value instead of re-extracting.
+	// Simulate another goroutine populating the name cache between nameAt's
+	// read-lock miss and the write-lock acquisition. extractLocked must
+	// re-check and return the existing value instead of re-extracting.
 	c.mu.Lock()
-	c.statements[key] = "racing winner"
+	c.names[key] = "racing_winner"
 	got, err := c.extractLocked(key)
 	c.mu.Unlock()
 
 	if err != nil {
 		t.Fatalf("extractLocked: unexpected err %v", err)
 	}
-	if got != "racing winner" {
-		t.Fatalf("extractLocked: got %q, want %q (lock-held re-check failed)", got, "racing winner")
+	if got != "racing_winner" {
+		t.Fatalf("extractLocked: got %q, want %q (lock-held re-check failed)", got, "racing_winner")
 	}
 }
 
 func TestSourceCacheFileReuse(t *testing.T) {
 	t.Parallel()
-	path := writeTempSource(t, happyPathSource)
+	path := writeTempSource(t, bindingSource)
 	c := newSourceCache()
 
-	// Prime the file cache for path; the statement cache only holds (path, 4).
-	if got, err := c.statementAt(path, 4); err != nil || !strings.Contains(got, "return 42") {
+	// Prime the file cache for path; the name cache only holds (path, 4).
+	if got, err := c.nameAt(path, 4); err != nil || got != "x" {
 		t.Fatalf("first lookup: %q err=%v", got, err)
 	}
 	// Delete the source on disk. A second lookup at a different line must
-	// bypass the statement cache and reuse the parsed AST — proves load's
+	// bypass the name cache and reuse the parsed AST — proves loadLocked's
 	// cache-hit branch is reached.
 	if err := os.Remove(path); err != nil { // coverage-ignore
 		t.Fatalf("remove: %v", err)
 	}
-	got, err := c.statementAt(path, 3)
+	got, err := c.nameAt(path, 7)
 	if err != nil {
 		t.Fatalf("second lookup: unexpected err %v", err)
 	}
-	if got == "" {
-		t.Fatalf("second lookup at different line returned empty; AST cache not reused")
-	}
-}
-
-const multiLineSource = `package x
-
-func f() int {
-	return 1 +
-		2 +
-		3
-}
-`
-
-func TestSourceCacheMultiLineStatement(t *testing.T) {
-	t.Parallel()
-	path := writeTempSource(t, multiLineSource)
-	c := newSourceCache()
-
-	// Asking for the middle line of a multi-line return should return
-	// the whole return statement — exercises the pos < line <= end branch.
-	got, err := c.statementAt(path, 5)
-	if err != nil {
-		t.Fatalf("statementAt: unexpected err %v", err)
-	}
-	for _, want := range []string{"return 1 +", "2 +", "3"} {
-		if !strings.Contains(got, want) {
-			t.Fatalf("statementAt: got %q, want substring %q", got, want)
-		}
-	}
-}
-
-func TestFormatDrawLineWithStatement(t *testing.T) {
-	t.Parallel()
-	loc, stmt := formatDrawLine("/abs/path/example_test.go", 42, "x := hegel.Draw(...)", []int{0, 0})
-	wantLoc := "example_test.go:42"
-	wantStmt := "x := hegel.Draw(...) = []int{0, 0}"
-	if loc != wantLoc {
-		t.Fatalf("formatDrawLine location: got %q, want %q", loc, wantLoc)
-	}
-	if stmt != wantStmt {
-		t.Fatalf("formatDrawLine statement: got %q, want %q", stmt, wantStmt)
-	}
-}
-
-func TestFormatDrawLineWithoutStatement(t *testing.T) {
-	t.Parallel()
-	loc, stmt := formatDrawLine("/abs/path/example_test.go", 42, "", 7)
-	wantLoc := "example_test.go:42"
-	wantStmt := "hegel.Draw[int](...) = 7"
-	if loc != wantLoc {
-		t.Fatalf("formatDrawLine location: got %q, want %q", loc, wantLoc)
-	}
-	if stmt != wantStmt {
-		t.Fatalf("formatDrawLine statement: got %q, want %q", stmt, wantStmt)
+	if got != "y" {
+		t.Fatalf("second lookup at different line: got %q, want %q; AST cache not reused", got, "y")
 	}
 }
 
@@ -220,16 +224,40 @@ func TestDrawReportInProcess(t *testing.T) {
 	t.Parallel()
 	var buf bytes.Buffer
 	if err := run(func(tc TestCase) {
+		n := Draw(tc, Integers(0, 100))
 		_ = Draw(tc, Integers(0, 100))
+		_ = n
 	}, WithSingleTestCase(), withOutput(&buf)); err != nil {
 		t.Fatalf("runHegel: %v", err)
 	}
 	captured := buf.String()
-	if !strings.Contains(captured, "draw_report_test.go:") {
-		t.Fatalf("expected draw report in output, got:\n%s", captured)
+	if !regexp.MustCompile(`(?m)^draw_report_test\.go:\d+: n = \d+$`).MatchString(captured) {
+		t.Fatalf("expected a named draw line, got:\n%s", captured)
 	}
-	if !strings.Contains(captured, "Draw(tc, Integers(0, 100))") {
-		t.Fatalf("expected statement text in output, got:\n%s", captured)
+	if !regexp.MustCompile(`(?m)^draw_report_test\.go:\d+: draw_1 = \d+$`).MatchString(captured) {
+		t.Fatalf("expected a numbered draw line for the blank binding, got:\n%s", captured)
+	}
+}
+
+// A binding name that draws more than once — a loop — prints bare the first
+// time and numbered afterwards.
+func TestDrawReportRepeatedName(t *testing.T) {
+	t.Parallel()
+	var buf bytes.Buffer
+	if err := run(func(tc TestCase) {
+		for i := 0; i < 2; i++ {
+			n := Draw(tc, Integers(0, 100))
+			_ = n
+		}
+	}, WithSingleTestCase(), withOutput(&buf)); err != nil {
+		t.Fatalf("runHegel: %v", err)
+	}
+	captured := buf.String()
+	if !regexp.MustCompile(`(?m)^draw_report_test\.go:\d+: n = \d+$`).MatchString(captured) {
+		t.Fatalf("expected a bare first draw line, got:\n%s", captured)
+	}
+	if !regexp.MustCompile(`(?m)^draw_report_test\.go:\d+: n_2 = \d+$`).MatchString(captured) {
+		t.Fatalf("expected a numbered second draw line, got:\n%s", captured)
 	}
 }
 
@@ -243,7 +271,8 @@ func TestDrawReportSuppressedInsideSpan(t *testing.T) {
 
 	var buf bytes.Buffer
 	if err := run(func(tc TestCase) {
-		_ = Draw(tc, gen)
+		xs := Draw(tc, gen)
+		_ = xs
 	}, WithSingleTestCase(), withOutput(&buf)); err != nil {
 		t.Fatalf("runHegel: %v", err)
 	}
@@ -252,8 +281,8 @@ func TestDrawReportSuppressedInsideSpan(t *testing.T) {
 	if got != 1 {
 		t.Fatalf("expected exactly 1 draw line in output, got %d:\n%s", got, captured)
 	}
-	if !strings.Contains(captured, "Draw(tc, gen)") {
-		t.Fatalf("expected outer Draw statement text in output, got:\n%s", captured)
+	if !strings.Contains(captured, "xs = []int{") {
+		t.Fatalf("expected the outer binding's draw line, got:\n%s", captured)
 	}
 }
 
@@ -269,7 +298,8 @@ func TestDrawReportSuppressedInsideComposite(t *testing.T) {
 
 	var buf bytes.Buffer
 	if err := run(func(tc TestCase) {
-		_ = Draw(tc, gen)
+		total := Draw(tc, gen)
+		_ = total
 	}, WithSingleTestCase(), withOutput(&buf)); err != nil {
 		t.Fatalf("runHegel: %v", err)
 	}
@@ -278,8 +308,8 @@ func TestDrawReportSuppressedInsideComposite(t *testing.T) {
 	if got != 1 {
 		t.Fatalf("expected exactly 1 draw line in output, got %d:\n%s", got, captured)
 	}
-	if !strings.Contains(captured, "Draw(tc, gen)") {
-		t.Fatalf("expected outer Draw statement text in output, got:\n%s", captured)
+	if !regexp.MustCompile(`(?m)^draw_report_test\.go:\d+: total = \d+$`).MatchString(captured) {
+		t.Fatalf("expected the outer binding's draw line, got:\n%s", captured)
 	}
 }
 

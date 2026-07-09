@@ -233,14 +233,14 @@ func TestTestCaseLogWritesToOut(t *testing.T) {
 // *T.reportDraw with emit=true lands in the rendered report, with an
 // explain annotation appended as a trailing comment when present. The call
 // site doesn't matter — formatDrawReport just needs a non-zero skip frame.
-func TestTReportDrawEmits(t *testing.T) {
+func TestTDrawEmitsIntoReport(t *testing.T) {
 	t.Parallel()
 	out := runEmitting(t, func(ht *T) {
-		ht.reportDraw(0, 42, "")
-		ht.reportDraw(0, 42, "or any other generated value")
+		n := Draw(ht, Integers(0, 100))
+		_ = n
 	})
-	if !strings.Contains(out, "42 // or any other generated value") {
-		t.Fatalf("expected an annotated draw line, got %q", out)
+	if !strings.Contains(out, "state_test.go:") || !strings.Contains(out, "n = ") {
+		t.Fatalf("expected a named draw line in the report, got %q", out)
 	}
 }
 

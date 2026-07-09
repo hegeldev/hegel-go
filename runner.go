@@ -30,6 +30,10 @@ type testCase struct {
 	// values and notes in order, fetched lazily on the first report and
 	// rendered to out when the case completes.
 	doc *libhegel.Printer
+	rep *reporter
+	// drawNames counts display-name occurrences so repeated draws of the
+	// same binding (a loop, a shadowed name) stay distinguishable.
+	drawNames map[string]int
 
 	// Explain-phase annotations for this test case, keyed by the choice
 	// slice [start, end) of the shrunk counterexample they describe.
@@ -37,6 +41,12 @@ type testCase struct {
 	// consumed — each at most once — as reported draws match them; nil
 	// everywhere else.
 	explainComments map[[2]uint64]string
+	// printingDraw is set while a top-level draw writes its report line.
+	// Notes made during it (a Composite body calling Note) buffer in
+	// pendingNotes and flush after the line, instead of landing mid-line.
+	printingDraw bool
+	pendingNotes []string
+
 	// The whole-test "varied together" note, waiting in a deferred hole at
 	// the top of the document. It is filled in when the first slice
 	// annotation is actually reported: a note about "commented parts" would
@@ -57,6 +67,59 @@ func (s *testCase) document() *libhegel.Printer {
 		s.doc = s.tc.Printer(s.ctx, reportWidth)
 	}
 	return s.doc
+}
+
+// reporter drives a test case's engine-hosted document: literal text, break
+// points, groups, end-of-line comments, and the speculative regions that let
+// a retracted draw leave no text behind.
+type reporter struct {
+	ctx *libhegel.Context
+	doc *libhegel.Printer
+}
+
+func (r *reporter) text(s string)                    { r.doc.Text(r.ctx, s) }
+func (r *reporter) breakable(sep string)             { r.doc.Breakable(r.ctx, sep) }
+func (r *reporter) hardBreak()                       { r.doc.HardBreak(r.ctx) }
+func (r *reporter) comment(s string)                 { r.doc.Comment(r.ctx, s) }
+func (r *reporter) beginGroup(n uint64, open string) { r.doc.BeginGroup(r.ctx, n, open) }
+func (r *reporter) endGroup(n uint64, close string)  { r.doc.EndGroup(r.ctx, n, close) }
+func (r *reporter) beginSpeculative()                { r.doc.BeginSpeculative(r.ctx) }
+func (r *reporter) commitSpeculative()               { r.doc.CommitSpeculative(r.ctx) }
+func (r *reporter) abortSpeculative()                { r.doc.AbortSpeculative(r.ctx) }
+
+// reporter returns the test case's report writer, or nil when this case does
+// not emit (every exploratory case).
+func (s *testCase) reporter() *reporter {
+	if s.out == nil {
+		return nil
+	}
+	if s.rep == nil {
+		s.rep = &reporter{ctx: s.ctx, doc: s.document()}
+	}
+	return s.rep
+}
+
+// displayDrawName allocates the display name for a draw. A source binding
+// name prints bare on its first use and numbered (name_2, name_3, …) when
+// the same name draws again — a loop or a shadowed binding; a draw with no
+// unambiguous binding name is always numbered (draw_1, draw_2, …).
+func (s *testCase) displayDrawName(name string) string {
+	if s.drawNames == nil {
+		s.drawNames = make(map[string]int)
+	}
+	base := name
+	if base == "" {
+		base = "draw"
+	}
+	s.drawNames[base]++
+	n := s.drawNames[base]
+	if name == "" {
+		return fmt.Sprintf("draw_%d", n)
+	}
+	if n == 1 {
+		return name
+	}
+	return fmt.Sprintf("%s_%d", name, n)
 }
 
 // emitRenderedOutput renders the test case's document and writes it to out.
@@ -91,6 +154,10 @@ func (s *testCase) Note(message string) {
 	if s.out == nil {
 		return
 	}
+	if s.printingDraw {
+		s.pendingNotes = append(s.pendingNotes, message)
+		return
+	}
 	// Fetching the document handle (not just writing through hegel_note) is
 	// what makes a note-only test case render: emission reads the handle
 	// this test case holds.
@@ -98,18 +165,19 @@ func (s *testCase) Note(message string) {
 	s.tc.Note(s.ctx, message)
 }
 
-func (s *testCase) reportDraw(skip int, value any, comment string) {
-	if s.out == nil {
-		return
+func (s *testCase) beginPrintingDraw() { s.printingDraw = true }
+
+// endPrintingDraw closes a printing draw and emits the notes it buffered.
+// Called after the draw line's own break, so the notes land on the lines
+// after it; called after an aborted draw's region is retracted, so the notes
+// outlive the retracted line.
+func (s *testCase) endPrintingDraw() {
+	s.printingDraw = false
+	notes := s.pendingNotes
+	s.pendingNotes = nil
+	for _, n := range notes {
+		s.tc.Note(s.ctx, n)
 	}
-	loc, msg := formatDrawReport(skip+1, value)
-	doc := s.document()
-	doc.Text(s.ctx, fmt.Sprintf("%s: %s", loc, msg))
-	if comment != "" {
-		doc.Comment(s.ctx, " // "+comment)
-		s.fillTogetherNote()
-	}
-	doc.HardBreak(s.ctx)
 }
 
 // explainRegionStart opens an explain-annotation region around a draw. A
@@ -132,6 +200,7 @@ func (s *testCase) explainComment(start uint64) string {
 		return ""
 	}
 	delete(s.explainComments, [2]uint64{start, end})
+	s.fillTogetherNote()
 	return comment
 }
 
