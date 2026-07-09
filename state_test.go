@@ -19,14 +19,16 @@ func makeFakeT(t *testing.T) *T {
 	}
 }
 
-// makeEmittingT creates a *T with a testCase.out set to buf.
-// Use when the test wants to assert routing through the embedded *testing.T
-// (which we can't capture directly) and/or testCase.out.
-func makeEmittingT(t *testing.T, buf *bytes.Buffer) *T {
-	return &T{
-		testCase: &testCase{out: buf},
-		T:        t,
-	}
+// runEmitting runs body against a live, engine-backed, emitting *T and
+// returns the rendered report. Reports flow through the engine-hosted
+// document, so an emitting test case needs real engine handles.
+func runEmitting(t *testing.T, body func(ht *T)) string {
+	t.Helper()
+	var buf bytes.Buffer
+	_ = run(func(tc TestCase) {
+		body(&T{testCase: tc.(*testCase), T: t})
+	}, WithSingleTestCase(), withOutput(&buf))
+	return buf.String()
 }
 
 // =============================================================================
@@ -40,41 +42,22 @@ func TestTFatalPanicsWithSentinel(t *testing.T) {
 	ht.Fatal("fatal message")
 }
 
-// TestTFatalEmitsViaTestingT exercises the emit=true branch of Fatal: the
-// message routes through t.T.Log so file:line decoration walks back to user
-// code. We can't capture t.T.Log output from here, so this test merely
-// proves the path runs without panic from t.Log and that the fatalSentinel
-// still unwinds.
-func TestTFatalEmitsViaTestingT(t *testing.T) {
+// TestTFatalEmitsIntoReport exercises the emit=true branch of Fatal: the
+// message lands in the rendered report, prefixed with the user's file:line,
+// and the fatalSentinel still unwinds (recovered by the case driver).
+func TestTFatalEmitsIntoReport(t *testing.T) {
 	t.Parallel()
-	var buf bytes.Buffer
-	ht := makeEmittingT(t, &buf)
-	defer func() {
-		r := recover()
-		if r == nil {
-			t.Fatal("expected Fatalf to panic")
-		}
-	}()
-	const message = "fatal message"
-	ht.Fatal(message)
-	if !strings.Contains(buf.String(), message) {
-		t.Fatalf("expected %s to contain %s", buf.String(), message)
+	out := runEmitting(t, func(ht *T) { ht.Fatal("fatal message") })
+	if !strings.Contains(out, "state_test.go:") || !strings.Contains(out, "fatal message") {
+		t.Fatalf("expected a decorated fatal message in the report, got %q", out)
 	}
 }
 
-func TestTFatalfPanicsWithSentinel(t *testing.T) {
+func TestTFatalfEmitsIntoReport(t *testing.T) {
 	t.Parallel()
-	var buf bytes.Buffer
-	ht := makeEmittingT(t, &buf)
-	defer func() {
-		r := recover()
-		if r == nil {
-			t.Fatal("expected Fatalf to panic")
-		}
-	}()
-	ht.Fatalf("fatal: %d", 42)
-	if !strings.Contains(buf.String(), "fatal: 42") {
-		t.Fatalf("expected %s to contain %s", buf.String(), "fatal: 42")
+	out := runEmitting(t, func(ht *T) { ht.Fatalf("fatal: %d", 42) })
+	if !strings.Contains(out, "fatal: 42") {
+		t.Fatalf("expected the formatted fatal message in the report, got %q", out)
 	}
 }
 
@@ -128,23 +111,35 @@ func TestTErrorfSetsFailed(t *testing.T) {
 	}
 }
 
-// TestTErrorEmitsViaTestingT exercises the emit=true branch of Error.
-func TestTErrorEmitsViaTestingT(t *testing.T) {
+// TestTErrorEmitsIntoReport exercises the emit=true branch of Error.
+func TestTErrorEmitsIntoReport(t *testing.T) {
 	t.Parallel()
-	ht := makeEmittingT(t, &bytes.Buffer{})
-	ht.Error("something went wrong")
-	if ht.testCase.status != libhegel.STATUS_INTERESTING {
+	var status libhegel.Status
+	out := runEmitting(t, func(ht *T) {
+		ht.Error("something went wrong")
+		status = ht.testCase.status
+	})
+	if status != libhegel.STATUS_INTERESTING {
 		t.Error("expected status=INTERESTING after Error()")
+	}
+	if !strings.Contains(out, "something went wrong") {
+		t.Fatalf("expected the message in the report, got %q", out)
 	}
 }
 
-// TestTErrorfEmitsViaTestingT exercises the emit=true branch of Errorf.
-func TestTErrorfEmitsViaTestingT(t *testing.T) {
+// TestTErrorfEmitsIntoReport exercises the emit=true branch of Errorf.
+func TestTErrorfEmitsIntoReport(t *testing.T) {
 	t.Parallel()
-	ht := makeEmittingT(t, &bytes.Buffer{})
-	ht.Errorf("error: %d", 99)
-	if ht.testCase.status != libhegel.STATUS_INTERESTING {
+	var status libhegel.Status
+	out := runEmitting(t, func(ht *T) {
+		ht.Errorf("error: %d", 99)
+		status = ht.testCase.status
+	})
+	if status != libhegel.STATUS_INTERESTING {
 		t.Error("expected status=INTERESTING after Errorf()")
+	}
+	if !strings.Contains(out, "error: 99") {
+		t.Fatalf("expected the formatted message in the report, got %q", out)
 	}
 }
 
@@ -177,34 +172,45 @@ func TestTLogSilentWhenNotEmitting(t *testing.T) {
 	ht.Note("a note")
 }
 
-// When emit=true, Log/Logf/Note route through t.T.Log. We can't capture
-// t.T.Log output directly; this test just exercises the branch.
+// When emit=true, Log/Logf/Note land in the rendered report with the user's
+// file:line decoration.
 func TestTLogEmitsWhenEmitting(t *testing.T) {
 	t.Parallel()
-	ht := makeEmittingT(t, &bytes.Buffer{})
-	ht.Log("hello", " world")
-	ht.Logf("value=%d", 42)
-	ht.Note("a note")
+	out := runEmitting(t, func(ht *T) {
+		ht.Log("hello", " world")
+		ht.Logf("value=%d", 42)
+		ht.Note("a note")
+	})
+	for _, needle := range []string{"hello world", "value=42", "a note"} {
+		if !strings.Contains(out, needle) {
+			t.Errorf("expected %q in the report, got %q", needle, out)
+		}
+	}
 }
 
-// testCase.Note writes to s.out when set.
+// testCase.Note lands in the rendered report when out is set.
 func TestTestCaseNoteWritesToOut(t *testing.T) {
 	t.Parallel()
 	var buf bytes.Buffer
-	s := &testCase{out: &buf}
-	s.Note("hello world")
+	_ = run(func(tc TestCase) {
+		tc.Note("hello world")
+	}, WithSingleTestCase(), withOutput(&buf))
 	if got := strings.TrimSpace(buf.String()); got != "hello world" {
 		t.Errorf("expected %q, got %q", "hello world", got)
 	}
 }
 
-// testCase.Errorf writes to s.out and sets the failed flag.
+// testCase.Errorf writes to the report and sets the failed flag.
 func TestTestCaseErrorfWritesAndFails(t *testing.T) {
 	t.Parallel()
 	var buf bytes.Buffer
-	s := &testCase{out: &buf}
-	s.Errorf("value=%d", 42)
-	if s.status != libhegel.STATUS_INTERESTING {
+	var status libhegel.Status
+	_ = run(func(tc TestCase) {
+		s := tc.(*testCase)
+		s.Errorf("value=%d", 42)
+		status = s.status
+	}, WithSingleTestCase(), withOutput(&buf))
+	if status != libhegel.STATUS_INTERESTING {
 		t.Error("expected status=INTERESTING after Errorf")
 	}
 	if got := strings.TrimSpace(buf.String()); got != "value=42" {
@@ -216,22 +222,26 @@ func TestTestCaseErrorfWritesAndFails(t *testing.T) {
 func TestTestCaseLogWritesToOut(t *testing.T) {
 	t.Parallel()
 	var buf bytes.Buffer
-	s := &testCase{out: &buf}
-	s.Log("hello", " world")
+	_ = run(func(tc TestCase) {
+		tc.Log("hello", " world")
+	}, WithSingleTestCase(), withOutput(&buf))
 	if got := strings.TrimSpace(buf.String()); got != "hello world" {
 		t.Errorf("expected %q, got %q", "hello world", got)
 	}
 }
 
-// *T.reportDraw with emit=true and a captured Draw site routes through
-// t.T.Log. We can't capture t.T.Log output from here, but we can exercise
-// the code path. The call site doesn't matter — formatDrawReport just
-// needs a non-zero skip frame.
+// *T.reportDraw with emit=true lands in the rendered report, with an
+// explain annotation appended as a trailing comment when present. The call
+// site doesn't matter — formatDrawReport just needs a non-zero skip frame.
 func TestTReportDrawEmits(t *testing.T) {
 	t.Parallel()
-	ht := makeEmittingT(t, &bytes.Buffer{})
-	ht.reportDraw(0, 42, "")
-	ht.reportDraw(0, 42, "or any other generated value")
+	out := runEmitting(t, func(ht *T) {
+		ht.reportDraw(0, 42, "")
+		ht.reportDraw(0, 42, "or any other generated value")
+	})
+	if !strings.Contains(out, "42 // or any other generated value") {
+		t.Fatalf("expected an annotated draw line, got %q", out)
+	}
 }
 
 // =============================================================================

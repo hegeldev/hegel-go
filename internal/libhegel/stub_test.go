@@ -417,3 +417,17 @@ func TestStubUseAfterFreeErrors(t *testing.T) {
 		t.Errorf("unexpected fatal message: %q", msg)
 	}
 }
+
+// TestStubPrinterValueError covers Printer.Value's error branch: a misuse
+// error from hegel_printer_value renders as the empty string (the resolve
+// preceding it is best-effort and its scripted error is likewise ignored).
+func TestStubPrinterValueError(t *testing.T) {
+	lib := Stub(t,
+		E_INVALID_ARG, "nothing to resolve", // printer_resolve (ignored)
+		E_INVALID_ARG, "printer misuse", // printer_value: misuse error
+	)
+	p := &Printer{pointer: &pointer[printerT]{syms: lib.syms, raw: 1}}
+	if v := p.Value(lib); v != "" {
+		t.Fatalf("expected empty rendering on error, got %q", v)
+	}
+}

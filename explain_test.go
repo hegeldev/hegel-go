@@ -40,7 +40,7 @@ func TestExplainAnnotatesIrrelevantDraw(t *testing.T) {
 }
 
 // When every draw is irrelevant, each is annotated and the whole-test
-// "varied together" note trails the report.
+// "varied together" note leads the report.
 func TestExplainTogetherNote(t *testing.T) {
 	t.Parallel()
 	var buf bytes.Buffer
@@ -56,9 +56,9 @@ func TestExplainTogetherNote(t *testing.T) {
 	if strings.Count(captured, "// or any other generated value") != 2 {
 		t.Fatalf("expected both draws annotated, got:\n%s", captured)
 	}
-	if !strings.HasSuffix(strings.TrimRight(captured, "\n"),
-		"// The test always failed when commented parts were varied together.") {
-		t.Fatalf("expected the trailing together note, got:\n%s", captured)
+	if !strings.HasPrefix(captured,
+		"// The test always failed when commented parts were varied together.\n") {
+		t.Fatalf("expected the leading together note, got:\n%s", captured)
 	}
 }
 

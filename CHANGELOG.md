@@ -2,16 +2,24 @@
 
 ## Unreleased
 
-The engine's explain phase, on by default (disable with `hegel.WithPhases`
-minus `hegel.PhaseExplain`): after shrinking, parts of the minimal
-counterexample whose value is irrelevant to the failure are annotated on
-the final replay's draw-report lines as `// or any other generated value`.
-When several draws vary freely, a trailing note reports whether varying
+Failing-test reports now flow through the engine's document printer, in
+line with the other Hegel frontends: drawn values, notes, and
+`ht.Log`/`ht.Error`/`ht.Fatal` messages collect in an engine-hosted
+document, rendered together when the test case completes. Line content is
+unchanged (`file:line: statement = value`, with the file:line now written
+by hegel-go rather than `testing.T`'s log decoration).
+
+The engine's explain phase is on by default (disable with
+`hegel.WithPhases` minus `hegel.PhaseExplain`): after shrinking, parts of
+the minimal counterexample whose value is irrelevant to the failure are
+annotated on the report's draw lines as `// or any other generated value`.
+When several draws vary freely, a leading note reports whether varying
 them together still always failed.
 
-Requires the next libhegel release (`hegel_failure_comment_count`,
-`hegel_failure_comment`, `hegel_test_case_choice_count`); until the pin is
-bumped, point `HEGEL_LIBHEGEL_PATH` at a libhegel built from hegel-rust's
+Requires the next libhegel release (the `hegel_printer_*` document API,
+`hegel_note`, `hegel_failure_comment*`, and
+`hegel_test_case_choice_count`); until the pin is bumped, point
+`HEGEL_LIBHEGEL_PATH` at a libhegel built from hegel-rust's
 `DRMacIver/pretty-printing` branch.
 
 ## 0.6.15 - 2026-07-08

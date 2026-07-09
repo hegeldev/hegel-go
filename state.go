@@ -2,6 +2,8 @@ package hegel
 
 import (
 	"fmt"
+	"path/filepath"
+	"runtime"
 	"testing"
 
 	"hegel.dev/go/hegel/internal/libhegel"
@@ -44,25 +46,33 @@ type T struct {
 
 // Shadowed methods — override testing.T behavior for Hegel compatibility.
 
-// Fatal logs the message via the embedded [*testing.T] and marks the test
+// logToReport appends msg to the test case's report, prefixed with the
+// file:line of the user frame skip levels up — the decoration t.Log would
+// have added. Reports flow through the engine-hosted document (rendered when
+// the case completes) so messages and drawn values stay in order; routing
+// through t.Log instead would emit immediately, out of order with the draws.
+func (t *T) logToReport(skip int, msg string) {
+	if t.out == nil {
+		return
+	}
+	_, file, line, ok := runtime.Caller(skip + 1)
+	if !ok { // coverage-ignore
+		panic(fmt.Errorf("runtime.Caller(%d) failed", skip+1))
+	}
+	t.testCase.Note(fmt.Sprintf("%s:%d: %s", filepath.Base(file), line, msg))
+}
+
+// Fatal logs the message into the test case's report and marks the test
 // case as failed.
 func (t *T) Fatal(args ...any) {
-	msg := fmt.Sprint(args...)
-	if t.out != nil {
-		t.Helper()
-		t.T.Log(msg)
-	}
+	t.logToReport(1, fmt.Sprint(args...))
 	t.abort(errTestCaseAborted)
 }
 
-// Fatalf logs the formatted message via the embedded [*testing.T] and marks
+// Fatalf logs the formatted message into the test case's report and marks
 // the test case as failed.
 func (t *T) Fatalf(format string, args ...any) {
-	msg := fmt.Sprintf(format, args...)
-	if t.out != nil {
-		t.Helper()
-		t.T.Log(msg)
-	}
+	t.logToReport(1, fmt.Sprintf(format, args...))
 	t.abort(errTestCaseAborted)
 }
 
@@ -81,27 +91,21 @@ func (t *T) SkipNow() {
 	t.Assume(false)
 }
 
-// Error logs the message via the embedded [*testing.T] and sets the failed flag.
+// Error logs the message into the test case's report and sets the failed
+// flag.
 //
 // The test case continues running but will be treated as a failure after return.
 func (t *T) Error(args ...any) {
-	msg := fmt.Sprint(args...)
-	if t.out != nil {
-		t.Helper()
-		t.T.Log(msg)
-	}
+	t.logToReport(1, fmt.Sprint(args...))
 	t.testCase.Fail()
 }
 
-// Errorf logs the formatted message via the embedded [*testing.T] and sets
+// Errorf logs the formatted message into the test case's report and sets
 // the failed flag.
 //
 // The test case continues running but will be treated as a failure after return.
 func (t *T) Errorf(format string, args ...any) {
-	if t.out != nil {
-		t.Helper()
-		t.T.Logf(format, args...)
-	}
+	t.logToReport(1, fmt.Sprintf(format, args...))
 	t.testCase.Fail()
 }
 
@@ -110,40 +114,22 @@ func (t *T) Failed() bool {
 	return t.testCase.status == libhegel.STATUS_INTERESTING
 }
 
-// Log routes the message through the embedded [*testing.T].
+// Log routes the message into the test case's report.
 func (t *T) Log(args ...any) {
-	if t.out != nil {
-		t.Helper()
-		t.T.Log(fmt.Sprint(args...))
-	}
+	t.logToReport(1, fmt.Sprint(args...))
 }
 
-// Logf routes the formatted message through the embedded [*testing.T].
+// Logf routes the formatted message into the test case's report.
 func (t *T) Logf(format string, args ...any) {
-	if t.out != nil {
-		t.Helper()
-		t.T.Logf(format, args...)
-	}
+	t.logToReport(1, fmt.Sprintf(format, args...))
 }
 
-// Note routes the message through the embedded [*testing.T].
+// Note routes the message into the test case's report.
 func (t *T) Note(message string) {
-	if t.out != nil {
-		t.Helper()
-		t.T.Log(message)
-	}
+	t.logToReport(1, message)
 }
 
 // Run aborts the test — nested sub-tests inside a Hegel property test are not supported.
 func (t *T) Run(_ string, _ func(*testing.T)) bool {
 	panic("nested t.Run is not supported inside a property test")
-}
-
-func (t *T) reportDraw(skip int, value any, comment string) {
-	if t.out == nil {
-		return
-	}
-	_, msg := formatDrawReport(skip+1, value)
-	t.Helper()
-	t.T.Log(msg + formatExplainComment(comment))
 }

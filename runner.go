@@ -26,17 +26,49 @@ type testCase struct {
 	out            io.Writer // nil for exploratory cases; set for final replay / single-case
 	depth          int       // current span nesting depth
 
+	// The test case's report: the engine-hosted document holding drawn
+	// values and notes in order, fetched lazily on the first report and
+	// rendered to out when the case completes.
+	doc *libhegel.Printer
+
 	// Explain-phase annotations for this test case, keyed by the choice
 	// slice [start, end) of the shrunk counterexample they describe.
 	// Installed before the final replay of an engine-annotated failure and
 	// consumed — each at most once — as reported draws match them; nil
 	// everywhere else.
 	explainComments map[[2]uint64]string
-	// The whole-test "varied together" note, emitted as a trailing summary
-	// line once any slice annotation has actually been reported (a note
-	// about invisible parts would only confuse).
-	togetherNote   string
-	explainMatched bool
+	// The whole-test "varied together" note, waiting in a deferred hole at
+	// the top of the document. It is filled in when the first slice
+	// annotation is actually reported: a note about "commented parts" would
+	// only confuse if every annotated slice belonged to unreported draws and
+	// no annotation is visible.
+	togetherNote string
+	togetherSlot *libhegel.Printer
+}
+
+// reportWidth is the width test-case documents are laid out to, matching the
+// engine's default.
+const reportWidth = 79
+
+// document returns the test case's engine-hosted report, fetching the
+// family's document on first use.
+func (s *testCase) document() *libhegel.Printer {
+	if s.doc == nil {
+		s.doc = s.tc.Printer(s.ctx, reportWidth)
+	}
+	return s.doc
+}
+
+// emitRenderedOutput renders the test case's document and writes it to out.
+// Called once, when the case completes; a case that reported nothing emits
+// nothing.
+func (s *testCase) emitRenderedOutput() {
+	s.togetherSlot = nil
+	if s.doc == nil {
+		return
+	}
+	fmt.Fprint(s.out, s.doc.Value(s.ctx))
+	s.doc = nil
 }
 
 // --- Sentinel errors ---
@@ -56,9 +88,14 @@ func (s *testCase) Assume(condition bool) {
 }
 
 func (s *testCase) Note(message string) {
-	if s.out != nil {
-		fmt.Fprintln(s.out, message)
+	if s.out == nil {
+		return
 	}
+	// Fetching the document handle (not just writing through hegel_note) is
+	// what makes a note-only test case render: emission reads the handle
+	// this test case holds.
+	s.document()
+	s.tc.Note(s.ctx, message)
 }
 
 func (s *testCase) reportDraw(skip int, value any, comment string) {
@@ -66,7 +103,13 @@ func (s *testCase) reportDraw(skip int, value any, comment string) {
 		return
 	}
 	loc, msg := formatDrawReport(skip+1, value)
-	fmt.Fprintf(s.out, "%s: %s%s\n", loc, msg, formatExplainComment(comment))
+	doc := s.document()
+	doc.Text(s.ctx, fmt.Sprintf("%s: %s", loc, msg))
+	if comment != "" {
+		doc.Comment(s.ctx, " // "+comment)
+		s.fillTogetherNote()
+	}
+	doc.HardBreak(s.ctx)
 }
 
 // explainRegionStart opens an explain-annotation region around a draw. A
@@ -89,26 +132,20 @@ func (s *testCase) explainComment(start uint64) string {
 		return ""
 	}
 	delete(s.explainComments, [2]uint64{start, end})
-	s.explainMatched = true
 	return comment
 }
 
-// formatExplainComment renders an explain-phase annotation as a trailing Go
-// line comment, or "" when there is none.
-func formatExplainComment(comment string) string {
-	if comment == "" {
-		return ""
+// fillTogetherNote writes the whole-test "varied together" note into its
+// deferred hole at the top of the document, the first time a slice
+// annotation is actually reported.
+func (s *testCase) fillTogetherNote() {
+	if s.togetherSlot == nil {
+		return
 	}
-	return " // " + comment
-}
-
-// reportTogetherNote emits the whole-test "varied together" note as a
-// trailing summary line, if the explain phase produced one and at least one
-// annotated part was actually reported.
-func (s *testCase) reportTogetherNote() {
-	if s.togetherNote != "" && s.explainMatched {
-		s.Note("// " + s.togetherNote)
-	}
+	slot := s.togetherSlot
+	s.togetherSlot = nil
+	slot.Text(s.ctx, "// "+s.togetherNote)
+	slot.HardBreak(s.ctx)
 }
 
 func (s *testCase) Errorf(format string, args ...any) {
@@ -667,13 +704,16 @@ func driveOneCase(ctx *libhegel.Context, tc *libhegel.TestCase, fn testBody, out
 		singleTestCase: singleTestCase,
 		out:            output,
 	}
-	if explain != nil {
+	if explain != nil && output != nil {
 		state.explainComments = explain.comments
-		state.togetherNote = explain.togetherNote
+		if explain.togetherNote != "" {
+			state.togetherNote = explain.togetherNote
+			state.togetherSlot = state.document().Deferred(ctx)
+		}
 	}
-	// Registered first among the output-affecting defers so it runs last,
-	// after the body's own notes and any recovered failure state settle.
-	defer state.reportTogetherNote()
+	// Registered before the recovery defers so it runs after they settle:
+	// the report renders once, however the body ended.
+	defer state.emitRenderedOutput()
 	// Registered first so it runs last: publish the case's final status and
 	// origin into the named returns. When fn panics (FailNow/abort/user panic)
 	// the normal return below is skipped, so without this the named returns

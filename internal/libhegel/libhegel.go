@@ -239,6 +239,7 @@ type testCaseT uintptr  // Equivalent of hegel_test_case_t
 type resultT uintptr    // Equivalent of hegel_run_result_t
 type failureT uintptr   // Equivalent of hegel_failure_t
 type stringGenT uintptr // Equivalent of hegel_string_generator_t
+type printerT uintptr   // Equivalent of hegel_printer_t
 
 // Date mirrors hegel_date_t: a Gregorian calendar date passed to / returned
 // from hegel_generate_date by value.
@@ -289,6 +290,14 @@ type bytesResult struct {
 // length-delimited UTF-8 buffer (not NUL-terminated) written by
 // hegel_generate_string and released by hegel_generate_string_result_free.
 type stringResult struct {
+	data *byte
+	len  uint64
+}
+
+// printerValueResult mirrors hegel_printer_value_result_t: an
+// engine-allocated UTF-8 rendering of a document, freed with
+// hegel_printer_value_result_free.
+type printerValueResult struct {
 	data *byte
 	len  uint64
 }
@@ -382,6 +391,17 @@ type symbols struct {
 	FailureComment          func(ctxT, failureT, uint64, out[uint64], out[uint64], out[*byte]) Error
 
 	TestCaseChoiceCount func(ctxT, testCaseT, out[uint64]) Error
+	TestCasePrinter     func(ctxT, testCaseT, uint64, out[printerT]) Error
+	Note                func(ctxT, testCaseT, string, uint64) Error
+
+	PrinterFree      func(ctxT, printerT) Error
+	PrinterText      func(ctxT, printerT, string, uint64) Error
+	PrinterHardBreak func(ctxT, printerT) Error
+	PrinterComment   func(ctxT, printerT, string, uint64) Error
+	PrinterDeferred  func(ctxT, printerT, out[printerT]) Error
+	PrinterResolve   func(ctxT, printerT) Error
+	PrinterValue     func(ctxT, printerT, out[printerValueResult]) Error
+	PrinterValueFree func(ctxT, *printerValueResult) Error
 
 	Version func(ctxT, out[*byte]) Error
 }
@@ -581,6 +601,17 @@ func tryOpen(path string) (syms *symbols, err error) {
 		{"hegel_failure_comment", &syms.FailureComment},
 
 		{"hegel_test_case_choice_count", &syms.TestCaseChoiceCount},
+		{"hegel_test_case_printer", &syms.TestCasePrinter},
+		{"hegel_note", &syms.Note},
+
+		{"hegel_printer_free", &syms.PrinterFree},
+		{"hegel_printer_text", &syms.PrinterText},
+		{"hegel_printer_hard_break", &syms.PrinterHardBreak},
+		{"hegel_printer_comment", &syms.PrinterComment},
+		{"hegel_printer_deferred", &syms.PrinterDeferred},
+		{"hegel_printer_resolve", &syms.PrinterResolve},
+		{"hegel_printer_value", &syms.PrinterValue},
+		{"hegel_printer_value_result_free", &syms.PrinterValueFree},
 
 		{"hegel_version", &syms.Version},
 	})
@@ -1179,6 +1210,95 @@ func (tc *TestCase) ChoiceCount(ctx *Context) uint64 {
 		return tc.syms.TestCaseChoiceCount(ctx, tc.raw, &tc.outCount)
 	})
 	return tc.outCount
+}
+
+// Printer fetches (creating on first use) the pretty-printer document shared
+// by this test case's family — the engine-hosted report of drawn values and
+// notes. The document survives the test case's completion, so the client can
+// render it afterwards; each returned handle is released via its own GC
+// cleanup.
+func (tc *TestCase) Printer(ctx *Context, maxWidth uint64) *Printer {
+	ptr, _ := allocate(ctx, "hegel_test_case_printer", func(ctx ctxT, raw *printerT) Error {
+		e := tc.syms.TestCasePrinter(ctx, tc.raw, maxWidth, raw)
+		runtime.KeepAlive(tc)
+		return e
+	}, tc.syms.PrinterFree)
+	return &Printer{pointer: ptr}
+}
+
+// Note appends a note to the test case's document; each newline-separated
+// line of text becomes its own output line, interleaved with drawn values in
+// the order they were appended.
+func (tc *TestCase) Note(ctx *Context, text string) {
+	_ = ctx.invoke("hegel_note", func(ctx ctxT) Error {
+		return tc.syms.Note(ctx, tc.raw, text, uint64(len(text)))
+	})
+}
+
+// Printer wraps a hegel_printer_t: the main document of a test-case family
+// (from [TestCase.Printer]) or a deferred slot within it (from
+// [Printer.Deferred]). outValue is reusable out-parameter scratch (see
+// [TestCase] for the rationale).
+type Printer struct {
+	*pointer[printerT]
+
+	outValue printerValueResult
+}
+
+// Text emits literal, unbreakable text. It must not contain newlines; line
+// structure is expressed with [Printer.HardBreak].
+func (p *Printer) Text(ctx *Context, s string) {
+	_ = ctx.invoke("hegel_printer_text", func(ctx ctxT) Error {
+		return p.syms.PrinterText(ctx, p.raw, s, uint64(len(s)))
+	})
+}
+
+// HardBreak emits an unconditional newline plus the current indentation.
+func (p *Printer) HardBreak(ctx *Context) {
+	_ = ctx.invoke("hegel_printer_hard_break", func(ctx ctxT) Error {
+		return p.syms.PrinterHardBreak(ctx, p.raw)
+	})
+}
+
+// Comment attaches a comment — passed in full rendered form, e.g.
+// " // like this" — to the line being written: it is emitted at the end of
+// that line, forces every open group to break, and is excluded from width
+// accounting.
+func (p *Printer) Comment(ctx *Context, s string) {
+	_ = ctx.invoke("hegel_printer_comment", func(ctx ctxT) Error {
+		return p.syms.PrinterComment(ctx, p.raw, s, uint64(len(s)))
+	})
+}
+
+// Deferred opens a hole at the document's current position and returns a
+// handle onto its slot; content written to the slot later appears at the
+// hole's position when the document renders.
+func (p *Printer) Deferred(ctx *Context) *Printer {
+	ptr, _ := allocate(ctx, "hegel_printer_deferred", func(ctx ctxT, raw *printerT) Error {
+		e := p.syms.PrinterDeferred(ctx, p.raw, raw)
+		runtime.KeepAlive(p)
+		return e
+	}, p.syms.PrinterFree)
+	return &Printer{pointer: ptr}
+}
+
+// Value splices in any outstanding deferred content, lays the document out,
+// and returns everything printed so far.
+func (p *Printer) Value(ctx *Context) string {
+	// Resolving with no deferred session outstanding reports a usage error;
+	// rendering is valid either way, so that error is deliberately ignored.
+	_ = ctx.invoke("hegel_printer_resolve", func(ctx ctxT) Error {
+		return p.syms.PrinterResolve(ctx, p.raw)
+	})
+	err := ctx.invoke("hegel_printer_value", func(ctx ctxT) Error {
+		return p.syms.PrinterValue(ctx, p.raw, &p.outValue)
+	})
+	if err != nil {
+		return ""
+	}
+	rendered := string(unsafe.Slice(p.outValue.data, p.outValue.len))
+	_ = p.syms.PrinterValueFree(0, &p.outValue)
+	return rendered
 }
 
 // StringGenerator wraps a hegel_string_generator_t: the immutable
