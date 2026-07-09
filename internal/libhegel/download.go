@@ -147,9 +147,9 @@ func downloadToFile(url, dest string) (string, error) {
 }
 
 // downloadCandidate triggers an on-demand download to the per-version cache
-// dir and returns the path of the downloaded library. Used by [loadFromPaths]
-// when no HEGEL_LIBHEGEL_PATH override is set. The download is verified against
-// the baked-in checksum for the host platform's asset.
+// dir and returns the path of the downloaded library. Used by [load] when no
+// HEGEL_LIBHEGEL_PATH override is set. The download is verified against the
+// baked-in checksum for the host platform's asset.
 func downloadCandidate() (string, error) { // coverage-ignore (exercised only against the network, not in unit tests)
 	return downloadVerifiedLibhegel(hegelVersion, libhegelAssetName(), libhegelChecksums)
 }

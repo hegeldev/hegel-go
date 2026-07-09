@@ -16,11 +16,11 @@ Hegel is a property-based testing library for Go. Hegel is based on [Hypothesis]
 
 To install: `go get hegel.dev/go/hegel@latest`.
 
-Hegel for Go drives [libhegel](https://github.com/hegeldev/hegel-rust) — the native Rust engine. At runtime hegel-go looks for `libhegel.so` (Linux), `libhegel.dylib` (macOS), or `libhegel.dll` (Windows) at `$HEGEL_LIBHEGEL_PATH` first, then in a sibling `../hegel-rust/target/release/` (and `../hegel-rust/target/debug/`) checkout relative to your project root, and finally falls back to downloading the matching version from hegel-rust's GitHub releases on first use (cached under `~/.cache/hegel-go/libhegel/<version>/`, SHA-256 verified). Set `HEGEL_LIBHEGEL_NO_DOWNLOAD=1` to opt out of the download fallback.
+Hegel for Go drives [libhegel](https://github.com/hegeldev/hegel-rust) — the native Rust engine. At runtime hegel-go loads `libhegel.so` (Linux), `libhegel.dylib` (macOS), or `libhegel.dll` (Windows) from `$HEGEL_LIBHEGEL_PATH` if set (with no fallback if it fails to open); otherwise it downloads the matching version from hegel-rust's GitHub releases on first use (cached under `~/.cache/hegel-go/libhegel/<version>/`, SHA-256 verified). Setting `HEGEL_LIBHEGEL_NO_DOWNLOAD=1` disables the auto-download entirely, in which case `$HEGEL_LIBHEGEL_PATH` is the only way to supply the library — for example a local hegel-rust build.
 
 Supported platforms (those with a published libhegel artifact): Linux amd64/arm64, macOS arm64 (Apple Silicon), and Windows amd64/arm64.
 
-During development, build the library locally:
+During development, build the library locally and point `HEGEL_LIBHEGEL_PATH` at the result (`just test` does both automatically when a sibling `../hegel-rust/` checkout is present):
 
 ```
 just build-libhegel    # cargo build --release -p hegeltest-c in ../hegel-rust/
