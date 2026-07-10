@@ -16,7 +16,7 @@ import (
 func TestListsNegativeMinSizeError(t *testing.T) {
 	t.Parallel()
 	_, err := Lists(Integers[int64](0, 100)).MinSize(-5).MaxSize(10).draw(newStubTestCase(t))
-	assertErrorContains(t, "min_size", err)
+	assertErrorContains(t, "Lists: MinSize -5 must be non-negative", err)
 }
 
 // =============================================================================

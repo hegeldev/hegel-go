@@ -1,6 +1,8 @@
 package hegel
 
 import (
+	"bytes"
+	"strings"
 	"testing"
 )
 
@@ -198,6 +200,28 @@ func TestRunStatefulInvariantViolationFails(t *testing.T) {
 	}, WithTestCases(10))
 	if err == nil {
 		t.Fatal("Expected error")
+	}
+}
+
+// TestRunStatefulReplayOmitsInternalDraws verifies that the final-replay
+// output of a failing stateful run contains only the user's own draws and the
+// step notes — not hegel's internal step-count draw, which used to leak a
+// "stateful.go:<line>: nSteps = ..." report line with a giant pre-clamp
+// integer.
+func TestRunStatefulReplayOmitsInternalDraws(t *testing.T) {
+	var buf bytes.Buffer
+	err := run(func(tc TestCase) {
+		RunStateful(tc, &invariantViolator{})
+	}, WithTestCases(10), WithDatabase(""), withOutput(&buf))
+	if err == nil {
+		t.Fatal("expected error")
+	}
+	out := buf.String()
+	if !strings.Contains(out, "Step 1: RuleStep") {
+		t.Fatalf("replay output missing step notes; got:\n%s", out)
+	}
+	if strings.Contains(out, "stateful.go") {
+		t.Errorf("replay output leaks an internal hegel draw report:\n%s", out)
 	}
 }
 

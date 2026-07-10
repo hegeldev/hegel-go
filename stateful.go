@@ -124,9 +124,18 @@ func (sm *stateMachine) Run(tc TestCase) {
 	if isSingle {
 		nSteps = math.MaxInt
 	} else {
-		// NB: Draw(Integers(0, statefulMaxSteps)) is not equivalent here
-		// because the resulting distribution is different.
-		nSteps = min(Draw(tc, Integers(0, math.MaxInt)), statefulMaxSteps)
+		// NB: Integers(0, statefulMaxSteps) is not equivalent here because
+		// the resulting distribution is different: the other Hegel libraries
+		// also draw an unbounded integer and clamp it, so shrinking behaves
+		// consistently.
+		//
+		// The generator is drawn directly rather than through [Draw] so this
+		// internal draw never appears in user-facing draw reports.
+		n, err := Integers(0, math.MaxInt).draw(tc)
+		if err != nil {
+			tc.abort(err)
+		}
+		nSteps = min(n, statefulMaxSteps)
 	}
 	stepsSucceeded := 0
 	stepsAttempted := 0

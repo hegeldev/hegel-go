@@ -7,15 +7,14 @@
 //
 // # Path resolution
 //
-// The following locations are searched for the dynamic library, first hit wins:
+// The dynamic library is resolved as follows:
 //
 //  1. $HEGEL_LIBHEGEL_PATH if set (no fallback if it fails to open)
-//  2. <projectRoot>/../hegel-rust/target/release/libhegel.<ext>
-//  3. <projectRoot>/../hegel-rust/target/debug/libhegel.<ext>
-//  4. ~/.cache/hegel-go/libhegel/<version>/libhegel-<goos>-<goarch>.<ext>
-//     (auto-downloaded from the matching hegel-rust GitHub release; the
-//     download is skipped when HEGEL_LIBHEGEL_PATH is set or when
-//     HEGEL_LIBHEGEL_NO_DOWNLOAD is non-empty)
+//  2. ~/.cache/hegel-go/libhegel/<version>/libhegel-<goos>-<goarch>.<ext>,
+//     auto-downloaded from the matching hegel-rust GitHub release on first
+//     use and verified against a baked-in SHA-256 checksum. When
+//     HEGEL_LIBHEGEL_NO_DOWNLOAD is non-empty the downloader is disabled
+//     entirely and loading fails unless HEGEL_LIBHEGEL_PATH is set.
 //
 // where <ext> is "so" on Linux, "dylib" on macOS, and "dll" on Windows.
 

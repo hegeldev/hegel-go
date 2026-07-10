@@ -294,7 +294,9 @@ const (
 type Phase = libhegel.Phase
 
 const (
-	// PhaseExplicit runs explicitly-provided examples.
+	// PhaseExplicit is reserved for future use: it would run explicitly-provided
+	// examples, but hegel-go currently has no way to provide them, so enabling
+	// or disabling this phase is a no-op.
 	PhaseExplicit = libhegel.PHASE_EXPLICIT
 	// PhaseReuse replays examples from the example database.
 	PhaseReuse = libhegel.PHASE_REUSE
@@ -315,8 +317,10 @@ func AllPhases() []Phase {
 
 // settingApplier mutates a libhegel settings object. Options that map to an
 // engine setting append one of these; [runOptions.buildSettings] runs them in
-// order, so a later applier overrides an earlier one (this is how user options
-// override the CI defaults seeded by [run]).
+// order against a freshly created engine settings object, so a later applier
+// overrides an earlier one and every applier overrides the engine defaults
+// (including the CI defaults hegel_settings_new applies when it detects a CI
+// environment).
 type settingApplier func(*libhegel.Context, *libhegel.Settings) error
 
 // runOptions holds options for property tests.
@@ -375,8 +379,10 @@ func SuppressHealthCheck(checks ...HealthCheck) Option {
 // disables persistence entirely, so no failing examples are saved or replayed.
 //
 // The default (when WithDatabase is not specified) is to use libhegel's default
-// database location, except in CI environments where the database is
-// automatically disabled.
+// database location (.hegel/examples under the working directory), except in
+// CI environments — detected by the engine via the CI, GITHUB_ACTIONS, and
+// similar environment variables — where the database is automatically
+// disabled. An explicit WithDatabase always wins over that CI default.
 func WithDatabase(path string) Option {
 	return func(o *runOptions) {
 		o.addSetting(func(ctx *libhegel.Context, s *libhegel.Settings) error {
@@ -386,6 +392,11 @@ func WithDatabase(path string) Option {
 }
 
 // WithDerandomize sets whether to use a fixed seed for reproducible runs.
+//
+// The default is false, except in CI environments — detected by the engine
+// via the CI, GITHUB_ACTIONS, and similar environment variables — where runs
+// are derandomized by default. An explicit WithDerandomize always wins over
+// that CI default.
 func WithDerandomize(derandomize bool) Option {
 	return func(o *runOptions) {
 		o.addSetting(func(ctx *libhegel.Context, s *libhegel.Settings) error {
