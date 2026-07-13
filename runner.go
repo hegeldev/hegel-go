@@ -528,7 +528,7 @@ func runWithContext(ctx *libhegel.Context, fn testBody, opts runOptions) error {
 		return err
 	}
 
-	run, err := s.RunStart(ctx)
+	run, err := s.RunStart(ctx, 0, 0)
 	if err != nil {
 		return err
 	}
@@ -645,7 +645,7 @@ func replayFailures(ctx *libhegel.Context, s *libhegel.Settings, result *libhege
 		if err != nil {
 			return err
 		}
-		tc, err := s.TestCaseFromBlob(ctx, fail.ReproductionBlob(ctx))
+		tc, err := s.TestCaseFromBlob(ctx, fail.ReproductionBlob(ctx), 0, 0)
 		if err != nil {
 			return err
 		}

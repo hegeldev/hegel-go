@@ -392,7 +392,7 @@ func newStubTestCase(t testing.TB, opReturns ...any) *testCase {
 	}, opReturns...)
 	lib := libhegel.Stub(t, returns...)
 	s := lib.SettingsNew()
-	run, _ := s.RunStart(lib)
+	run, _ := s.RunStart(lib, 0, 0)
 	tc, _ := run.NextTestCase(lib)
 	return &testCase{ctx: lib, tc: tc}
 }
@@ -404,7 +404,7 @@ func newRealTestCase(t testing.TB) *testCase {
 	t.Helper()
 	ctx := libhegel.NewContext()
 	s := ctx.SettingsNew()
-	run, err := s.RunStart(ctx)
+	run, err := s.RunStart(ctx, 0, 0)
 	if err != nil {
 		t.Fatalf("RunStart: %v", err)
 	}

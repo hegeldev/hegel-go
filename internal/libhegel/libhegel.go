@@ -239,6 +239,13 @@ type resultT uintptr    // Equivalent of hegel_run_result_t
 type failureT uintptr   // Equivalent of hegel_failure_t
 type stringGenT uintptr // Equivalent of hegel_string_generator_t
 
+// outputCallbackT is hegel_output_callback_t, a C function pointer
+// (void (*)(void *user_data, const char *line, size_t len)) delivering one
+// line of engine output per call. purego represents a callback argument as a
+// uintptr (a real one would come from purego.NewCallback); hegel-go always
+// passes 0 (NULL), leaving engine output on stderr.
+type outputCallbackT uintptr
+
 // Date mirrors hegel_date_t: a Gregorian calendar date passed to / returned
 // from hegel_generate_date by value.
 type Date struct {
@@ -320,12 +327,17 @@ type symbols struct {
 	SettingsSetPhases                 func(ctxT, settingsT, Phase) Error
 	SettingsSetSuppressHealthCheck    func(ctxT, settingsT, HealthCheck) Error
 
-	RunStart     func(ctxT, settingsT, out[runT]) Error
+	// RunStart and TestCaseFromBlob take a hegel_output_callback_t plus its
+	// void* user_data ahead of the trailing out-param. The wrapper methods
+	// forward both; every hegel-package caller passes NULL, leaving engine
+	// output on stderr. user_data is a plain void* (uintptr); the callback
+	// carries its own type (see outputCallbackT).
+	RunStart     func(ctxT, settingsT, outputCallbackT, uintptr, out[runT]) Error
 	RunFree      func(ctxT, runT) Error
 	NextTestCase func(ctxT, runT, out[testCaseT]) Error
 	RunResult    func(ctxT, runT, out[resultT]) Error
 
-	TestCaseFromBlob func(ctxT, settingsT, string, out[testCaseT]) Error
+	TestCaseFromBlob func(ctxT, settingsT, string, outputCallbackT, uintptr, out[testCaseT]) Error
 	TestCaseClone    func(ctxT, testCaseT, out[testCaseT]) Error
 	TestCaseFree     func(ctxT, testCaseT) Error
 
@@ -686,9 +698,12 @@ func (s *Settings) SuppressHealthCheck(ctx *Context, checks HealthCheck) error {
 	})
 }
 
-func (s *Settings) RunStart(ctx *Context) (*Run, error) {
+// RunStart starts a run against these settings. callback and userData set the
+// engine-output destination (see [outputCallbackT]); pass 0 for both to leave
+// output on stderr, which every hegel-package caller currently does.
+func (s *Settings) RunStart(ctx *Context, callback outputCallbackT, userData uintptr) (*Run, error) {
 	ptr, err := allocate(ctx, "hegel_run_start", func(ctx ctxT, raw *runT) Error {
-		e := s.syms.RunStart(ctx, s.raw, raw)
+		e := s.syms.RunStart(ctx, s.raw, callback, userData, raw)
 		runtime.KeepAlive(s)
 		return e
 	}, s.syms.RunFree)
@@ -699,10 +714,12 @@ func (s *Settings) RunStart(ctx *Context) (*Run, error) {
 // encoded in a base64 failure blob (from [Failure.ReproductionBlob]). Unlike
 // test cases from [Run.NextTestCase], the returned handle is owned by the
 // caller and is freed automatically via the GC. A rejected blob surfaces as a
-// nil test case and a non-nil error.
-func (s *Settings) TestCaseFromBlob(ctx *Context, blob string) (tc *TestCase, err error) {
+// nil test case and a non-nil error. callback and userData set the
+// engine-output destination for the replay (see [outputCallbackT]); pass 0 for
+// both to leave output on stderr, which every hegel-package caller currently does.
+func (s *Settings) TestCaseFromBlob(ctx *Context, blob string, callback outputCallbackT, userData uintptr) (tc *TestCase, err error) {
 	ptr, err := allocate(ctx, "hegel_test_case_from_blob", func(ctx ctxT, raw *testCaseT) Error {
-		e := s.syms.TestCaseFromBlob(ctx, s.raw, blob, raw)
+		e := s.syms.TestCaseFromBlob(ctx, s.raw, blob, callback, userData, raw)
 		runtime.KeepAlive(s)
 		return e
 	}, s.syms.TestCaseFree)

@@ -12,6 +12,18 @@ and the low-level wrapper in `internal/libhegel/` must be re-aligned. The main
 `hegel` package's exported API must **not** change as a result — only the
 internal binding layer.
 
+**Within that binding layer, the wrapper API *should* track the C API.** When a
+C function gains a parameter, plumb it through the `internal/libhegel` wrapper
+method (`Settings.RunStart`, …) rather than hardcoding a constant inside the
+wrapper — the wrapper's exported signature is meant to mirror the C signature.
+Any behavior-preserving default for a new *optional* parameter (a NULL callback,
+a nullable pointer, a `0`-means-default flag) belongs in the **package-`hegel`
+callers** (`runner.go`, …), which pass `0`/NULL — not baked into the wrapper.
+This keeps the binding honest (a future caller *can* supply a real value) while
+holding the `hegel` package's public API stable. Example: `hegel_output_callback_t`
+added `(callback, user_data)` to `hegel_run_start`; the wrapper takes both and
+the runner passes `0, 0`.
+
 ## The context-based ABI
 
 Every fallible libhegel call follows one convention, and the whole wrapper is
@@ -100,8 +112,15 @@ Walk every C declaration and check it against the wrapper. Categorize each:
   a `stub.go` closure, and a test (see §5).
 - **Changed signature** (a new arg, or a value that moved from return to
   out-param) → remember the ABI convention: ctx first, `Error` return,
-  produced value through a trailing out-pointer. The field type, wrapper, and
-  stub closure all change together.
+  produced value through a trailing out-pointer. The `symbols` field type and the
+  wrapper method change together (`stub.go` adapts on its own — see §4.3). A new
+  arg must be **plumbed through the wrapper method's signature**, not hardcoded
+  inside the wrapper. If it is an *optional* arg with a behavior-preserving
+  default (a NULL callback, a nullable pointer, a `0`-means-default flag), leave
+  the wrapper faithful and pass the default from the **package-`hegel` callers**
+  (see the charter note in §intro). Do not silently bury a default in the
+  wrapper — that hides the new capability and the §8 audit cannot tell a
+  deliberate default from an oversight.
 - **Changed enum/constant values** (e.g. a new `HEGEL_LABEL_*`, or a reordered
   `hegel_status_t`) → update the Go `const` block. Binding-invented labels that
   aren't in upstream (`LABEL_COMPOSITE`, `LABEL_STATEFUL`) must be renumbered to
@@ -123,9 +142,12 @@ Walk every C declaration and check it against the wrapper. Categorize each:
   out-param typed as the enum pointer (`hegel_run_status_t *`, i.e. `RunStatus`)
   is *not* widened and keeps mirroring the enum (`int32`).
 
-## 4. Editing the binding — the four things that move together
+## 4. Editing the binding — the things that move together
 
-These must stay consistent or the build/coverage breaks:
+These must stay consistent or the build/coverage breaks. In practice only the
+first two are hand-edited for a signature change; `stub.go` is reflection-driven
+and adapts on its own (item 3), and the wrapper method (item 4) changes only when
+the call shape does:
 
 1. **`libhegel.go` — `symbols` struct**: one `func`-typed field per C symbol.
    Mirror the C signature exactly: `func(ctxT, <args>, <*outParam>) Error` for a
@@ -133,21 +155,24 @@ These must stay consistent or the build/coverage breaks:
    directly rather than through a result code — only `hegel_context_last_error`
    (`func(ctxT) string`) currently does this.
 2. **`libhegel.go` — `registerSymbols` table** in `tryOpen`: `{"hegel_x", &syms.x}`.
-3. **`stub.go` — the positional struct literal**: `Stub(returns ...any)` builds a
-   `symbols` with a **positional** composite literal (its first field is
-   `handle dlhandle`, set to `0`) and returns a `*Context`. Field order in the
-   literal MUST match the `symbols` struct field order exactly — adding,
-   removing, or reordering a field means editing the literal in lockstep. Each
-   closure mirrors the new C signature: it takes `ctxT` + args + out-pointers,
-   writes any produced value into the out-param, and returns an `Error`. Values
+3. **`stub.go` — reflection-driven, usually needs no edit**: `Stub(tb, returns
+   ...any)` builds a `symbols` by reflection — it walks the struct and installs a
+   `reflect.MakeFunc` closure on every `func`-typed field, then returns a
+   `*Context`. Because the closures are synthesized from each field's type at
+   runtime, **adding, removing, reordering, or retyping a `symbols` field needs no
+   change to `stub.go`** — it adapts automatically. Each synthesized
+   closure recognizes its out-params **structurally, not by name**: an `out[T]`
+   argument by `reflect.Type` identity, or a pointer-to-`~uintptr` as a produced
+   handle. Every non-pointer argument (a by-value scalar, a `string`, or the
+   always-NULL `outputCallbackT` / `user_data` args) is treated as an input and
+   consumes **no** scripted return value. Destructors (field name contains
+   `Free`) are detected and auto-free their handle, scripting no return. Values
    are supplied by the caller via `returns ...any` and popped in strict call
-   order through the closures' helpers:
-     - `retval()` — pop the next value (an `Error` for a plain fallible op, or a
-       typed scalar like `RunStatus` / `uint64` to write into a `*out`).
-     - `retHandle()` — for handle constructors: pop either an `Error` (the call
-       fails) or a `uintptr` (the produced handle; `0` = NULL/"no object").
-     - `writeStr(out **byte)` — pop a Go string and write it into a `const char**`
-       out-param as a NUL-terminated buffer.
+   order by a single `retval()` helper. So the thing that moves in lockstep with a
+   signature change is not `stub.go` but each test's `returns ...any` list when a
+   symbol's **output** type or call order changes (see §5) — a new *input* arg
+   that consumes no return value (like the NULL callback) needs no `returns`
+   change either.
 4. **`libhegel.go` — wrapper method**: a thin, typed Go method that threads a
    `*Context`. Handle constructors live on `Context` (e.g. `SettingsNew`) or on
    the parent handle (e.g. `Settings.RunStart`, `Run.NextTestCase`) and go
@@ -308,9 +333,17 @@ edit anything — this is a read-only verification.
    bound to an unsigned C param as SIGNATURE-MISMATCH. This mismatch is
    invisible to the runtime tests (purego marshals both identically for small
    values), so this literal-read check is the only thing that catches it.
+7. For every parameter that is NEW in this version (present in the header
+   prototype but absent from the prior binding), check the corresponding
+   `internal/libhegel` wrapper method: is the new arg forwarded through the
+   wrapper's own signature, or hardcoded to a constant inside the wrapper? A new
+   arg hardcoded inside the wrapper (rather than plumbed to the wrapper signature
+   and defaulted at the package-`hegel` caller) is a BURIED-DEFAULT — flag it.
+   This is a design-policy check, not an ABI failure.
 
-Report a table of every header function with OK / MISSING / SIGNATURE-MISMATCH,
-and a final verdict line. List discrepancies explicitly; do not fix them.
+Report a table of every header function with OK / MISSING / SIGNATURE-MISMATCH /
+BURIED-DEFAULT, and a final verdict line. List discrepancies explicitly; do not
+fix them.
 ```
 
 The agent's report is the gate: if it comes back clean, the alignment is
