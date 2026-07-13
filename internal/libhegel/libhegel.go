@@ -10,12 +10,15 @@
 // The following locations are searched for the dynamic library, first hit wins:
 //
 //  1. $HEGEL_LIBHEGEL_PATH if set (no fallback if it fails to open)
-//  2. <projectRoot>/../hegel-rust/target/release/libhegel.<ext>
-//  3. <projectRoot>/../hegel-rust/target/debug/libhegel.<ext>
-//  4. ~/.cache/hegel-go/libhegel/<version>/libhegel-<goos>-<goarch>.<ext>
-//     (auto-downloaded from the matching hegel-rust GitHub release; the
-//     download is skipped when HEGEL_LIBHEGEL_PATH is set or when
-//     HEGEL_LIBHEGEL_NO_DOWNLOAD is non-empty)
+//  2. the libhegel binary go:embed'd from internal/libhegel/libs (vendored via
+//     git-lfs), materialized to
+//     ~/.cache/hegel-go/libhegel/<version>/libhegel-<goos>-<goarch>.<ext> and
+//     dlopen'd from there. Skipped when HEGEL_LIBHEGEL_PATH is set (an explicit
+//     override means the user wants that exact file) or on platforms with no
+//     vendored artifact.
+//
+// The library does not search for a sibling hegel-rust checkout; local
+// development against a fresh build goes through HEGEL_LIBHEGEL_PATH.
 //
 // where <ext> is "so" on Linux, "dylib" on macOS, and "dll" on Windows.
 
@@ -35,10 +38,9 @@ import (
 //go:generate go tool stringer -type=Error,Status,Mode,Backend,Verbosity,RunStatus,HealthCheck,Phase,Label -linecomment -output=libhegel_string.go
 
 // LibraryPathEnv names the env var that pins libhegel to an explicit path.
-// When set, that path is loaded directly with no auto-download fallback; when
-// unset, the pinned release is fetched by the auto-downloader. It is the only
-// way to use a local build — the library does not search for a sibling
-// hegel-rust checkout.
+// When set, that path is loaded directly with no embedded fallback; when unset,
+// the go:embed'd vendored binary is used. It is the only way to use a local
+// build — the library does not search for a sibling hegel-rust checkout.
 const LibraryPathEnv = "HEGEL_LIBHEGEL_PATH"
 
 type Error int32
@@ -488,15 +490,15 @@ func load() (*symbols, error) {
 	path := os.Getenv(LibraryPathEnv)
 	if path == "" {
 		var err error
-		path, err = downloadCandidate()
-		if err != nil { // coverage-ignore (download fallback hits the network, not exercised in unit tests)
-			return nil, fmt.Errorf("download libhegel: %w", err)
+		path, err = writeDynamicLibrary(embeddedLib)
+		if err != nil {
+			return nil, fmt.Errorf("write libhegel: %w", err)
 		}
 	}
 
 	syms, err := tryOpen(path)
 	if err != nil {
-		return nil, fmt.Errorf("could not load libhegel from %s (set %s to override): %w", path, LibraryPathEnv, err)
+		return nil, fmt.Errorf("load libhegel from %s: %w", path, err)
 	}
 
 	return syms, nil

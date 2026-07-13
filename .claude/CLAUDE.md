@@ -27,8 +27,8 @@ The library is structured in layers, each building on the previous:
 
 1. **FFI loader** (`internal/libhegel`) — purego-based dlopen of `libhegel.{so,dylib}`,
    one `*libhegel.Handle` struct with a `func`-typed field per C symbol, path
-   resolution via the `HEGEL_LIBHEGEL_PATH` env var, otherwise the pinned release
-   is auto-downloaded.
+   resolution via the `HEGEL_LIBHEGEL_PATH` env var, otherwise a `go:embed`'d
+   vendored binary (git-lfs) as the fallback.
 2. **Test runner** (`runner.go`) — `testCase` implements
    `TestCase` by routing every operation (generate, span, target, collection,
    mark_complete) to one libhegel C call.
@@ -70,18 +70,32 @@ The user-facing surface lives in `hegel.go` (canonical package doc). Entry point
 
 The library is resolved in this order; first hit wins:
 
-1. `$HEGEL_LIBHEGEL_PATH` if set (loaded directly; no auto-download fallback if
-   it fails to open)
-2. Auto-download of the pinned release (`hegelVersion`) from hegel-rust's GitHub
-   releases, verified against the baked-in checksum and cached per-version.
+1. `$HEGEL_LIBHEGEL_PATH` if set (loaded directly; no embedded fallback if it
+   fails to open)
+2. the `go:embed`'d vendored binary for the host platform (see below),
+   materialized to `~/.cache/hegel-go/libhegel/<version>/` and dlopen'd from
+   there. Skipped when `$HEGEL_LIBHEGEL_PATH` is set or on a platform with no
+   vendored artifact.
 
-The library does **not** hunt for a sibling `hegel-rust` checkout. To test
-against a local build, point `HEGEL_LIBHEGEL_PATH` at it — `just test` /
-`just check` do this for you: `build-libhegel` (`cargo build --release -p
-hegeltest-c` in the sibling `hegel-rust/` checkout) builds the `.so`, and the
-recipe exports its path. Run `just check vendored` to bypass the local build and
-exercise the auto-download path instead. `<ext>` is `so` on Linux, `dylib` on
-macOS.
+The library does **not** hunt for a sibling `hegel-rust` checkout; local
+development against a fresh build goes through `HEGEL_LIBHEGEL_PATH` (see below).
+
+`<ext>` is `so` on Linux, `dylib` on macOS, `dll` on Windows.
+
+End users get a pre-compiled `libhegel` vendored inside the module: the
+per-platform binaries live in `internal/libhegel/libs/` (stored via **git-lfs**)
+and are `go:embed`'d by the per-platform `embed_*.go` files into
+`embeddedLib`. Run `git lfs install` after cloning so the real bytes (not the
+LFS pointer) are present at build time. The pinned version lives in
+`internal/libhegel/version.go`; `just vendor-libhegel [version]` refreshes both
+the binaries and that constant from a hegel-rust GitHub release.
+
+For local development against an unreleased libhegel, point
+`HEGEL_LIBHEGEL_PATH` at a local build. `just test` / `just check` do this for
+you: they run `build-libhegel` (delegates to `cargo build --release -p
+hegeltest-c` in the sibling `hegel-rust/` checkout) and export the resulting
+`.so` path, so a fresh local build wins over the vendored copy. Pass `just test
+vendored` to skip the local build and exercise the embedded binary instead.
 
 ## Tooling Choices
 

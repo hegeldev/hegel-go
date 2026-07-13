@@ -1,14 +1,16 @@
 package libhegel
 
 import (
+	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 )
 
 // TestLoadLibVersion smoke-tests the loader against the real libhegel built
-// by `just build-libhegel` (or in the sibling ../hegel-rust/ checkout, or
-// auto-downloaded from the matching GitHub release). Asserts that
-// hegel_version returns the version pinned in libhegel.go.
+// by `just build-libhegel` (or in the sibling ../hegel-rust/ checkout, or the
+// vendored binary embedded at build time). Asserts that hegel_version returns
+// the version pinned in version.go.
 func TestLoadLibVersion(t *testing.T) {
 	lib, err := load()
 	if err != nil {
@@ -48,13 +50,35 @@ func TestLoadLibMissing(t *testing.T) {
 	if err == nil {
 		t.Fatal("expected loadLib to fail with a bogus path")
 	}
-	if !strings.Contains(err.Error(), "could not load libhegel") {
+	if !strings.Contains(err.Error(), "load libhegel") {
 		t.Errorf("expected error to mention libhegel; got %q", err)
-	}
-	if !strings.Contains(err.Error(), LibraryPathEnv) {
-		t.Errorf("expected error to mention env var %s; got %q", LibraryPathEnv, err)
 	}
 	if !strings.Contains(err.Error(), "/nonexistent/path/to/libhegel.so") {
 		t.Errorf("expected error to mention the bogus path; got %q", err)
+	}
+}
+
+// TestLoadEmbeddedWriteFails covers the fallback path in load: with no path
+// override, writing the embedded library out to the cache must fail when the
+// cache root cannot be created. We point the cache dir at a path beneath a
+// regular file so MkdirAll fails with ENOTDIR.
+func TestLoadEmbeddedWriteFails(t *testing.T) {
+	t.Setenv(LibraryPathEnv, "")
+
+	dir := t.TempDir()
+	notADir := filepath.Join(dir, "file")
+	if err := os.WriteFile(notADir, []byte("x"), 0o644); err != nil { // coverage-ignore
+		t.Fatalf("write file: %v", err)
+	}
+	t.Setenv("XDG_CACHE_HOME", notADir)
+	t.Setenv("HOME", notADir) // macOS fallback when XDG_CACHE_HOME is unset
+	t.Setenv("LocalAppData", notADir)
+
+	_, err := load()
+	if err == nil {
+		t.Fatal("expected load to fail when the embedded library cannot be written")
+	}
+	if !strings.Contains(err.Error(), "write libhegel") {
+		t.Errorf("expected error to mention write libhegel; got %q", err)
 	}
 }

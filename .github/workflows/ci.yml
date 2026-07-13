@@ -55,10 +55,12 @@ jobs:
         if: ${{ github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository }}
         with:
           ref: ${{ github.head_ref || github.ref }}
+          lfs: true  # pull the vendored libhegel binaries that get go:embed'd
       - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
         if: ${{ github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository }}
         with:
           persist-credentials: false
+          lfs: true  # pull the vendored libhegel binaries that get go:embed'd
 
       - uses: ./.github/actions/install-tools
         with:
@@ -129,6 +131,7 @@ jobs:
       - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
         with:
           persist-credentials: false
+          lfs: true  # pull the vendored libhegel binaries that get go:embed'd
 
       - uses: actions/setup-go@40f1582b2485089dde7abd97c1529aa768e1baff # v5
         with:
@@ -143,11 +146,11 @@ jobs:
           go build ./...
           go vet ./...
 
-  # Run the real test suite against a downloaded libhegel on the OSes we have
-  # runners for, so the FFI loader is exercised end-to-end off Linux. Coverage
-  # and the ratchet stay on the Linux `test` job; here we just run `go test`.
-  # macos-latest is arm64 and windows-latest is amd64, matching the published
-  # libhegel-darwin-arm64.dylib / libhegel-windows-amd64.dll artifacts.
+  # Run the real test suite against the vendored, go:embed'd libhegel on the
+  # OSes we have runners for, so the FFI loader is exercised end-to-end off
+  # Linux. Coverage and the ratchet stay on the Linux `test` job; here we just
+  # run `go test`. macos-latest is arm64 and windows-latest is amd64, matching
+  # the vendored libhegel-darwin-arm64.dylib / libhegel-windows-amd64.dll.
   smoke:
     name: "smoke (${{ matrix.os }})"
     runs-on: ${{ matrix.os }}
@@ -156,17 +159,12 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        include:
-          - os: macos-latest
-            asset: libhegel-darwin-arm64.dylib
-            libname: libhegel.dylib
-          - os: windows-latest
-            asset: libhegel-windows-amd64.dll
-            libname: libhegel.dll
+        os: [macos-latest, windows-latest]
     steps:
       - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
         with:
           persist-credentials: false
+          lfs: true  # pull the vendored libhegel binaries that get go:embed'd
 
       - uses: actions/setup-go@40f1582b2485089dde7abd97c1529aa768e1baff # v5
         with:

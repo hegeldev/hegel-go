@@ -1,6 +1,6 @@
 ---
 name: align-libhegel
-description: "How to align the Go FFI wrapper to a new libhegel (hegel-c) release. Use after bumping the pinned libhegel version (internal/libhegel/checksums.go), when `just check` fails with a symbol-resolution or version-mismatch error against libhegel, or whenever the hegel-c C API in hegel.h has changed and the Go bindings need to catch up."
+description: "How to align the Go FFI wrapper to a new libhegel (hegel-c) release. Use after bumping the pinned libhegel version (internal/libhegel/version.go, via `just vendor-libhegel`), when `just check` fails with a symbol-resolution or version-mismatch error against libhegel, or whenever the hegel-c C API in hegel.h has changed and the Go bindings need to catch up."
 ---
 
 # Aligning the Go wrapper to a new libhegel release
@@ -49,7 +49,9 @@ while the per-call error state lives on a `*Context`. The wrapper threads a
 
 ## 1. Find the pinned version and fetch the matching header
 
-The version lives in `internal/libhegel/checksums.go` as `hegelVersion`.
+The version lives in `internal/libhegel/version.go` as `hegelVersion` (bump it
+with `just vendor-libhegel <version>`, which also refreshes the vendored
+binaries under `internal/libhegel/libs/`).
 
 The release **tag is `v<VERSION>`** (note the `v` prefix — the raw path without
 it 404s):
@@ -63,25 +65,25 @@ curl -sSL https://raw.githubusercontent.com/hegeldev/hegel-rust/v<VERSION>/hegel
 `just check` runs integration tests (`TestLoadLibVersion`, `TestLibhegelEndToEnd`)
 against the **real** library, and `TestLoadLibVersion` asserts the loaded lib
 reports exactly `hegelVersion`. You need a libhegel at that exact version, and
-the simplest way to get it is to let the auto-downloader fetch it:
+the simplest way to get it is to let the loader use the vendored binary:
 
 ```bash
 just check vendored
 ```
 
 **Always use `vendored` mode for this work — never a local build.** The
-`vendored` mode leaves `HEGEL_LIBHEGEL_PATH` unset, so the loader fetches the
-pinned, checksum-verified release for `hegelVersion` and caches it. A plain
-`just check` would instead build whatever the sibling `../hegel-rust` checkout
-happens to be on (likely an *older* tag, since you've just bumped the version),
-point `HEGEL_LIBHEGEL_PATH` at that stale `.so`, and fail the version test. Don't
-touch the checkout; the download is always the right version.
+`vendored` mode leaves `HEGEL_LIBHEGEL_PATH` unset, so the loader materializes
+the `go:embed`'d vendored binary for `hegelVersion` (under
+`internal/libhegel/libs/`, refreshed by `just vendor-libhegel`) into the cache.
+A plain `just check` would instead build whatever the sibling `../hegel-rust`
+checkout happens to be on (likely an *older* tag, since you've just bumped the
+version), point `HEGEL_LIBHEGEL_PATH` at that stale `.so`, and fail the version
+test. Don't touch the checkout; the vendored binary is always the right version.
 
 The cached library lands at:
 
 ```bash
 ${XDG_CACHE_HOME:-$HOME/.cache}/hegel-go/libhegel/<VERSION>/libhegel-linux-amd64.so
-# e.g. ~/.cache/hegel-go/libhegel/0.23.0/libhegel-linux-amd64.so
 ```
 
 **When you need the symbol table**, run `nm -D` against that cached `.so` — no
@@ -284,11 +286,11 @@ wrapper methods need coverage:
 ## 7. Verify
 
 ```bash
-just check vendored    # lint + check-docs + test against the pinned release
+just check vendored    # lint + check-docs + test against the vendored binary
 ```
 
 Use `vendored` mode here too (see §2) — it guarantees the tests run against the
-pinned release, not a stale local build.
+vendored binary, not a stale local build.
 
 Confirm the version smoke test actually ran against the real lib (not skipped):
 
@@ -312,7 +314,7 @@ out the version, the two files to compare, and the exact output you want:
 Audit the libhegel FFI binding for completeness against the C header. Do NOT
 edit anything — this is a read-only verification.
 
-1. Read the pinned version from internal/libhegel/checksums.go (hegelVersion).
+1. Read the pinned version from internal/libhegel/version.go (hegelVersion).
 2. Fetch the matching header:
    curl -sSL https://raw.githubusercontent.com/hegeldev/hegel-rust/v<VERSION>/hegel-c/include/hegel.h
    (note the `v` prefix on the tag).

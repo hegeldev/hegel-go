@@ -7,7 +7,8 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parent.parent.parent
 RUST_REPO = "hegeldev/hegel-rust"
 BRANCH = "ci/bump-hegel-rust"
-CHECKSUMS = ROOT / "internal" / "libhegel" / "checksums.go"
+VERSION_FILE = ROOT / "internal" / "libhegel" / "version.go"
+LIBS_DIR = ROOT / "internal" / "libhegel" / "libs"
 RELEASE_MD = ROOT / "RELEASE.md"
 
 
@@ -25,9 +26,9 @@ def set_output(name: str, value: str) -> None:
 
 
 def get_pinned_version() -> str:
-    text = CHECKSUMS.read_text()
+    text = VERSION_FILE.read_text()
     m = re.search(r'^const hegelVersion = "([^"]+)"', text, re.MULTILINE)
-    assert m is not None, "could not find hegelVersion in checksums.go"
+    assert m is not None, "could not find hegelVersion in version.go"
     return m.group(1)
 
 
@@ -39,11 +40,12 @@ def bump(requested: str) -> None:
     """
     current = get_pinned_version()
 
-    # `just update-checksums` regenerates checksums.go for the target release
-    # (empty requested -> latest) and gofmts it. update-checksums.go discovers
-    # the resolved version itself, so we read it back rather than trusting the
-    # request (which may be empty for a manual latest-bump).
-    subprocess.run(["just", "update-checksums", requested], check=True, cwd=ROOT)
+    # `just vendor-libhegel` downloads the target release's libhegel artifacts
+    # into libs/ (empty requested -> latest) and rewrites version.go.
+    # vendor-libhegel.go discovers the resolved version itself, so we read it
+    # back rather than trusting the request (which may be empty for a manual
+    # latest-bump).
+    subprocess.run(["just", "vendor-libhegel", requested], check=True, cwd=ROOT)
     new = get_pinned_version()
 
     if new == current:
@@ -67,7 +69,7 @@ def bump(requested: str) -> None:
     # A fixed branch we reuse across releases. Commit locally only; the workflow
     # pushes it after folding in the FFI alignment.
     git("checkout", "-B", BRANCH)
-    git("add", str(CHECKSUMS), str(RELEASE_MD))
+    git("add", str(VERSION_FILE), str(LIBS_DIR), str(RELEASE_MD))
     git(
         "commit",
         "-m",
