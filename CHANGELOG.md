@@ -1,5 +1,9 @@
 # Changelog
 
+## 0.6.17 - 2026-07-13
+
+This patch bumps our pinned libhegel ([hegel-rust](hegeldev/hegel-rust)) from [0.28.0](https://github.com/hegeldev/hegel-rust/releases/tag/v0.28.0) to [0.29.0](https://github.com/hegeldev/hegel-rust/releases/tag/v0.29.0).
+
 ## 0.6.16 - 2026-07-09
 
 This patch fixes a rare crash. A wrapper's GC cleanup could free its
