@@ -35,6 +35,10 @@ jobs:
       - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
         with:
           token: ${{ steps.app-token.outputs.token }} # zizmor: ignore[artipacked]
+          lfs: true  # vendored libhegel binaries are stored via git-lfs
+
+      - name: Initialize git-lfs
+        run: git lfs install
 
       - uses: actions/setup-go@40f1582b2485089dde7abd97c1529aa768e1baff # v5
         with:
@@ -52,7 +56,7 @@ jobs:
           VERSION: ${{ github.event.client_payload.version || inputs.version }}
         run: python .github/scripts/bump_hegel_rust.py "$VERSION"
 
-      # The version bump only changes the pinned constant + checksums. The C ABI
+      # The version bump changes the pinned constant and vendored binaries. The C ABI
       # may have shifted with the new release, so realign the FFI wrapper
       # (internal/libhegel) using the align-libhegel skill before the PR is
       # reviewed. Skipped when nothing was bumped.
@@ -69,7 +73,7 @@ jobs:
           allowed_bots: hegel-release
           prompt: |
             The pinned libhegel version was just bumped to v${{ steps.bump.outputs.version }}
-            (internal/libhegel/checksums.go) on this checkout. Use the align-libhegel skill
+            (internal/libhegel/version.go and internal/libhegel/libs/) on this checkout. Use the align-libhegel skill
             to align the Go FFI wrapper in internal/libhegel/ to the new release, so that
             `just check vendored` passes. Do NOT change the public `hegel` package API — only
             the internal binding layer. Do NOT commit or push; leave all changes in the

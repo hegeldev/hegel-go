@@ -43,6 +43,12 @@ coverage.sanitized.out
 *.so
 *.dylib
 
+# ...but the vendored, git-lfs-tracked libhegel binaries are checked in.
+!internal/libhegel/libs/
+!internal/libhegel/libs/*.so
+!internal/libhegel/libs/*.dll
+!internal/libhegel/libs/*.dylib
+
 # Go workspace
 go.work
 vendor/

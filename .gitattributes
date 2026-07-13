@@ -1,0 +1,7 @@
+# Pre-compiled libhegel artifacts are vendored into the repo and stored via
+# git-lfs. They are go:embed'd into the binary by internal/libhegel, so the
+# real bytes (not the LFS pointer) must be present at build time — run
+# `git lfs install` after cloning.
+internal/libhegel/libs/*.so filter=lfs diff=lfs merge=lfs -text
+internal/libhegel/libs/*.dll filter=lfs diff=lfs merge=lfs -text
+internal/libhegel/libs/*.dylib filter=lfs diff=lfs merge=lfs -text
