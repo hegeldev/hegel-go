@@ -1,5 +1,9 @@
 # Changelog
 
+## 0.6.18 - 2026-07-14
+
+This release vendors the supported platform builds of `libhegel` and embeds them in the Go module. Hegel no longer downloads `libhegel` from GitHub at runtime, so builds are self-contained and work offline. `HEGEL_LIBHEGEL_PATH` remains available for loading a custom library.
+
 ## 0.6.17 - 2026-07-13
 
 This patch bumps our pinned libhegel ([hegel-rust](hegeldev/hegel-rust)) from [0.28.0](https://github.com/hegeldev/hegel-rust/releases/tag/v0.28.0) to [0.29.0](https://github.com/hegeldev/hegel-rust/releases/tag/v0.29.0).
