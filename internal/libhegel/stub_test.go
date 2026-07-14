@@ -258,7 +258,7 @@ func TestStubBlobAndFailureAccessors(t *testing.T) {
 	)
 
 	s := &Settings{syms: lib.syms, raw: 1}
-	tc, err := s.TestCaseFromBlob(lib, "YmxvYg==", 0, 0)
+	tc, err := s.TestCaseFromBlob(lib, "YmxvYg==", nil)
 	if err != nil || tc == nil {
 		t.Fatalf("TestCaseFromBlob: tc=%v err=%v", tc, err)
 	}
@@ -314,7 +314,7 @@ func TestStubCloneError(t *testing.T) {
 func TestStubBlobError(t *testing.T) {
 	lib := Stub(t, uintptr(0), E_INVALID_ARG, "bad blob") // handle, result, diagnostic
 	s := &Settings{syms: lib.syms, raw: 1}
-	tc, err := s.TestCaseFromBlob(lib, "not-base64", 0, 0)
+	tc, err := s.TestCaseFromBlob(lib, "not-base64", nil)
 	if err == nil || tc != nil {
 		t.Fatalf("expected error, got tc=%v err=%v", tc, err)
 	}
