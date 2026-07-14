@@ -19,7 +19,7 @@ func TestLibhegelEndToEnd(t *testing.T) {
 	// Disable the database so the test is hermetic.
 	settings.Database(ctx, "")
 
-	run, err := settings.RunStart(ctx, 0, 0)
+	run, err := settings.RunStart(ctx, nil)
 	if err != nil {
 		t.Fatal(err)
 	}

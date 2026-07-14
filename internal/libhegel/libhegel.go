@@ -26,6 +26,7 @@ package libhegel
 
 import (
 	"fmt"
+	"io"
 	"os"
 	"runtime"
 	"slices"
@@ -701,14 +702,16 @@ func (s *Settings) SuppressHealthCheck(ctx *Context, checks HealthCheck) error {
 }
 
 // RunStart starts a run against these settings. callback and userData set the
-// engine-output destination (see [outputCallbackT]); pass 0 for both to leave
+// engine-output destination (see [outputCallbackT]); pass a nil writer to leave
 // output on stderr, which every hegel-package caller currently does.
-func (s *Settings) RunStart(ctx *Context, callback outputCallbackT, userData uintptr) (*Run, error) {
+func (s *Settings) RunStart(ctx *Context, out io.Writer) (*Run, error) {
+	callback, handle := newOutputFn(out)
 	ptr, err := allocate(ctx, "hegel_run_start", func(ctx ctxT, raw *runT) Error {
-		e := s.syms.RunStart(ctx, s.raw, callback, userData, raw)
+		e := s.syms.RunStart(ctx, s.raw, callback, uintptr(handle), raw)
 		runtime.KeepAlive(s)
 		return e
 	}, s.syms.RunFree)
+	freeOutputFn(ptr, handle)
 	return (*Run)(ptr), err
 }
 
@@ -717,14 +720,16 @@ func (s *Settings) RunStart(ctx *Context, callback outputCallbackT, userData uin
 // test cases from [Run.NextTestCase], the returned handle is owned by the
 // caller and is freed automatically via the GC. A rejected blob surfaces as a
 // nil test case and a non-nil error. callback and userData set the
-// engine-output destination for the replay (see [outputCallbackT]); pass 0 for
-// both to leave output on stderr, which every hegel-package caller currently does.
-func (s *Settings) TestCaseFromBlob(ctx *Context, blob string, callback outputCallbackT, userData uintptr) (tc *TestCase, err error) {
+// engine-output destination for the replay (see [outputCallbackT]); pass a nil
+// writer to leave output on stderr, which every hegel-package caller currently does.
+func (s *Settings) TestCaseFromBlob(ctx *Context, blob string, out io.Writer) (tc *TestCase, err error) {
+	callback, handle := newOutputFn(out)
 	ptr, err := allocate(ctx, "hegel_test_case_from_blob", func(ctx ctxT, raw *testCaseT) Error {
-		e := s.syms.TestCaseFromBlob(ctx, s.raw, blob, callback, userData, raw)
+		e := s.syms.TestCaseFromBlob(ctx, s.raw, blob, callback, uintptr(handle), raw)
 		runtime.KeepAlive(s)
 		return e
 	}, s.syms.TestCaseFree)
+	freeOutputFn(ptr, handle)
 	if ptr == nil {
 		return nil, err
 	}
