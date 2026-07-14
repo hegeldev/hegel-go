@@ -1,5 +1,10 @@
 # Changelog
 
+## 0.6.19 - 2026-07-14
+
+Wire up libhegels new output mechanism to TestCase. This will provide
+better output from libhegel on failure.
+
 ## 0.6.18 - 2026-07-14
 
 This release vendors the supported platform builds of `libhegel` and embeds them in the Go module. Hegel no longer downloads `libhegel` from GitHub at runtime, so builds are self-contained and work offline. `HEGEL_LIBHEGEL_PATH` remains available for loading a custom library.
