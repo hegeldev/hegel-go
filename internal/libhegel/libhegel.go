@@ -150,6 +150,12 @@ type Collection int64
 // [TestCase.NewStateMachine] for the lifetime of a single test case.
 type StateMachine int64
 
+// StateMachineDone is the sentinel [TestCase.StateMachineNextRule] writes
+// through its out-parameter when the engine's step budget for the test case is
+// exhausted: the caller should stop running rules. Mirrors
+// HEGEL_STATE_MACHINE_DONE.
+const StateMachineDone int64 = -1
+
 type Label uint64
 
 const (
@@ -1126,7 +1132,9 @@ func (tc *TestCase) NewStateMachine(ctx *Context, ruleNames, invariantNames []st
 }
 
 // StateMachineNextRule draws the index of the next rule to run, in
-// [0, num_rules), letting the engine choose and shrink the rule sequence.
+// [0, num_rules), letting the engine choose and shrink the rule sequence. It
+// returns [StateMachineDone] once the engine's step budget for the test case is
+// exhausted, signalling the caller to stop running rules.
 func (tc *TestCase) StateMachineNextRule(ctx *Context, machine StateMachine) (int64, error) {
 	err := ctx.invoke("hegel_state_machine_next_rule", func(ctx ctxT) Error {
 		e := tc.syms.StateMachineNextRule(ctx, tc.raw, machine, &tc.outInt)

@@ -4,7 +4,6 @@ go 1.25.0
 
 require (
 	github.com/ebitengine/purego v0.11.0-alpha.6.0.20260707033313-5f49e7c49322
-	github.com/fxamacker/cbor/v2 v2.9.0
 	golang.org/x/sys v0.44.0
 )
 
@@ -24,7 +23,6 @@ require (
 	github.com/narqo/go-badge v0.0.0-20230821190521-c9a75c019a59 // indirect
 	github.com/rs/zerolog v1.34.0 // indirect
 	github.com/vladopajic/go-test-coverage/v2 v2.18.3 // indirect
-	github.com/x448/float16 v0.8.4 // indirect
 	golang.org/x/exp/typeparams v0.0.0-20231108232855-2478ac86f678 // indirect
 	golang.org/x/image v0.18.0 // indirect
 	golang.org/x/mod v0.36.0 // indirect

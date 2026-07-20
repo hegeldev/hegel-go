@@ -17,14 +17,13 @@ import (
 //
 // It is compatible with most popular TestingT interfaces from assert libraries.
 type testCase struct {
-	ctx            *libhegel.Context
-	tc             *libhegel.TestCase
-	status         libhegel.Status
-	origin         string
-	singleTestCase bool      // set when this case runs under WithSingleTestCase
-	aborted        bool      // set if test case run was short circuited
-	out            io.Writer // nil for exploratory cases; set for final replay / single-case
-	depth          int       // current span nesting depth
+	ctx     *libhegel.Context
+	tc      *libhegel.TestCase
+	status  libhegel.Status
+	origin  string
+	aborted bool      // set if test case run was short circuited
+	out     io.Writer // nil for exploratory cases; set for final replay / single-case
+	depth   int       // current span nesting depth
 }
 
 // --- Sentinel errors ---
@@ -128,10 +127,6 @@ func (s *testCase) recoverAbort() {
 
 func (s *testCase) engine() (*libhegel.Context, *libhegel.TestCase) {
 	return s.ctx, s.tc
-}
-
-func (s *testCase) isSingleTestCase() bool {
-	return s.singleTestCase
 }
 
 func (s *testCase) stateMachineNew(ruleNames, invariantNames []string) (libhegel.StateMachine, error) {
@@ -549,7 +544,7 @@ func runWithContext(ctx *libhegel.Context, fn testBody, opts runOptions) error {
 			break
 		}
 
-		origin, status := driveOneCase(ctx, tc, fn, output, skipUserPanic, opts.singleTestCase)
+		origin, status := driveOneCase(ctx, tc, fn, output, skipUserPanic)
 		if err := tc.MarkComplete(ctx, status, origin); err != nil {
 			return err
 		}
@@ -601,12 +596,11 @@ func (o runOptions) buildSettings(ctx *libhegel.Context) (*libhegel.Settings, er
 	return s, nil
 }
 
-func driveOneCase(ctx *libhegel.Context, tc *libhegel.TestCase, fn testBody, output io.Writer, skipUserPanic, singleTestCase bool) (origin string, status libhegel.Status) {
+func driveOneCase(ctx *libhegel.Context, tc *libhegel.TestCase, fn testBody, output io.Writer, skipUserPanic bool) (origin string, status libhegel.Status) {
 	state := &testCase{
-		ctx:            ctx,
-		tc:             tc,
-		singleTestCase: singleTestCase,
-		out:            output,
+		ctx: ctx,
+		tc:  tc,
+		out: output,
 	}
 	// Registered first so it runs last: publish the case's final status and
 	// origin into the named returns. When fn panics (FailNow/abort/user panic)
@@ -650,7 +644,7 @@ func replayFailures(ctx *libhegel.Context, s *libhegel.Settings, result *libhege
 		if err != nil {
 			return err
 		}
-		driveOneCase(ctx, tc, fn, opts.output, true, false)
+		driveOneCase(ctx, tc, fn, opts.output, true)
 		origins = append(origins, fail.Origin(ctx))
 	}
 	return fmt.Errorf("%w: %d failures %v", errPropTestFailed, len(origins), origins)

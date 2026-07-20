@@ -77,10 +77,6 @@ type TestCase interface {
 	// maxSize=nil means unbounded.
 	newCollection(minSize int, maxSize *int) (*collection, error)
 
-	// isSingleTestCase reports whether this case is running under
-	// [WithSingleTestCase].
-	isSingleTestCase() bool
-
 	// stateMachineNew registers an engine-owned state machine with the
 	// named rules and invariants, returning its id. The engine owns rule
 	// selection (including swarm testing).
