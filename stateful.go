@@ -2,7 +2,6 @@ package hegel
 
 import (
 	"fmt"
-	"math"
 	"reflect"
 	"strings"
 
@@ -116,26 +115,16 @@ func (sm *stateMachine) Run(tc TestCase) {
 		}
 	}
 
-	// Under WithSingleTestCase the loop runs until a rule or invariant fails
-	// or the process is terminated externally; the retry budget is dropped so
-	// repeated Assume rejections don't cap the run.
-	isSingle := tc.isSingleTestCase()
-	var nSteps int
-	if isSingle {
-		nSteps = math.MaxInt
-	} else {
-		// NB: Draw(Integers(0, statefulMaxSteps)) is not equivalent here
-		// because the resulting distribution is different.
-		nSteps = min(Draw(tc, Integers(0, math.MaxInt)), statefulMaxSteps)
-	}
-	stepsSucceeded := 0
-	stepsAttempted := 0
-	step := 0
-	for stepsSucceeded < nSteps && (isSingle || stepsAttempted < 10*nSteps || (stepsSucceeded == 0 && stepsAttempted < 1000)) {
-		step++
+	for step := 1; ; step++ {
 		idx, err := tc.stateMachineNextRule(machine)
 		if err != nil {
 			tc.abort(err)
+		}
+		// The engine owns the per-test-case step budget: once it is exhausted
+		// it writes StateMachineDone (-1) instead of a rule index, signalling
+		// the caller to stop running rules.
+		if idx == libhegel.StateMachineDone {
+			break
 		}
 		rule := sm.rules[idx]
 		tc.Note(fmt.Sprintf("Step %d: %s", step, rule.name))
@@ -144,11 +133,9 @@ func (sm *stateMachine) Run(tc TestCase) {
 		if err != nil { // coverage-ignore
 			tc.abort(err)
 		}
-		stepsAttempted++
 		if !ok {
 			continue
 		}
-		stepsSucceeded++
 		for _, inv := range sm.invariants {
 			if _, err := callRule(tc, inv.fn); err != nil { // coverage-ignore
 				tc.abort(err)
