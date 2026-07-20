@@ -1,5 +1,9 @@
 # Changelog
 
+## 0.6.20 - 2026-07-20
+
+This patch bumps our pinned libhegel ([hegel-rust](hegeldev/hegel-rust)) from [0.29.0](https://github.com/hegeldev/hegel-rust/releases/tag/v0.29.0) to [0.30.0](https://github.com/hegeldev/hegel-rust/releases/tag/v0.30.0).
+
 ## 0.6.19 - 2026-07-14
 
 Wire up libhegels new output mechanism to TestCase. This will provide
