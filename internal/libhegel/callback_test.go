@@ -44,6 +44,9 @@ func TestOutputCallbackReceivesEngineOutput(t *testing.T) {
 	if !strings.Contains(sb.String(), "phase") {
 		t.Errorf("expected verbose phase output via callback, got %q", sb.String())
 	}
+	if !strings.HasSuffix(sb.String(), "\n") {
+		t.Errorf("expected callback output to end with a newline, got %q", sb.String())
+	}
 }
 
 // TestFreeOutputFnFailedCall covers freeOutputFn's ptr==nil arm: when a non-nil

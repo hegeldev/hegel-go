@@ -82,8 +82,15 @@ type TestCase interface {
 	// selection (including swarm testing).
 	stateMachineNew(ruleNames, invariantNames []string) (*libhegel.StateMachine, error)
 
+	// stateMachineNextGroup starts the machine's next round, returning the
+	// current concurrency group's index, or [libhegel.StateMachineDone] when
+	// the whole state machine is done. Called at every join point, including
+	// before the first rule is requested.
+	stateMachineNextGroup(machine *libhegel.StateMachine) (libhegel.StateMachineGroup, error)
+
 	// stateMachineNextRule draws the index of the next rule to run, in
-	// [0, len(rules)). Returns an [libhegel.E_STOP_TEST] error when the
+	// [0, len(rules)), or [libhegel.StateMachineDone] when the round's rule
+	// stream is exhausted. Returns an [libhegel.E_STOP_TEST] error when the
 	// engine's choice budget is exhausted.
 	stateMachineNextRule(machine *libhegel.StateMachine) (int64, error)
 

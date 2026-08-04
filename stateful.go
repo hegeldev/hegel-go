@@ -115,30 +115,47 @@ func (sm *stateMachine) Run(tc TestCase) {
 		}
 	}
 
-	for step := 1; ; step++ {
-		idx, err := tc.stateMachineNextRule(machine)
+	// The engine drives execution in rounds: stateMachineNextGroup is asked at
+	// every join point — including before the first rule — whether another
+	// round should run, and each round's rule stream is pulled via
+	// stateMachineNextRule until the engine signals the join point. With a
+	// single group and concurrency 1 this runs the familiar sequential loop;
+	// the engine owns the overall step budget.
+	step := 0
+	for {
+		group, err := tc.stateMachineNextGroup(machine)
 		if err != nil {
 			tc.abort(err)
 		}
-		// The engine owns the per-test-case step budget: once it is exhausted
-		// it writes StateMachineDone (-1) instead of a rule index, signalling
-		// the caller to stop running rules.
-		if idx == libhegel.StateMachineDone {
+		// StateMachineDone (-1) from next_group terminates the whole machine.
+		if group == libhegel.StateMachineDone {
 			break
 		}
-		rule := sm.rules[idx]
-		tc.Note(fmt.Sprintf("Step %d: %s", step, rule.name))
-
-		ok, err := callRule(tc, rule.fn)
-		if err != nil { // coverage-ignore
-			tc.abort(err)
-		}
-		if !ok {
-			continue
-		}
-		for _, inv := range sm.invariants {
-			if _, err := callRule(tc, inv.fn); err != nil { // coverage-ignore
+		for {
+			idx, err := tc.stateMachineNextRule(machine)
+			if err != nil {
 				tc.abort(err)
+			}
+			// StateMachineDone (-1) from next_rule ends this round's rule
+			// stream: rejoin and ask for the next group.
+			if idx == libhegel.StateMachineDone {
+				break
+			}
+			step++
+			rule := sm.rules[idx]
+			tc.Note(fmt.Sprintf("Step %d: %s", step, rule.name))
+
+			ok, err := callRule(tc, rule.fn)
+			if err != nil { // coverage-ignore
+				tc.abort(err)
+			}
+			if !ok {
+				continue
+			}
+			for _, inv := range sm.invariants {
+				if _, err := callRule(tc, inv.fn); err != nil { // coverage-ignore
+					tc.abort(err)
+				}
 			}
 		}
 	}
@@ -149,7 +166,7 @@ func (sm *stateMachine) Run(tc TestCase) {
 // It returns true if fn ran to completion, false if it rejected via
 // Assume. Other panics propagate to the caller.
 func callRule(tc TestCase, fn func(TestCase)) (bool, error) {
-	return withSpan(tc, libhegel.LABEL_STATEFUL, func() (bool, error) {
+	return withSpan(tc, libhegel.LABEL_STATEFUL_RULE, func() (bool, error) {
 		defer func() {
 			if tc.getStatus() == libhegel.STATUS_INVALID {
 				tc.setStatus(libhegel.STATUS_VALID)

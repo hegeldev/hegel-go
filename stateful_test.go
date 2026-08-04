@@ -205,7 +205,8 @@ func TestRunStatefulNextRuleErrorAborts(t *testing.T) {
 		t.Fatalf("newStateMachine: %v", err)
 	}
 	tc := newStubTestCase(t,
-		uintptr(1), libhegel.OK, // new_state_machine
+		uintptr(1), int64(1), libhegel.OK, // new_state_machine
+		libhegel.StateMachineGroup(0), libhegel.OK, // state_machine_next_group
 		int64(0), libhegel.E_STOP_TEST, "overrun", // state_machine_next_rule + last-error message
 	)
 	defer expectErrorPanic(t, libhegel.E_STOP_TEST)

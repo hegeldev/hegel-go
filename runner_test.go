@@ -931,9 +931,27 @@ func TestStubCollectionReject(t *testing.T) {
 // engine rejects new_state_machine registration.
 func TestStatefulNewStateMachineError(t *testing.T) {
 	t.Parallel()
-	// new_state_machine writes its *StateMachine out-param (placeholder) before
-	// returning the failing Error.
-	tc := newStubTestCase(t, uintptr(1), libhegel.E_BACKEND, "boom")
+	// new_state_machine writes its *StateMachine and concurrency out-params
+	// (placeholders) before returning the failing Error.
+	tc := newStubTestCase(t, uintptr(0), int64(0), libhegel.E_BACKEND, "boom")
+	sm := &stateMachine{rules: []stateMachineRule{{name: "Rule", fn: func(TestCase) {}}}}
+	defer func() {
+		err, ok := recover().(error)
+		if !ok || !errors.Is(err, libhegel.E_BACKEND) {
+			t.Fatalf("expected E_BACKEND panic, got %v", err)
+		}
+	}()
+	sm.Run(tc)
+}
+
+// TestStatefulNextGroupError covers stateMachine.Run's panic when the engine
+// rejects the round draw (state_machine_next_group).
+func TestStatefulNextGroupError(t *testing.T) {
+	t.Parallel()
+	tc := newStubTestCase(t,
+		uintptr(1), int64(1), libhegel.OK, // new_state_machine
+		int64(0), libhegel.E_BACKEND, "boom", // next_group fails
+	)
 	sm := &stateMachine{rules: []stateMachineRule{{name: "Rule", fn: func(TestCase) {}}}}
 	defer func() {
 		err, ok := recover().(error)
@@ -949,9 +967,10 @@ func TestStatefulNewStateMachineError(t *testing.T) {
 // start_span for the first invariant.
 func TestStatefulInitialInvariantError(t *testing.T) {
 	t.Parallel()
-	// new_state_machine writes its *StateMachine out-param (placeholder) + OK to
-	// register the machine; E_BACKEND then fails start_span(STATEFUL).
-	tc := newStubTestCase(t, uintptr(1), libhegel.OK, libhegel.E_BACKEND, "boom")
+	// new_state_machine writes its *StateMachine + concurrency out-params
+	// (placeholders) + OK to register the machine; E_BACKEND then fails
+	// start_span(STATEFUL).
+	tc := newStubTestCase(t, uintptr(1), int64(1), libhegel.OK, libhegel.E_BACKEND, "boom")
 	sm := &stateMachine{invariants: []stateMachineRule{{name: "Inv", fn: func(TestCase) {}}}}
 	defer func() {
 		err, ok := recover().(error)
