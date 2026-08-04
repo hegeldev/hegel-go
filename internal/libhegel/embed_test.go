@@ -21,6 +21,14 @@ func testHomeOverride(t *testing.T) string {
 	return dir
 }
 
+// stubVar replaces a package-level function for the duration of a test.
+func stubVar[T any](t *testing.T, target *T, replacement T) {
+	t.Helper()
+	original := *target
+	*target = replacement
+	t.Cleanup(func() { *target = original })
+}
+
 // TestEmbeddedLibPresent asserts that a vendored libhegel binary is embedded
 // for the platform the test suite runs on. CI runs this on linux/amd64,
 // darwin/arm64, and windows/amd64 — the published, vendored assets.
@@ -117,56 +125,120 @@ func TestMaterializeEmbeddedRepairsCacheDirMode(t *testing.T) {
 	}
 }
 
-// TestMaterializeEmbeddedCacheDirChmodError covers failure to repair the
+// TestCachedLibraryCacheDirChmodError covers failure to repair the
 // permissions of an existing cache directory.
-func TestMaterializeEmbeddedCacheDirChmodError(t *testing.T) {
+func TestCachedLibraryCacheDirChmodError(t *testing.T) {
 	testHomeOverride(t)
 	want := errors.New("chmod failed")
-	original := chmodCacheDir
-	chmodCacheDir = func(string, os.FileMode) error { return want }
-	t.Cleanup(func() { chmodCacheDir = original })
+	stubVar(t, &chmodCacheDir, func(string, os.FileMode) error { return want })
 
-	_, err := writeDynamicLibrary([]byte("libhegel"))
+	_, err := cachedLibrary([]byte("libhegel"))
 	if !errors.Is(err, want) {
-		t.Fatalf("writeDynamicLibrary: got %v, want chmod error", err)
+		t.Fatalf("cachedLibrary: got %v, want chmod error", err)
 	}
 	if !strings.Contains(err.Error(), "secure cache dir") {
 		t.Errorf("expected cache security context; got %q", err)
 	}
 }
 
-// TestMaterializeEmbeddedCacheLockError covers failure to acquire the
-// cross-process publication lock.
-func TestMaterializeEmbeddedCacheLockError(t *testing.T) {
+// TestMaterializeEmbeddedFallsBackToTemp verifies that a sandbox denial in the
+// user cache degrades to a private location beneath the system temp dir.
+func TestMaterializeEmbeddedFallsBackToTemp(t *testing.T) {
 	testHomeOverride(t)
-	want := errors.New("lock failed")
-	original := lockCacheDir
-	lockCacheDir = func(string) (func() error, error) { return nil, want }
-	t.Cleanup(func() { lockCacheDir = original })
+	tempRoot := t.TempDir()
+	t.Setenv("TMPDIR", tempRoot)
+	t.Setenv("TMP", tempRoot)
+	stubVar(t, &chmodCacheDir, func(string, os.FileMode) error { return errors.New("sandbox denied chmod") })
+
+	payload := []byte("temporary libhegel")
+	path, err := writeDynamicLibrary(payload)
+	if err != nil {
+		t.Fatalf("writeDynamicLibrary: %v", err)
+	}
+	canonicalTempRoot, err := filepath.EvalSymlinks(tempRoot)
+	if err != nil {
+		t.Fatalf("resolve temp root: %v", err)
+	}
+	canonicalPath, err := filepath.EvalSymlinks(path)
+	if err != nil {
+		t.Fatalf("resolve fallback path: %v", err)
+	}
+	if rel, err := filepath.Rel(canonicalTempRoot, canonicalPath); err != nil || !filepath.IsLocal(rel) {
+		t.Fatalf("fallback path %q is not beneath temp root %q", path, canonicalTempRoot)
+	}
+	got, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatalf("read fallback library: %v", err)
+	}
+	if string(got) != string(payload) {
+		t.Errorf("fallback body: got %q, want %q", got, payload)
+	}
+}
+
+// TestMaterializeEmbeddedTempFallbackError covers the terminal case where
+// neither the user cache nor the temp fallback can be prepared.
+func TestMaterializeEmbeddedTempFallbackError(t *testing.T) {
+	testHomeOverride(t)
+	cacheErr := errors.New("sandbox denied chmod")
+	tempErr := errors.New("temp unavailable")
+	stubVar(t, &chmodCacheDir, func(string, os.FileMode) error { return cacheErr })
+	stubVar(t, &resolveTempCacheDir, func(string) (string, error) { return "", tempErr })
 
 	_, err := writeDynamicLibrary([]byte("libhegel"))
+	if !errors.Is(err, tempErr) {
+		t.Fatalf("writeDynamicLibrary: got %v, want temp error", err)
+	}
+	if !strings.Contains(err.Error(), cacheErr.Error()) {
+		t.Errorf("error does not include user-cache failure: %v", err)
+	}
+}
+
+func TestMaterializeEmbeddedTempWriteError(t *testing.T) {
+	testHomeOverride(t)
+	tempRoot := t.TempDir()
+	t.Setenv("TMPDIR", tempRoot)
+	cacheErr := errors.New("sandbox denied chmod")
+	writeErr := errors.New("temp cache lock failed")
+	stubVar(t, &chmodCacheDir, func(string, os.FileMode) error { return cacheErr })
+	stubVar(t, &lockCacheDir, func(string) (func() error, error) { return nil, writeErr })
+
+	_, err := writeDynamicLibrary([]byte("libhegel"))
+	if !errors.Is(err, writeErr) {
+		t.Fatalf("writeDynamicLibrary: got %v, want temp write error", err)
+	}
+	if !strings.Contains(err.Error(), cacheErr.Error()) {
+		t.Errorf("error does not include user-cache failure: %v", err)
+	}
+}
+
+// TestCachedLibraryCacheLockError covers failure to acquire the
+// cross-process publication lock.
+func TestCachedLibraryCacheLockError(t *testing.T) {
+	testHomeOverride(t)
+	want := errors.New("lock failed")
+	stubVar(t, &lockCacheDir, func(string) (func() error, error) { return nil, want })
+
+	_, err := cachedLibrary([]byte("libhegel"))
 	if !errors.Is(err, want) {
-		t.Fatalf("writeDynamicLibrary: got %v, want lock error", err)
+		t.Fatalf("cachedLibrary: got %v, want lock error", err)
 	}
 	if !strings.Contains(err.Error(), "lock cache dir") {
 		t.Errorf("expected cache lock context; got %q", err)
 	}
 }
 
-// TestMaterializeEmbeddedCacheUnlockError covers failure to release the
+// TestCachedLibraryCacheUnlockError covers failure to release the
 // cross-process publication lock after a successful write.
-func TestMaterializeEmbeddedCacheUnlockError(t *testing.T) {
+func TestCachedLibraryCacheUnlockError(t *testing.T) {
 	testHomeOverride(t)
 	want := errors.New("unlock failed")
-	original := lockCacheDir
-	lockCacheDir = func(string) (func() error, error) {
+	stubVar(t, &lockCacheDir, func(string) (func() error, error) {
 		return func() error { return want }, nil
-	}
-	t.Cleanup(func() { lockCacheDir = original })
+	})
 
-	_, err := writeDynamicLibrary([]byte("libhegel"))
+	_, err := cachedLibrary([]byte("libhegel"))
 	if !errors.Is(err, want) {
-		t.Fatalf("writeDynamicLibrary: got %v, want unlock error", err)
+		t.Fatalf("cachedLibrary: got %v, want unlock error", err)
 	}
 	if !strings.Contains(err.Error(), "unlock cache dir") {
 		t.Errorf("expected cache unlock context; got %q", err)
@@ -187,9 +259,9 @@ func TestMaterializeEmbeddedEmpty(t *testing.T) {
 	}
 }
 
-// TestMaterializeEmbeddedUserCacheDirError verifies that failure to resolve a
-// per-user cache is returned rather than falling back to a shared temp dir.
-func TestMaterializeEmbeddedUserCacheDirError(t *testing.T) {
+// TestCachedLibraryUserCacheDirError verifies that a cache resolution failure
+// is reported to the caller, which can then invoke the temp fallback.
+func TestCachedLibraryUserCacheDirError(t *testing.T) {
 	switch runtime.GOOS {
 	case "darwin": // coverage-ignore (unreachable on the linux CI runner)
 		t.Setenv("HOME", "")
@@ -199,7 +271,7 @@ func TestMaterializeEmbeddedUserCacheDirError(t *testing.T) {
 		t.Setenv("XDG_CACHE_HOME", "relative")
 	}
 
-	_, err := writeDynamicLibrary([]byte("libhegel"))
+	_, err := cachedLibrary([]byte("libhegel"))
 	if err == nil {
 		t.Fatal("expected user cache directory resolution to fail")
 	}
