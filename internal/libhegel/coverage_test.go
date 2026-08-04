@@ -140,7 +140,7 @@ func TestStubStringGeneratorErrors(t *testing.T) {
 		{"text", func() (*StringGenerator, error) {
 			return lib.StringGeneratorText(0, 8, "utf-8", 0, 0, nil, nil, nil, nil)
 		}},
-		{"regex", func() (*StringGenerator, error) { return lib.StringGeneratorRegex("(", true) }},
+		{"regex", func() (*StringGenerator, error) { return lib.StringGeneratorRegex("(", true, nil) }},
 		{"email", lib.StringGeneratorEmail},
 		{"url", lib.StringGeneratorURL},
 		{"domain", func() (*StringGenerator, error) { return lib.StringGeneratorDomain(255) }},

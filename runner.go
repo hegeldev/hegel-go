@@ -130,11 +130,21 @@ func (s *testCase) engine() (*libhegel.Context, *libhegel.TestCase) {
 }
 
 func (s *testCase) stateMachineNew(ruleNames, invariantNames []string) (*libhegel.StateMachine, error) {
-	return s.tc.NewStateMachine(s.ctx, ruleNames, invariantNames)
+	// hegel-go drives state machines sequentially for now: one concurrency
+	// group holding every rule, and the concurrency level fixed at 1 (which
+	// consumes no entropy). The drawn concurrency is therefore always 1 and is
+	// discarded.
+	machine, _, err := s.tc.NewStateMachine(s.ctx, ruleNames, make([]int64, len(ruleNames)), invariantNames, 1, 1)
+	return machine, err
+}
+
+func (s *testCase) stateMachineNextGroup(machine *libhegel.StateMachine) (libhegel.StateMachineGroup, error) {
+	return s.tc.StateMachineNextGroup(s.ctx, machine)
 }
 
 func (s *testCase) stateMachineNextRule(machine *libhegel.StateMachine) (int64, error) {
-	return s.tc.StateMachineNextRule(s.ctx, machine)
+	// Worker 0: the sequential driver runs a single worker on the root handle.
+	return s.tc.StateMachineNextRule(s.ctx, machine, 0)
 }
 
 func (s *testCase) startSpan(label libhegel.Label) error {

@@ -42,5 +42,6 @@ func outputCallback(userData uintptr, line *byte, length uint) uintptr {
 	// unsafe.String aliases the C buffer; io.WriteString copies the bytes into
 	// the writer before this returns, so no separate copy is needed.
 	_, _ = io.WriteString(w, unsafe.String(line, int(length)))
+	_, _ = io.WriteString(w, "\n")
 	return 0
 }

@@ -556,7 +556,9 @@ func (g DomainGenerator) draw(tc TestCase) (string, error) {
 func FromRegex(pattern string, fullmatch bool) Generator[string] {
 	return genFunc[string](func(tc TestCase) (string, error) {
 		ctx, ltc := tc.engine()
-		sg, err := ctx.StringGeneratorRegex(pattern, fullmatch)
+		// No alphabet constraint: padding and wildcards draw from the full
+		// character set (NULL on the C side).
+		sg, err := ctx.StringGeneratorRegex(pattern, fullmatch, nil)
 		if err != nil {
 			return "", err
 		}

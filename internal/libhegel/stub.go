@@ -108,9 +108,10 @@ func Stub(tb testingTB, returns ...any) *Context {
 					arg.Elem().Set(reflect.ValueOf(stringResult{data: slicePtr(b), len: uint64(len(b))}))
 				case in == reflect.TypeFor[out[uint64]](), in == reflect.TypeFor[out[RunStatus]](),
 					in == reflect.TypeFor[out[bool]](), in == reflect.TypeFor[out[int64]](),
+					in == reflect.TypeFor[out[StateMachineGroup]](),
 					in == reflect.TypeFor[out[float64]](), in == reflect.TypeFor[out[Date]](),
 					in == reflect.TypeFor[out[Time]](), in == reflect.TypeFor[out[Datetime]]():
-					arg.Elem().Set(reflect.ValueOf(retval()))
+					arg.Elem().Set(reflect.ValueOf(retval()).Convert(in.Elem()))
 				default:
 					continue // input pointer
 				}
