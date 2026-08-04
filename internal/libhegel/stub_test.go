@@ -59,12 +59,14 @@ func TestStubUnwiredSetters(t *testing.T) {
 		OK,         // backend
 		OK,         // verbosity
 		OK,         // report_multiple_failures
+		OK,         // nondeterministic
 		OK,         // phases
 	)
 	s := lib.SettingsNew()
 	_ = s.Backend(lib, BACKEND_URANDOM)
 	_ = s.Verbosity(lib, VERBOSITY_VERBOSE)
 	_ = s.ReportMultipleFailures(lib, true)
+	_ = s.Nondeterministic(lib, true)
 	_ = s.Phases(lib, PHASE_GENERATE)
 }
 
@@ -79,7 +81,8 @@ func TestStubUnwiredPrimitives(t *testing.T) {
 		int64(7), OK, // new_pool: pool id
 		int64(1), OK, // pool_add: variable id
 		int64(1), OK, // pool_generate: variable id
-		StateMachine(3), OK, // new_state_machine: machine id
+		StateMachine(3), int64(1), OK, // new_state_machine: machine id + drawn concurrency
+		int64(0), OK, // state_machine_next_group: group index
 		int64(0), OK, // state_machine_next_rule: rule index
 		true, OK, // generate_boolean: value
 	)
@@ -96,11 +99,17 @@ func TestStubUnwiredPrimitives(t *testing.T) {
 		t.Fatalf("PoolGenerate: %v", err)
 	}
 	// Non-empty rules + nil invariants exercises both cStringArray branches.
-	machine, err := tc.NewStateMachine(lib, []string{"insert", "remove"}, nil)
+	machine, concurrency, err := tc.NewStateMachine(lib, 1, []string{"insert", "remove"}, []int64{0, 0}, nil, 1, 1)
 	if err != nil {
 		t.Fatalf("NewStateMachine: %v", err)
 	}
-	if _, err := tc.StateMachineNextRule(lib, machine); err != nil {
+	if concurrency != 1 {
+		t.Fatalf("NewStateMachine: concurrency = %d, want 1", concurrency)
+	}
+	if _, err := tc.StateMachineNextGroup(lib, machine); err != nil {
+		t.Fatalf("StateMachineNextGroup: %v", err)
+	}
+	if _, err := tc.StateMachineNextRule(lib, machine, 0); err != nil {
 		t.Fatalf("StateMachineNextRule: %v", err)
 	}
 	if _, err := tc.GenerateBoolean(lib, 0.5, false, false); err != nil {
@@ -156,7 +165,8 @@ func TestStubStringGenerators(t *testing.T) {
 		uintptr(2), OK, // string_generator_email
 		uintptr(3), OK, // string_generator_url
 		uintptr(4), OK, // string_generator_domain
-		uintptr(5), OK, // string_generator_regex
+		uintptr(5), OK, // string_generator_regex (no alphabet)
+		uintptr(6), OK, // string_generator_regex (with alphabet)
 	)
 	tc := &TestCase{pointer: &pointer[testCaseT]{syms: lib.syms, raw: 1}}
 
@@ -176,8 +186,12 @@ func TestStubStringGenerators(t *testing.T) {
 	if _, err := lib.StringGeneratorDomain(255); err != nil {
 		t.Fatalf("StringGeneratorDomain: %v", err)
 	}
-	if _, err := lib.StringGeneratorRegex("a+", true); err != nil {
+	if _, err := lib.StringGeneratorRegex("a+", true, nil); err != nil {
 		t.Fatalf("StringGeneratorRegex: %v", err)
+	}
+	// A non-nil alphabet exercises the alphabet-handle branch.
+	if _, err := lib.StringGeneratorRegex("a+", true, gen); err != nil {
+		t.Fatalf("StringGeneratorRegex with alphabet: %v", err)
 	}
 }
 
@@ -236,11 +250,22 @@ func TestStubStateMachineRejectsNULNames(t *testing.T) {
 	lib := Stub(t) // no returns: must error before the C call
 	tc := &TestCase{pointer: &pointer[testCaseT]{syms: lib.syms, raw: 1}}
 
-	if _, err := tc.NewStateMachine(lib, []string{"a\x00b"}, nil); err == nil {
+	if _, _, err := tc.NewStateMachine(lib, 1, []string{"a\x00b"}, []int64{0}, nil, 1, 1); err == nil {
 		t.Error("expected error for NUL in a rule name")
 	}
-	if _, err := tc.NewStateMachine(lib, []string{"ok"}, []string{"bad\x00"}); err == nil {
+	if _, _, err := tc.NewStateMachine(lib, 1, []string{"ok"}, []int64{0}, []string{"bad\x00"}, 1, 1); err == nil {
 		t.Error("expected error for NUL in an invariant name")
+	}
+}
+
+// TestStubStateMachineRejectsGroupMismatch covers NewStateMachine's guard
+// against a ruleGroups slice whose length differs from ruleNames.
+func TestStubStateMachineRejectsGroupMismatch(t *testing.T) {
+	lib := Stub(t) // no returns: must error before the C call
+	tc := &TestCase{pointer: &pointer[testCaseT]{syms: lib.syms, raw: 1}}
+
+	if _, _, err := tc.NewStateMachine(lib, 1, []string{"a", "b"}, []int64{0}, nil, 1, 1); err == nil {
+		t.Error("expected error for mismatched rule-group length")
 	}
 }
 

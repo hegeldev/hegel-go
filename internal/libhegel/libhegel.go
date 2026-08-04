@@ -150,10 +150,11 @@ type Collection int64
 // [TestCase.NewStateMachine] for the lifetime of a single test case.
 type StateMachine int64
 
-// StateMachineDone is the sentinel [TestCase.StateMachineNextRule] writes
-// through its out-parameter when the engine's step budget for the test case is
-// exhausted: the caller should stop running rules. Mirrors
-// HEGEL_STATE_MACHINE_DONE.
+// StateMachineDone is the sentinel written through an out-parameter by
+// [TestCase.StateMachineNextRule] when the calling worker's round budget is
+// exhausted (stop running rules and wait for the next group / join point), and
+// by [TestCase.StateMachineNextGroup] when the whole state machine is done (run
+// no further rounds). Mirrors HEGEL_STATE_MACHINE_DONE.
 const StateMachineDone int64 = -1
 
 type Label uint64
@@ -228,6 +229,9 @@ const (
 	LABEL_BYTES
 	LABEL_STRING
 
+	// Span around the concurrency-level draw made by hegel_new_state_machine.
+	LABEL_CONCURRENCY
+
 	// Binding-specific labels, beyond the upstream HEGEL_LABEL_* range. The
 	// engine treats span labels as opaque shrinker hints, so hegel-go reserves
 	// values past the last upstream constant for its own span structures.
@@ -251,8 +255,8 @@ type stringGenT uintptr // Equivalent of hegel_string_generator_t
 // outputCallbackT is hegel_output_callback_t, a C function pointer
 // (void (*)(void *user_data, const char *line, size_t len)) delivering one
 // line of engine output per call. purego represents a callback argument as a
-// uintptr (a real one would come from purego.NewCallback); hegel-go always
-// passes 0 (NULL), leaving engine output on stderr.
+// uintptr; a real one comes from purego.NewCallback (see newOutputFn), and 0
+// (NULL) leaves engine output on stderr.
 type outputCallbackT uintptr
 
 // Date mirrors hegel_date_t: a Gregorian calendar date passed to / returned
@@ -330,6 +334,7 @@ type symbols struct {
 	SettingsSetVerbosity              func(ctxT, settingsT, Verbosity) Error
 	SettingsSetSeed                   func(ctxT, settingsT, uint64, bool) Error
 	SettingsSetDerandomize            func(ctxT, settingsT, bool) Error
+	SettingsSetNondeterministic       func(ctxT, settingsT, bool) Error
 	SettingsSetReportMultipleFailures func(ctxT, settingsT, bool) Error
 	SettingsSetDatabase               func(ctxT, settingsT, string) Error
 	SettingsSetDatabaseKey            func(ctxT, settingsT, string) Error
@@ -350,18 +355,19 @@ type symbols struct {
 	TestCaseClone    func(ctxT, testCaseT, out[testCaseT]) Error
 	TestCaseFree     func(ctxT, testCaseT) Error
 
-	StartSpan            func(ctxT, testCaseT, Label) Error
-	StopSpan             func(ctxT, testCaseT, bool) Error
-	NewCollection        func(ctxT, testCaseT, uint64, uint64, out[Collection]) Error
-	CollectionMore       func(ctxT, testCaseT, Collection, out[bool]) Error
-	CollectionReject     func(ctxT, testCaseT, Collection, string) Error
-	NewPool              func(ctxT, testCaseT, out[int64]) Error
-	PoolAdd              func(ctxT, testCaseT, int64, out[int64]) Error
-	PoolGenerate         func(ctxT, testCaseT, int64, bool, out[int64]) Error
-	NewStateMachine      func(ctxT, testCaseT, **byte, uint64, **byte, uint64, out[StateMachine]) Error
-	StateMachineNextRule func(ctxT, testCaseT, StateMachine, out[int64]) Error
-	Target               func(ctxT, testCaseT, float64, string) Error
-	MarkComplete         func(ctxT, testCaseT, Status, string) Error
+	StartSpan             func(ctxT, testCaseT, Label) Error
+	StopSpan              func(ctxT, testCaseT, bool) Error
+	NewCollection         func(ctxT, testCaseT, uint64, uint64, out[Collection]) Error
+	CollectionMore        func(ctxT, testCaseT, Collection, out[bool]) Error
+	CollectionReject      func(ctxT, testCaseT, Collection, string) Error
+	NewPool               func(ctxT, testCaseT, out[int64]) Error
+	PoolAdd               func(ctxT, testCaseT, int64, out[int64]) Error
+	PoolGenerate          func(ctxT, testCaseT, int64, bool, out[int64]) Error
+	NewStateMachine       func(ctxT, testCaseT, uint64, **byte, *int64, uint64, **byte, uint64, int64, int64, out[StateMachine], out[int64]) Error
+	StateMachineNextGroup func(ctxT, testCaseT, StateMachine, out[int64]) Error
+	StateMachineNextRule  func(ctxT, testCaseT, StateMachine, int64, out[int64]) Error
+	Target                func(ctxT, testCaseT, float64, string) Error
+	MarkComplete          func(ctxT, testCaseT, Status, string) Error
 
 	// Typed primitive draws (0.27.0 replaced the generic schema-driven
 	// hegel_generate with these).
@@ -540,6 +546,7 @@ func tryOpen(path string) (syms *symbols, err error) {
 		{"hegel_settings_set_verbosity", &syms.SettingsSetVerbosity},
 		{"hegel_settings_set_seed", &syms.SettingsSetSeed},
 		{"hegel_settings_set_derandomize", &syms.SettingsSetDerandomize},
+		{"hegel_settings_set_nondeterministic", &syms.SettingsSetNondeterministic},
 		{"hegel_settings_set_report_multiple_failures", &syms.SettingsSetReportMultipleFailures},
 		{"hegel_settings_set_database", &syms.SettingsSetDatabase},
 		{"hegel_settings_set_database_key", &syms.SettingsSetDatabaseKey},
@@ -564,6 +571,7 @@ func tryOpen(path string) (syms *symbols, err error) {
 		{"hegel_pool_add", &syms.PoolAdd},
 		{"hegel_pool_generate", &syms.PoolGenerate},
 		{"hegel_new_state_machine", &syms.NewStateMachine},
+		{"hegel_state_machine_next_group", &syms.StateMachineNextGroup},
 		{"hegel_state_machine_next_rule", &syms.StateMachineNextRule},
 		{"hegel_target", &syms.Target},
 		{"hegel_mark_complete", &syms.MarkComplete},
@@ -662,6 +670,17 @@ func (s *Settings) Seed(ctx *Context, seed uint64, hasSeed bool) error {
 func (s *Settings) Derandomize(ctx *Context, on bool) error {
 	return ctx.invoke("hegel_settings_set_derandomize", func(ctx ctxT) Error {
 		e := s.syms.SettingsSetDerandomize(ctx, s.raw, on)
+		runtime.KeepAlive(s)
+		return e
+	})
+}
+
+// Nondeterministic declares the run nondeterministic: the test may produce
+// different outcomes on identical data, typically because it uses concurrent
+// stateful testing.
+func (s *Settings) Nondeterministic(ctx *Context, nondeterministic bool) error {
+	return ctx.invoke("hegel_settings_set_nondeterministic", func(ctx ctxT) Error {
+		e := s.syms.SettingsSetNondeterministic(ctx, s.raw, nondeterministic)
 		runtime.KeepAlive(s)
 		return e
 	})
@@ -1107,37 +1126,62 @@ func (tc *TestCase) PoolGenerate(ctx *Context, pool int64, consume bool) (int64,
 }
 
 // NewStateMachine registers a state machine for engine-owned stateful testing,
-// with the named rules and invariants. Rule selection (including swarm testing)
-// is owned by the engine and driven via [TestCase.StateMachineNextRule].
-func (tc *TestCase) NewStateMachine(ctx *Context, ruleNames, invariantNames []string) (StateMachine, error) {
+// sequential or concurrent: numGroups concurrency groups and the named rules,
+// each assigned to a group by ruleGroups (parallel to ruleNames). The engine
+// draws the concurrency level — the number of workers that will pull rules —
+// in [minConcurrency, maxConcurrency] and returns it alongside the machine id;
+// the caller must run exactly that many workers. minConcurrency ==
+// maxConcurrency fixes the level without consuming entropy (1, 1 for a
+// sequential machine).
+func (tc *TestCase) NewStateMachine(ctx *Context, numGroups uint64, ruleNames []string, ruleGroups []int64, invariantNames []string, minConcurrency, maxConcurrency int64) (StateMachine, int64, error) {
+	if len(ruleGroups) != len(ruleNames) {
+		return 0, 0, fmt.Errorf("hegel_new_state_machine: %d rule groups for %d rule names", len(ruleGroups), len(ruleNames))
+	}
 	rules, err := cStringArray(ruleNames)
 	if err != nil {
-		return 0, fmt.Errorf("hegel_new_state_machine: rule names: %w", err)
+		return 0, 0, fmt.Errorf("hegel_new_state_machine: rule names: %w", err)
 	}
 	invariants, err := cStringArray(invariantNames)
 	if err != nil {
-		return 0, fmt.Errorf("hegel_new_state_machine: invariant names: %w", err)
+		return 0, 0, fmt.Errorf("hegel_new_state_machine: invariant names: %w", err)
 	}
 	err = ctx.invoke("hegel_new_state_machine", func(ctx ctxT) Error {
 		e := tc.syms.NewStateMachine(
 			ctx, tc.raw,
-			slicePtr(rules), uint64(len(ruleNames)),
+			numGroups,
+			slicePtr(rules), slicePtr(ruleGroups), uint64(len(ruleNames)),
 			slicePtr(invariants), uint64(len(invariantNames)),
-			&tc.outSM,
+			minConcurrency, maxConcurrency,
+			&tc.outSM, &tc.outInt,
 		)
 		runtime.KeepAlive(tc)
 		return e
 	})
-	return tc.outSM, err
+	return tc.outSM, tc.outInt, err
 }
 
-// StateMachineNextRule draws the index of the next rule to run, in
-// [0, num_rules), letting the engine choose and shrink the rule sequence. It
-// returns [StateMachineDone] once the engine's step budget for the test case is
-// exhausted, signalling the caller to stop running rules.
-func (tc *TestCase) StateMachineNextRule(ctx *Context, machine StateMachine) (int64, error) {
+// StateMachineNextGroup starts the machine's next round: it returns the round's
+// concurrency group index, or [StateMachineDone] when the whole state machine
+// is done. Call it on the root test-case handle at every join point, including
+// before the first rule is requested.
+func (tc *TestCase) StateMachineNextGroup(ctx *Context, machine StateMachine) (int64, error) {
+	err := ctx.invoke("hegel_state_machine_next_group", func(ctx ctxT) Error {
+		e := tc.syms.StateMachineNextGroup(ctx, tc.raw, machine, &tc.outInt)
+		runtime.KeepAlive(tc)
+		return e
+	})
+	return tc.outInt, err
+}
+
+// StateMachineNextRule draws the index of the next rule for worker workerIndex
+// to run this round, always one belonging to the current concurrency group. It
+// returns [StateMachineDone] once the worker's round budget is exhausted: stop
+// running rules and wait for the next group / join point. workerIndex must be
+// in [0, concurrency); at concurrency > 1 each worker draws from its own
+// [TestCase.Clone] handle.
+func (tc *TestCase) StateMachineNextRule(ctx *Context, machine StateMachine, workerIndex int64) (int64, error) {
 	err := ctx.invoke("hegel_state_machine_next_rule", func(ctx ctxT) Error {
-		e := tc.syms.StateMachineNextRule(ctx, tc.raw, machine, &tc.outInt)
+		e := tc.syms.StateMachineNextRule(ctx, tc.raw, machine, workerIndex, &tc.outInt)
 		runtime.KeepAlive(tc)
 		return e
 	})
@@ -1286,9 +1330,17 @@ func (c *Context) StringGeneratorText(minSize, maxSize uint64, codec string, min
 
 // StringGeneratorRegex builds a regex string generator matching pattern
 // (Python-re syntax). When fullmatch is true the whole string matches.
-func (c *Context) StringGeneratorRegex(pattern string, fullmatch bool) (*StringGenerator, error) {
+// alphabet — optional (nil for none) — must be a text generator; its character
+// set constrains the padding and wildcard characters.
+func (c *Context) StringGeneratorRegex(pattern string, fullmatch bool, alphabet *StringGenerator) (*StringGenerator, error) {
+	var alphabetRaw stringGenT
+	if alphabet != nil {
+		alphabetRaw = alphabet.raw
+	}
 	ptr, err := allocate(c, "hegel_string_generator_regex", func(ctx ctxT, raw *stringGenT) Error {
-		return c.syms.StringGeneratorRegex(ctx, pattern, fullmatch, 0, raw)
+		e := c.syms.StringGeneratorRegex(ctx, pattern, fullmatch, alphabetRaw, raw)
+		runtime.KeepAlive(alphabet)
+		return e
 	}, c.syms.StringGeneratorFree)
 	if ptr == nil {
 		return nil, err

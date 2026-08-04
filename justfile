@@ -35,8 +35,16 @@ test mode="" *args="":
             just build-libhegel
             if [ -z "${HEGEL_LIBHEGEL_PATH:-}" ]; then
                 ext=so; [ "$(uname)" = Darwin ] && ext=dylib
-                libpath="{{hegel_rust_dir}}/target/release/libhegel.$ext"
-                [ -f "$libpath" ] && export HEGEL_LIBHEGEL_PATH="$libpath"
+                # hegel-rust ≥0.30.3 names the build output libhegel_c.<ext>
+                # (the crate lib was renamed to hegel_c); older checkouts
+                # produce libhegel.<ext>. Prefer the new name.
+                for stem in libhegel_c libhegel; do
+                    libpath="{{hegel_rust_dir}}/target/release/$stem.$ext"
+                    if [ -f "$libpath" ]; then
+                        export HEGEL_LIBHEGEL_PATH="$libpath"
+                        break
+                    fi
+                done
             fi ;;
         *)
             echo "unknown test mode '{{mode}}' (expected '' or 'vendored')" >&2
