@@ -150,12 +150,15 @@ type Collection int64
 // [TestCase.NewStateMachine] for the lifetime of a single test case.
 type StateMachine int64
 
+// StateMachineGroup identifies a group of rules in a state machine.
+type StateMachineGroup int64
+
 // StateMachineDone is the sentinel written through an out-parameter by
 // [TestCase.StateMachineNextRule] when the calling worker's round budget is
 // exhausted (stop running rules and wait for the next group / join point), and
 // by [TestCase.StateMachineNextGroup] when the whole state machine is done (run
 // no further rounds). Mirrors HEGEL_STATE_MACHINE_DONE.
-const StateMachineDone int64 = -1
+const StateMachineDone = -1
 
 type Label uint64
 
@@ -364,7 +367,7 @@ type symbols struct {
 	PoolAdd               func(ctxT, testCaseT, int64, out[int64]) Error
 	PoolGenerate          func(ctxT, testCaseT, int64, bool, out[int64]) Error
 	NewStateMachine       func(ctxT, testCaseT, uint64, **byte, *int64, uint64, **byte, uint64, int64, int64, out[StateMachine], out[int64]) Error
-	StateMachineNextGroup func(ctxT, testCaseT, StateMachine, out[int64]) Error
+	StateMachineNextGroup func(ctxT, testCaseT, StateMachine, out[StateMachineGroup]) Error
 	StateMachineNextRule  func(ctxT, testCaseT, StateMachine, int64, out[int64]) Error
 	Target                func(ctxT, testCaseT, float64, string) Error
 	MarkComplete          func(ctxT, testCaseT, Status, string) Error
@@ -802,6 +805,7 @@ type TestCase struct {
 	outBool      bool
 	outInt       int64
 	outFloat     float64
+	outGroup     StateMachineGroup
 	outColl      Collection
 	outSM        StateMachine
 	outDate      Date
@@ -1164,13 +1168,13 @@ func (tc *TestCase) NewStateMachine(ctx *Context, numGroups uint64, ruleNames []
 // concurrency group index, or [StateMachineDone] when the whole state machine
 // is done. Call it on the root test-case handle at every join point, including
 // before the first rule is requested.
-func (tc *TestCase) StateMachineNextGroup(ctx *Context, machine StateMachine) (int64, error) {
+func (tc *TestCase) StateMachineNextGroup(ctx *Context, machine StateMachine) (StateMachineGroup, error) {
 	err := ctx.invoke("hegel_state_machine_next_group", func(ctx ctxT) Error {
-		e := tc.syms.StateMachineNextGroup(ctx, tc.raw, machine, &tc.outInt)
+		e := tc.syms.StateMachineNextGroup(ctx, tc.raw, machine, &tc.outGroup)
 		runtime.KeepAlive(tc)
 		return e
 	})
-	return tc.outInt, err
+	return tc.outGroup, err
 }
 
 // StateMachineNextRule draws the index of the next rule for worker workerIndex

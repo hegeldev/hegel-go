@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"reflect"
 	"strings"
+	"sync"
 
 	"hegel.dev/go/hegel/internal/libhegel"
 )
@@ -103,14 +104,23 @@ func names(rules []stateMachineRule) []string {
 // Rules that reject the current pre-state via [TestCase.Assume] are
 // skipped and another rule is drawn, up to a retry budget.
 func (sm *stateMachine) Run(tc TestCase) {
-	machine, err := tc.stateMachineNew(names(sm.rules), names(sm.invariants))
+	machine, concurrency, err := tc.stateMachineNew(names(sm.rules), names(sm.invariants))
 	if err != nil {
 		tc.abort(err)
 	}
 
+	tcs := make([]TestCase, 0, concurrency)
+	for range concurrency {
+		clone, err := tc.clone()
+		if err != nil {
+			tc.abort(err)
+		}
+		tcs = append(tcs, clone)
+	}
+
 	tc.Note("Initial invariant check.")
 	for _, inv := range sm.invariants {
-		if _, err := callRule(tc, inv.fn); err != nil {
+		if err := callRule(tc, inv.fn); err != nil {
 			tc.abort(err)
 		}
 	}
@@ -121,41 +131,42 @@ func (sm *stateMachine) Run(tc TestCase) {
 	// stateMachineNextRule until the engine signals the join point. With a
 	// single group and concurrency 1 this runs the familiar sequential loop;
 	// the engine owns the overall step budget.
-	step := 0
+	var wg sync.WaitGroup
 	for {
 		group, err := tc.stateMachineNextGroup(machine)
 		if err != nil {
 			tc.abort(err)
 		}
-		// StateMachineDone (-1) from next_group terminates the whole machine.
 		if group == libhegel.StateMachineDone {
 			break
 		}
-		for {
-			idx, err := tc.stateMachineNextRule(machine)
-			if err != nil {
-				tc.abort(err)
-			}
-			// StateMachineDone (-1) from next_rule ends this round's rule
-			// stream: rejoin and ask for the next group.
-			if idx == libhegel.StateMachineDone {
-				break
-			}
-			step++
-			rule := sm.rules[idx]
-			tc.Note(fmt.Sprintf("Step %d: %s", step, rule.name))
+		for i, tc := range tcs {
+			wg.Add(1)
+			go func() {
+				defer wg.Done()
+				defer tc.recoverAbort()
 
-			ok, err := callRule(tc, rule.fn)
-			if err != nil { // coverage-ignore
-				tc.abort(err)
-			}
-			if !ok {
-				continue
-			}
-			for _, inv := range sm.invariants {
-				if _, err := callRule(tc, inv.fn); err != nil { // coverage-ignore
-					tc.abort(err)
+				for {
+					idx, err := tc.stateMachineNextRule(machine, int64(i))
+					if err != nil {
+						tc.abort(err)
+					}
+					if idx == libhegel.StateMachineDone {
+						break
+					}
+					rule := sm.rules[idx]
+
+					if err := callRule(tc, rule.fn); err != nil { // coverage-ignore
+						tc.abort(err)
+					}
 				}
+			}()
+		}
+		wg.Wait()
+		// TODO: Need to collect results from workers?
+		for _, inv := range sm.invariants {
+			if err := callRule(tc, inv.fn); err != nil { // coverage-ignore
+				tc.abort(err)
 			}
 		}
 	}
@@ -165,8 +176,8 @@ func (sm *stateMachine) Run(tc TestCase) {
 // [TestCase.Assume] rejections so the caller can try a different rule.
 // It returns true if fn ran to completion, false if it rejected via
 // Assume. Other panics propagate to the caller.
-func callRule(tc TestCase, fn func(TestCase)) (bool, error) {
-	return withSpan(tc, libhegel.LABEL_STATEFUL, func() (bool, error) {
+func callRule(tc TestCase, fn func(TestCase)) error {
+	_, err := withSpan(tc, libhegel.LABEL_STATEFUL, func() (struct{}, error) {
 		defer func() {
 			if tc.getStatus() == libhegel.STATUS_INVALID {
 				tc.setStatus(libhegel.STATUS_VALID)
@@ -178,8 +189,9 @@ func callRule(tc TestCase, fn func(TestCase)) (bool, error) {
 		}()
 		defer tc.recoverAbort()
 		fn(tc)
-		return true, nil
+		return struct{}{}, nil
 	})
+	return err
 }
 
 // RunStateful enables model-based testing.

@@ -45,6 +45,9 @@ type TestCase interface {
 	// under [WithSingleTestCase]).
 	Log(args ...any)
 
+	// Clone the current TestCase.
+	clone() (TestCase, error)
+
 	// Abort the current test case and update status.
 	//
 	// Passing nil for err is valid and aborts without changing state.
@@ -80,19 +83,19 @@ type TestCase interface {
 	// stateMachineNew registers an engine-owned state machine with the
 	// named rules and invariants, returning its id. The engine owns rule
 	// selection (including swarm testing).
-	stateMachineNew(ruleNames, invariantNames []string) (libhegel.StateMachine, error)
+	stateMachineNew(ruleNames, invariantNames []string) (libhegel.StateMachine, int64, error)
 
 	// stateMachineNextGroup starts the machine's next round, returning the
 	// current concurrency group's index, or [libhegel.StateMachineDone] when
 	// the whole state machine is done. Called at every join point, including
 	// before the first rule is requested.
-	stateMachineNextGroup(machine libhegel.StateMachine) (int64, error)
+	stateMachineNextGroup(machine libhegel.StateMachine) (libhegel.StateMachineGroup, error)
 
 	// stateMachineNextRule draws the index of the next rule to run, in
 	// [0, len(rules)), or [libhegel.StateMachineDone] when the round's rule
 	// stream is exhausted. Returns an [libhegel.E_STOP_TEST] error when the
 	// engine's choice budget is exhausted.
-	stateMachineNextRule(machine libhegel.StateMachine) (int64, error)
+	stateMachineNextRule(machine libhegel.StateMachine, worker int64) (int64, error)
 
 	// reportDraw emits one draw-report line for value through the
 	// implementation's note channel, or no-ops when notes are suppressed.

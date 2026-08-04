@@ -80,6 +80,15 @@ func (s *testCase) Target(value float64, label string) {
 	}
 }
 
+func (s *testCase) clone() (TestCase, error) {
+	clone, err := s.tc.Clone(s.ctx)
+	if err != nil {
+		return nil, err
+	}
+
+	return &testCase{ctx: s.ctx, tc: clone, out: s.out}, nil
+}
+
 func (s *testCase) setStatus(status libhegel.Status) {
 	s.status = status
 	s.origin = ""
@@ -129,22 +138,21 @@ func (s *testCase) engine() (*libhegel.Context, *libhegel.TestCase) {
 	return s.ctx, s.tc
 }
 
-func (s *testCase) stateMachineNew(ruleNames, invariantNames []string) (libhegel.StateMachine, error) {
+func (s *testCase) stateMachineNew(ruleNames, invariantNames []string) (libhegel.StateMachine, int64, error) {
 	// hegel-go drives state machines sequentially for now: one concurrency
 	// group holding every rule, and the concurrency level fixed at 1 (which
 	// consumes no entropy). The drawn concurrency is therefore always 1 and is
 	// discarded.
-	machine, _, err := s.tc.NewStateMachine(s.ctx, 1, ruleNames, make([]int64, len(ruleNames)), invariantNames, 1, 1)
-	return machine, err
+	machine, concurrency, err := s.tc.NewStateMachine(s.ctx, 1, ruleNames, make([]int64, len(ruleNames)), invariantNames, 1, int64(runtime.GOMAXPROCS(-1)))
+	return machine, concurrency, err
 }
 
-func (s *testCase) stateMachineNextGroup(machine libhegel.StateMachine) (int64, error) {
+func (s *testCase) stateMachineNextGroup(machine libhegel.StateMachine) (libhegel.StateMachineGroup, error) {
 	return s.tc.StateMachineNextGroup(s.ctx, machine)
 }
 
-func (s *testCase) stateMachineNextRule(machine libhegel.StateMachine) (int64, error) {
-	// Worker 0: the sequential driver runs a single worker on the root handle.
-	return s.tc.StateMachineNextRule(s.ctx, machine, 0)
+func (s *testCase) stateMachineNextRule(machine libhegel.StateMachine, worker int64) (int64, error) {
+	return s.tc.StateMachineNextRule(s.ctx, machine, worker)
 }
 
 func (s *testCase) startSpan(label libhegel.Label) error {
