@@ -357,11 +357,15 @@ func TestStubSettingsNewError(t *testing.T) {
 // (context_new/free, the *_free family, version), which no higher-level test
 // drives deterministically against the stub.
 func TestStubLifecycleClosures(t *testing.T) {
-	lib := Stub(t, "0.0.0", OK) // version string, then version result
-	if got := lib.syms.ContextNew(); got == 0 {
+	lib := Stub(t,
+		uintptr(2),  // context_new
+		"0.0.0", OK, // version string, then version result
+	)
+	ctx := lib.syms.ContextNew()
+	if ctx == 0 {
 		t.Error("contextNew returned 0")
 	}
-	if e := lib.syms.ContextFree(lib.raw); e != OK { // context_free
+	if e := lib.syms.ContextFree(ctx); e != OK { // context_free
 		t.Errorf("context_free: %v", e)
 	}
 	// Frees run with a NULL context in production; invoke them directly here.
@@ -382,6 +386,22 @@ func TestStubLifecycleClosures(t *testing.T) {
 	}
 	if got := lib.syms.versionString(); got != "0.0.0" {
 		t.Errorf("versionString: got %q", got)
+	}
+}
+
+func TestContextCloneUsesSameSymbolsAndFreshHandle(t *testing.T) {
+	t.Parallel()
+	ctx := Stub(t, uintptr(2)) // context_new for Clone
+	clone := ctx.Clone()
+
+	if clone == ctx {
+		t.Fatal("Clone returned the original context")
+	}
+	if clone.syms != ctx.syms {
+		t.Fatal("Clone did not retain the originating symbol table")
+	}
+	if clone.raw == ctx.raw {
+		t.Fatal("Clone did not allocate a fresh native context")
 	}
 }
 

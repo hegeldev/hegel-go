@@ -423,7 +423,19 @@ type Context pointer[ctxT]
 // loaded library, loading the library on first use (panicking if it cannot be
 // found).
 func NewContext() *Context {
-	syms := globalSymbols()
+	return newContext(globalSymbols())
+}
+
+// Clone allocates a fresh error-reporting context backed by the same libhegel
+// symbol table as c. Contexts carry mutable last-error state and cannot be
+// shared between goroutines; Clone lets wrappers create a context per worker
+// without falling back to the process-wide library (which is also important
+// for contexts backed by [Stub]).
+func (c *Context) Clone() *Context {
+	return newContext(c.syms)
+}
+
+func newContext(syms *symbols) *Context {
 	ctx := &Context{syms, syms.ContextNew()}
 	runtime.AddCleanup(ctx, func(ctx ctxT) { syms.ContextFree(ctx) }, ctx.raw)
 	return ctx
