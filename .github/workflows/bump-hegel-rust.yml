@@ -109,9 +109,10 @@ jobs:
           git push --force origin "$BRANCH"
 
           workflow_url="https://github.com/hegeldev/hegel-go/blob/main/.github/workflows/bump-hegel-rust.yml"
+          release_url="https://github.com/hegeldev/hegel-rust/releases/tag/v${VERSION}"
           title="Bump pinned \`libhegel\` to \`${VERSION}\`"
           body=$(printf '%s\n' \
-            "This PR bumps our pinned \`libhegel\` version to \`v${VERSION}\`." \
+            "This PR bumps our pinned \`libhegel\` version to [\`v${VERSION}\`](${release_url})." \
             "" \
             "---" \
             "" \
