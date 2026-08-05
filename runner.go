@@ -347,6 +347,16 @@ func WithTestCases(n int) Option {
 	}
 }
 
+// WithStatefulStepCount sets the target number of rule steps to run per
+// stateful test case. n must be at least 1; the default is 50.
+func WithStatefulStepCount(n int) Option {
+	return func(o *runOptions) {
+		o.addSetting(func(ctx *libhegel.Context, s *libhegel.Settings) error {
+			return s.StatefulStepCount(ctx, int64(n))
+		})
+	}
+}
+
 // SuppressHealthCheck suppresses the given health checks so they do not cause
 // test failure.
 //

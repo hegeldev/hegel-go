@@ -269,6 +269,7 @@ func TestSettingsOptionsRecordApplier(t *testing.T) {
 		opt  Option
 	}{
 		{"WithTestCases", WithTestCases(42)},
+		{"WithStatefulStepCount", WithStatefulStepCount(25)},
 		{"WithSeed", WithSeed(12345)},
 		{"WithDerandomize", WithDerandomize(true)},
 		{"WithDatabase", WithDatabase("/tmp/foo")},
@@ -566,13 +567,15 @@ func TestRunWithHandleRunError(t *testing.T) {
 
 // TestBuildSettingsExercisesAllSetters drives a clean (no-test-case) run with
 // every settings-backed option so buildSettings invokes each setter applier:
-// TestCases, Derandomize, Seed, Database, DatabaseKey, SuppressHealthCheck,
-// Backend, Verbosity, ReportMultipleFailures, Phases and Mode.
+// TestCases, StatefulStepCount, Derandomize, Seed, Database, DatabaseKey,
+// SuppressHealthCheck, Backend, Verbosity, ReportMultipleFailures, Phases and
+// Mode.
 func TestBuildSettingsExercisesAllSetters(t *testing.T) {
 	t.Parallel()
 	lib := libhegel.Stub(t,
 		uintptr(1), libhegel.OK, // settings_new
 		libhegel.OK,             // test_cases
+		libhegel.OK,             // stateful_step_count
 		libhegel.OK,             // derandomize
 		libhegel.OK,             // seed
 		libhegel.OK,             // database
@@ -592,6 +595,7 @@ func TestBuildSettingsExercisesAllSetters(t *testing.T) {
 	// each setter to fire.
 	opts := applyOpts([]Option{
 		WithTestCases(5),
+		WithStatefulStepCount(25),
 		WithDerandomize(false),
 		WithSeed(7),
 		WithDatabase("/tmp/does-not-matter.db"),
