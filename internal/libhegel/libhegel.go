@@ -228,6 +228,12 @@ const (
 	LABEL_BYTES
 	LABEL_STRING
 
+	// Outer span around one stateful-testing rule invocation, grouping all the
+	// draws a single rule makes so the shrinker can delete a whole step at once.
+	// Opened by the engine's state-machine driver; callers normally never open
+	// this span themselves.
+	LABEL_STATEFUL_RULE
+
 	// Binding-specific labels, beyond the upstream HEGEL_LABEL_* range. The
 	// engine treats span labels as opaque shrinker hints, so hegel-go reserves
 	// values past the last upstream constant for its own span structures.
@@ -327,6 +333,7 @@ type symbols struct {
 	SettingsSetMode                   func(ctxT, settingsT, Mode) Error
 	SettingsSetBackend                func(ctxT, settingsT, Backend) Error
 	SettingsSetTestCases              func(ctxT, settingsT, uint64) Error
+	SettingsSetStatefulStepCount      func(ctxT, settingsT, int64) Error
 	SettingsSetVerbosity              func(ctxT, settingsT, Verbosity) Error
 	SettingsSetSeed                   func(ctxT, settingsT, uint64, bool) Error
 	SettingsSetDerandomize            func(ctxT, settingsT, bool) Error
@@ -537,6 +544,7 @@ func tryOpen(path string) (syms *symbols, err error) {
 		{"hegel_settings_set_mode", &syms.SettingsSetMode},
 		{"hegel_settings_set_backend", &syms.SettingsSetBackend},
 		{"hegel_settings_set_test_cases", &syms.SettingsSetTestCases},
+		{"hegel_settings_set_stateful_step_count", &syms.SettingsSetStatefulStepCount},
 		{"hegel_settings_set_verbosity", &syms.SettingsSetVerbosity},
 		{"hegel_settings_set_seed", &syms.SettingsSetSeed},
 		{"hegel_settings_set_derandomize", &syms.SettingsSetDerandomize},
@@ -638,6 +646,17 @@ func (s *Settings) Backend(ctx *Context, b Backend) error {
 func (s *Settings) TestCases(ctx *Context, n uint64) error {
 	return ctx.invoke("hegel_settings_set_test_cases", func(ctx ctxT) Error {
 		e := s.syms.SettingsSetTestCases(ctx, s.raw, n)
+		runtime.KeepAlive(s)
+		return e
+	})
+}
+
+// StatefulStepCount sets the target number of steps to run per stateful test
+// case (default 50; n must be at least 1). See
+// hegel_settings_set_stateful_step_count.
+func (s *Settings) StatefulStepCount(ctx *Context, n int64) error {
+	return ctx.invoke("hegel_settings_set_stateful_step_count", func(ctx ctxT) Error {
+		e := s.syms.SettingsSetStatefulStepCount(ctx, s.raw, n)
 		runtime.KeepAlive(s)
 		return e
 	})

@@ -49,10 +49,9 @@ func TestStubMissingReturnErrors(t *testing.T) {
 	}
 }
 
-// TestStubUnwiredSetters exercises the settings setters that the runner does
-// not (yet) drive — Backend, Verbosity, ReportMultipleFailures and Phases —
-// directly against a Stub so their plumbing is covered.
-func TestStubUnwiredSetters(t *testing.T) {
+// TestStubSettingsSetters exercises settings setters directly against a Stub
+// so their low-level plumbing is covered independently of the public options.
+func TestStubSettingsSetters(t *testing.T) {
 	lib := Stub(t,
 		uintptr(1), // settings_new handle
 		OK,         // settings_new result
@@ -60,12 +59,14 @@ func TestStubUnwiredSetters(t *testing.T) {
 		OK,         // verbosity
 		OK,         // report_multiple_failures
 		OK,         // phases
+		OK,         // stateful_step_count
 	)
 	s := lib.SettingsNew()
 	_ = s.Backend(lib, BACKEND_URANDOM)
 	_ = s.Verbosity(lib, VERBOSITY_VERBOSE)
 	_ = s.ReportMultipleFailures(lib, true)
 	_ = s.Phases(lib, PHASE_GENERATE)
+	_ = s.StatefulStepCount(lib, 25)
 }
 
 // TestStubUnwiredPrimitives exercises the per-test-case primitives that the
