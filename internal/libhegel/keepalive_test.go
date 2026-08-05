@@ -35,6 +35,7 @@ func TestNativeCallsKeepHandleOwnersAlive(t *testing.T) {
 	exempt := map[string]bool{
 		"allocate":   true,
 		"NewContext": true,
+		"newContext": true,
 	}
 
 	for _, decl := range f.Decls {

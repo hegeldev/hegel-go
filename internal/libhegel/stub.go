@@ -127,8 +127,12 @@ func Stub(tb testingTB, returns ...any) *Context {
 			case ret == reflect.TypeFor[string]():
 				return []reflect.Value{reflect.ValueOf(retval().(string))}
 			case ret == reflect.TypeFor[ctxT]():
-				// hegel_context_new: hand back a fixed non-NULL handle.
-				return []reflect.Value{reflect.ValueOf(ctxT(1))}
+				// hegel_context_new returns an owned handle directly rather than
+				// through an out-parameter, so consume and track its scripted value
+				// here. As with other handles, callers may pass a plain uintptr.
+				ctx := ctxT(retval().(uintptr))
+				handles.track(ctx)
+				return []reflect.Value{reflect.ValueOf(ctx)}
 			default: // coverage-ignore (every libhegel symbol returns Error, string or ctxT)
 				tb.Errorf("libhegel stub: unsupported return value %s", ft)
 				return nil
