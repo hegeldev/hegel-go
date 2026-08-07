@@ -82,6 +82,7 @@ func TestStubUnwiredPrimitives(t *testing.T) {
 		int64(1), OK, // pool_generate: variable id
 		uintptr(3), OK, // new_state_machine: machine handle
 		int64(0), OK, // state_machine_next_rule: rule index
+		OK,       // state_machine_rule_rejected
 		true, OK, // generate_boolean: value
 	)
 	tc := &TestCase{pointer: &pointer[testCaseT]{syms: lib.syms, raw: 1}}
@@ -103,6 +104,9 @@ func TestStubUnwiredPrimitives(t *testing.T) {
 	}
 	if _, err := tc.StateMachineNextRule(lib, machine); err != nil {
 		t.Fatalf("StateMachineNextRule: %v", err)
+	}
+	if err := tc.StateMachineRuleRejected(lib, machine); err != nil {
+		t.Fatalf("StateMachineRuleRejected: %v", err)
 	}
 	if _, err := tc.GenerateBoolean(lib, 0.5, false, false); err != nil {
 		t.Fatalf("GenerateBoolean: %v", err)
