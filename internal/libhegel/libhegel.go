@@ -144,12 +144,6 @@ const (
 	PHASE_SHRINK
 )
 
-type Collection int64
-
-// StateMachine identifies an engine-owned state machine registered via
-// [TestCase.NewStateMachine] for the lifetime of a single test case.
-type StateMachine int64
-
 // StateMachineDone is the sentinel [TestCase.StateMachineNextRule] writes
 // through its out-parameter when the engine's step budget for the test case is
 // exhausted: the caller should stop running rules. Mirrors
@@ -246,13 +240,16 @@ type pointer[T ~uintptr] struct {
 	raw  T
 }
 
-type ctxT uintptr       // Equivalent of hegel_context_t
-type settingsT uintptr  // Equivalent of hegel_settings_t
-type runT uintptr       // Equivalent of hegel_run_t
-type testCaseT uintptr  // Equivalent of hegel_test_case_t
-type resultT uintptr    // Equivalent of hegel_run_result_t
-type failureT uintptr   // Equivalent of hegel_failure_t
-type stringGenT uintptr // Equivalent of hegel_string_generator_t
+type ctxT uintptr          // Equivalent of hegel_context_t
+type settingsT uintptr     // Equivalent of hegel_settings_t
+type runT uintptr          // Equivalent of hegel_run_t
+type testCaseT uintptr     // Equivalent of hegel_test_case_t
+type resultT uintptr       // Equivalent of hegel_run_result_t
+type failureT uintptr      // Equivalent of hegel_failure_t
+type stringGenT uintptr    // Equivalent of hegel_string_generator_t
+type collectionT uintptr   // Equivalent of hegel_collection_t
+type poolT uintptr         // Equivalent of hegel_pool_t
+type stateMachineT uintptr // Equivalent of hegel_state_machine_t
 
 // outputCallbackT is hegel_output_callback_t, a C function pointer
 // (void (*)(void *user_data, const char *line, size_t len)) delivering one
@@ -359,14 +356,17 @@ type symbols struct {
 
 	StartSpan            func(ctxT, testCaseT, Label) Error
 	StopSpan             func(ctxT, testCaseT, bool) Error
-	NewCollection        func(ctxT, testCaseT, uint64, uint64, out[Collection]) Error
-	CollectionMore       func(ctxT, testCaseT, Collection, out[bool]) Error
-	CollectionReject     func(ctxT, testCaseT, Collection, string) Error
-	NewPool              func(ctxT, testCaseT, out[int64]) Error
-	PoolAdd              func(ctxT, testCaseT, int64, out[int64]) Error
-	PoolGenerate         func(ctxT, testCaseT, int64, bool, out[int64]) Error
-	NewStateMachine      func(ctxT, testCaseT, **byte, uint64, **byte, uint64, out[StateMachine]) Error
-	StateMachineNextRule func(ctxT, testCaseT, StateMachine, out[int64]) Error
+	NewCollection        func(ctxT, testCaseT, uint64, uint64, out[collectionT]) Error
+	CollectionMore       func(ctxT, testCaseT, collectionT, out[bool]) Error
+	CollectionReject     func(ctxT, testCaseT, collectionT, string) Error
+	CollectionFree       func(ctxT, collectionT) Error
+	NewPool              func(ctxT, testCaseT, out[poolT]) Error
+	PoolAdd              func(ctxT, testCaseT, poolT, out[int64]) Error
+	PoolGenerate         func(ctxT, testCaseT, poolT, bool, out[int64]) Error
+	PoolFree             func(ctxT, poolT) Error
+	NewStateMachine      func(ctxT, testCaseT, **byte, uint64, **byte, uint64, out[stateMachineT]) Error
+	StateMachineNextRule func(ctxT, testCaseT, stateMachineT, out[int64]) Error
+	StateMachineFree     func(ctxT, stateMachineT) Error
 	Target               func(ctxT, testCaseT, float64, string) Error
 	MarkComplete         func(ctxT, testCaseT, Status, string) Error
 
@@ -568,11 +568,14 @@ func tryOpen(path string) (syms *symbols, err error) {
 		{"hegel_new_collection", &syms.NewCollection},
 		{"hegel_collection_more", &syms.CollectionMore},
 		{"hegel_collection_reject", &syms.CollectionReject},
+		{"hegel_collection_free", &syms.CollectionFree},
 		{"hegel_new_pool", &syms.NewPool},
 		{"hegel_pool_add", &syms.PoolAdd},
 		{"hegel_pool_generate", &syms.PoolGenerate},
+		{"hegel_pool_free", &syms.PoolFree},
 		{"hegel_new_state_machine", &syms.NewStateMachine},
 		{"hegel_state_machine_next_rule", &syms.StateMachineNextRule},
+		{"hegel_state_machine_free", &syms.StateMachineFree},
 		{"hegel_target", &syms.Target},
 		{"hegel_mark_complete", &syms.MarkComplete},
 
@@ -802,8 +805,6 @@ type TestCase struct {
 	outBool      bool
 	outInt       int64
 	outFloat     float64
-	outColl      Collection
-	outSM        StateMachine
 	outDate      Date
 	outTime      Time
 	outDatetime  Datetime
@@ -1067,47 +1068,70 @@ func (tc *TestCase) StopSpan(ctx *Context, discard bool) error {
 	})
 }
 
-func (tc *TestCase) NewCollection(ctx *Context, min, max uint64) (Collection, error) {
-	err := ctx.invoke("hegel_new_collection", func(ctx ctxT) Error {
-		e := tc.syms.NewCollection(ctx, tc.raw, min, max, &tc.outColl)
+// Collection wraps a hegel_collection_t: an engine-side collection
+// (list/set/map) generation session. It is owned by the caller and released
+// automatically via the GC (hegel_collection_free).
+type Collection pointer[collectionT]
+
+// NewCollection opens a collection generation session drawing between min and
+// max elements. The returned handle is owned by the caller and freed
+// automatically via the GC.
+func (tc *TestCase) NewCollection(ctx *Context, min, max uint64) (*Collection, error) {
+	ptr, err := allocate(ctx, "hegel_new_collection", func(ctx ctxT, raw *collectionT) Error {
+		e := tc.syms.NewCollection(ctx, tc.raw, min, max, raw)
 		runtime.KeepAlive(tc)
 		return e
-	})
-	return tc.outColl, err
+	}, tc.syms.CollectionFree)
+	if ptr == nil {
+		return nil, err
+	}
+	return (*Collection)(ptr), err
 }
 
-func (tc *TestCase) CollectionMore(ctx *Context, coll Collection) (bool, error) {
+func (tc *TestCase) CollectionMore(ctx *Context, coll *Collection) (bool, error) {
 	err := ctx.invoke("hegel_collection_more", func(ctx ctxT) Error {
-		e := tc.syms.CollectionMore(ctx, tc.raw, coll, &tc.outBool)
+		e := tc.syms.CollectionMore(ctx, tc.raw, coll.raw, &tc.outBool)
 		runtime.KeepAlive(tc)
+		runtime.KeepAlive(coll)
 		return e
 	})
 	return tc.outBool, err
 }
 
-func (tc *TestCase) CollectionReject(ctx *Context, coll Collection, why string) error {
+func (tc *TestCase) CollectionReject(ctx *Context, coll *Collection, why string) error {
 	return ctx.invoke("hegel_collection_reject", func(ctx ctxT) Error {
-		e := tc.syms.CollectionReject(ctx, tc.raw, coll, why)
+		e := tc.syms.CollectionReject(ctx, tc.raw, coll.raw, why)
 		runtime.KeepAlive(tc)
+		runtime.KeepAlive(coll)
 		return e
 	})
 }
 
-// NewPool creates an engine-managed variable pool for stateful testing.
-func (tc *TestCase) NewPool(ctx *Context) (int64, error) {
-	err := ctx.invoke("hegel_new_pool", func(ctx ctxT) Error {
-		e := tc.syms.NewPool(ctx, tc.raw, &tc.outInt)
+// Pool wraps a hegel_pool_t: an engine-managed variable pool for stateful
+// testing. It is owned by the caller and released automatically via the GC
+// (hegel_pool_free).
+type Pool pointer[poolT]
+
+// NewPool creates an engine-managed variable pool for stateful testing. The
+// returned handle is owned by the caller and freed automatically via the GC.
+func (tc *TestCase) NewPool(ctx *Context) (*Pool, error) {
+	ptr, err := allocate(ctx, "hegel_new_pool", func(ctx ctxT, raw *poolT) Error {
+		e := tc.syms.NewPool(ctx, tc.raw, raw)
 		runtime.KeepAlive(tc)
 		return e
-	})
-	return tc.outInt, err
+	}, tc.syms.PoolFree)
+	if ptr == nil {
+		return nil, err
+	}
+	return (*Pool)(ptr), err
 }
 
 // PoolAdd registers a new variable in the pool, returning the engine-assigned id.
-func (tc *TestCase) PoolAdd(ctx *Context, pool int64) (int64, error) {
+func (tc *TestCase) PoolAdd(ctx *Context, pool *Pool) (int64, error) {
 	err := ctx.invoke("hegel_pool_add", func(ctx ctxT) Error {
-		e := tc.syms.PoolAdd(ctx, tc.raw, pool, &tc.outInt)
+		e := tc.syms.PoolAdd(ctx, tc.raw, pool.raw, &tc.outInt)
 		runtime.KeepAlive(tc)
+		runtime.KeepAlive(pool)
 		return e
 	})
 	return tc.outInt, err
@@ -1116,48 +1140,60 @@ func (tc *TestCase) PoolAdd(ctx *Context, pool int64) (int64, error) {
 // PoolGenerate draws a variable id from the pool, letting the engine choose and
 // shrink which previously-added variable to reuse. When consume is true the
 // drawn variable is removed from the pool.
-func (tc *TestCase) PoolGenerate(ctx *Context, pool int64, consume bool) (int64, error) {
+func (tc *TestCase) PoolGenerate(ctx *Context, pool *Pool, consume bool) (int64, error) {
 	err := ctx.invoke("hegel_pool_generate", func(ctx ctxT) Error {
-		e := tc.syms.PoolGenerate(ctx, tc.raw, pool, consume, &tc.outInt)
+		e := tc.syms.PoolGenerate(ctx, tc.raw, pool.raw, consume, &tc.outInt)
 		runtime.KeepAlive(tc)
+		runtime.KeepAlive(pool)
 		return e
 	})
 	return tc.outInt, err
 }
 
+// StateMachine wraps a hegel_state_machine_t: an engine-owned state machine
+// registered via [TestCase.NewStateMachine] for the lifetime of a single test
+// case. It is owned by the caller and released automatically via the GC
+// (hegel_state_machine_free).
+type StateMachine pointer[stateMachineT]
+
 // NewStateMachine registers a state machine for engine-owned stateful testing,
 // with the named rules and invariants. Rule selection (including swarm testing)
-// is owned by the engine and driven via [TestCase.StateMachineNextRule].
-func (tc *TestCase) NewStateMachine(ctx *Context, ruleNames, invariantNames []string) (StateMachine, error) {
+// is owned by the engine and driven via [TestCase.StateMachineNextRule]. The
+// returned handle is owned by the caller and freed automatically via the GC.
+func (tc *TestCase) NewStateMachine(ctx *Context, ruleNames, invariantNames []string) (*StateMachine, error) {
 	rules, err := cStringArray(ruleNames)
 	if err != nil {
-		return 0, fmt.Errorf("hegel_new_state_machine: rule names: %w", err)
+		return nil, fmt.Errorf("hegel_new_state_machine: rule names: %w", err)
 	}
 	invariants, err := cStringArray(invariantNames)
 	if err != nil {
-		return 0, fmt.Errorf("hegel_new_state_machine: invariant names: %w", err)
+		return nil, fmt.Errorf("hegel_new_state_machine: invariant names: %w", err)
 	}
-	err = ctx.invoke("hegel_new_state_machine", func(ctx ctxT) Error {
+	ptr, err := allocate(ctx, "hegel_new_state_machine", func(ctx ctxT, raw *stateMachineT) Error {
 		e := tc.syms.NewStateMachine(
 			ctx, tc.raw,
 			slicePtr(rules), uint64(len(ruleNames)),
 			slicePtr(invariants), uint64(len(invariantNames)),
-			&tc.outSM,
+			raw,
 		)
 		runtime.KeepAlive(tc)
 		return e
-	})
-	return tc.outSM, err
+	}, tc.syms.StateMachineFree)
+	if ptr == nil {
+		return nil, err
+	}
+	return (*StateMachine)(ptr), err
 }
 
 // StateMachineNextRule draws the index of the next rule to run, in
 // [0, num_rules), letting the engine choose and shrink the rule sequence. It
 // returns [StateMachineDone] once the engine's step budget for the test case is
 // exhausted, signalling the caller to stop running rules.
-func (tc *TestCase) StateMachineNextRule(ctx *Context, machine StateMachine) (int64, error) {
+func (tc *TestCase) StateMachineNextRule(ctx *Context, machine *StateMachine) (int64, error) {
 	err := ctx.invoke("hegel_state_machine_next_rule", func(ctx ctxT) Error {
-		e := tc.syms.StateMachineNextRule(ctx, tc.raw, machine, &tc.outInt)
+		e := tc.syms.StateMachineNextRule(ctx, tc.raw, machine.raw, &tc.outInt)
 		runtime.KeepAlive(tc)
+		runtime.KeepAlive(machine)
 		return e
 	})
 	return tc.outInt, err

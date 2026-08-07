@@ -205,13 +205,13 @@ func invalidFloats() Generator[float64] {
 func TestListsInnerErrorPropagates(t *testing.T) {
 	// start_span(LIST), new_collection, collection_more=true, then the element
 	// draw (invalidFloats) fails in params() before any engine call.
-	tc := newStubTestCase(t, libhegel.OK, libhegel.Collection(0), libhegel.OK, true, libhegel.OK)
+	tc := newStubTestCase(t, libhegel.OK, uintptr(1), libhegel.OK, true, libhegel.OK)
 	_, err := Lists(invalidFloats()).draw(tc)
 	assertErrorContains(t, "allow_nan", err)
 }
 
 func TestMapsKeyErrorPropagates(t *testing.T) {
-	tc := newStubTestCase(t, libhegel.OK, libhegel.Collection(0), libhegel.OK, true, libhegel.OK)
+	tc := newStubTestCase(t, libhegel.OK, uintptr(1), libhegel.OK, true, libhegel.OK)
 	_, err := Maps[float64, int](invalidFloats(), Integers(0, 1)).draw(tc)
 	assertErrorContains(t, "allow_nan", err)
 }
@@ -219,7 +219,7 @@ func TestMapsKeyErrorPropagates(t *testing.T) {
 func TestMapsValueErrorPropagates(t *testing.T) {
 	// The key draw (Integers) succeeds before the value draw fails, so it
 	// consumes one generate_integer output.
-	tc := newStubTestCase(t, libhegel.OK, libhegel.Collection(0), libhegel.OK, true, libhegel.OK, int64(0), libhegel.OK)
+	tc := newStubTestCase(t, libhegel.OK, uintptr(1), libhegel.OK, true, libhegel.OK, int64(0), libhegel.OK)
 	_, err := Maps[int, float64](Integers(0, 1), invalidFloats()).draw(tc)
 	assertErrorContains(t, "allow_nan", err)
 }

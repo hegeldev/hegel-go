@@ -129,11 +129,11 @@ func (s *testCase) engine() (*libhegel.Context, *libhegel.TestCase) {
 	return s.ctx, s.tc
 }
 
-func (s *testCase) stateMachineNew(ruleNames, invariantNames []string) (libhegel.StateMachine, error) {
+func (s *testCase) stateMachineNew(ruleNames, invariantNames []string) (*libhegel.StateMachine, error) {
 	return s.tc.NewStateMachine(s.ctx, ruleNames, invariantNames)
 }
 
-func (s *testCase) stateMachineNextRule(machine libhegel.StateMachine) (int64, error) {
+func (s *testCase) stateMachineNextRule(machine *libhegel.StateMachine) (int64, error) {
 	return s.tc.StateMachineNextRule(s.ctx, machine)
 }
 
@@ -180,7 +180,7 @@ func (s *testCase) newCollection(minSize int, maxSize *int) (*collection, error)
 type collection struct {
 	ctx      *libhegel.Context
 	tc       *libhegel.TestCase
-	id       libhegel.Collection
+	id       *libhegel.Collection
 	finished bool
 	err      error
 }
