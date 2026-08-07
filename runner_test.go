@@ -722,7 +722,7 @@ func TestTestCaseNewCollectionError(t *testing.T) {
 	// returning the failing Error.
 	stubOpCase(t, func(tc *testCase) {
 		_, got = tc.newCollection(0, nil)
-	}, libhegel.Collection(0), libhegel.E_BACKEND)
+	}, uintptr(1), libhegel.E_BACKEND)
 	if got == nil {
 		t.Fatal("expected newCollection error")
 	}
@@ -801,10 +801,10 @@ func TestDrawListStartSpanError(t *testing.T) {
 func TestDrawListNewCollectionError(t *testing.T) {
 	t.Parallel()
 	tc := newStubTestCase(t,
-		libhegel.OK,            // start_span
-		libhegel.Collection(0), // new_collection out-param placeholder
-		libhegel.E_BACKEND,     // new_collection fails
-		"boom",                 // diagnostic read by invoke
+		libhegel.OK,        // start_span
+		uintptr(1),         // new_collection out-param placeholder
+		libhegel.E_BACKEND, // new_collection fails
+		"boom",             // diagnostic read by invoke
 	)
 	defer expectErrorPanic(t, libhegel.E_BACKEND)
 	Draw[[]int](tc, Lists[int](errGen[int]{}))
@@ -813,12 +813,12 @@ func TestDrawListNewCollectionError(t *testing.T) {
 func TestDrawListCollectionMoreError(t *testing.T) {
 	t.Parallel()
 	tc := newStubTestCase(t,
-		libhegel.OK,            // start_span
-		libhegel.Collection(0), // new_collection out-param placeholder
-		libhegel.OK,            // new_collection
-		false,                  // collection_more out-param placeholder
-		libhegel.E_BACKEND,     // collection_more fails => coll.Err()
-		"boom",                 // diagnostic read by invoke
+		libhegel.OK,        // start_span
+		uintptr(1),         // new_collection out-param placeholder
+		libhegel.OK,        // new_collection
+		false,              // collection_more out-param placeholder
+		libhegel.E_BACKEND, // collection_more fails => coll.Err()
+		"boom",             // diagnostic read by invoke
 	)
 	defer expectErrorPanic(t, libhegel.E_BACKEND)
 	Draw[[]int](tc, Lists[int](errGen[int]{}))
@@ -827,10 +827,10 @@ func TestDrawListCollectionMoreError(t *testing.T) {
 func TestDrawMapNewCollectionError(t *testing.T) {
 	t.Parallel()
 	tc := newStubTestCase(t,
-		libhegel.OK,            // start_span (LABEL_MAP)
-		libhegel.Collection(0), // new_collection out-param placeholder
-		libhegel.E_BACKEND,     // new_collection fails
-		"boom",                 // diagnostic read by invoke
+		libhegel.OK,        // start_span (LABEL_MAP)
+		uintptr(1),         // new_collection out-param placeholder
+		libhegel.E_BACKEND, // new_collection fails
+		"boom",             // diagnostic read by invoke
 	)
 	defer expectErrorPanic(t, libhegel.E_BACKEND)
 	Draw[map[int]int](tc, Maps[int, int](errGen[int]{}, errGen[int]{}))
@@ -894,9 +894,9 @@ func TestDrawFilterStartSpanError(t *testing.T) {
 func TestStubCollectionReject(t *testing.T) {
 	t.Parallel()
 	tc := newStubTestCase(t,
-		libhegel.Collection(0), // new_collection out-param placeholder
-		libhegel.OK,            // new_collection
-		libhegel.OK,            // collection_reject
+		uintptr(1),  // new_collection out-param placeholder
+		libhegel.OK, // new_collection
+		libhegel.OK, // collection_reject
 	)
 	coll, err := tc.newCollection(0, nil)
 	if err != nil {
@@ -914,7 +914,7 @@ func TestStatefulNewStateMachineError(t *testing.T) {
 	t.Parallel()
 	// new_state_machine writes its *StateMachine out-param (placeholder) before
 	// returning the failing Error.
-	tc := newStubTestCase(t, libhegel.StateMachine(0), libhegel.E_BACKEND, "boom")
+	tc := newStubTestCase(t, uintptr(1), libhegel.E_BACKEND, "boom")
 	sm := &stateMachine{rules: []stateMachineRule{{name: "Rule", fn: func(TestCase) {}}}}
 	defer func() {
 		err, ok := recover().(error)
@@ -932,7 +932,7 @@ func TestStatefulInitialInvariantError(t *testing.T) {
 	t.Parallel()
 	// new_state_machine writes its *StateMachine out-param (placeholder) + OK to
 	// register the machine; E_BACKEND then fails start_span(STATEFUL).
-	tc := newStubTestCase(t, libhegel.StateMachine(0), libhegel.OK, libhegel.E_BACKEND, "boom")
+	tc := newStubTestCase(t, uintptr(1), libhegel.OK, libhegel.E_BACKEND, "boom")
 	sm := &stateMachine{invariants: []stateMachineRule{{name: "Inv", fn: func(TestCase) {}}}}
 	defer func() {
 		err, ok := recover().(error)

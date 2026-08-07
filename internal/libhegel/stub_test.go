@@ -77,10 +77,10 @@ func TestStubSettingsSetters(t *testing.T) {
 // through a trailing out-parameter before its Error return.
 func TestStubUnwiredPrimitives(t *testing.T) {
 	lib := Stub(t,
-		int64(7), OK, // new_pool: pool id
+		uintptr(7), OK, // new_pool: pool handle
 		int64(1), OK, // pool_add: variable id
 		int64(1), OK, // pool_generate: variable id
-		StateMachine(3), OK, // new_state_machine: machine id
+		uintptr(3), OK, // new_state_machine: machine handle
 		int64(0), OK, // state_machine_next_rule: rule index
 		true, OK, // generate_boolean: value
 	)
@@ -106,6 +106,21 @@ func TestStubUnwiredPrimitives(t *testing.T) {
 	}
 	if _, err := tc.GenerateBoolean(lib, 0.5, false, false); err != nil {
 		t.Fatalf("GenerateBoolean: %v", err)
+	}
+}
+
+// TestStubNewPoolError covers NewPool's nil-handle branch: when new_pool fails,
+// allocate yields a nil handle and NewPool returns (nil, err). (The collection
+// and state-machine constructors' equivalent branches are covered by the
+// runner-level error tests; the pool constructor has no runner path.)
+func TestStubNewPoolError(t *testing.T) {
+	lib := Stub(t,
+		uintptr(0), E_BACKEND, // new_pool: placeholder handle + failing Error
+		"boom", // diagnostic read by invoke
+	)
+	tc := &TestCase{pointer: &pointer[testCaseT]{syms: lib.syms, raw: 1}}
+	if _, err := tc.NewPool(lib); err == nil {
+		t.Fatal("expected NewPool error")
 	}
 }
 
