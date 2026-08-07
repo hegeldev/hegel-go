@@ -354,21 +354,22 @@ type symbols struct {
 	TestCaseClone    func(ctxT, testCaseT, out[testCaseT]) Error
 	TestCaseFree     func(ctxT, testCaseT) Error
 
-	StartSpan            func(ctxT, testCaseT, Label) Error
-	StopSpan             func(ctxT, testCaseT, bool) Error
-	NewCollection        func(ctxT, testCaseT, uint64, uint64, out[collectionT]) Error
-	CollectionMore       func(ctxT, testCaseT, collectionT, out[bool]) Error
-	CollectionReject     func(ctxT, testCaseT, collectionT, string) Error
-	CollectionFree       func(ctxT, collectionT) Error
-	NewPool              func(ctxT, testCaseT, out[poolT]) Error
-	PoolAdd              func(ctxT, testCaseT, poolT, out[int64]) Error
-	PoolGenerate         func(ctxT, testCaseT, poolT, bool, out[int64]) Error
-	PoolFree             func(ctxT, poolT) Error
-	NewStateMachine      func(ctxT, testCaseT, **byte, uint64, **byte, uint64, out[stateMachineT]) Error
-	StateMachineNextRule func(ctxT, testCaseT, stateMachineT, out[int64]) Error
-	StateMachineFree     func(ctxT, stateMachineT) Error
-	Target               func(ctxT, testCaseT, float64, string) Error
-	MarkComplete         func(ctxT, testCaseT, Status, string) Error
+	StartSpan                func(ctxT, testCaseT, Label) Error
+	StopSpan                 func(ctxT, testCaseT, bool) Error
+	NewCollection            func(ctxT, testCaseT, uint64, uint64, out[collectionT]) Error
+	CollectionMore           func(ctxT, testCaseT, collectionT, out[bool]) Error
+	CollectionReject         func(ctxT, testCaseT, collectionT, string) Error
+	CollectionFree           func(ctxT, collectionT) Error
+	NewPool                  func(ctxT, testCaseT, out[poolT]) Error
+	PoolAdd                  func(ctxT, testCaseT, poolT, out[int64]) Error
+	PoolGenerate             func(ctxT, testCaseT, poolT, bool, out[int64]) Error
+	PoolFree                 func(ctxT, poolT) Error
+	NewStateMachine          func(ctxT, testCaseT, **byte, uint64, **byte, uint64, out[stateMachineT]) Error
+	StateMachineNextRule     func(ctxT, testCaseT, stateMachineT, out[int64]) Error
+	StateMachineRuleRejected func(ctxT, testCaseT, stateMachineT) Error
+	StateMachineFree         func(ctxT, stateMachineT) Error
+	Target                   func(ctxT, testCaseT, float64, string) Error
+	MarkComplete             func(ctxT, testCaseT, Status, string) Error
 
 	// Typed primitive draws (0.27.0 replaced the generic schema-driven
 	// hegel_generate with these).
@@ -575,6 +576,7 @@ func tryOpen(path string) (syms *symbols, err error) {
 		{"hegel_pool_free", &syms.PoolFree},
 		{"hegel_new_state_machine", &syms.NewStateMachine},
 		{"hegel_state_machine_next_rule", &syms.StateMachineNextRule},
+		{"hegel_state_machine_rule_rejected", &syms.StateMachineRuleRejected},
 		{"hegel_state_machine_free", &syms.StateMachineFree},
 		{"hegel_target", &syms.Target},
 		{"hegel_mark_complete", &syms.MarkComplete},
@@ -1197,6 +1199,20 @@ func (tc *TestCase) StateMachineNextRule(ctx *Context, machine *StateMachine) (i
 		return e
 	})
 	return tc.outInt, err
+}
+
+// StateMachineRuleRejected reports that the rule most recently returned by
+// [TestCase.StateMachineNextRule] was rejected — an assumption failed before
+// the rule completed — so it should not count toward the engine's step budget
+// for the test case. Returns an error (mapping HEGEL_E_INVALID_ARG) when the
+// state machine has no outstanding rule.
+func (tc *TestCase) StateMachineRuleRejected(ctx *Context, machine *StateMachine) error {
+	return ctx.invoke("hegel_state_machine_rule_rejected", func(ctx ctxT) Error {
+		e := tc.syms.StateMachineRuleRejected(ctx, tc.raw, machine.raw)
+		runtime.KeepAlive(tc)
+		runtime.KeepAlive(machine)
+		return e
+	})
 }
 
 func (tc *TestCase) Target(ctx *Context, value float64, label string) error {
