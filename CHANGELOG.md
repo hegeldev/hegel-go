@@ -1,5 +1,9 @@
 # Changelog
 
+## 0.6.28 - 2026-08-12
+
+This patch bumps our pinned libhegel ([hegel-rust](hegeldev/hegel-rust)) from [0.32.2](https://github.com/hegeldev/hegel-rust/releases/tag/v0.32.2) to [0.32.3](https://github.com/hegeldev/hegel-rust/releases/tag/v0.32.3).
+
 ## 0.6.27 - 2026-08-10
 
 This patch bumps our pinned libhegel ([hegel-rust](hegeldev/hegel-rust)) from [0.32.1](https://github.com/hegeldev/hegel-rust/releases/tag/v0.32.1) to [0.32.2](https://github.com/hegeldev/hegel-rust/releases/tag/v0.32.2).
