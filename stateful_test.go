@@ -2,6 +2,8 @@ package hegel
 
 import (
 	"testing"
+
+	"hegel.dev/go/hegel/internal/libhegel"
 )
 
 type goodCounter struct{ n int }
@@ -189,6 +191,25 @@ func TestRunStatefulAssumeRejectionRetries(t *testing.T) {
 	if totalGateRuns == 0 {
 		t.Error("RuleGated never succeeded; assume retry appears broken")
 	}
+}
+
+// TestRunStatefulNextRuleErrorAborts covers the error branch after
+// stateMachineNextRule in Run: when the engine fails to draw the next rule (for
+// example E_STOP_TEST once its per-test-case choice budget is exhausted), Run
+// aborts the test case. The engine no longer surfaces this through the
+// integration tests, so it is injected via a stubbed test case.
+func TestRunStatefulNextRuleErrorAborts(t *testing.T) {
+	t.Parallel()
+	sm, err := newStateMachine(&singleRuleMachine{})
+	if err != nil {
+		t.Fatalf("newStateMachine: %v", err)
+	}
+	tc := newStubTestCase(t,
+		uintptr(1), libhegel.OK, // new_state_machine
+		int64(0), libhegel.E_STOP_TEST, "overrun", // state_machine_next_rule + last-error message
+	)
+	defer expectErrorPanic(t, libhegel.E_STOP_TEST)
+	sm.Run(tc)
 }
 
 func TestRunStatefulInvariantViolationFails(t *testing.T) {
