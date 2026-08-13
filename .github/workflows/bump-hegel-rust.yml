@@ -95,7 +95,10 @@ jobs:
           git add -A
           git commit --amend --no-edit
 
-      # The single push: force-push the reused branch and open/update the PR.
+      # The single push: force-push the per-version branch and open/update the
+      # PR. The branch name embeds the pinned version, so the force-push only
+      # ever overwrites a re-run of this same version — never another
+      # version's (or a human's) work.
       - name: Push and open/update the PR
         if: steps.bump.outputs.bumped == 'true'
         env:
@@ -124,3 +127,41 @@ jobs:
           else
             gh pr create --title "$title" --body "$body"
           fi
+
+      # Older bump PRs are now superseded by this one. Close the ones that
+      # carry only bot commits; a PR someone (or an alignment agent) pushed
+      # work to is left open with a note instead — closing must never bury
+      # manual work. Runs after the new PR exists, and best-effort: a hiccup
+      # here must not fail the bump itself.
+      - name: Supersede older bump PRs
+        if: steps.bump.outputs.bumped == 'true'
+        continue-on-error: true
+        env:
+          GH_TOKEN: ${{ steps.app-token.outputs.token }}
+          VERSION: ${{ steps.bump.outputs.version }}
+          BRANCH: ${{ steps.bump.outputs.branch }}
+        run: |
+          set -euo pipefail
+          new_pr=$(gh pr list --head "$BRANCH" --state open --json number --jq '.[0].number')
+
+          gh pr list --state open --json number,headRefName \
+            --jq '.[] | [.number, .headRefName] | @tsv' |
+          while IFS=$'\t' read -r pr head; do
+            [ "$head" = "$BRANCH" ] && continue
+            # Match the legacy fixed branch name and the per-version branches.
+            case "$head" in
+              ci/bump-hegel-rust | ci/bump-hegel-rust-*) ;;
+              *) continue ;;
+            esac
+            # Authors other than the bot on the PR's commits? (GraphQL reports
+            # the bot's login without the [bot] suffix; check both spellings.)
+            others=$(gh pr view "$pr" --json commits \
+              --jq '[.commits[].authors[] | (.login // .name // empty)] | unique
+                    | map(select(. != "" and . != "hegel-release" and . != "hegel-release[bot]"))
+                    | join(", ")')
+            if [ -z "$others" ]; then
+              gh pr close "$pr" --comment "Superseded by #${new_pr}, which pins libhegel ${VERSION}."
+            else
+              gh pr comment "$pr" --body "Superseded by #${new_pr}, which pins libhegel ${VERSION}. Leaving this PR open because it carries commits by: ${others}."
+            fi
+          done
