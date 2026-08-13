@@ -228,6 +228,13 @@ const (
 	// this span themselves.
 	LABEL_STATEFUL_RULE
 
+	// Span around one fresh-identifier draw (hegel_pool_add) and one
+	// choose-from-set draw (hegel_pool_generate). Emitted internally by the
+	// engine; callers normally never open these spans themselves. Mirrored here
+	// so the binding's constant values stay aligned with hegel_label_t.
+	LABEL_FRESH_ID
+	LABEL_SET_CHOICE
+
 	// Binding-specific labels, beyond the upstream HEGEL_LABEL_* range. The
 	// engine treats span labels as opaque shrinker hints, so hegel-go reserves
 	// values past the last upstream constant for its own span structures.
