@@ -760,6 +760,25 @@ func TestAbortDoesNotDowngradeInteresting(t *testing.T) {
 	}
 }
 
+// TestAbortStopTestMapsToOverrun covers the E_STOP_TEST branch in abort: a draw
+// that overruns the test case's choice budget maps to STATUS_OVERRUN before the
+// abort unwinds. (The engine no longer drives this branch through the
+// integration tests, so it is exercised directly.)
+func TestAbortStopTestMapsToOverrun(t *testing.T) {
+	t.Parallel()
+	tc := newStubTestCase(t)
+	defer func() {
+		err, ok := recover().(error)
+		if !ok || !errors.Is(err, libhegel.E_STOP_TEST) {
+			t.Fatalf("expected E_STOP_TEST panic, got %v", err)
+		}
+		if got := tc.getStatus(); got != libhegel.STATUS_OVERRUN {
+			t.Errorf("status = %v, want STATUS_OVERRUN", got)
+		}
+	}()
+	tc.abort(libhegel.E_STOP_TEST)
+}
+
 // --- Draw error injection (via newStubTestCase) ---
 
 // errGen is a generator whose draw returns a fixed (zero, error). It lets tests
