@@ -70,11 +70,20 @@ jobs:
         with:
           go-version: ${{ matrix.go-version }}
 
-      - name: Run tests
+      # Go 1.27 changed coverage block positions so go-test-coverage no longer
+      # associates coverage-ignore annotations with their blocks. Keep the
+      # coverage ratchet on oldstable while still running the full suite,
+      # including go1.27-tagged tests, under stable.
+      - name: Run tests with coverage
+        if: matrix.go-version == 'oldstable'
         run: just test
 
+      - name: Run tests
+        if: matrix.go-version == 'stable'
+        run: go test -race ./...
+
       - name: Auto-update coverage annotations and ratchet
-        if: success() && matrix.go-version == 'stable' && (github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository)
+        if: success() && matrix.go-version == 'oldstable' && (github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository)
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
