@@ -1,5 +1,3 @@
-export PATH := "/usr/local/go/bin:" + env("HOME") + "/go/bin:" + env("PATH")
-
 # Path to the libhegel-rust checkout (override with HEGEL_RUST_DIR=...).
 hegel_rust_dir := env("HEGEL_RUST_DIR", justfile_directory() + "/../hegel-rust")
 
