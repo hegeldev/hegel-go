@@ -1,5 +1,10 @@
 # Changelog
 
+## 0.6.31 - 2026-08-20
+
+This release adds `UUIDs`, a generator for the standard library's `uuid.UUID`
+type when building with Go 1.27 or newer.
+
 ## 0.6.30 - 2026-08-13
 
 This patch bumps our pinned libhegel ([hegel-rust](hegeldev/hegel-rust)) from [0.32.4](https://github.com/hegeldev/hegel-rust/releases/tag/v0.32.4) to [0.32.5](https://github.com/hegeldev/hegel-rust/releases/tag/v0.32.5).
