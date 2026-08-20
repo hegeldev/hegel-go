@@ -1,6 +1,6 @@
 module hegel.dev/go/hegel
 
-go 1.25.0
+go 1.26.0
 
 require (
 	github.com/ebitengine/purego v0.11.0-alpha.6.0.20260707033313-5f49e7c49322
@@ -29,7 +29,7 @@ require (
 	golang.org/x/sync v0.20.0 // indirect
 	golang.org/x/tools v0.45.0 // indirect
 	gopkg.in/yaml.v3 v3.0.1 // indirect
-	honnef.co/go/tools v0.7.0 // indirect
+	honnef.co/go/tools v0.8.0 // indirect
 )
 
 tool (
