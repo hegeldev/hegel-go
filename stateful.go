@@ -305,8 +305,7 @@ func (sm *stateMachine) Run(tc TestCase) {
 				return dropped[i].worker < dropped[j].worker
 			})
 			for _, err := range dropped {
-				var outcome *invocationError
-				if errors.As(err.err, &outcome) {
+				if outcome, ok := errors.AsType[*invocationError](err.err); ok {
 					location := findCallerInPCs(outcome.pcs, isNotHegelFrame)
 					tc.log("Dropped concurrent %s from worker %d at %s: %s", outcome.kind, err.worker, location, outcome)
 				}

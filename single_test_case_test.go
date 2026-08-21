@@ -43,15 +43,15 @@ func TestSingleTestCaseFlagFalseIsNoop(t *testing.T) {
 
 func TestSingleTestCaseRunsExactlyOnce(t *testing.T) {
 	t.Parallel()
-	var count int32
+	var count atomic.Int32
 	err := run(func(s TestCase) {
-		atomic.AddInt32(&count, 1)
+		count.Add(1)
 		_ = Draw[bool](s, Booleans())
 	}, WithSingleTestCase())
 	if err != nil {
 		t.Fatalf("runHegel: %v", err)
 	}
-	if got := atomic.LoadInt32(&count); got != 1 {
+	if got := count.Load(); got != 1 {
 		t.Errorf("expected exactly 1 test case, got %d", got)
 	}
 }
@@ -105,13 +105,13 @@ func TestSingleTestCaseStatefulRunsBeyondDefaultCap(t *testing.T) {
 
 func TestWorkloadSingleTestCaseFlag(t *testing.T) {
 	t.Parallel()
-	var count int32
+	var count atomic.Int32
 	err := workload(
 		[]string{"prog", "--single-test-case"},
 		io.Discard,
 		io.Discard,
 		func(s TestCase) {
-			atomic.AddInt32(&count, 1)
+			count.Add(1)
 			_ = Draw[bool](s, Booleans())
 		},
 		nil,
@@ -119,7 +119,7 @@ func TestWorkloadSingleTestCaseFlag(t *testing.T) {
 	if err != nil {
 		t.Fatalf("workload: %v", err)
 	}
-	if got := atomic.LoadInt32(&count); got != 1 {
+	if got := count.Load(); got != 1 {
 		t.Errorf("expected exactly 1 test case, got %d", got)
 	}
 }

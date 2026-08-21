@@ -2,6 +2,7 @@ package hegel_test
 
 import (
 	"fmt"
+	"maps"
 	"runtime"
 	"sync"
 	"sync/atomic"
@@ -56,9 +57,7 @@ func (s *concurrentKVStore) snapshot() map[int]int64 {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	snapshot := make(map[int]int64, len(s.m))
-	for key, value := range s.m {
-		snapshot[key] = value
-	}
+	maps.Copy(snapshot, s.m)
 	return snapshot
 }
 

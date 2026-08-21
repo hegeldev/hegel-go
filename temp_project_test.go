@@ -130,8 +130,7 @@ func (p *tempGoProject) run(args []string) runOutput {
 	err := cmd.Run()
 
 	out := runOutput{Stdout: stdout.String(), Stderr: stderr.String()}
-	var ee *exec.ExitError
-	if errors.As(err, &ee) {
+	if ee, ok := errors.AsType[*exec.ExitError](err); ok {
 		out.ExitCode = ee.ExitCode()
 	} else if err != nil {
 		p.t.Fatalf("go %v: spawn failed: %v", args, err)

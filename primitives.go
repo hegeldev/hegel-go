@@ -3,6 +3,7 @@ package hegel
 import (
 	"fmt"
 	"math"
+	"slices"
 	"time"
 	"unsafe"
 
@@ -230,12 +231,10 @@ func (cf *characterFields) textArgs() (codec string, minCP, maxCP uint32, catego
 	}
 	if cf.hasCategoriesSet {
 		for _, cat := range cf.categories {
-			for _, sc := range surrogateCategories {
-				if cat == sc {
-					return "", 0, 0, nil, nil, fmt.Errorf(
-						"category %q includes surrogate codepoints (Cs), "+
-							"which Go strings cannot represent", cat)
-				}
+			if slices.Contains(surrogateCategories, cat) {
+				return "", 0, 0, nil, nil, fmt.Errorf(
+					"category %q includes surrogate codepoints (Cs), "+
+						"which Go strings cannot represent", cat)
 			}
 		}
 		// A non-nil (possibly empty) categories slice requests exactly that set.
@@ -246,13 +245,7 @@ func (cf *characterFields) textArgs() (codec string, minCP, maxCP uint32, catego
 		return codec, minCP, maxCP, categories, nil, nil
 	}
 	excl := append([]string{}, cf.excludeCategories...)
-	hasCs := false
-	for _, c := range excl {
-		if c == "Cs" {
-			hasCs = true
-			break
-		}
-	}
+	hasCs := slices.Contains(excl, "Cs")
 	if !hasCs {
 		excl = append(excl, "Cs")
 	}

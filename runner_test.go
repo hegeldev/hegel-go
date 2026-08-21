@@ -88,10 +88,8 @@ func TestConcurrentRunHegelTest(t *testing.T) {
 	const goroutines = 8
 	var wg sync.WaitGroup
 	var failures atomic.Int32
-	for i := 0; i < goroutines; i++ {
-		wg.Add(1)
-		go func() {
-			defer wg.Done()
+	for range goroutines {
+		wg.Go(func() {
 			err := Run(func(tc TestCase) {
 				v := Draw[int](tc, Integers[int](0, 1000))
 				if v < 0 || v > 1000 {
@@ -101,7 +99,7 @@ func TestConcurrentRunHegelTest(t *testing.T) {
 			if err != nil {
 				failures.Add(1)
 			}
-		}()
+		})
 	}
 	wg.Wait()
 	if failures.Load() != 0 {

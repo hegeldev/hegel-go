@@ -786,8 +786,7 @@ func formatInvocationResult(out io.Writer, err error) {
 		return
 	}
 	header := outcome.kind
-	var worker *workerError
-	if errors.As(err, &worker) {
+	if worker, ok := errors.AsType[*workerError](err); ok {
 		header = fmt.Sprintf("%s in worker %d", header, worker.worker)
 	}
 	fmt.Fprintf(out, "%s: %s\n\n", header, outcome.Error())
