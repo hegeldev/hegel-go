@@ -1,5 +1,11 @@
 # Changelog
 
+## 0.6.32 - 2026-08-21
+
+Add support for concurrent stateful testing and Pools. It is now possible to
+test concurrent state machines, with hegel managing swarm testing. There is
+no shrinking of concurrent state machines at the moment.
+
 ## 0.6.31 - 2026-08-20
 
 This release adds `UUIDs`, a generator for the standard library's `uuid.UUID`
