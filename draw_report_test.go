@@ -192,12 +192,8 @@ func TestSourceCacheMultiLineStatement(t *testing.T) {
 
 func TestFormatDrawLineWithStatement(t *testing.T) {
 	t.Parallel()
-	loc, stmt := formatDrawLine("/abs/path/example_test.go", 42, "x := hegel.Draw(...)", []int{0, 0})
-	wantLoc := "example_test.go:42"
+	stmt := formatDrawLine("x := hegel.Draw(...)", []int{0, 0})
 	wantStmt := "x := hegel.Draw(...) = []int{0, 0}"
-	if loc != wantLoc {
-		t.Fatalf("formatDrawLine location: got %q, want %q", loc, wantLoc)
-	}
 	if stmt != wantStmt {
 		t.Fatalf("formatDrawLine statement: got %q, want %q", stmt, wantStmt)
 	}
@@ -205,12 +201,8 @@ func TestFormatDrawLineWithStatement(t *testing.T) {
 
 func TestFormatDrawLineWithoutStatement(t *testing.T) {
 	t.Parallel()
-	loc, stmt := formatDrawLine("/abs/path/example_test.go", 42, "", 7)
-	wantLoc := "example_test.go:42"
+	stmt := formatDrawLine("", 7)
 	wantStmt := "hegel.Draw[int](...) = 7"
-	if loc != wantLoc {
-		t.Fatalf("formatDrawLine location: got %q, want %q", loc, wantLoc)
-	}
 	if stmt != wantStmt {
 		t.Fatalf("formatDrawLine statement: got %q, want %q", stmt, wantStmt)
 	}
@@ -225,8 +217,8 @@ func TestDrawReportInProcess(t *testing.T) {
 		t.Fatalf("runHegel: %v", err)
 	}
 	captured := buf.String()
-	if !strings.Contains(captured, "draw_report_test.go:") {
-		t.Fatalf("expected draw report in output, got:\n%s", captured)
+	if strings.Contains(captured, "draw_report_test.go:") {
+		t.Fatalf("draw report contains synthetic origin:\n%s", captured)
 	}
 	if !strings.Contains(captured, "Draw(tc, Integers(0, 100))") {
 		t.Fatalf("expected statement text in output, got:\n%s", captured)
@@ -248,7 +240,7 @@ func TestDrawReportSuppressedInsideSpan(t *testing.T) {
 		t.Fatalf("runHegel: %v", err)
 	}
 	captured := buf.String()
-	got := strings.Count(captured, "draw_report_test.go:")
+	got := len(strings.Split(strings.TrimSpace(captured), "\n"))
 	if got != 1 {
 		t.Fatalf("expected exactly 1 draw line in output, got %d:\n%s", got, captured)
 	}
@@ -274,7 +266,7 @@ func TestDrawReportSuppressedInsideComposite(t *testing.T) {
 		t.Fatalf("runHegel: %v", err)
 	}
 	captured := buf.String()
-	got := strings.Count(captured, "draw_report_test.go:")
+	got := len(strings.Split(strings.TrimSpace(captured), "\n"))
 	if got != 1 {
 		t.Fatalf("expected exactly 1 draw line in output, got %d:\n%s", got, captured)
 	}

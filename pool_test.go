@@ -134,7 +134,7 @@ func TestPoolIsSafeForConcurrentStateMachines(t *testing.T) {
 			pool: NewPool[int64](tc),
 			seen: make(map[int64]struct{}),
 		}
-		RunStateful(tc, machine, WithParallelism(4))
+		RunStateful(tc, machine, WithBoundedConcurrency(4))
 	}, WithTestCases(20))
 	if err != nil {
 		t.Fatalf("concurrent pool run: %v", err)
