@@ -4,20 +4,14 @@ import (
 	"testing"
 )
 
-// These tests verify that the t.Helper() calls inside T.Fatal, T.Fatalf, and
-// T.Logf cause t.Log to decorate output with the user's test file:line, not
-// the hegel-go source location. The output flows:
-//
-//   user test → ht.Fatal/Fatalf/Logf → noteFn closure → t.Log
-//
-// All intermediate frames between t.Log and the user's test body need to be
-// marked as helpers; otherwise t.Log reports the first non-helper frame.
+// These tests verify that deferred failure diagnostics retain the user's
+// stack frames. Logf continues to use testing.T's helper attribution.
 
 func TestTFatalDecoratesWithUserFileLine(t *testing.T) {
 	t.Parallel()
 	newTempGoProject(t).
 		testBody(`ht.Fatal("BOOM-fatal")`, "hegel.WithTestCases(1)").
-		expectFailure(`hegel_test\.go:\d+: BOOM-fatal`).
+		expectFailure(`(?s)failure: BOOM-fatal.*hegel_test\.go:\d+`).
 		goTest()
 }
 
@@ -25,7 +19,7 @@ func TestTFatalfDecoratesWithUserFileLine(t *testing.T) {
 	t.Parallel()
 	newTempGoProject(t).
 		testBody(`ht.Fatalf("BOOM-fatalf %d", 7)`, "hegel.WithTestCases(1)").
-		expectFailure(`hegel_test\.go:\d+: BOOM-fatalf 7`).
+		expectFailure(`(?s)failure: BOOM-fatalf 7.*hegel_test\.go:\d+`).
 		goTest()
 }
 
@@ -33,7 +27,7 @@ func TestTErrorDecoratesWithUserFileLine(t *testing.T) {
 	t.Parallel()
 	newTempGoProject(t).
 		testBody(`ht.Error("BOOM-error")`, "hegel.WithTestCases(1)").
-		expectFailure(`hegel_test\.go:\d+: BOOM-error`).
+		expectFailure(`(?s)failure: BOOM-error.*hegel_test\.go:\d+`).
 		goTest()
 }
 
@@ -48,26 +42,18 @@ panic("force final replay")`, "hegel.WithTestCases(1)").
 
 // TestDrawDecoratesWithUserFileLine verifies the helper marking on Draw lets
 // the noteFn-driven t.Log decoration point at the user's file. When Draw runs
-// under *T the formatter omits its own file:line prefix so the t.Log
-// decoration is the only one present.
-func TestDrawDecoratesWithUserFileLine(t *testing.T) {
+// Draw output uses the Hegel output stream without a synthetic location.
+func TestDrawOmitsUserFileLine(t *testing.T) {
 	t.Parallel()
 	newTempGoProject(t).
 		testBody(`_ = hegel.Draw(ht, hegel.Integers(0, 100))
 panic("force final replay")`, "hegel.WithTestCases(1)").
-		expectFailure(`(?m)^\s+hegel_test\.go:\d+: _ = hegel\.Draw\(ht, hegel\.Integers\(0, 100\)\)`).
+		expectFailure(`(?m)^\s+_ = hegel\.Draw\(ht, hegel\.Integers\(0, 100\)\)`).
 		goTest()
 }
 
-// TestNoteInsideCompositeDecoratesWithUserFileLine verifies that tc.Note()
-// called from within a Composite generator's callback decorates with the
-// user's test file, not an internal hegel source location.
-//
-// The path is: user's Composite callback → testCase.Note → noteFn closure →
-// t.Log. Every frame between t.Log and the user's body needs to be marked as
-// a helper; testCase.Note and compositeGenerator.draw are the two non-helper
-// frames that this case exposes.
-func TestNoteInsideCompositeDecoratesWithUserFileLine(t *testing.T) {
+// Notes use the Hegel output stream without a synthetic location.
+func TestNoteInsideCompositeOmitsUserFileLine(t *testing.T) {
 	t.Parallel()
 	newTempGoProject(t).
 		testBody(`c := hegel.Composite(func(tc hegel.TestCase) int {
@@ -78,6 +64,6 @@ func TestNoteInsideCompositeDecoratesWithUserFileLine(t *testing.T) {
 _ = hegel.Draw(ht, c)
 ht.Fail()
 `, "hegel.WithSingleTestCase()").
-		expectFailure(`(?m)^\s+hegel_test\.go:\d+: BOOM-composite-note`).
+		expectFailure(`(?m)^\s+BOOM-composite-note`).
 		goTest()
 }

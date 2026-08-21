@@ -118,7 +118,7 @@ func TestReplay2(t *testing.T) {
 
 	project := newTempGoProject(t)
 	project.writeFile("hegel_test.go", testCode)
-	project.expectFailure(`property test failed`)
+	project.expectFailure(`n=1000000`)
 
 	// run TestReplay1: database now has a failing entry for it.
 	project.goTest("-run", "^TestReplay1$")

@@ -1,6 +1,10 @@
 package hegel
 
-import "hegel.dev/go/hegel/internal/libhegel"
+import (
+	"io"
+
+	"hegel.dev/go/hegel/internal/libhegel"
+)
 
 // --- Generator interface ---
 
@@ -30,12 +34,14 @@ type TestCase interface {
 	// Target sends a target value to guide test generation.
 	Target(value float64, label string)
 
-	// Errorf logs the formatted message via Note and marks the test case as
-	// failed. The test case continues running but is treated as a failure
-	// after return.
+	// Errorf logs the formatted message via Note and  aborts the test case.
+	//
+	// This is different than [testing.T.Errorf] which continues running the test.
 	Errorf(format string, args ...any)
 
-	// Fail marks the test case as failed without stopping it.
+	// Fail behaves like [FailNow].
+	//
+	// This is different than [testing.T.Fail] which continues running the test.
 	Fail()
 
 	// FailNow marks the test case as failed and stops the test body.
@@ -45,25 +51,27 @@ type TestCase interface {
 	// under [WithSingleTestCase]).
 	Log(args ...any)
 
+	// log writes framework-generated output without user call-site attribution.
+	log(format string, args ...any)
+
+	// output returns the destination for notes and framework output.
+	output() io.Writer
+
+	// setOutput replaces the destination for notes and framework output.
+	setOutput(io.Writer)
+
 	// Abort the current test case and update status.
 	//
-	// Passing nil for err is valid and aborts without changing state.
 	abort(err error)
-
-	// Recover from a previous call to abort.
-	//
-	// Must be a deferred call.
-	recoverAbort()
-
-	// Get the current status.
-	getStatus() libhegel.Status
-
-	// Set the current status.
-	setStatus(status libhegel.Status)
 
 	// engine returns the libhegel context and test-case handle backing this
 	// test case, so generators can drive the typed primitive draws directly.
 	engine() (*libhegel.Context, *libhegel.TestCase)
+
+	// clone returns a test case with an independent engine stream and the same
+	// execution policy as this one. Concurrent state-machine workers use one
+	// clone apiece rather than sharing a native handle between goroutines.
+	clone() (TestCase, error)
 
 	// startSpan begins a generation span. label is one of the [libhegel.Label]
 	// constants; the engine uses labels for shrinking.
@@ -77,10 +85,10 @@ type TestCase interface {
 	// maxSize=nil means unbounded.
 	newCollection(minSize int, maxSize *int) (*collection, error)
 
-	// stateMachineNew registers an engine-owned state machine with the
-	// named rules and invariants, returning its id. The engine owns rule
-	// selection (including swarm testing).
-	stateMachineNew(ruleNames, invariantNames []string) (*libhegel.StateMachine, error)
+	// stateMachineNew registers an engine-owned state machine with the named
+	// rules, their parallel group IDs, and the invariants, returning its id.
+	// The engine owns rule selection (including swarm testing).
+	stateMachineNew(ruleNames []string, ruleGroups []int64, invariantNames []string, maxConcurrency int) (*libhegel.StateMachine, int64, error)
 
 	// stateMachineNextGroup starts the machine's next round, returning the
 	// current concurrency group's index, or [libhegel.StateMachineDone] when
@@ -92,7 +100,11 @@ type TestCase interface {
 	// [0, len(rules)), or [libhegel.StateMachineDone] when the round's rule
 	// stream is exhausted. Returns an [libhegel.E_STOP_TEST] error when the
 	// engine's choice budget is exhausted.
-	stateMachineNextRule(machine *libhegel.StateMachine) (int64, error)
+	stateMachineNextRule(machine *libhegel.StateMachine, worker int64) (int64, error)
+
+	// stateMachineRuleRejected reports that the worker's outstanding rule was
+	// rejected by Assume and should not consume its rule budget.
+	stateMachineRuleRejected(machine *libhegel.StateMachine, worker int64) error
 
 	// reportDraw emits one draw-report line for value through the
 	// implementation's note channel, or no-ops when notes are suppressed.
@@ -103,6 +115,10 @@ type TestCase interface {
 	// inSpan reports whether the test case is inside one or more
 	// generation spans.
 	inSpan() bool
+
+	// invoke executes a callback with an independent abort boundary while
+	// retaining this test case's underlying engine stream.
+	invoke(testBody) error
 }
 
 // Draw produces a value from a Generator using the given TestCase context.

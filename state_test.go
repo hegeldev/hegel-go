@@ -29,6 +29,15 @@ func makeEmittingT(t *testing.T, buf *bytes.Buffer) *T {
 	}
 }
 
+func expectInvocationFailure(t *testing.T, message string) {
+	t.Helper()
+	got := recover()
+	err, ok := got.(*invocationError)
+	if !ok || err.kind != "failure" || err.Error() != message {
+		t.Fatalf("panic = %#v, want failure %q", got, message)
+	}
+}
+
 // =============================================================================
 // T.Fatal / T.Fatalf / T.FailNow — panic with fatalSentinel
 // =============================================================================
@@ -36,7 +45,7 @@ func makeEmittingT(t *testing.T, buf *bytes.Buffer) *T {
 func TestTFatalPanicsWithSentinel(t *testing.T) {
 	t.Parallel()
 	ht := makeFakeT(t)
-	defer expectErrorPanic(t, errTestCaseAborted)
+	defer expectInvocationFailure(t, "fatal message")
 	ht.Fatal("fatal message")
 }
 
@@ -78,10 +87,10 @@ func TestTFatalfPanicsWithSentinel(t *testing.T) {
 	}
 }
 
-func TestTFailNowPanicsWithSentinel(t *testing.T) {
+func TestTFailNowAborts(t *testing.T) {
 	t.Parallel()
 	ht := makeFakeT(t)
-	defer expectErrorPanic(t, errTestCaseAborted)
+	defer expectInvocationFailure(t, "test case aborted with FailNow")
 	ht.FailNow()
 }
 
@@ -107,60 +116,54 @@ func TestTSkipNowPanicsWithShortCircuit(t *testing.T) {
 }
 
 // =============================================================================
-// T.Error / T.Errorf — set failed flag, call Note
+// T.Error / T.Errorf — abort the invocation
 // =============================================================================
 
-func TestTErrorSetsFailed(t *testing.T) {
+func TestTErrorAborts(t *testing.T) {
 	t.Parallel()
 	ht := makeFakeT(t)
+	defer expectInvocationFailure(t, "something went wrong")
 	ht.Error("something went wrong")
-	if ht.testCase.status != libhegel.STATUS_INTERESTING {
-		t.Error("expected status=INTERESTING after Error()")
-	}
 }
 
-func TestTErrorfSetsFailed(t *testing.T) {
+func TestTErrorfAborts(t *testing.T) {
 	t.Parallel()
 	ht := makeFakeT(t)
+	defer expectInvocationFailure(t, "error: 99")
 	ht.Errorf("error: %d", 99)
-	if ht.testCase.status != libhegel.STATUS_INTERESTING {
-		t.Error("expected status=INTERESTING after Errorf()")
-	}
 }
 
 // TestTErrorEmitsViaTestingT exercises the emit=true branch of Error.
 func TestTErrorEmitsViaTestingT(t *testing.T) {
 	t.Parallel()
 	ht := makeEmittingT(t, &bytes.Buffer{})
+	defer expectInvocationFailure(t, "something went wrong")
 	ht.Error("something went wrong")
-	if ht.testCase.status != libhegel.STATUS_INTERESTING {
-		t.Error("expected status=INTERESTING after Error()")
-	}
 }
 
 // TestTErrorfEmitsViaTestingT exercises the emit=true branch of Errorf.
 func TestTErrorfEmitsViaTestingT(t *testing.T) {
 	t.Parallel()
 	ht := makeEmittingT(t, &bytes.Buffer{})
+	defer expectInvocationFailure(t, "error: 99")
 	ht.Errorf("error: %d", 99)
-	if ht.testCase.status != libhegel.STATUS_INTERESTING {
-		t.Error("expected status=INTERESTING after Errorf()")
-	}
 }
 
 // =============================================================================
-// T.Fail / T.Failed — sets/reads failed flag
+// T.Fail aborts immediately.
 // =============================================================================
 
-func TestTFailSetsFailed(t *testing.T) {
+func TestTFailAborts(t *testing.T) {
 	t.Parallel()
 	ht := makeFakeT(t)
-	if ht.Failed() {
-		t.Error("expected Failed() to be false initially")
-	}
+	defer expectInvocationFailure(t, "test case aborted with Fail")
 	ht.Fail()
-	if !ht.Failed() {
-		t.Error("expected Failed() to be true after Fail()")
+}
+
+func TestTFailedIsFalse(t *testing.T) {
+	t.Parallel()
+	if makeFakeT(t).Failed() {
+		t.Error("Failed() = true, want false")
 	}
 }
 
@@ -177,14 +180,19 @@ func TestTLogSilentWhenNotEmitting(t *testing.T) {
 	ht.Note("a note")
 }
 
-// When emit=true, Log/Logf/Note route through t.T.Log. We can't capture
-// t.T.Log output directly; this test just exercises the branch.
+// When emit=true, Log/Logf route through t.T.Log. We can't capture t.T.Log
+// output directly; this test just exercises those branches. Note is promoted
+// from testCase and writes to the normal Hegel output stream.
 func TestTLogEmitsWhenEmitting(t *testing.T) {
 	t.Parallel()
-	ht := makeEmittingT(t, &bytes.Buffer{})
+	var out bytes.Buffer
+	ht := makeEmittingT(t, &out)
 	ht.Log("hello", " world")
 	ht.Logf("value=%d", 42)
 	ht.Note("a note")
+	if got := strings.TrimSpace(out.String()); got != "a note" {
+		t.Errorf("Note output = %q, want %q", got, "a note")
+	}
 }
 
 // testCase.Note writes to s.out when set.
@@ -198,18 +206,22 @@ func TestTestCaseNoteWritesToOut(t *testing.T) {
 	}
 }
 
-// testCase.Errorf writes to s.out and sets the failed flag.
-func TestTestCaseErrorfWritesAndFails(t *testing.T) {
+// testCase.Errorf defers its diagnostic and aborts.
+func TestTestCaseErrorfDefersOutputAndFails(t *testing.T) {
 	t.Parallel()
 	var buf bytes.Buffer
 	s := &testCase{out: &buf}
+	defer func() {
+		r := recover()
+		err, ok := r.(*invocationError)
+		if !ok || err.kind != "failure" {
+			t.Fatalf("unexpected panic: %v", r)
+		}
+		if got := buf.String(); got != "" {
+			t.Errorf("output before completion = %q, want none", got)
+		}
+	}()
 	s.Errorf("value=%d", 42)
-	if s.status != libhegel.STATUS_INTERESTING {
-		t.Error("expected status=INTERESTING after Errorf")
-	}
-	if got := strings.TrimSpace(buf.String()); got != "value=42" {
-		t.Errorf("expected %q, got %q", "value=42", got)
-	}
 }
 
 // testCase.Log routes through Note.
@@ -223,14 +235,15 @@ func TestTestCaseLogWritesToOut(t *testing.T) {
 	}
 }
 
-// *T.reportDraw with emit=true and a captured Draw site routes through
-// t.T.Log. We can't capture t.T.Log output from here, but we can exercise
-// the code path. The call site doesn't matter — formatDrawReport just
-// needs a non-zero skip frame.
+// *T promotes testCase.reportDraw and writes through the Hegel output stream.
 func TestTReportDrawEmits(t *testing.T) {
 	t.Parallel()
-	ht := makeEmittingT(t, &bytes.Buffer{})
+	var out bytes.Buffer
+	ht := makeEmittingT(t, &out)
 	ht.reportDraw(0, 42)
+	if got := out.String(); !strings.Contains(got, " = 42") {
+		t.Fatalf("draw output = %q", got)
+	}
 }
 
 // =============================================================================

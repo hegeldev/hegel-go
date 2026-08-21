@@ -20,10 +20,6 @@ func TestSingleTestCaseFlagSetOption(t *testing.T) {
 	if f.String() != "true" {
 		t.Errorf("String=%q want %q", f.String(), "true")
 	}
-	o := applyOpts([]Option{f.Option()})
-	if !o.singleTestCase {
-		t.Error("expected singleTestCase=true")
-	}
 }
 
 func TestSingleTestCaseFlagBadValue(t *testing.T) {
@@ -40,10 +36,7 @@ func TestSingleTestCaseFlagFalseIsNoop(t *testing.T) {
 	if err := f.Set("false"); err != nil {
 		t.Fatalf("Set: %v", err)
 	}
-	o := applyOpts([]Option{f.Option()})
-	if o.singleTestCase {
-		t.Error("expected singleTestCase=false")
-	}
+	f.Option()(&runOptions{})
 }
 
 // --- Integration tests: real hegel binary ---

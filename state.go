@@ -3,8 +3,6 @@ package hegel
 import (
 	"fmt"
 	"testing"
-
-	"hegel.dev/go/hegel/internal/libhegel"
 )
 
 // Compile-time check that T satisfies testing.TB.
@@ -47,23 +45,13 @@ type T struct {
 // Fatal logs the message via the embedded [*testing.T] and marks the test
 // case as failed.
 func (t *T) Fatal(args ...any) {
-	msg := fmt.Sprint(args...)
-	if t.out != nil {
-		t.Helper()
-		t.T.Log(msg)
-	}
-	t.abort(errTestCaseAborted)
+	t.abort(failureInvocationError(fmt.Sprint(args...)))
 }
 
 // Fatalf logs the formatted message via the embedded [*testing.T] and marks
 // the test case as failed.
 func (t *T) Fatalf(format string, args ...any) {
-	msg := fmt.Sprintf(format, args...)
-	if t.out != nil {
-		t.Helper()
-		t.T.Log(msg)
-	}
-	t.abort(errTestCaseAborted)
+	t.abort(failureInvocationError(fmt.Sprintf(format, args...)))
 }
 
 // Skip discards the current test case.
@@ -81,33 +69,22 @@ func (t *T) SkipNow() {
 	t.Assume(false)
 }
 
-// Error logs the message via the embedded [*testing.T] and sets the failed flag.
-//
-// The test case continues running but will be treated as a failure after return.
+// Error logs the message via the embedded [*testing.T] and aborts the current
+// invocation.
 func (t *T) Error(args ...any) {
-	msg := fmt.Sprint(args...)
-	if t.out != nil {
-		t.Helper()
-		t.T.Log(msg)
-	}
-	t.testCase.Fail()
+	t.abort(failureInvocationError(fmt.Sprint(args...)))
 }
 
-// Errorf logs the formatted message via the embedded [*testing.T] and sets
-// the failed flag.
-//
-// The test case continues running but will be treated as a failure after return.
+// Errorf logs the formatted message via the embedded [*testing.T] and aborts
+// the current invocation.
 func (t *T) Errorf(format string, args ...any) {
-	if t.out != nil {
-		t.Helper()
-		t.T.Logf(format, args...)
-	}
-	t.testCase.Fail()
+	t.abort(failureInvocationError(fmt.Sprintf(format, args...)))
 }
 
-// Failed reports whether the test case has been marked as failed.
+// Failed is false while the invocation is running. Failure methods abort the
+// invocation immediately, so user code cannot observe a failed live context.
 func (t *T) Failed() bool {
-	return t.testCase.status == libhegel.STATUS_INTERESTING
+	return false
 }
 
 // Log routes the message through the embedded [*testing.T].
@@ -126,24 +103,21 @@ func (t *T) Logf(format string, args ...any) {
 	}
 }
 
-// Note routes the message through the embedded [*testing.T].
-func (t *T) Note(message string) {
-	if t.out != nil {
-		t.Helper()
-		t.T.Log(message)
-	}
-}
-
 // Run aborts the test — nested sub-tests inside a Hegel property test are not supported.
 func (t *T) Run(_ string, _ func(*testing.T)) bool {
 	panic("nested t.Run is not supported inside a property test")
 }
 
-func (t *T) reportDraw(skip int, value any) {
-	if t.out == nil {
-		return
+func (t *T) clone() (TestCase, error) {
+	cloned, err := t.testCase.clone()
+	if err != nil {
+		return nil, err
 	}
-	_, msg := formatDrawReport(skip+1, value)
-	t.Helper()
-	t.T.Log(msg)
+	return &T{testCase: cloned.(*testCase), T: t.T}, nil
+}
+
+func (t *T) invoke(fn testBody) error {
+	return t.testCase.invoke(func(tc TestCase) {
+		fn(&T{testCase: tc.(*testCase), T: t.T})
+	})
 }

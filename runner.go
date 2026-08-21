@@ -1,6 +1,7 @@
 package hegel
 
 import (
+	"bytes"
 	"errors"
 	"fmt"
 	"io"
@@ -8,31 +9,78 @@ import (
 	"os"
 	"runtime"
 	"strings"
+	"sync"
 	"testing"
 
 	"hegel.dev/go/hegel/internal/libhegel"
+)
+
+// panicPolicy controls whether a panic from user code is converted into an
+// interesting test case for the engine or allowed to escape to the caller.
+type panicPolicy bool
+
+const (
+	captureUserPanics   panicPolicy = false
+	propagateUserPanics panicPolicy = true
 )
 
 // testCase holds the per-test-case context.
 //
 // It is compatible with most popular TestingT interfaces from assert libraries.
 type testCase struct {
-	ctx     *libhegel.Context
-	tc      *libhegel.TestCase
-	status  libhegel.Status
-	origin  string
-	aborted bool      // set if test case run was short circuited
-	out     io.Writer // nil for exploratory cases; set for final replay / single-case
-	depth   int       // current span nesting depth
+	ctx         *libhegel.Context
+	tc          *libhegel.TestCase
+	out         io.Writer // nil when output is deferred; otherwise emitted live
+	depth       int       // current span nesting depth
+	panicPolicy panicPolicy
+	abortFn     func(error)
 }
 
-// --- Sentinel errors ---
+func newTestCase(ctx *libhegel.Context, tc *libhegel.TestCase, out io.Writer, policy panicPolicy) *testCase {
+	return &testCase{
+		ctx:         ctx,
+		tc:          tc,
+		out:         out,
+		panicPolicy: policy,
+	}
+}
 
-// errTestCaseAborted is panic'd by T.Fatal/Fatalf/FailNow.
-var errTestCaseAborted = errors.New("test case aborted")
+type invocationError struct {
+	status libhegel.Status
+	cause  any
+	pcs    []uintptr
+	kind   string
+}
+
+func (e *invocationError) Error() string {
+	return fmt.Sprint(e.cause)
+}
+
+func failureInvocationError(message string) *invocationError {
+	err := interestingInvocationError(message)
+	err.kind = "failure"
+	return err
+}
+
+func (e *invocationError) Unwrap() error {
+	err, _ := e.cause.(error)
+	return err
+}
+
+func interestingInvocationError(cause any) *invocationError {
+	pcs := make([]uintptr, 32)
+	n := runtime.Callers(3, pcs)
+	pcs = pcs[:n]
+	return &invocationError{
+		status: libhegel.STATUS_INTERESTING,
+		cause:  cause,
+		pcs:    pcs,
+		kind:   "panic",
+	}
+}
 
 // errPropTestFailed is the marker error for "property failed during this run".
-// driveOneCase wraps it for failing cases; runProperty collects across cases.
+// testCase.run records individual failures; runWithContext collects the run.
 var errPropTestFailed = errors.New("property test failed")
 
 // Assume rejects the current test case if condition is false.
@@ -48,25 +96,38 @@ func (s *testCase) Note(message string) {
 	}
 }
 
+func (s *testCase) log(format string, args ...any) {
+	if s.out != nil {
+		fmt.Fprintln(s.out, fmt.Sprintf(format, args...))
+	}
+}
+
+func (s *testCase) output() io.Writer {
+	return s.out
+}
+
+func (s *testCase) setOutput(out io.Writer) {
+	s.out = out
+}
+
 func (s *testCase) reportDraw(skip int, value any) {
 	if s.out == nil {
 		return
 	}
-	loc, msg := formatDrawReport(skip+1, value)
-	fmt.Fprintf(s.out, "%s: %s\n", loc, msg)
+	msg := formatDrawReport(skip+1, value)
+	fmt.Fprintln(s.out, msg)
 }
 
 func (s *testCase) Errorf(format string, args ...any) {
-	s.Note(fmt.Sprintf(format, args...))
-	s.Fail()
+	s.abort(failureInvocationError(fmt.Sprintf(format, args...)))
 }
 
 func (s *testCase) Fail() {
-	s.setStatus(libhegel.STATUS_INTERESTING)
+	s.abort(failureInvocationError("test case aborted with Fail"))
 }
 
 func (s *testCase) FailNow() {
-	s.abort(errTestCaseAborted)
+	s.abort(failureInvocationError("test case aborted with FailNow"))
 }
 
 func (s *testCase) Log(args ...any) {
@@ -76,75 +137,50 @@ func (s *testCase) Log(args ...any) {
 func (s *testCase) Target(value float64, label string) {
 	err := s.tc.Target(s.ctx, value, label)
 	if err != nil {
-		panic(err)
+		s.abort(err)
 	}
-}
-
-func (s *testCase) setStatus(status libhegel.Status) {
-	s.status = status
-	s.origin = ""
-	if s.status == libhegel.STATUS_INTERESTING {
-		s.origin = findCaller(2, isNotHegelFrame)
-	}
-}
-
-func (s *testCase) getStatus() libhegel.Status {
-	return s.status
 }
 
 func (s *testCase) abort(err error) {
-	var status libhegel.Status
-	switch {
-	case err == nil:
-		status = s.status
-	case errors.Is(err, libhegel.E_ASSUME):
-		status = libhegel.STATUS_INVALID
-	case errors.Is(err, libhegel.E_STOP_TEST):
-		status = libhegel.STATUS_OVERRUN
-	case errors.Is(err, errTestCaseAborted):
-		status = libhegel.STATUS_INTERESTING
-	default:
-		// Unrecognized error: we panic instead of aborting.
-		panic(err)
+	if s.abortFn != nil {
+		s.abortFn(err)
 	}
-
-	if status < s.status {
-		// Ensure we never override STATUS_INTERESTING during an abort.
-		return
-	}
-
-	s.setStatus(status)
-	s.aborted = true
 	panic(err)
-}
-
-func (s *testCase) recoverAbort() {
-	if s.aborted {
-		s.aborted = false
-		_ = recover()
-	}
 }
 
 func (s *testCase) engine() (*libhegel.Context, *libhegel.TestCase) {
 	return s.ctx, s.tc
 }
 
-func (s *testCase) stateMachineNew(ruleNames, invariantNames []string) (*libhegel.StateMachine, error) {
-	// hegel-go drives state machines sequentially for now: one concurrency
-	// group holding every rule, and the concurrency level fixed at 1 (which
-	// consumes no entropy). The drawn concurrency is therefore always 1 and is
-	// discarded.
-	machine, _, err := s.tc.NewStateMachine(s.ctx, ruleNames, make([]int64, len(ruleNames)), invariantNames, 1, 1)
-	return machine, err
+// clone returns a test-case wrapper backed by an independent libhegel stream.
+func (s *testCase) clone() (TestCase, error) {
+	if s.out != nil {
+		if _, ok := s.out.(*lockedWriter); !ok {
+			s.out = &lockedWriter{w: s.out}
+		}
+	}
+	tc, err := s.tc.Clone(s.ctx)
+	if err != nil {
+		return nil, err
+	}
+	return newTestCase(s.ctx.Clone(), tc, s.out, s.panicPolicy), nil
+}
+
+func (s *testCase) stateMachineNew(ruleNames []string, ruleGroups []int64, invariantNames []string, maxConcurrency int) (*libhegel.StateMachine, int64, error) {
+	machine, concurrency, err := s.tc.NewStateMachine(s.ctx, ruleNames, ruleGroups, invariantNames, 1, int64(maxConcurrency))
+	return machine, concurrency, err
 }
 
 func (s *testCase) stateMachineNextGroup(machine *libhegel.StateMachine) (libhegel.StateMachineGroup, error) {
 	return s.tc.StateMachineNextGroup(s.ctx, machine)
 }
 
-func (s *testCase) stateMachineNextRule(machine *libhegel.StateMachine) (int64, error) {
-	// Worker 0: the sequential driver runs a single worker on the root handle.
-	return s.tc.StateMachineNextRule(s.ctx, machine, 0)
+func (s *testCase) stateMachineNextRule(machine *libhegel.StateMachine, worker int64) (int64, error) {
+	return s.tc.StateMachineNextRule(s.ctx, machine, worker)
+}
+
+func (s *testCase) stateMachineRuleRejected(machine *libhegel.StateMachine, worker int64) error {
+	return s.tc.StateMachineRuleRejected(s.ctx, machine, worker)
 }
 
 func (s *testCase) startSpan(label libhegel.Label) error {
@@ -332,9 +368,7 @@ type settingApplier func(*libhegel.Context, *libhegel.Settings) error
 // configuring libhegel) keep dedicated fields.
 type runOptions struct {
 	settingsAppliers []settingApplier
-	// singleTestCase is read by the runner and replay logic, not just passed to
-	// libhegel as a mode.
-	singleTestCase bool
+	singleTestCase   bool
 	// output receives note/draw-report output during single-test-case mode
 	// and during the final replay of interesting cases. nil means no output.
 	output io.Writer
@@ -517,8 +551,12 @@ func Test(t *testing.T, fn func(*T), opts ...Option) {
 	}
 	allOpts := append(opts, withDatabaseKey(t.Name()), withOutput(t.Output()))
 
-	if err := run(body, allOpts...); err != nil { // coverage-ignore (run's error is covered via Run; this only delegates to stdlib t.Fatal)
-		t.Fatal(err)
+	if err := run(body, allOpts...); err != nil { // coverage-ignore (run's error is covered via Run; this only delegates to stdlib testing.T)
+		if errors.Is(err, errPropTestFailed) {
+			t.Fail()
+		} else {
+			t.Fatal(err)
+		}
 	}
 }
 
@@ -543,18 +581,12 @@ func runWithContext(ctx *libhegel.Context, fn testBody, opts runOptions) error {
 		return err
 	}
 
-	var output io.Writer
-	var skipUserPanic bool
-	if opts.singleTestCase {
-		output = opts.output
-		skipUserPanic = true
-	}
-
-	run, err := s.RunStart(ctx, output)
+	run, err := s.RunStart(ctx, opts.output)
 	if err != nil {
 		return err
 	}
 
+	var nondeterministicOutput *bytes.Buffer
 	for {
 		tc, err := run.NextTestCase(ctx)
 		if err != nil {
@@ -564,9 +596,37 @@ func runWithContext(ctx *libhegel.Context, fn testBody, opts runOptions) error {
 			break
 		}
 
-		origin, status := driveOneCase(ctx, tc, fn, output, skipUserPanic)
-		if err := tc.MarkComplete(ctx, status, origin); err != nil {
+		nondeterministic, err := tc.IsNondeterministic(ctx)
+		if err != nil {
 			return err
+		}
+
+		var out io.Writer
+		policy := captureUserPanics
+		if nondeterministic {
+			// Buffer non-deterministic test cases, because we only know whether
+			// we should output them after they have run. At which point we
+			// can't recreate them because replay isn't available.
+			//
+			// NB: It doesn't make sense to propagate user panics when buffering
+			// output because we can't flush the buffer on a panic.
+			out = new(bytes.Buffer)
+		} else if opts.singleTestCase {
+			// We can't replay and output is unbounded. Just output it directly
+			// and propagate user panics.
+			out = opts.output
+			policy = propagateUserPanics
+		}
+
+		state := newTestCase(ctx, tc, out, policy)
+
+		failed, err := state.run(fn)
+		if err != nil {
+			return err
+		}
+
+		if failed && nondeterministic {
+			nondeterministicOutput = out.(*bytes.Buffer)
 		}
 	}
 
@@ -584,12 +644,12 @@ func runWithContext(ctx *libhegel.Context, fn testBody, opts runOptions) error {
 		// counterexamples to collect; the diagnostic lives in the run-level
 		// error message.
 		return fmt.Errorf("%w: %s", errPropTestFailed, result.ErrorMessage(ctx))
+	case libhegel.RUN_STATUS_FAILED_NONDETERMINISTIC:
+		// We hit a non-deterministic failure, so replay is not available.
+		// Output the last cached run.
+		_, err := io.Copy(opts.output, nondeterministicOutput)
+		return err
 	default:
-		if opts.singleTestCase {
-			// There is never a need to replay a single test case.
-			return errPropTestFailed
-		}
-
 		return replayFailures(ctx, s, result, fn, opts)
 	}
 }
@@ -616,38 +676,65 @@ func (o runOptions) buildSettings(ctx *libhegel.Context) (*libhegel.Settings, er
 	return s, nil
 }
 
-func driveOneCase(ctx *libhegel.Context, tc *libhegel.TestCase, fn testBody, output io.Writer, skipUserPanic bool) (origin string, status libhegel.Status) {
-	state := &testCase{
-		ctx: ctx,
-		tc:  tc,
-		out: output,
+// invoke runs fn with an invocation-local abort boundary.
+//
+// Returns an invocationError if fn panics or trips an assertion,
+// or a libhegel.
+func (s *testCase) invoke(fn testBody) (result error) {
+	aborted := false
+
+	defer func() {
+		// Do not call recover at all when panics must propagate. Recovering and
+		// re-panicking the value would replace the user's original panic stack.
+		if !aborted && s.panicPolicy == propagateUserPanics {
+			return
+		}
+
+		recovered := recover()
+		if aborted {
+			result = recovered.(error)
+			return
+		}
+		if recovered != nil {
+			result = interestingInvocationError(recovered)
+		}
+	}()
+
+	scoped := *s
+	scoped.abortFn = func(err error) {
+		aborted = true
+		panic(err)
 	}
-	// Registered first so it runs last: publish the case's final status and
-	// origin into the named returns. When fn panics (FailNow/abort/user panic)
-	// the normal return below is skipped, so without this the named returns
-	// would keep their zero values (a VALID status) and the failure would be
-	// silently dropped by the caller's mark_complete.
-	defer func() {
-		origin, status = state.origin, state.status
-	}()
-	defer func() {
-		if skipUserPanic {
-			return
-		}
 
-		r := recover()
-		if r == nil {
-			return
-		}
+	fn(&scoped)
+	return nil
+}
 
-		// The panic is recovered into an INTERESTING status. On the final
-		// replay (or in single-case mode) we never get here: skipUserPanic
-		// lets the panic propagate so the Go runtime prints it for debuggers.
-		state.setStatus(libhegel.STATUS_INTERESTING)
-	}()
-	defer state.recoverAbort()
-	fn(state)
-	return
+func (s *testCase) run(fn testBody) (failed bool, err error) {
+	result := s.invoke(fn)
+	if result == nil {
+		return false, s.tc.MarkComplete(s.ctx, libhegel.STATUS_VALID, "")
+	}
+
+	var status libhegel.Status
+	var origin string
+	switch {
+	case errors.Is(result, libhegel.E_ASSUME):
+		status = libhegel.STATUS_INVALID
+	case errors.Is(result, libhegel.E_STOP_TEST):
+		status = libhegel.STATUS_OVERRUN
+	default:
+		var outcome *invocationError
+		if !errors.As(result, &outcome) {
+			return true, result
+		}
+		formatInvocationResult(s.out, result)
+		status = outcome.status
+		origin = findCallerInPCs(outcome.pcs, isNotHegelFrame)
+	}
+
+	return true, s.tc.MarkComplete(s.ctx, status, origin)
+
 }
 
 // replayFailures walks the failures of a result and replays fn against them.
@@ -660,46 +747,58 @@ func replayFailures(ctx *libhegel.Context, s *libhegel.Settings, result *libhege
 		if err != nil {
 			return err
 		}
-		tc, err := s.TestCaseFromBlob(ctx, fail.ReproductionBlob(ctx), opts.output)
+		blob := fail.ReproductionBlob(ctx)
+		if blob == "" {
+			return errPropTestFailed
+		}
+		tc, err := s.TestCaseFromBlob(ctx, blob, opts.output)
 		if err != nil {
 			return err
 		}
-		driveOneCase(ctx, tc, fn, opts.output, true)
+		state := newTestCase(ctx, tc, opts.output, propagateUserPanics)
+		if _, err := state.run(fn); err != nil {
+			return err
+		}
 		origins = append(origins, fail.Origin(ctx))
 	}
 	return fmt.Errorf("%w: %d failures %v", errPropTestFailed, len(origins), origins)
 }
 
-// findCaller describes a recovered panic for [hegel_mark_complete]'s
-// origin field. The format is "<file>:<line> (<pc>)", where the file/line
-// and program counter come from the first frame matched by filter.
-// skip has the same meaning as runtime.Callers.
-//
-// The origin MUST be stable for the same call site and distinct between
-// different call sites so libhegel can group failing inputs together for
-// shrinking without conflating separate failures.
-//
-//go:noinline
-func findCaller(skip int, filter func(string) bool) string {
-	var pcs [32]uintptr
-	n := runtime.Callers(skip+1, pcs[:])
-	frames := runtime.CallersFrames(pcs[:n])
-	file := ""
-	line := 0
-	var pc uintptr
+// findCallerInPCs returns the first matching frame as "<file>:<line> (<pc>)".
+// The result is used as libhegel's stable shrink-grouping key.
+func findCallerInPCs(pcs []uintptr, filter func(string) bool) string {
+	frames := runtime.CallersFrames(pcs)
 	for {
-		f, more := frames.Next()
-		if !more { // coverage-ignore
-			break
+		frame, more := frames.Next()
+		if filter(frame.Function) {
+			return fmt.Sprintf("%s:%d (%#x)", frame.File, frame.Line, frame.PC)
 		}
-		if filter(f.Function) {
-			file = f.File
-			line = f.Line
-			pc = f.PC
+		if !more {
 			break
 		}
 	}
-	return fmt.Sprintf("%s:%d (%#x)", file, line, pc)
+	return "<unknown>:0 (0x0)"
+}
+
+func formatInvocationResult(out io.Writer, err error) {
+	var outcome *invocationError
+	if !errors.As(err, &outcome) || out == nil {
+		return
+	}
+	header := outcome.kind
+	var worker *workerError
+	if errors.As(err, &worker) {
+		header = fmt.Sprintf("%s in worker %d", header, worker.worker)
+	}
+	fmt.Fprintf(out, "%s: %s\n\n", header, outcome.Error())
+	frames := runtime.CallersFrames(outcome.pcs)
+	for {
+		frame, more := frames.Next()
+		fmt.Fprintf(out, "%s(...)\n\t%s:%d\n", frame.Function, frame.File, frame.Line)
+		if !more {
+			break
+		}
+	}
 }
 
 func isHegelFrame(fn string) bool {
@@ -718,4 +817,17 @@ func isHegelFrame(fn string) bool {
 
 func isNotHegelFrame(fn string) bool {
 	return !isHegelFrame(fn)
+}
+
+// lockedWriter serializes output shared by the engine callback and concurrent
+// state-machine workers.
+type lockedWriter struct {
+	mu sync.Mutex
+	w  io.Writer
+}
+
+func (w *lockedWriter) Write(p []byte) (int, error) {
+	w.mu.Lock()
+	defer w.mu.Unlock()
+	return w.w.Write(p)
 }

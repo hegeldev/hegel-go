@@ -6,7 +6,6 @@ import (
 	"go/parser"
 	"go/printer"
 	"go/token"
-	"path/filepath"
 	"runtime"
 	"strings"
 	"sync"
@@ -118,24 +117,23 @@ func (c *sourceCache) loadLocked(file string) (*ast.File, error) {
 }
 
 // formatDrawReport resolves the caller's source position via runtime.Caller
-// and returns the file:line location and a printed "statement = value" line
-// for the originating Draw call. skip is the number of frames above this one
-// to skip (Draw passes 1 to point at the user's call site).
-func formatDrawReport(skip int, value any) (location, statement string) {
+// and returns a printed "statement = value" line for the originating Draw
+// call. skip is the number of frames above this one to skip (Draw passes 1 to
+// point at the user's call site).
+func formatDrawReport(skip int, value any) string {
 	_, file, line, ok := runtime.Caller(skip + 1)
 	if !ok { // coverage-ignore
 		panic(fmt.Errorf("runtime.Caller(%d) failed", skip+1))
 	}
 	stmt, _ := drawReportSource.statementAt(file, line)
-	location, stmt = formatDrawLine(file, line, stmt, value)
-	return location, stmt
+	return formatDrawLine(stmt, value)
 }
 
-func formatDrawLine(file string, line int, stmt string, value any) (location, statement string) {
+func formatDrawLine(stmt string, value any) string {
 	if stmt == "" {
 		stmt = fmt.Sprintf("hegel.Draw[%T](...) = %#v", value, value)
 	} else {
 		stmt = fmt.Sprintf("%s = %#v", stmt, value)
 	}
-	return fmt.Sprintf("%s:%d", filepath.Base(file), line), stmt
+	return stmt
 }
