@@ -16,7 +16,7 @@ func readValues(t *testing.T, dir, label string) []int64 {
 		t.Fatalf("read values %s: %v", label, err)
 	}
 	var out []int64
-	for _, line := range strings.Split(strings.TrimSpace(string(data)), "\n") {
+	for line := range strings.SplitSeq(strings.TrimSpace(string(data)), "\n") {
 		n, err := strconv.ParseInt(line, 10, 64)
 		if err != nil {
 			t.Fatalf("parse %q: %v", line, err)

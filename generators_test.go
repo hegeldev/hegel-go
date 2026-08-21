@@ -3,6 +3,7 @@ package hegel
 import (
 	"fmt"
 	"math"
+	"slices"
 	"testing"
 )
 
@@ -164,13 +165,7 @@ func TestSampledFromE2E(t *testing.T) {
 	seen := map[string]bool{}
 	Test(t, func(ht *T) {
 		v := Draw[string](ht, SampledFrom(choices))
-		found := false
-		for _, c := range choices {
-			if c == v {
-				found = true
-				break
-			}
-		}
+		found := slices.Contains(choices, v)
 		if !found {
 			panic(fmt.Sprintf("SampledFrom: value %q not in choices", v))
 		}
