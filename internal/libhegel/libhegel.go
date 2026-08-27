@@ -66,6 +66,12 @@ const (
 	// drives each test case from one goroutine, so this is not expected; it is
 	// mapped here for completeness of the error space.
 	E_CONCURRENT_USE
+
+	// A recursive draw exceeded its leaf budget (hegel_recursion_leaf). Unwind
+	// the current generation attempt — drawing nothing further for it — back to
+	// where the recursion scope was created, then call [Recursion.Retry] to
+	// discard the attempt and try again.
+	E_RETRY
 )
 
 type Status uint32 // Equivalent of hegel_status_t (passed as a uint32_t param)
@@ -246,6 +252,13 @@ const (
 	// Span around the concurrency-level draw made by hegel_new_state_machine.
 	LABEL_CONCURRENCY
 
+	// Span around one sub-value of a recursive generator: the leaf-or-branch
+	// decision plus the drawn content. Every sub-value at every depth uses this
+	// same label, which is what lets the shrinker replace a tree with one of its
+	// own subtrees. Emitted internally by the engine; mirrored here so the
+	// binding's constant values stay aligned with hegel_label_t.
+	LABEL_RECURSIVE
+
 	// Binding-specific labels, beyond the upstream HEGEL_LABEL_* range. The
 	// engine treats span labels as opaque shrinker hints, so hegel-go reserves
 	// values past the last upstream constant for its own span structures.
@@ -265,6 +278,7 @@ type resultT uintptr       // Equivalent of hegel_run_result_t
 type failureT uintptr      // Equivalent of hegel_failure_t
 type stringGenT uintptr    // Equivalent of hegel_string_generator_t
 type collectionT uintptr   // Equivalent of hegel_collection_t
+type recursionT uintptr    // Equivalent of HegelRecursion
 type poolT uintptr         // Equivalent of hegel_pool_t
 type stateMachineT uintptr // Equivalent of hegel_state_machine_t
 
@@ -378,6 +392,11 @@ type symbols struct {
 	CollectionMore           func(ctxT, testCaseT, collectionT, out[bool]) Error
 	CollectionReject         func(ctxT, testCaseT, collectionT, string) Error
 	CollectionFree           func(ctxT, collectionT) Error
+	NewRecursion             func(ctxT, testCaseT, uint64, uint64, out[recursionT]) Error
+	RecursionBranch          func(ctxT, testCaseT, recursionT, uint64, out[bool]) Error
+	RecursionLeaf            func(ctxT, testCaseT, recursionT) Error
+	RecursionRetry           func(ctxT, testCaseT, recursionT) Error
+	RecursionFree            func(ctxT, recursionT) Error
 	NewPool                  func(ctxT, testCaseT, out[poolT]) Error
 	PoolAdd                  func(ctxT, testCaseT, poolT, out[int64]) Error
 	PoolGenerate             func(ctxT, testCaseT, poolT, bool, out[int64]) Error
@@ -602,6 +621,11 @@ func tryOpen(path string) (syms *symbols, err error) {
 		{"hegel_collection_more", &syms.CollectionMore},
 		{"hegel_collection_reject", &syms.CollectionReject},
 		{"hegel_collection_free", &syms.CollectionFree},
+		{"hegel_new_recursion", &syms.NewRecursion},
+		{"hegel_recursion_branch", &syms.RecursionBranch},
+		{"hegel_recursion_leaf", &syms.RecursionLeaf},
+		{"hegel_recursion_retry", &syms.RecursionRetry},
+		{"hegel_recursion_free", &syms.RecursionFree},
 		{"hegel_new_pool", &syms.NewPool},
 		{"hegel_pool_add", &syms.PoolAdd},
 		{"hegel_pool_generate", &syms.PoolGenerate},
@@ -1148,6 +1172,73 @@ func (tc *TestCase) CollectionReject(ctx *Context, coll *Collection, why string)
 		e := tc.syms.CollectionReject(ctx, tc.raw, coll.raw, why)
 		runtime.KeepAlive(tc)
 		runtime.KeepAlive(coll)
+		return e
+	})
+}
+
+// Recursion wraps a HegelRecursion: an engine-managed recursive generation
+// scope created via [TestCase.NewRecursion] for one draw of a recursively
+// defined value (a tree, a document, ...). It tracks the leaf budget and retry
+// bookkeeping and is driven through any handle of the same test-case family. It
+// is owned by the caller and released automatically via the GC
+// (hegel_recursion_free).
+type Recursion pointer[recursionT]
+
+// NewRecursion opens a recursive generation scope: the engine decides where the
+// value branches, where it bottoms out in leaves, and when an attempt has grown
+// too large and must be retried. maxDepth bounds how deep branches may nest (0
+// generates only leaves); maxLeaves bounds how many leaves one generated value
+// may contain. The returned handle is owned by the caller and freed
+// automatically via the GC.
+func (tc *TestCase) NewRecursion(ctx *Context, maxDepth, maxLeaves uint64) (*Recursion, error) {
+	ptr, err := allocate(ctx, "hegel_new_recursion", func(ctx ctxT, raw *recursionT) Error {
+		e := tc.syms.NewRecursion(ctx, tc.raw, maxDepth, maxLeaves, raw)
+		runtime.KeepAlive(tc)
+		return e
+	}, tc.syms.RecursionFree)
+	if ptr == nil {
+		return nil, err
+	}
+	return (*Recursion)(ptr), err
+}
+
+// Branch draws the leaf-or-branch decision for the sub-value about to be drawn
+// at depth (0 for the root, one more than the enclosing branch for its
+// sub-values): true means invoke the branch function, false means the sub-value
+// is a leaf ([Recursion.Leaf], then draw it). The draw comes from tc's stream.
+func (r *Recursion) Branch(ctx *Context, tc *TestCase, depth uint64) (bool, error) {
+	err := ctx.invoke("hegel_recursion_branch", func(ctx ctxT) Error {
+		e := r.syms.RecursionBranch(ctx, tc.raw, r.raw, depth, &tc.outBool)
+		runtime.KeepAlive(tc)
+		runtime.KeepAlive(r)
+		return e
+	})
+	return tc.outBool, err
+}
+
+// Leaf counts one leaf against the current attempt's budget; call it
+// immediately before drawing each leaf value. It returns an error wrapping
+// [E_RETRY] when the attempt has outgrown its leaf budget: unwind without
+// drawing anything further and call [Recursion.Retry].
+func (r *Recursion) Leaf(ctx *Context, tc *TestCase) error {
+	return ctx.invoke("hegel_recursion_leaf", func(ctx ctxT) Error {
+		e := r.syms.RecursionLeaf(ctx, tc.raw, r.raw)
+		runtime.KeepAlive(tc)
+		runtime.KeepAlive(r)
+		return e
+	})
+}
+
+// Retry discards a generation attempt that returned [E_RETRY]: it resets the
+// leaf budget and lowers the branching probability for the next attempt. Call
+// it only after unwinding out of the user's generators, from the stack depth at
+// which [TestCase.NewRecursion] was called. It returns an error wrapping
+// [E_ASSUME] once attempts are exhausted (the test case is concluded invalid).
+func (r *Recursion) Retry(ctx *Context, tc *TestCase) error {
+	return ctx.invoke("hegel_recursion_retry", func(ctx ctxT) Error {
+		e := r.syms.RecursionRetry(ctx, tc.raw, r.raw)
+		runtime.KeepAlive(tc)
+		runtime.KeepAlive(r)
 		return e
 	})
 }
