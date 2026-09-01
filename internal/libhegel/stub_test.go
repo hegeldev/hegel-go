@@ -135,6 +135,47 @@ func TestStubNewPoolError(t *testing.T) {
 	}
 }
 
+// TestStubRecursion exercises the recursive-generation-scope wrappers, which
+// have no runner path: NewRecursion yields a handle, and Branch / Leaf / Retry
+// drive one attempt through the test-case family.
+func TestStubRecursion(t *testing.T) {
+	lib := Stub(t,
+		uintptr(9), OK, // new_recursion: scope handle
+		true, OK, // recursion_branch: branch decision
+		OK, // recursion_leaf
+		OK, // recursion_retry
+	)
+	tc := &TestCase{pointer: &pointer[testCaseT]{syms: lib.syms, raw: 1}}
+
+	rec, err := tc.NewRecursion(lib, 4, 32)
+	if err != nil {
+		t.Fatalf("NewRecursion: %v", err)
+	}
+	if branch, err := rec.Branch(lib, tc, 0); err != nil || !branch {
+		t.Fatalf("Recursion.Branch: branch=%v err=%v", branch, err)
+	}
+	if err := rec.Leaf(lib, tc); err != nil {
+		t.Fatalf("Recursion.Leaf: %v", err)
+	}
+	if err := rec.Retry(lib, tc); err != nil {
+		t.Fatalf("Recursion.Retry: %v", err)
+	}
+}
+
+// TestStubNewRecursionError covers NewRecursion's nil-handle branch: when
+// new_recursion fails, allocate yields a nil handle and NewRecursion returns
+// (nil, err).
+func TestStubNewRecursionError(t *testing.T) {
+	lib := Stub(t,
+		uintptr(0), E_STOP_TEST, // new_recursion: placeholder handle + failing Error
+		"boom", // diagnostic read by invoke
+	)
+	tc := &TestCase{pointer: &pointer[testCaseT]{syms: lib.syms, raw: 1}}
+	if _, err := tc.NewRecursion(lib, 0, 0); err == nil {
+		t.Fatal("expected NewRecursion error")
+	}
+}
+
 // TestStubTypedPrimitives exercises the typed primitive draws that write scalar,
 // struct, and byte-buffer outputs, covering every new output-parameter kind the
 // stub scripts.
