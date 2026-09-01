@@ -1,5 +1,9 @@
 # Changelog
 
+## 0.6.33 - 2026-09-01
+
+This patch bumps our pinned libhegel ([hegel-rust](hegeldev/hegel-rust)) from [0.33.0](https://github.com/hegeldev/hegel-rust/releases/tag/v0.33.0) to [0.33.2](https://github.com/hegeldev/hegel-rust/releases/tag/v0.33.2).
+
 ## 0.6.32 - 2026-08-21
 
 Add support for concurrent stateful testing and Pools. It is now possible to
