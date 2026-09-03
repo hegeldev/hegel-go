@@ -759,11 +759,19 @@ func TestRunStatefulPanicsOnValidationError(t *testing.T) {
 func TestRunStatefulAssumeRejectionRetries(t *testing.T) {
 	t.Parallel()
 	totalGateRuns := 0
+	// A single test case only increments gateCount when swarm testing leaves
+	// both rules enabled (probability 1/3: the engine draws a per-case
+	// disabling probability p uniform on [0,1) and E[(1-p)^2] = 1/3) AND the
+	// engine draws a step budget of at least two (RuleGated can only succeed
+	// after a successful RuleOpen step). Measured over 3000 test cases, a
+	// case has gateCount == 0 with probability q = 0.648, so with 10 test
+	// cases this test failed at q^10 ~ 1.3% per run. 100 test cases push the
+	// false-failure probability down to q^100 ~ 2e-19.
 	err := Run(func(tc TestCase) {
 		m := &gatedMachine{}
 		RunStateful(tc, m)
 		totalGateRuns += m.gateCount
-	}, WithTestCases(10))
+	}, WithTestCases(100))
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
