@@ -1,8 +1,8 @@
 package libhegel
 
 import (
+	"errors"
 	"os"
-	"path/filepath"
 	"strings"
 	"testing"
 )
@@ -59,20 +59,13 @@ func TestLoadLibMissing(t *testing.T) {
 }
 
 // TestLoadEmbeddedWriteFails covers the fallback path in load: with no path
-// override, writing the embedded library out to the cache must fail when the
-// cache root cannot be created. We point the cache dir at a path beneath a
-// regular file so MkdirAll fails with ENOTDIR.
+// override, writing the embedded library must fail when both materialization
+// locations are unavailable.
 func TestLoadEmbeddedWriteFails(t *testing.T) {
 	t.Setenv(LibraryPathEnv, "")
-
-	dir := t.TempDir()
-	notADir := filepath.Join(dir, "file")
-	if err := os.WriteFile(notADir, []byte("x"), 0o644); err != nil { // coverage-ignore
-		t.Fatalf("write file: %v", err)
-	}
-	t.Setenv("XDG_CACHE_HOME", notADir)
-	t.Setenv("HOME", notADir) // macOS fallback when XDG_CACHE_HOME is unset
-	t.Setenv("LocalAppData", notADir)
+	testHomeOverride(t)
+	stubVar(t, &chmodCacheDir, func(string, os.FileMode) error { return errors.New("cache denied") })
+	stubVar(t, &resolveTempCacheDir, func(string) (string, error) { return "", errors.New("temp denied") })
 
 	_, err := load()
 	if err == nil {
