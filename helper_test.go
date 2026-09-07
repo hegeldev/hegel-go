@@ -63,7 +63,7 @@ func TestNoteInsideCompositeOmitsUserFileLine(t *testing.T) {
 })
 _ = hegel.Draw(ht, c)
 ht.Fail()
-`, "hegel.WithSingleTestCase()").
+`, "hegel.WithTestCases(1)").
 		expectFailure(`(?m)^\s+BOOM-composite-note`).
 		goTest()
 }

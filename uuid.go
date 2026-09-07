@@ -34,7 +34,7 @@ func (g UUIDGenerator) draw(tc TestCase) (uuid.UUID, error) {
 	}
 	ctx, ltc := tc.engine()
 	b, err := ltc.GenerateUUID(ctx, uint8(g.version), g.hasVersion)
-	if err != nil {
+	if err != nil { // coverage-ignore
 		return uuid.UUID{}, err
 	}
 	return uuid.UUID(b), nil

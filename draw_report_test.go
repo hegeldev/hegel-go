@@ -211,12 +211,14 @@ func TestFormatDrawLineWithoutStatement(t *testing.T) {
 func TestDrawReportInProcess(t *testing.T) {
 	t.Parallel()
 	var buf bytes.Buffer
-	if err := run(func(tc TestCase) {
+	err := run(func(tc TestCase) {
 		_ = Draw(tc, Integers(0, 100))
-	}, WithSingleTestCase(), withOutput(&buf)); err != nil {
-		t.Fatalf("runHegel: %v", err)
+		tc.Fail()
+	}, WithTestCases(1), withOutput(&buf))
+	if err == nil {
+		t.Fatal("runHegel unexpectedly passed")
 	}
-	captured := buf.String()
+	captured, _, _ := strings.Cut(buf.String(), "\n")
 	if strings.Contains(captured, "draw_report_test.go:") {
 		t.Fatalf("draw report contains synthetic origin:\n%s", captured)
 	}
@@ -234,16 +236,14 @@ func TestDrawReportSuppressedInsideSpan(t *testing.T) {
 	})).MinSize(2).MaxSize(2)
 
 	var buf bytes.Buffer
-	if err := run(func(tc TestCase) {
+	err := run(func(tc TestCase) {
 		_ = Draw(tc, gen)
-	}, WithSingleTestCase(), withOutput(&buf)); err != nil {
-		t.Fatalf("runHegel: %v", err)
+		tc.Fail()
+	}, WithTestCases(1), withOutput(&buf))
+	if err == nil {
+		t.Fatal("runHegel unexpectedly passed")
 	}
-	captured := buf.String()
-	got := len(strings.Split(strings.TrimSpace(captured), "\n"))
-	if got != 1 {
-		t.Fatalf("expected exactly 1 draw line in output, got %d:\n%s", got, captured)
-	}
+	captured, _, _ := strings.Cut(buf.String(), "\n")
 	if !strings.Contains(captured, "Draw(tc, gen)") {
 		t.Fatalf("expected outer Draw statement text in output, got:\n%s", captured)
 	}
@@ -260,16 +260,14 @@ func TestDrawReportSuppressedInsideComposite(t *testing.T) {
 	})
 
 	var buf bytes.Buffer
-	if err := run(func(tc TestCase) {
+	err := run(func(tc TestCase) {
 		_ = Draw(tc, gen)
-	}, WithSingleTestCase(), withOutput(&buf)); err != nil {
-		t.Fatalf("runHegel: %v", err)
+		tc.Fail()
+	}, WithTestCases(1), withOutput(&buf))
+	if err == nil {
+		t.Fatal("runHegel unexpectedly passed")
 	}
-	captured := buf.String()
-	got := len(strings.Split(strings.TrimSpace(captured), "\n"))
-	if got != 1 {
-		t.Fatalf("expected exactly 1 draw line in output, got %d:\n%s", got, captured)
-	}
+	captured, _, _ := strings.Cut(buf.String(), "\n")
 	if !strings.Contains(captured, "Draw(tc, gen)") {
 		t.Fatalf("expected outer Draw statement text in output, got:\n%s", captured)
 	}

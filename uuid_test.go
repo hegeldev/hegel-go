@@ -18,7 +18,7 @@ func TestUUIDs(t *testing.T) {
 		if _, err := uuid.Parse(got.String()); err != nil {
 			tc.Errorf("UUIDs generated an invalid UUID %q: %v", got, err)
 		}
-	}, WithSingleTestCase())
+	}, WithTestCases(1))
 	if err != nil {
 		t.Fatalf("run UUIDs generator: %v", err)
 	}
@@ -33,7 +33,7 @@ func TestUUIDsVersion(t *testing.T) {
 		if variant := got[8] >> 4; variant < 8 || variant > 11 {
 			tc.Errorf("UUIDs().Version(4) generated non-RFC 4122 variant UUID %q", got)
 		}
-	}, WithSingleTestCase())
+	}, WithTestCases(1))
 	if err != nil {
 		t.Fatalf("run versioned UUID generator: %v", err)
 	}
