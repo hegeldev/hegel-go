@@ -39,13 +39,40 @@ def main() -> int:
 
 
 def sanitize_coverage(input_path: str, output_path: str) -> None:
-    """Write a sanitized copy of the Go coverage profile, removing malformed lines."""
-    valid_line = re.compile(r".+:\d+\.\d+,\d+\.\d+\s+\d+\s+\d+")
+    """Sanitize the profile and count explicitly ignored blocks as covered."""
+    valid_line = re.compile(
+        r"(?P<prefix>.+:(?P<start>\d+)\.\d+,(?P<end>\d+)\.\d+\s+\d+\s+)(?P<count>\d+)"
+    )
     with open(input_path) as fin, open(output_path, "w") as fout:
         for line in fin:
             stripped = line.strip()
-            if stripped.startswith("mode:") or valid_line.match(stripped):
+            if stripped.startswith("mode:"):
                 fout.write(line)
+                continue
+            match = valid_line.fullmatch(stripped)
+            if match is None:
+                continue
+            if match.group("count") == "0" and is_coverage_ignored(
+                stripped.split(":", 1)[0],
+                int(match.group("start")),
+                int(match.group("end")),
+            ):
+                fout.write(f'{match.group("prefix")}1\n')
+            else:
+                fout.write(line)
+
+
+def is_coverage_ignored(profile_path: str, start: int, end: int) -> bool:
+    """Return whether a profile block is guarded by coverage-ignore."""
+    path = profile_path.removeprefix("hegel.dev/go/hegel/")
+    try:
+        with open(path) as source:
+            lines = source.readlines()
+    except OSError:
+        return False
+    first = max(0, start - 2)
+    last = min(len(lines), end)
+    return any("// coverage-ignore" in line for line in lines[first:last])
 
 
 def count_coverage_ignore() -> int:

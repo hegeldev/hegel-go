@@ -37,7 +37,7 @@ import (
 	"unsafe"
 )
 
-//go:generate go tool stringer -type=Error,Status,Mode,Backend,Verbosity,RunStatus,HealthCheck,Phase,Label -linecomment -output=libhegel_string.go
+//go:generate go tool stringer -type=Error,Status,Backend,Verbosity,RunStatus,HealthCheck,Phase,Label -linecomment -output=libhegel_string.go
 
 // LibraryPathEnv names the env var that pins libhegel to an explicit path.
 // When set, that path is loaded directly with no embedded fallback; when unset,
@@ -81,13 +81,6 @@ const (
 	STATUS_INVALID
 	STATUS_OVERRUN
 	STATUS_INTERESTING
-)
-
-type Mode uint32 // Equivalent of hegel_mode_t (passed as a uint32_t param)
-
-const (
-	MODE_TEST_RUN Mode = iota
-	MODE_SINGLE_TEST_CASE
 )
 
 type Backend uint32 // Equivalent of hegel_backend_t (passed as a uint32_t param)
@@ -358,7 +351,6 @@ type symbols struct {
 
 	SettingsNew                       func(ctxT, out[settingsT]) Error
 	SettingsFree                      func(ctxT, settingsT) Error
-	SettingsSetMode                   func(ctxT, settingsT, Mode) Error
 	SettingsSetBackend                func(ctxT, settingsT, Backend) Error
 	SettingsSetTestCases              func(ctxT, settingsT, uint64) Error
 	SettingsSetStatefulStepCount      func(ctxT, settingsT, int64) Error
@@ -401,7 +393,7 @@ type symbols struct {
 	PoolAdd                  func(ctxT, testCaseT, poolT, out[int64]) Error
 	PoolGenerate             func(ctxT, testCaseT, poolT, bool, out[int64]) Error
 	PoolFree                 func(ctxT, poolT) Error
-	NewStateMachine          func(ctxT, testCaseT, **byte, *int64, uint64, **byte, uint64, int64, int64, out[stateMachineT], out[int64]) Error
+	NewStateMachine          func(ctxT, testCaseT, **byte, *int64, uint64, **byte, *bool, uint64, int64, int64, out[stateMachineT], out[int64]) Error
 	StateMachineNextGroup    func(ctxT, testCaseT, stateMachineT, out[StateMachineGroup]) Error
 	StateMachineNextRule     func(ctxT, testCaseT, stateMachineT, int64, out[int64]) Error
 	StateMachineRuleRejected func(ctxT, testCaseT, stateMachineT, int64) Error
@@ -592,7 +584,6 @@ func tryOpen(path string) (syms *symbols, err error) {
 
 		{"hegel_settings_new", &syms.SettingsNew},
 		{"hegel_settings_free", &syms.SettingsFree},
-		{"hegel_settings_set_mode", &syms.SettingsSetMode},
 		{"hegel_settings_set_backend", &syms.SettingsSetBackend},
 		{"hegel_settings_set_test_cases", &syms.SettingsSetTestCases},
 		{"hegel_settings_set_stateful_step_count", &syms.SettingsSetStatefulStepCount},
@@ -686,14 +677,6 @@ func (c *Context) SettingsNew() *Settings {
 		return c.syms.SettingsNew(ctx, raw)
 	}, c.syms.SettingsFree)
 	return (*Settings)(ptr)
-}
-
-func (s *Settings) Mode(ctx *Context, m Mode) error {
-	return ctx.invoke("hegel_settings_set_mode", func(ctx ctxT) Error {
-		e := s.syms.SettingsSetMode(ctx, s.raw, m)
-		runtime.KeepAlive(s)
-		return e
-	})
 }
 
 // Backend selects the engine's randomness backend. See [Backend].
@@ -1301,11 +1284,18 @@ type StateMachine pointer[stateMachineT]
 // in [minConcurrency, maxConcurrency] and returns it alongside the machine;
 // the caller must run exactly that many workers. minConcurrency ==
 // maxConcurrency fixes the level without consuming entropy (1, 1 for a
-// sequential machine). The returned handle is owned by the caller and freed
-// automatically via the GC.
-func (tc *TestCase) NewStateMachine(ctx *Context, ruleNames []string, ruleGroups []int64, invariantNames []string, minConcurrency, maxConcurrency int64) (*StateMachine, int64, error) {
+// sequential machine).
+//
+// invariantAlwaysCheck is a slice of flags parallel to invariantNames: a
+// flagged invariant is checked after every rule, the rest are sampled. A nil
+// slice (the C NULL default) leaves every invariant sampled. The returned
+// handle is owned by the caller and freed automatically via the GC.
+func (tc *TestCase) NewStateMachine(ctx *Context, ruleNames []string, ruleGroups []int64, invariantNames []string, invariantAlwaysCheck []bool, minConcurrency, maxConcurrency int64) (*StateMachine, int64, error) {
 	if len(ruleGroups) != len(ruleNames) {
 		return nil, 0, fmt.Errorf("hegel_new_state_machine: %d rule groups for %d rule names", len(ruleGroups), len(ruleNames))
+	}
+	if invariantAlwaysCheck != nil && len(invariantAlwaysCheck) != len(invariantNames) {
+		return nil, 0, fmt.Errorf("hegel_new_state_machine: %d always-check flags for %d invariant names", len(invariantAlwaysCheck), len(invariantNames))
 	}
 	rules, err := cStringArray(ruleNames)
 	if err != nil {
@@ -1319,7 +1309,7 @@ func (tc *TestCase) NewStateMachine(ctx *Context, ruleNames []string, ruleGroups
 		e := tc.syms.NewStateMachine(
 			ctx, tc.raw,
 			slicePtr(rules), slicePtr(ruleGroups), uint64(len(ruleNames)),
-			slicePtr(invariants), uint64(len(invariantNames)),
+			slicePtr(invariants), slicePtr(invariantAlwaysCheck), uint64(len(invariantNames)),
 			minConcurrency, maxConcurrency,
 			raw, &tc.outInt,
 		)

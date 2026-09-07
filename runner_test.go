@@ -51,6 +51,7 @@ func TestRunHegelTestPasses(t *testing.T) {
 func TestRunHegelTestAllInvalid(t *testing.T) {
 	// A test that always calls Assume(false) should pass (all cases rejected).
 	Test(t, func(ht *T) {
+		_ = Draw[bool](ht, Booleans())
 		ht.Assume(false)
 	}, WithTestCases(5), SuppressHealthCheck(FilterTooMuch))
 }
@@ -107,19 +108,19 @@ func TestConcurrentRunHegelTest(t *testing.T) {
 	}
 }
 
-// --- Single test case mode ---
+// --- Test-case count ---
 
-func TestRunHegelTestSingleCase(t *testing.T) {
+func TestRunHegelTestOneCase(t *testing.T) {
 	var calls int
 	err := Run(func(tc TestCase) {
 		calls++
 		_ = Draw[bool](tc, Booleans())
-	}, WithSingleTestCase())
+	}, WithTestCases(1))
 	if err != nil {
-		t.Fatalf("Run with WithSingleTestCase: %v", err)
+		t.Fatalf("Run with WithTestCases(1): %v", err)
 	}
 	if calls != 1 {
-		t.Errorf("expected exactly one call under WithSingleTestCase, got %d", calls)
+		t.Errorf("expected exactly one call under WithTestCases(1), got %d", calls)
 	}
 }
 
@@ -345,8 +346,10 @@ func TestSettingsOptionsRecordApplier(t *testing.T) {
 
 func TestSuppressHealthCheckIntegration(t *testing.T) {
 	t.Parallel()
+	var calls atomic.Int32
 	err := Run(func(tc TestCase) {
-		tc.Assume(false) // always reject
+		_ = Draw[bool](tc, Booleans())
+		tc.Assume(calls.Add(1) > 100)
 	}, WithTestCases(20),
 		SuppressHealthCheck(FilterTooMuch),
 		WithDatabase(""))
@@ -660,14 +663,14 @@ func TestRunWithContextReplayMarkCompleteError(t *testing.T) {
 	}
 }
 
-// TestRunWithContextSingleModeFailure verifies that a single-test-case failure
+// TestRunWithContextOneCaseFailure verifies that a one-test-case failure
 // has no reproduction blob and therefore skips final replay.
-func TestRunWithContextSingleModeFailure(t *testing.T) {
+func TestRunWithContextOneCaseFailure(t *testing.T) {
 	t.Parallel()
 	lib := libhegel.Stub(t,
 		uintptr(1), libhegel.OK, // settings_new
 		libhegel.OK,             // derandomize
-		libhegel.OK,             // mode (single-test-case)
+		libhegel.OK,             // settings
 		uintptr(1), libhegel.OK, // run_start
 		uintptr(1), libhegel.OK, // next_test_case: one case
 		false, libhegel.OK, // is_nondeterministic
@@ -679,7 +682,7 @@ func TestRunWithContextSingleModeFailure(t *testing.T) {
 		uintptr(1), libhegel.OK, // failure handle
 		"", libhegel.OK, // no reproduction blob
 	)
-	err := runWithContext(lib, func(tc TestCase) { tc.(*testCase).Fail() }, applyOpts([]Option{WithDerandomize(false), WithSingleTestCase()}))
+	err := runWithContext(lib, func(tc TestCase) { tc.(*testCase).Fail() }, applyOpts([]Option{WithDerandomize(false), WithTestCases(1)}))
 	if !errors.Is(err, errPropTestFailed) {
 		t.Fatalf("expected single-mode prop-test failure, got %v", err)
 	}
@@ -815,7 +818,7 @@ func TestBuildSettingsExercisesAllSetters(t *testing.T) {
 		libhegel.OK,             // verbosity
 		libhegel.OK,             // report_multiple_failures
 		libhegel.OK,             // phases
-		libhegel.OK,             // mode (single-test-case)
+		libhegel.OK,             // settings
 		uintptr(1), libhegel.OK, // run_start
 		uintptr(0), libhegel.OK, // next_test_case NULL => run finished
 		uintptr(1), libhegel.OK, // run_result
@@ -835,7 +838,7 @@ func TestBuildSettingsExercisesAllSetters(t *testing.T) {
 		WithVerbosity(VerbosityVerbose),
 		WithReportMultipleFailures(true),
 		WithPhases(PhaseGenerate, PhaseShrink),
-		WithSingleTestCase(),
+		WithTestCases(1),
 	})
 	if err := runWithContext(lib, func(TestCase) {}, opts); err != nil {
 		t.Fatalf("unexpected error: %v", err)
@@ -897,7 +900,7 @@ func TestRunWithHandleTargetError(t *testing.T) {
 	lib := libhegel.Stub(t,
 		uintptr(1), libhegel.OK, // settings_new
 		libhegel.OK,             // derandomize
-		libhegel.OK,             // mode (single-test-case)
+		libhegel.OK,             // settings
 		uintptr(1), libhegel.OK, // run_start
 		uintptr(1), libhegel.OK, // next_test_case: one case
 		false, libhegel.OK, // is_nondeterministic
@@ -905,7 +908,7 @@ func TestRunWithHandleTargetError(t *testing.T) {
 	)
 	err := runWithContext(lib, func(tc TestCase) {
 		tc.Target(1.0, "x")
-	}, applyOpts([]Option{WithDerandomize(false), WithSingleTestCase()}))
+	}, applyOpts([]Option{WithDerandomize(false), WithTestCases(1)}))
 	if !errors.Is(err, libhegel.E_BACKEND) || !strings.Contains(err.Error(), "boom") {
 		t.Fatalf("expected target backend error, got %v", err)
 	}
@@ -980,7 +983,7 @@ func TestRunWithHandleUnrecognizedShortCircuit(t *testing.T) {
 	lib := libhegel.Stub(t,
 		uintptr(1), libhegel.OK, // settings_new
 		libhegel.OK,             // derandomize
-		libhegel.OK,             // mode (single-test-case)
+		libhegel.OK,             // settings
 		uintptr(1), libhegel.OK, // run_start
 		uintptr(1), libhegel.OK, // next_test_case: one case
 		false, libhegel.OK, // is_nondeterministic
@@ -988,7 +991,7 @@ func TestRunWithHandleUnrecognizedShortCircuit(t *testing.T) {
 	var sentinel = errors.New("weird")
 	err := runWithContext(lib, func(tc TestCase) {
 		tc.abort(sentinel)
-	}, applyOpts([]Option{WithDerandomize(false), WithSingleTestCase()}))
+	}, applyOpts([]Option{WithDerandomize(false), WithTestCases(1)}))
 	if !errors.Is(err, sentinel) {
 		t.Fatalf("runWithContext() error = %v, want %v", err, sentinel)
 	}

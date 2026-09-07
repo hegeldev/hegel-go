@@ -167,7 +167,7 @@ func (s *testCase) clone() (TestCase, error) {
 }
 
 func (s *testCase) stateMachineNew(ruleNames []string, ruleGroups []int64, invariantNames []string, maxConcurrency int) (*libhegel.StateMachine, int64, error) {
-	machine, concurrency, err := s.tc.NewStateMachine(s.ctx, ruleNames, ruleGroups, invariantNames, 1, int64(maxConcurrency))
+	machine, concurrency, err := s.tc.NewStateMachine(s.ctx, ruleNames, ruleGroups, invariantNames, nil, 1, int64(maxConcurrency))
 	return machine, concurrency, err
 }
 
@@ -368,9 +368,8 @@ type settingApplier func(*libhegel.Context, *libhegel.Settings) error
 // configuring libhegel) keep dedicated fields.
 type runOptions struct {
 	settingsAppliers []settingApplier
-	singleTestCase   bool
-	// output receives note/draw-report output during single-test-case mode
-	// and during the final replay of interesting cases. nil means no output.
+	// output receives note/draw-report output during the final replay of
+	// interesting cases. nil means no output.
 	output io.Writer
 }
 
@@ -496,18 +495,6 @@ func WithPhases(phases ...Phase) Option {
 	}
 }
 
-// WithSingleTestCase runs exactly one test case with no shrinking, replay, or
-// example database. Use it for long-running workloads or tests whose body is
-// not safely re-runnable on the same inputs.
-func WithSingleTestCase() Option {
-	return func(o *runOptions) {
-		o.singleTestCase = true
-		o.addSetting(func(ctx *libhegel.Context, s *libhegel.Settings) error {
-			return s.Mode(ctx, libhegel.MODE_SINGLE_TEST_CASE)
-		})
-	}
-}
-
 // withDatabaseKey sets the example-database key. Unexported: only [Test]
 // supplies a key, deriving it from t.Name(). The key is applied unconditionally;
 // libhegel ignores it when the database is disabled.
@@ -519,10 +506,10 @@ func withDatabaseKey(key string) Option {
 	}
 }
 
-// withOutput sets the writer that receives note and draw-report output
-// during single-test-case mode and during the final replay of interesting
-// cases. Unexported: [Run] sets it to [os.Stdout], [Test] to t.Output(),
-// [Workload] to its stdout. Tests use it to inspect output.
+// withOutput sets the writer that receives note and draw-report output during
+// the final replay of interesting cases. Unexported: [Run] sets it to
+// [os.Stdout], [Test] to t.Output(), [Workload] to its stdout. Tests use it to
+// inspect output.
 func withOutput(w io.Writer) Option {
 	return func(o *runOptions) { o.output = w }
 }
@@ -611,11 +598,6 @@ func runWithContext(ctx *libhegel.Context, fn testBody, opts runOptions) error {
 			// NB: It doesn't make sense to propagate user panics when buffering
 			// output because we can't flush the buffer on a panic.
 			out = new(bytes.Buffer)
-		} else if opts.singleTestCase {
-			// We can't replay and output is unbounded. Just output it directly
-			// and propagate user panics.
-			out = opts.output
-			policy = propagateUserPanics
 		}
 
 		state := newTestCase(ctx, tc, out, policy)

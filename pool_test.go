@@ -91,7 +91,7 @@ func TestPoolReusableAndConsumedValues(t *testing.T) {
 		if !pool.IsEmpty() {
 			tc.Errorf("pool length after consuming all values = %d, want 0", pool.Len())
 		}
-	}, WithSingleTestCase())
+	}, WithTestCases(1))
 	if err != nil {
 		t.Fatalf("pool run: %v", err)
 	}

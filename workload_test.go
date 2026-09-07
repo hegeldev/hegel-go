@@ -276,12 +276,12 @@ func TestWorkloadLayeringDefaultAlone(t *testing.T) {
 // --- Workload() (uppercase): success and exit paths ---
 
 func TestWorkloadPublicSuccess(t *testing.T) {
-	withArgs(t, []string{"prog", "--single-test-case"})
+	withArgs(t, []string{"prog"})
 	code := captureWorkloadExit(t)
 
 	Workload(func(tc TestCase) {
 		_ = Draw[bool](tc, Booleans())
-	})
+	}, WithTestCases(1))
 	if *code != 0 {
 		t.Errorf("expected exit code 0 (workloadExit not called); got %d", *code)
 	}

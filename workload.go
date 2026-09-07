@@ -34,10 +34,10 @@ func Workload(fn func(TestCase), opts ...Option) {
 	workloadExit(1)
 }
 
-// workload is the testable core of [Workload]. Note output (interesting cases,
-// single-test-case mode) goes to stdout; flag-package output (parse errors,
-// usage, --help) goes to stderr. Returns nil on success (including --help) or
-// a non-nil error for flag-parse problems and property-test failures.
+// workload is the testable core of [Workload]. Note output for interesting
+// cases goes to stdout; flag-package output (parse errors, usage, --help) goes
+// to stderr. Returns nil on success (including --help) or a non-nil error for
+// flag-parse problems and property-test failures.
 func workload(args []string, stdout io.Writer, stderr io.Writer, fn func(TestCase), opts []Option) error {
 	fs := flag.NewFlagSet(args[0], flag.ContinueOnError)
 	fs.SetOutput(stderr)
@@ -46,7 +46,6 @@ func workload(args []string, stdout io.Writer, stderr io.Writer, fn func(TestCas
 	fs.Var(&derandomizeFlag{}, "derandomize", "use a fixed seed for reproducible runs")
 	fs.Var(&databaseFlag{}, "database", "example database `path`; empty string disables persistence")
 	fs.Var(&suppressHealthCheckFlag{}, "suppress-health-check", "`name` of health check to suppress (repeatable)")
-	fs.Var(&singleTestCaseFlag{}, "single-test-case", "run exactly one test case with no shrinking, replay, or example database")
 
 	if err := fs.Parse(args[1:]); errors.Is(err, flag.ErrHelp) {
 		return nil
@@ -119,35 +118,6 @@ func (f *derandomizeFlag) IsBoolFlag() bool { return true }
 // Option returns the option corresponding to this flag.
 func (f *derandomizeFlag) Option() Option {
 	return WithDerandomize(f.derandomize)
-}
-
-// singleTestCaseFlag wires --single-test-case to [WithSingleTestCase].
-type singleTestCaseFlag struct {
-	singleTestCase bool
-}
-
-func (f *singleTestCaseFlag) String() string {
-	return strconv.FormatBool(f.singleTestCase)
-}
-
-func (f *singleTestCaseFlag) Set(s string) error {
-	b, err := strconv.ParseBool(s)
-	if err != nil {
-		return err
-	}
-	f.singleTestCase = b
-	return nil
-}
-
-// IsBoolFlag tells the flag package that --single-test-case parses without a value.
-func (f *singleTestCaseFlag) IsBoolFlag() bool { return true }
-
-// Option returns the option corresponding to this flag.
-func (f *singleTestCaseFlag) Option() Option {
-	if !f.singleTestCase {
-		return func(*runOptions) {}
-	}
-	return WithSingleTestCase()
 }
 
 // databaseFlag wires --database to [WithDatabase]. A non-empty value sets the

@@ -15,9 +15,6 @@ import (
 	"hegel.dev/go/hegel/internal/libhegel"
 )
 
-// statefulMaxSteps caps the number of rule invocations per test case.
-const statefulMaxSteps = 50
-
 // stateMachine drives a user-supplied struct's Rule-prefixed and
 // Invariant-prefixed methods as a property-tested state machine.
 //
@@ -280,11 +277,11 @@ func (sm *stateMachine) Run(tc TestCase) {
 					worker.tc.log("Rule: %s", rule.name)
 
 					rejected, err := invokeRule(worker.tc, rule.fn)
-					if err != nil { // coverage-ignore
+					if err != nil {
 						return err
 					}
 					if rejected {
-						if err := worker.tc.stateMachineRuleRejected(machine, int64(i)); err != nil {
+						if err := worker.tc.stateMachineRuleRejected(machine, int64(i)); err != nil { // coverage-ignore
 							return err
 						}
 						worker.tc.log("Rule stopped early due to violated assumption.")
@@ -313,7 +310,7 @@ func (sm *stateMachine) Run(tc TestCase) {
 			tc.abort(errs[0])
 		}
 		for _, inv := range sm.invariants {
-			if _, err := invokeRule(tc, inv.fn); err != nil { // coverage-ignore
+			if _, err := invokeRule(tc, inv.fn); err != nil {
 				tc.abort(err)
 			}
 		}
