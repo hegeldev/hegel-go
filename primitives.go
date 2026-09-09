@@ -581,19 +581,65 @@ func Dates() Generator[time.Time] {
 	})
 }
 
-// Datetimes returns a Generator that produces time.Time values (naive datetime
-// in UTC).
-func Datetimes() Generator[time.Time] {
-	return genFunc[time.Time](func(tc TestCase) (time.Time, error) {
-		ctx, ltc := tc.engine()
-		dt, err := ltc.GenerateDatetime(ctx,
-			libhegel.Datetime{Date: fullDateMin},
-			libhegel.Datetime{Date: fullDateMax, Time: fullTimeMax})
+// DatetimeGenerator configures and generates time.Time values. Use
+// [Datetimes] to create one, then chain builder methods to configure it.
+type DatetimeGenerator struct {
+	timezones Generator[*time.Location]
+}
+
+// Datetimes returns a DatetimeGenerator that produces time.Time values in the
+// full Gregorian range, years 1 through 9999, at microsecond resolution.
+// Values are in UTC unless [DatetimeGenerator.Timezones] is set.
+func Datetimes() DatetimeGenerator {
+	return DatetimeGenerator{}
+}
+
+// Timezones makes the generator produce zone-aware values: each generated
+// wall-clock datetime is paired with a location drawn from timezones, such as
+// [Timezones] for the IANA database or [Just] to pin one, and read in it:
+//
+//	hegel.Datetimes().Timezones(hegel.Timezones())
+//
+// Wall-clock readings the location skips, such as the hour lost to a
+// daylight-saving transition, are normalized the way [time.Date] normalizes
+// them.
+func (g DatetimeGenerator) Timezones(timezones Generator[*time.Location]) DatetimeGenerator {
+	g.timezones = timezones
+	return g
+}
+
+// draw produces a datetime from the engine, read as wall-clock time in UTC or
+// in a drawn location. With no timezone generator nothing beyond the datetime
+// is drawn, so the choice sequence matches the generator before the option
+// existed. With one, the location is drawn after the datetime under a TUPLE
+// span so the shrinker treats the pair as a unit.
+func (g DatetimeGenerator) draw(tc TestCase) (time.Time, error) {
+	if g.timezones == nil {
+		dt, err := g.drawNaive(tc)
 		if err != nil {
 			return time.Time{}, err
 		}
-		return dt.ToTime(), nil
+		return dt.ToTime(time.UTC), nil
+	}
+	return withSpan(tc, libhegel.LABEL_TUPLE, func() (time.Time, error) {
+		dt, err := g.drawNaive(tc)
+		if err != nil {
+			return time.Time{}, err
+		}
+		loc, err := g.timezones.draw(tc)
+		if err != nil {
+			return time.Time{}, err
+		}
+		return dt.ToTime(loc), nil
 	})
+}
+
+// drawNaive draws the wall-clock datetime from the engine.
+func (g DatetimeGenerator) drawNaive(tc TestCase) (libhegel.Datetime, error) {
+	ctx, ltc := tc.engine()
+	return ltc.GenerateDatetime(ctx,
+		libhegel.Datetime{Date: fullDateMin},
+		libhegel.Datetime{Date: fullDateMax, Time: fullTimeMax})
 }
 
 // --- Constants and sampling ---

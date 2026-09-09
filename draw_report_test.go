@@ -6,6 +6,7 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 )
 
 func writeTempSource(t *testing.T, body string) string {
@@ -205,6 +206,31 @@ func TestFormatDrawLineWithoutStatement(t *testing.T) {
 	wantStmt := "hegel.Draw[int](...) = 7"
 	if stmt != wantStmt {
 		t.Fatalf("formatDrawLine statement: got %q, want %q", stmt, wantStmt)
+	}
+}
+
+// A *time.Location prints as the standard library names it rather than as
+// its %#v, which would dump every zone transition of the zone.
+func TestFormatDrawLineLocation(t *testing.T) {
+	t.Parallel()
+	ny, err := time.LoadLocation("America/New_York")
+	if err != nil {
+		t.Fatal(err)
+	}
+	cases := []struct {
+		value any
+		want  string
+	}{
+		{time.UTC, "loc = time.UTC"},
+		{time.Local, "loc = time.Local"},
+		{ny, `loc = time.Location("America/New_York")`},
+		{(*time.Location)(nil), "loc = (*time.Location)(nil)"},
+		{[]*time.Location{}, "loc = []*time.Location{}"},
+	}
+	for _, c := range cases {
+		if got := formatDrawLine("loc", c.value); got != c.want {
+			t.Errorf("formatDrawLine(%v): got %q, want %q", c.value, got, c.want)
+		}
 	}
 }
 

@@ -78,6 +78,35 @@ func TestDatetimesDrawError(t *testing.T) {
 	}
 }
 
+func TestTimezonesDrawError(t *testing.T) {
+	t.Parallel()
+	tc := newStubTestCase(t, int64(0), libhegel.E_BACKEND, "boom")
+	if _, err := Timezones().draw(tc); err == nil {
+		t.Fatal("expected timezone index draw error")
+	}
+}
+
+// TestDatetimesWithTimezonesDatetimeDrawError covers the span-wrapped path
+// failing on the datetime draw: start_span succeeds, generate_datetime fails.
+func TestDatetimesWithTimezonesDatetimeDrawError(t *testing.T) {
+	t.Parallel()
+	tc := newStubTestCase(t, libhegel.OK, libhegel.Datetime{}, libhegel.E_BACKEND, "boom")
+	if _, err := Datetimes().Timezones(Timezones()).draw(tc); err == nil {
+		t.Fatal("expected datetime draw error")
+	}
+}
+
+// TestDatetimesWithTimezonesLocationDrawError covers the span-wrapped path
+// failing on the location draw: start_span and generate_datetime succeed, the
+// timezone index draw fails.
+func TestDatetimesWithTimezonesLocationDrawError(t *testing.T) {
+	t.Parallel()
+	tc := newStubTestCase(t, libhegel.OK, libhegel.Datetime{}, libhegel.OK, int64(0), libhegel.E_BACKEND, "boom")
+	if _, err := Datetimes().Timezones(Timezones()).draw(tc); err == nil {
+		t.Fatal("expected timezone draw error")
+	}
+}
+
 func TestSampledFromDrawError(t *testing.T) {
 	t.Parallel()
 	tc := newStubTestCase(t, int64(0), libhegel.E_BACKEND, "boom")

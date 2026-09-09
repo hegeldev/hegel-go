@@ -21,8 +21,13 @@ func TestToTime(t *testing.T) {
 		t.Errorf("Date.ToTime() = %v, want %v", got, want)
 	}
 	dt := Datetime{Date: d, Time: Time{Hour: 13, Minute: 20, Second: 30, Microsecond: 123456}}
-	if got, want := dt.ToTime(), time.Date(2026, 7, 7, 13, 20, 30, 123456000, time.UTC); !got.Equal(want) {
-		t.Errorf("Datetime.ToTime() = %v, want %v", got, want)
+	if got, want := dt.ToTime(time.UTC), time.Date(2026, 7, 7, 13, 20, 30, 123456000, time.UTC); !got.Equal(want) {
+		t.Errorf("Datetime.ToTime(UTC) = %v, want %v", got, want)
+	}
+	// A non-UTC location keeps the wall-clock reading and shifts the instant.
+	east := time.FixedZone("UTC+2", 2*60*60)
+	if got, want := dt.ToTime(east), time.Date(2026, 7, 7, 13, 20, 30, 123456000, east); !got.Equal(want) || got.Location() != east {
+		t.Errorf("Datetime.ToTime(UTC+2) = %v (%v), want %v", got, got.Location(), want)
 	}
 }
 

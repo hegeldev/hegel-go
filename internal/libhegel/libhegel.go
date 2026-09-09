@@ -319,11 +319,13 @@ type Datetime struct {
 	Time Time
 }
 
-// ToTime converts the naive datetime to a [time.Time] in UTC.
-func (dt *Datetime) ToTime() time.Time {
+// ToTime converts the naive datetime to a [time.Time] with that wall-clock
+// reading in loc. A reading loc skips, such as the hour lost to a
+// daylight-saving transition, is normalized the way [time.Date] normalizes it.
+func (dt *Datetime) ToTime(loc *time.Location) time.Time {
 	return time.Date(int(dt.Date.Year), time.Month(dt.Date.Month), int(dt.Date.Day),
 		int(dt.Time.Hour), int(dt.Time.Minute), int(dt.Time.Second),
-		int(dt.Time.Microsecond)*1000, time.UTC)
+		int(dt.Time.Microsecond)*1000, loc)
 }
 
 // bytesResult mirrors hegel_generate_bytes_result_t: an engine-allocated byte

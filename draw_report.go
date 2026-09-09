@@ -9,6 +9,7 @@ import (
 	"runtime"
 	"strings"
 	"sync"
+	"time"
 )
 
 var drawReportSource = newSourceCache()
@@ -131,9 +132,25 @@ func formatDrawReport(skip int, value any) string {
 
 func formatDrawLine(stmt string, value any) string {
 	if stmt == "" {
-		stmt = fmt.Sprintf("hegel.Draw[%T](...) = %#v", value, value)
+		stmt = fmt.Sprintf("hegel.Draw[%T](...) = %s", value, goRepr(value))
 	} else {
-		stmt = fmt.Sprintf("%s = %#v", stmt, value)
+		stmt = fmt.Sprintf("%s = %s", stmt, goRepr(value))
 	}
 	return stmt
+}
+
+// goRepr renders value as Go syntax, as %#v does, except for a *time.Location:
+// its %#v dumps every zone transition (tens of kilobytes for a real zone), so
+// it prints the way [time.Time.GoString] names a location instead.
+func goRepr(value any) string {
+	if loc, ok := value.(*time.Location); ok && loc != nil {
+		switch loc {
+		case time.UTC:
+			return "time.UTC"
+		case time.Local:
+			return "time.Local"
+		}
+		return fmt.Sprintf("time.Location(%q)", loc.String())
+	}
+	return fmt.Sprintf("%#v", value)
 }
