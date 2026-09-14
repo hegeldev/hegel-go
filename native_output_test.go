@@ -33,7 +33,7 @@ func TestNativeOutputLifecycle(t *testing.T) {
 		}
 		tc.Note("parent after clone")
 		clone.Note("child")
-		clone.Note("framework 3")
+		clone.log("framework %d", 3)
 		grandchild, err := clone.clone()
 		if err != nil {
 			t.Fatal(err)

@@ -106,6 +106,12 @@ func (s *testCase) Note(message string) {
 	}
 }
 
+func (s *testCase) log(format string, args ...any) {
+	if s.printer != nil {
+		s.Note(fmt.Sprintf(format, args...))
+	}
+}
+
 func (s *testCase) reportDraw(skip int, value any) {
 	if s.printer == nil {
 		return

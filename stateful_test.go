@@ -171,6 +171,18 @@ func (tc *concurrentTestCase) Note(message string) {
 	}
 }
 
+func (tc *concurrentTestCase) log(format string, args ...any) {
+	if tc.TestCase != nil {
+		tc.TestCase.log(format, args...)
+		return
+	}
+	if tc.out != nil {
+		tc.shared.outputMu.Lock()
+		defer tc.shared.outputMu.Unlock()
+		fmt.Fprintln(tc.out, fmt.Sprintf(format, args...))
+	}
+}
+
 func (tc *concurrentTestCase) setWorker(index int64) error {
 	if tc.shared.workerErr != nil {
 		return tc.shared.workerErr

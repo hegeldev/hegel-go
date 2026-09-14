@@ -436,6 +436,19 @@ func newStubTestCase(t testing.TB, opReturns ...any) *testCase {
 	return state
 }
 
+func TestFrameworkLogWritesWithoutLocation(t *testing.T) {
+	t.Parallel()
+	var out strings.Builder
+	tc := newEmittingTestCase(t, &out)
+	tc.log("Round %d", 3)
+	if _, err := tc.run(func(TestCase) {}); err != nil {
+		t.Fatal(err)
+	}
+	if got, want := out.String(), "Round 3\n"; got != want {
+		t.Fatalf("log output = %q, want %q", got, want)
+	}
+}
+
 func TestDrawReportOmitsLocation(t *testing.T) {
 	t.Parallel()
 	var out strings.Builder
