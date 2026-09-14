@@ -436,25 +436,12 @@ func newStubTestCase(t testing.TB, opReturns ...any) *testCase {
 	return state
 }
 
-func TestFrameworkLogWritesWithoutLocation(t *testing.T) {
-	t.Parallel()
-	var out strings.Builder
-	tc := newEmittingTestCase(t, &out)
-	tc.log("Round %d", 3)
-	if err := tc.flushNativeOutput(); err != nil {
-		t.Fatal(err)
-	}
-	if got, want := out.String(), "Round 3\n"; got != want {
-		t.Fatalf("log output = %q, want %q", got, want)
-	}
-}
-
 func TestDrawReportOmitsLocation(t *testing.T) {
 	t.Parallel()
 	var out strings.Builder
 	tc := newEmittingTestCase(t, &out)
 	tc.reportDraw(0, 42)
-	if err := tc.flushNativeOutput(); err != nil {
+	if _, err := tc.run(func(TestCase) {}); err != nil {
 		t.Fatal(err)
 	}
 	if got := out.String(); !strings.Contains(got, " = 42\n") || strings.Contains(got, "runner_test.go:") {
@@ -701,9 +688,9 @@ func TestRunWithContextEmitsNondeterministicFailureOutput(t *testing.T) {
 		true, libhegel.OK, // is_nondeterministic
 		uintptr(1), libhegel.OK, // printer
 		libhegel.OK,                     // note
-		libhegel.OK,                     // mark_complete
 		libhegel.OK,                     // resolve
 		"failure output\n", libhegel.OK, // value
+		libhegel.OK,             // mark_complete
 		uintptr(0), libhegel.OK, // next_test_case: run finished
 		uintptr(1), libhegel.OK, // run_result
 		libhegel.RUN_STATUS_FAILED_NONDETERMINISTIC, libhegel.OK, // result status

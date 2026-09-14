@@ -47,9 +47,6 @@ type TestCase interface {
 	// Log routes the message through Note (only emitted on final replay).
 	Log(args ...any)
 
-	// log writes framework-generated output without user call-site attribution.
-	log(format string, args ...any)
-
 	// setWorker attributes output to a concurrent worker.
 	setWorker(int64) error
 

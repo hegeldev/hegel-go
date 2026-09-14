@@ -190,7 +190,7 @@ func TestTLogEmitsWhenEmitting(t *testing.T) {
 	ht.Log("hello", " world")
 	ht.Logf("value=%d", 42)
 	ht.Note("a note")
-	if err := ht.flushNativeOutput(); err != nil {
+	if _, err := ht.run(func(TestCase) {}); err != nil {
 		t.Fatal(err)
 	}
 	if got := strings.TrimSpace(out.String()); got != "a note" {
@@ -204,7 +204,7 @@ func TestTestCaseNoteWritesToOut(t *testing.T) {
 	var buf bytes.Buffer
 	s := newEmittingTestCase(t, &buf)
 	s.Note("hello world")
-	if err := s.flushNativeOutput(); err != nil {
+	if _, err := s.run(func(TestCase) {}); err != nil {
 		t.Fatal(err)
 	}
 	if got := strings.TrimSpace(buf.String()); got != "hello world" {
@@ -236,7 +236,7 @@ func TestTestCaseLogWritesToOut(t *testing.T) {
 	var buf bytes.Buffer
 	s := newEmittingTestCase(t, &buf)
 	s.Log("hello", " world")
-	if err := s.flushNativeOutput(); err != nil {
+	if _, err := s.run(func(TestCase) {}); err != nil {
 		t.Fatal(err)
 	}
 	if got := strings.TrimSpace(buf.String()); got != "hello world" {
@@ -250,7 +250,7 @@ func TestTReportDrawEmits(t *testing.T) {
 	var out bytes.Buffer
 	ht := makeEmittingT(t, &out)
 	ht.reportDraw(0, 42)
-	if err := ht.flushNativeOutput(); err != nil {
+	if _, err := ht.run(func(TestCase) {}); err != nil {
 		t.Fatal(err)
 	}
 	if got := out.String(); !strings.Contains(got, " = 42") {

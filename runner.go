@@ -106,12 +106,6 @@ func (s *testCase) Note(message string) {
 	}
 }
 
-func (s *testCase) log(format string, args ...any) {
-	if s.printer != nil {
-		s.Note(fmt.Sprintf(format, args...))
-	}
-}
-
 func (s *testCase) reportDraw(skip int, value any) {
 	if s.printer == nil {
 		return
@@ -690,13 +684,21 @@ func (s *testCase) invoke(fn testBody) (result error) {
 	return nil
 }
 
-func (s *testCase) run(fn testBody) (failed bool, err error) {
-	var result error
-	defer func() {
-		err = errors.Join(err, s.flushNativeOutput())
+func (s *testCase) run(fn testBody) (bool, error) {
+	result := s.invoke(fn)
+	if s.out != nil {
+		// Match the Rust frontend: no deferred regions is a harmless resolve error;
+		// Value still reports layout errors after resolution.
+		_ = s.printer.Resolve(s.ctx)
+		value, err := s.printer.Value(s.ctx)
+		if err != nil {
+			return false, err
+		}
+		if _, err := io.WriteString(s.out, value); err != nil {
+			return false, err
+		}
 		formatInvocationResult(s.out, result)
-	}()
-	result = s.invoke(fn)
+	}
 	if result == nil {
 		return false, s.tc.MarkComplete(s.ctx, libhegel.STATUS_VALID, "")
 	}
@@ -803,23 +805,6 @@ func isHegelFrame(fn string) bool {
 
 func isNotHegelFrame(fn string) bool {
 	return !isHegelFrame(fn)
-}
-
-// flushNativeOutput runs after workers join, including while a final replay
-// panic unwinds. Only the root emits the shared document.
-func (s *testCase) flushNativeOutput() error {
-	if s.out == nil {
-		return nil
-	}
-	// Match the Rust frontend: no deferred regions is a harmless resolve error;
-	// Value still reports layout errors after resolution.
-	_ = s.printer.Resolve(s.ctx)
-	value, err := s.printer.Value(s.ctx)
-	if err != nil {
-		return err
-	}
-	_, err = io.WriteString(s.out, value)
-	return err
 }
 
 func (s *testCase) setWorker(index int64) error {

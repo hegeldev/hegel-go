@@ -224,9 +224,9 @@ func (sm *stateMachine) Run(tc TestCase) {
 	}
 
 	if sm.maxConcurrency != 1 {
-		tc.log("Concurrency level: %d", concurrency)
+		tc.Note(fmt.Sprintf("Concurrency level: %d", concurrency))
 	}
-	tc.log("Initial invariant check.")
+	tc.Note("Initial invariant check.")
 
 	// Each worker's native clone anchors its whole transcript here. Attribute
 	// before starting goroutines; thereafter each handle has one owner.
@@ -274,7 +274,7 @@ func (sm *stateMachine) Run(tc TestCase) {
 
 		for i, worker := range workers {
 			workersGroup.Go(i, func() error {
-				worker.log("---------------- Round %d: group %q ----------------", round, groupName)
+				worker.Note(fmt.Sprintf("---------------- Round %d: group %q ----------------", round, groupName))
 				for {
 					idx, err := worker.stateMachineNextRule(machine, int64(i))
 					if err != nil {
@@ -284,7 +284,7 @@ func (sm *stateMachine) Run(tc TestCase) {
 						return nil
 					}
 					rule := sm.rules[idx]
-					worker.log("Rule: %s", rule.name)
+					worker.Note(fmt.Sprintf("Rule: %s", rule.name))
 
 					rejected, err := invokeRule(worker, rule.fn)
 					if err != nil {
@@ -294,7 +294,7 @@ func (sm *stateMachine) Run(tc TestCase) {
 						if err := worker.stateMachineRuleRejected(machine, int64(i)); err != nil { // coverage-ignore
 							return err
 						}
-						worker.log("Rule stopped early due to violated assumption.")
+						worker.Note("Rule stopped early due to violated assumption.")
 					}
 				}
 			})
@@ -308,7 +308,7 @@ func (sm *stateMachine) Run(tc TestCase) {
 			for _, err := range dropped {
 				if outcome, ok := errors.AsType[*invocationError](err.err); ok {
 					location := findCallerInPCs(outcome.pcs, isNotHegelFrame)
-					tc.log("Dropped concurrent %s from worker %d at %s: %s", outcome.kind, err.worker, location, outcome)
+					tc.Note(fmt.Sprintf("Dropped concurrent %s from worker %d at %s: %s", outcome.kind, err.worker, location, outcome))
 				}
 			}
 			tc.abort(errs[0])

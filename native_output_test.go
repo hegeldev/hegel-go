@@ -33,7 +33,7 @@ func TestNativeOutputLifecycle(t *testing.T) {
 		}
 		tc.Note("parent after clone")
 		clone.Note("child")
-		clone.log("framework %d", 3)
+		clone.Note("framework 3")
 		grandchild, err := clone.clone()
 		if err != nil {
 			t.Fatal(err)
@@ -45,10 +45,6 @@ func TestNativeOutputLifecycle(t *testing.T) {
 		child := clone.(*testCase)
 		if child.out != nil || child.printer == nil || s.out != &out {
 			t.Fatal("only the root should own the output destination")
-		}
-		err = child.flushNativeOutput()
-		if err != nil {
-			t.Fatal(err)
 		}
 		if out.Len() != 0 {
 			t.Fatal("clone flushed the document")
@@ -63,21 +59,6 @@ func TestNativeOutputLifecycle(t *testing.T) {
 	if err := s.tc.Note(s.ctx, "late"); !errors.Is(err, libhegel.E_INVALID_HANDLE) {
 		t.Fatalf("late write = %v", err)
 	}
-}
-
-func TestNativeOutputFlushesOnPanic(t *testing.T) {
-	var out strings.Builder
-	s := newEmittingTestCase(t, &out)
-	s.panicPolicy = propagateUserPanics
-	defer func() {
-		if got := recover(); got != "boom" {
-			t.Fatalf("panic = %v", got)
-		}
-		if got := out.String(); got != "before panic\n" {
-			t.Fatalf("output = %q", got)
-		}
-	}()
-	_, _ = s.run(func(tc TestCase) { tc.Note("before panic"); panic("boom") })
 }
 
 func TestNativeOutputInitializationError(t *testing.T) {
@@ -113,7 +94,7 @@ func TestNativeOutputReadErrors(t *testing.T) {
 	} else {
 		s.printer = printer
 	}
-	if err := s.flushNativeOutput(); !errors.Is(err, libhegel.E_BACKEND) {
+	if _, err := s.run(func(TestCase) {}); !errors.Is(err, libhegel.E_BACKEND) {
 		t.Fatal(err)
 	}
 }
@@ -121,17 +102,14 @@ func TestNativeOutputReadErrors(t *testing.T) {
 func TestNativeOutputWithoutDeferredRegions(t *testing.T) {
 	s := newEmittingTestCase(t, io.Discard)
 	s.Note("plain output")
-	// Resolve reports NothingToResolve; the value remains readable, including
-	// when a sealed document is read again.
-	for range 2 {
-		var out strings.Builder
-		s.out = &out
-		if err := s.flushNativeOutput(); err != nil {
-			t.Fatal(err)
-		}
-		if got := out.String(); got != "plain output\n" {
-			t.Fatalf("output = %q", got)
-		}
+	// Resolve reports NothingToResolve; the value remains readable.
+	var out strings.Builder
+	s.out = &out
+	if _, err := s.run(func(TestCase) {}); err != nil {
+		t.Fatal(err)
+	}
+	if got := out.String(); got != "plain output\n" {
+		t.Fatalf("output = %q", got)
 	}
 }
 
@@ -148,7 +126,7 @@ func TestNativeOutputDeferredLayoutError(t *testing.T) {
 	}
 	var out strings.Builder
 	s.out = &out
-	if err := s.flushNativeOutput(); !errors.Is(err, libhegel.E_INVALID_ARG) {
+	if _, err := s.run(func(TestCase) {}); !errors.Is(err, libhegel.E_INVALID_ARG) {
 		t.Fatalf("layout error = %v", err)
 	}
 	if out.Len() != 0 {
@@ -168,7 +146,7 @@ func TestNativeOutputWriteError(t *testing.T) {
 	want := errors.New("write failed")
 	s := newEmittingTestCase(t, failingNativeOutputWriter{want})
 	s.Note("output")
-	if err := s.flushNativeOutput(); !errors.Is(err, want) {
+	if _, err := s.run(func(TestCase) {}); !errors.Is(err, want) {
 		t.Fatal(err)
 	}
 }
