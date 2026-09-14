@@ -1,16 +1,13 @@
 package hegel
 
 import (
-	"bytes"
 	"errors"
 	"fmt"
-	"io"
 	"reflect"
 	"runtime"
 	"slices"
 	"sort"
 	"strings"
-	"time"
 
 	"hegel.dev/go/hegel/internal/libhegel"
 )
@@ -212,29 +209,28 @@ func (sm *stateMachine) Run(tc TestCase) {
 		tc.abort(err)
 	}
 
-	type stateMachineWorker struct {
-		tc     TestCase
-		output *bytes.Buffer
+	if sm.maxConcurrency != 1 {
+		tc.log("Concurrency level: %d", concurrency)
 	}
-	workers := make([]stateMachineWorker, 0, concurrency)
-	start := time.Now()
+	tc.log("Initial invariant check.")
+
+	// Each worker's native clone anchors its whole transcript here. Attribute
+	// before starting goroutines; thereafter each handle has one owner.
+	workers := make([]TestCase, 0, concurrency)
 	for worker := range concurrency {
 		clone, err := tc.clone()
 		if err != nil {
 			tc.abort(err)
 		}
-		var output *bytes.Buffer
-		if concurrency > 1 && clone.output() != nil {
-			output = new(bytes.Buffer)
-			clone.setOutput(&workerOutput{worker: worker, start: start, out: output, lineStart: true})
+		if concurrency > 1 {
+			if err := clone.setWorker(worker); err != nil {
+				tc.abort(err)
+			}
 		}
-		workers = append(workers, stateMachineWorker{tc: clone, output: output})
+		workers = append(workers, clone)
 	}
 
-	if sm.maxConcurrency != 1 {
-		tc.log("Concurrency level: %d", concurrency)
-	}
-	tc.log("Initial invariant check.")
+	// Clone before running invariants so their draws retain the same streams.
 	for _, inv := range sm.invariants {
 		if _, err := invokeRule(tc, inv.fn); err != nil {
 			tc.abort(err)
@@ -261,12 +257,12 @@ func (sm *stateMachine) Run(tc TestCase) {
 		if group != 0 {
 			groupName = sm.configuredRuleGroups[int(group)-1].name
 		}
-		tc.log("---------------- Round %d: group %q ----------------", round, groupName)
 
 		for i, worker := range workers {
 			workersGroup.Go(i, func() error {
+				worker.log("---------------- Round %d: group %q ----------------", round, groupName)
 				for {
-					idx, err := worker.tc.stateMachineNextRule(machine, int64(i))
+					idx, err := worker.stateMachineNextRule(machine, int64(i))
 					if err != nil {
 						return err
 					}
@@ -274,28 +270,22 @@ func (sm *stateMachine) Run(tc TestCase) {
 						return nil
 					}
 					rule := sm.rules[idx]
-					worker.tc.log("Rule: %s", rule.name)
+					worker.log("Rule: %s", rule.name)
 
-					rejected, err := invokeRule(worker.tc, rule.fn)
+					rejected, err := invokeRule(worker, rule.fn)
 					if err != nil {
 						return err
 					}
 					if rejected {
-						if err := worker.tc.stateMachineRuleRejected(machine, int64(i)); err != nil { // coverage-ignore
+						if err := worker.stateMachineRuleRejected(machine, int64(i)); err != nil { // coverage-ignore
 							return err
 						}
-						worker.tc.log("Rule stopped early due to violated assumption.")
+						worker.log("Rule stopped early due to violated assumption.")
 					}
 				}
 			})
 		}
 		errs := workersGroup.Wait()
-		for _, worker := range workers {
-			if worker.output != nil && worker.output.Len() != 0 {
-				tc.log("%s", strings.TrimSuffix(worker.output.String(), "\n"))
-				worker.output.Reset()
-			}
-		}
 		if len(errs) != 0 {
 			dropped := errs[1:]
 			sort.Slice(dropped, func(i, j int) bool {
@@ -356,41 +346,6 @@ func RunStateful[M any, T interface{ *M }](tc TestCase, machine T, opts ...State
 type workerResult struct {
 	worker int
 	err    error
-}
-
-type workerOutput struct {
-	worker    int64
-	start     time.Time
-	out       io.Writer
-	lineStart bool
-}
-
-func (w *workerOutput) Write(p []byte) (int, error) {
-	written := 0
-	for len(p) != 0 {
-		if w.lineStart {
-			elapsed := time.Since(w.start).Seconds() * 1000
-			if _, err := fmt.Fprintf(w.out, "[worker %d +%.3fms] ", w.worker, elapsed); err != nil {
-				return written, err
-			}
-			w.lineStart = false
-		}
-		end := bytes.IndexByte(p, '\n') + 1
-		if end == 0 {
-			end = len(p)
-		}
-		n, err := w.out.Write(p[:end])
-		written += n
-		if err != nil {
-			return written, err
-		}
-		if n != end {
-			return written, io.ErrShortWrite
-		}
-		w.lineStart = p[end-1] == '\n'
-		p = p[end:]
-	}
-	return written, nil
 }
 
 type workerError struct {

@@ -466,15 +466,6 @@ func TestFrameworkLogWritesWithoutLocation(t *testing.T) {
 	}
 }
 
-func TestTestCaseSetOutput(t *testing.T) {
-	var out strings.Builder
-	tc := &testCase{}
-	tc.setOutput(&out)
-	if tc.output() != &out {
-		t.Fatal("setOutput did not replace the output writer")
-	}
-}
-
 func TestDrawReportOmitsLocation(t *testing.T) {
 	t.Parallel()
 	var out strings.Builder
@@ -723,7 +714,12 @@ func TestRunWithContextEmitsNondeterministicFailureOutput(t *testing.T) {
 		uintptr(1), libhegel.OK, // run_start
 		uintptr(1), libhegel.OK, // next_test_case: one case
 		true, libhegel.OK, // is_nondeterministic
-		libhegel.OK,             // mark_complete
+		uintptr(1), libhegel.OK, // printer
+		libhegel.OK,                                        // note
+		libhegel.OK, libhegel.OK, libhegel.OK, libhegel.OK, // diagnostic header
+		libhegel.OK, libhegel.OK, libhegel.OK, libhegel.OK, // diagnostic frame
+		libhegel.OK,                     // mark_complete
+		"failure output\n", libhegel.OK, // value
 		uintptr(0), libhegel.OK, // next_test_case: run finished
 		uintptr(1), libhegel.OK, // run_result
 		libhegel.RUN_STATUS_FAILED_NONDETERMINISTIC, libhegel.OK, // result status
@@ -733,7 +729,7 @@ func TestRunWithContextEmitsNondeterministicFailureOutput(t *testing.T) {
 	opts.output = &output
 	err := runWithContext(lib, func(tc TestCase) {
 		tc.Log("failure output")
-		tc.Fail()
+		tc.abort(&invocationError{status: libhegel.STATUS_INTERESTING, cause: "failed", kind: "failure"})
 	}, opts)
 	if err != nil {
 		t.Fatalf("runWithContext: %v", err)

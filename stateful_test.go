@@ -7,6 +7,7 @@ import (
 	"runtime"
 	"slices"
 	"strings"
+	"sync"
 	"sync/atomic"
 	"testing"
 	"time"
@@ -139,12 +140,14 @@ type concurrentTestCase struct {
 }
 
 type concurrentTestCaseShared struct {
+	outputMu                sync.Mutex // Protects the fallback writer shared by test clones.
 	selectedConcurrency     int64
 	selectedGroup           libhegel.StateMachineGroup
 	requestedMaxConcurrency int
 	ruleGroups              []int64
 	cloneCount              int64
 	cloneErr                error
+	workerErr               error
 	ranGroup                bool
 	spanStarts              atomic.Int64
 	spanStops               atomic.Int64
@@ -156,20 +159,38 @@ type concurrentTestCaseShared struct {
 }
 
 func (tc *concurrentTestCase) Note(message string) {
+	if tc.TestCase != nil {
+		tc.TestCase.Note(message)
+		return
+	}
 	if tc.out != nil {
+		tc.shared.outputMu.Lock()
+		defer tc.shared.outputMu.Unlock()
 		fmt.Fprintln(tc.out, message)
 	}
 }
 
 func (tc *concurrentTestCase) log(format string, args ...any) {
+	if tc.TestCase != nil {
+		tc.TestCase.log(format, args...)
+		return
+	}
 	if tc.out != nil {
+		tc.shared.outputMu.Lock()
+		defer tc.shared.outputMu.Unlock()
 		fmt.Fprintln(tc.out, fmt.Sprintf(format, args...))
 	}
 }
 
-func (tc *concurrentTestCase) output() io.Writer { return tc.out }
-
-func (tc *concurrentTestCase) setOutput(out io.Writer) { tc.out = out }
+func (tc *concurrentTestCase) setWorker(index int64) error {
+	if tc.shared.workerErr != nil {
+		return tc.shared.workerErr
+	}
+	if tc.TestCase != nil {
+		return tc.TestCase.setWorker(index)
+	}
+	return nil
+}
 
 func (tc *concurrentTestCase) Assume(condition bool) {
 	if !condition {
@@ -212,7 +233,15 @@ func (tc *concurrentTestCase) clone() (TestCase, error) {
 	if tc.shared.cloneErr != nil {
 		return nil, tc.shared.cloneErr
 	}
-	return &concurrentTestCase{shared: tc.shared, out: tc.out}, nil
+	var clone TestCase
+	if tc.TestCase != nil {
+		var err error
+		clone, err = tc.TestCase.clone()
+		if err != nil {
+			return nil, err
+		}
+	}
+	return &concurrentTestCase{TestCase: clone, shared: tc.shared, out: tc.out}, nil
 }
 
 func (tc *concurrentTestCase) stateMachineNew(_ []string, ruleGroups []int64, _ []string, maxConcurrency int) (*libhegel.StateMachine, int64, error) {
@@ -455,6 +484,17 @@ func TestStateMachineAbortsWhenWorkerCloneFails(t *testing.T) {
 	sm.Run(&concurrentTestCase{shared: shared})
 }
 
+func TestStateMachineAbortsWhenWorkerAttributionFails(t *testing.T) {
+	want := errors.New("worker attribution failed")
+	sm, err := newStateMachine(&goodCounter{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	shared := &concurrentTestCaseShared{selectedConcurrency: 2, workerErr: want}
+	defer expectErrorPanic(t, want)
+	sm.Run(&concurrentTestCase{shared: shared})
+}
+
 func TestStateMachineReportsRejectedRule(t *testing.T) {
 	t.Parallel()
 
@@ -515,24 +555,46 @@ func TestStateMachineRunsEngineSelectedWorkersConcurrently(t *testing.T) {
 	}
 }
 
+type nativeOutputRuleMachine struct{}
+
+func (*nativeOutputRuleMachine) RuleStep(tc TestCase) {
+	tc.Note("first note\nsecond note")
+	_ = Draw(tc, Just([]int{111111111, 222222222, 333333333, 444444444}))
+}
+
 func TestStateMachineGroupsRoundOutputByWorker(t *testing.T) {
 	t.Parallel()
 
-	sm, err := newStateMachine(&outputRuleMachine{}, WithBoundedConcurrency(2))
+	sm, err := newStateMachine(&nativeOutputRuleMachine{}, WithBoundedConcurrency(2))
 	if err != nil {
 		t.Fatalf("newStateMachine: %v", err)
 	}
 	var out strings.Builder
-	shared := &concurrentTestCaseShared{
-		selectedConcurrency: 2,
-		reverseWorkerOrder:  make(chan struct{}),
+	err = run(func(tc TestCase) {
+		shared := &concurrentTestCaseShared{selectedConcurrency: 2, reverseWorkerOrder: make(chan struct{})}
+		sm.Run(&concurrentTestCase{TestCase: tc, shared: shared})
+		tc.Fail()
+	}, WithTestCases(1), WithDatabase(""), withOutput(&out))
+	if err == nil {
+		t.Fatal("expected failure")
 	}
-	sm.Run(&concurrentTestCase{shared: shared, out: &out})
+
 	worker0 := strings.Index(out.String(), "[worker 0 +")
 	worker1 := strings.Index(out.String(), "[worker 1 +")
 	if worker0 == -1 || worker1 == -1 || worker0 > worker1 {
 		t.Fatalf("worker output is not grouped in index order:\n%s", out.String())
 	}
+	if initial := strings.Index(out.String(), "Initial invariant check."); initial < 0 || initial > worker0 {
+		t.Fatalf("initial check follows worker output: %s", out.String())
+	}
+	for _, transcript := range []string{out.String()[worker0:worker1], out.String()[worker1:]} {
+		for _, want := range []string{"Round 1:", "Rule: RuleStep", "first note", "second note", "111111111,"} {
+			if !strings.Contains(transcript, want) {
+				t.Errorf("worker transcript missing %q: %s", want, transcript)
+			}
+		}
+	}
+
 }
 
 func TestStateMachineOmitsWorkerMetadataAtConcurrencyOne(t *testing.T) {
@@ -547,88 +609,6 @@ func TestStateMachineOmitsWorkerMetadataAtConcurrencyOne(t *testing.T) {
 	sm.Run(&concurrentTestCase{shared: shared, out: &out})
 	if got := out.String(); strings.Contains(got, "Concurrency level:") || strings.Contains(got, "[worker") {
 		t.Fatalf("sequential output contains concurrency metadata:\n%s", got)
-	}
-}
-
-func TestWorkerOutputPrefixesEachLine(t *testing.T) {
-	t.Parallel()
-
-	tests := []struct {
-		name   string
-		writes []string
-		lines  []string
-	}{
-		{"multiple and fragmented lines", []string{"first\nsecond", " half\n"}, []string{"first", "second half"}},
-		{"fragmented line", []string{"fir", "st\n"}, []string{"first"}},
-		{"separate newline write", []string{"first", "\n"}, []string{"first"}},
-		{"empty write", []string{""}, nil},
-		{"blank line", []string{"\n"}, []string{""}},
-		{"consecutive blank lines", []string{"\n\n"}, []string{"", ""}},
-	}
-	for _, test := range tests {
-		t.Run(test.name, func(t *testing.T) {
-			var out strings.Builder
-			w := &workerOutput{worker: 3, start: time.Now(), out: &out, lineStart: true}
-			for _, input := range test.writes {
-				n, err := w.Write([]byte(input))
-				if err != nil || n != len(input) {
-					t.Fatalf("Write(%q) = (%d, %v), want (%d, nil)", input, n, err, len(input))
-				}
-			}
-
-			got := out.String()
-			if len(test.lines) == 0 {
-				if got != "" {
-					t.Fatalf("worker output = %q, want none", got)
-				}
-				return
-			}
-			physicalLines := strings.Split(strings.TrimSuffix(got, "\n"), "\n")
-			if len(physicalLines) != len(test.lines) {
-				t.Fatalf("worker output = %q, want %d lines", got, len(test.lines))
-			}
-			for i, line := range physicalLines {
-				if !strings.HasPrefix(line, "[worker 3 +") {
-					t.Fatalf("line %d = %q, want worker prefix", i, line)
-				}
-				_, content, ok := strings.Cut(line, "ms] ")
-				if !ok || content != test.lines[i] {
-					t.Fatalf("line %d = %q, want content %q", i, line, test.lines[i])
-				}
-			}
-		})
-	}
-}
-
-type failingWriter struct{}
-
-var errWriteFailed = errors.New("write failed")
-
-func (failingWriter) Write([]byte) (int, error) { return 0, errWriteFailed }
-
-type shortWriter struct{}
-
-func (shortWriter) Write(p []byte) (int, error) { return len(p) - 1, nil }
-
-func TestWorkerOutputPropagatesWriteFailures(t *testing.T) {
-	tests := []struct {
-		name      string
-		out       io.Writer
-		lineStart bool
-		want      error
-	}{
-		{"prefix failure", failingWriter{}, true, errWriteFailed},
-		{"body failure", failingWriter{}, false, errWriteFailed},
-		{"short body write", shortWriter{}, false, io.ErrShortWrite},
-	}
-	for _, test := range tests {
-		t.Run(test.name, func(t *testing.T) {
-			w := &workerOutput{worker: 1, start: time.Now(), out: test.out, lineStart: test.lineStart}
-			_, err := w.Write([]byte("line\n"))
-			if !errors.Is(err, test.want) {
-				t.Fatalf("Write error = %v, want %v", err, test.want)
-			}
-		})
 	}
 }
 

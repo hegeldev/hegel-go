@@ -10,6 +10,7 @@ import (
 	"runtime"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"testing"
 
 	"hegel.dev/go/hegel/internal/libhegel"
@@ -30,8 +31,10 @@ const (
 type testCase struct {
 	ctx               *libhegel.Context
 	tc                *libhegel.TestCase
-	out               io.Writer // nil when output is deferred; otherwise emitted live
-	depth             int       // current span nesting depth
+	out               io.Writer // nil when output is disabled; otherwise the current region
+	printer           *libhegel.Printer
+	document          *nativeDocument
+	depth             int
 	panicPolicy       panicPolicy
 	abortFn           func(error)
 	statefulStepCount int64
@@ -93,6 +96,12 @@ func (s *testCase) Assume(condition bool) {
 }
 
 func (s *testCase) Note(message string) {
+	if _, native := s.out.(*nativeOutput); native {
+		if err := s.tc.Note(s.ctx, message); err != nil {
+			s.abort(err)
+		}
+		return
+	}
 	if s.out != nil {
 		fmt.Fprintln(s.out, message)
 	}
@@ -100,16 +109,8 @@ func (s *testCase) Note(message string) {
 
 func (s *testCase) log(format string, args ...any) {
 	if s.out != nil {
-		fmt.Fprintln(s.out, fmt.Sprintf(format, args...))
+		s.Note(fmt.Sprintf(format, args...))
 	}
-}
-
-func (s *testCase) output() io.Writer {
-	return s.out
-}
-
-func (s *testCase) setOutput(out io.Writer) {
-	s.out = out
 }
 
 func (s *testCase) reportDraw(skip int, value any) {
@@ -156,7 +157,7 @@ func (s *testCase) engine() (*libhegel.Context, *libhegel.TestCase) {
 
 // clone returns a test-case wrapper backed by an independent libhegel stream.
 func (s *testCase) clone() (TestCase, error) {
-	if s.out != nil {
+	if s.out != nil && s.printer == nil {
 		if _, ok := s.out.(*lockedWriter); !ok {
 			s.out = &lockedWriter{w: s.out}
 		}
@@ -167,6 +168,13 @@ func (s *testCase) clone() (TestCase, error) {
 	}
 	clone := newTestCase(s.ctx.Clone(), tc, s.out, s.panicPolicy)
 	clone.statefulStepCount = s.statefulStepCount
+	if s.printer != nil {
+		s.document.needsResolve.Store(true)
+		clone.document = s.document
+		if err := clone.initNativeOutput(); err != nil {
+			return nil, err
+		}
+	}
 	return clone, nil
 }
 
@@ -712,6 +720,13 @@ func (s *testCase) invoke(fn testBody) (result error) {
 }
 
 func (s *testCase) run(fn testBody) (failed bool, err error) {
+	destination := s.out
+	if err := s.initNativeOutput(); err != nil {
+		return false, err
+	}
+	defer func() {
+		err = errors.Join(err, s.flushNativeOutput(destination))
+	}()
 	result := s.invoke(fn)
 	if result == nil {
 		return false, s.tc.MarkComplete(s.ctx, libhegel.STATUS_VALID, "")
@@ -833,4 +848,77 @@ func (w *lockedWriter) Write(p []byte) (int, error) {
 	w.mu.Lock()
 	defer w.mu.Unlock()
 	return w.w.Write(p)
+}
+
+// initNativeOutput is called before invoking user code. Each clone owns its
+// context and printer handle; the engine owns synchronization of their regions.
+func (s *testCase) initNativeOutput() error {
+	if s.out == nil {
+		return nil
+	}
+	printer, err := s.tc.Printer(s.ctx, nil)
+	if err != nil {
+		return err
+	}
+	if s.document == nil {
+		s.document = new(nativeDocument)
+	}
+	s.printer = printer
+	s.out = &nativeOutput{ctx: s.ctx, printer: printer}
+	return nil
+}
+
+// flushNativeOutput runs after workers join, including while a final replay
+// panic unwinds. Only the root emits the shared document.
+func (s *testCase) flushNativeOutput(destination io.Writer) error {
+	if s.printer == nil {
+		return nil
+	}
+	if s.document.needsResolve.Load() {
+		if err := s.printer.Resolve(s.ctx); err != nil {
+			return err
+		}
+	}
+	value, err := s.printer.Value(s.ctx)
+	if err != nil {
+		return err
+	}
+	_, err = io.WriteString(destination, value)
+	return err
+}
+
+// nativeOutput bridges existing text reports into the document without
+// changing their formatting. Unlike Note, Write preserves trailing newlines.
+type nativeOutput struct {
+	ctx     *libhegel.Context
+	printer *libhegel.Printer
+}
+
+func (w *nativeOutput) Write(p []byte) (int, error) {
+	written := 0
+	for len(p) > 0 {
+		line, rest, newline := bytes.Cut(p, []byte("\n"))
+		if err := w.printer.Text(w.ctx, string(line)); err != nil {
+			return written, err
+		}
+		written += len(line)
+		if newline {
+			if err := w.printer.HardBreak(w.ctx); err != nil {
+				return written, err
+			}
+			written++
+		}
+		p = rest
+	}
+	return written, nil
+}
+
+// nativeDocument is shared by all clones. Cloning opens deferred native slots;
+// only the root reads this flag after every worker has finished.
+type nativeDocument struct {
+	needsResolve atomic.Bool
+}
+
+func (s *testCase) setWorker(index int64) error {
+	return s.tc.SetWorker(s.ctx, index)
 }

@@ -1,8 +1,6 @@
 package hegel
 
 import (
-	"io"
-
 	"hegel.dev/go/hegel/internal/libhegel"
 )
 
@@ -52,11 +50,8 @@ type TestCase interface {
 	// log writes framework-generated output without user call-site attribution.
 	log(format string, args ...any)
 
-	// output returns the destination for notes and framework output.
-	output() io.Writer
-
-	// setOutput replaces the destination for notes and framework output.
-	setOutput(io.Writer)
+	// setWorker attributes output to a concurrent worker.
+	setWorker(int64) error
 
 	// Abort the current test case and update status.
 	//
