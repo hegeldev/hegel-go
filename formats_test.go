@@ -1,8 +1,9 @@
 package hegel
 
-// formats_test.go tests email, url, domain, date, and datetime generators.
+// formats_test.go tests email, url, domain, date, datetime, and timezone generators.
 
 import (
+	"slices"
 	"strings"
 	"testing"
 	"time"
@@ -124,6 +125,59 @@ func TestDatetimesE2E(t *testing.T) {
 		}
 		if v.Location() != time.UTC {
 			panic("datetime is not in UTC")
+		}
+	}, WithTestCases(30))
+}
+
+// TestTimezonesE2E verifies that generated locations come from the candidate
+// list and that the generator does not only produce UTC.
+func TestTimezonesE2E(t *testing.T) {
+	t.Parallel()
+
+	sawNonUTC := false
+	Test(t, func(ht *T) {
+		loc := Draw(ht, Timezones())
+		if !slices.Contains(timezoneNames, loc.String()) {
+			panic("unexpected timezone: " + loc.String())
+		}
+		if loc != time.UTC {
+			sawNonUTC = true
+		}
+	}, WithTestCases(50))
+	if !sawNonUTC {
+		t.Error("expected at least one non-UTC location in 50 test cases")
+	}
+}
+
+// TestDatetimesTimezonesE2E verifies zone-aware datetimes carry a drawn
+// location while keeping their wall-clock reading in range.
+func TestDatetimesTimezonesE2E(t *testing.T) {
+	t.Parallel()
+
+	Test(t, func(ht *T) {
+		v := Draw(ht, Datetimes().Timezones(Timezones()))
+		if v.Year() < 1 || v.Year() > 9999 {
+			panic("datetime year out of range")
+		}
+		if !slices.Contains(timezoneNames, v.Location().String()) {
+			panic("unexpected timezone: " + v.Location().String())
+		}
+	}, WithTestCases(30))
+}
+
+// TestDatetimesPinnedTimezoneE2E pins the location with Just and checks every
+// value is read in it.
+func TestDatetimesPinnedTimezoneE2E(t *testing.T) {
+	t.Parallel()
+
+	ny, err := time.LoadLocation("America/New_York")
+	if err != nil {
+		t.Fatal(err)
+	}
+	Test(t, func(ht *T) {
+		v := Draw(ht, Datetimes().Timezones(Just(ny)))
+		if v.Location() != ny {
+			panic("datetime is not in America/New_York: " + v.String())
 		}
 	}, WithTestCases(30))
 }
