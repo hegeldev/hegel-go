@@ -20,8 +20,8 @@ func TestToTime(t *testing.T) {
 	if got, want := d.ToTime(), time.Date(2026, 7, 7, 0, 0, 0, 0, time.UTC); !got.Equal(want) {
 		t.Errorf("Date.ToTime() = %v, want %v", got, want)
 	}
-	dt := Datetime{Date: d, Time: Time{Hour: 13, Minute: 20, Second: 30, Microsecond: 123456}}
-	if got, want := dt.ToTime(), time.Date(2026, 7, 7, 13, 20, 30, 123456000, time.UTC); !got.Equal(want) {
+	dt := Datetime{Date: d, Time: Time{Hour: 13, Minute: 20, Second: 30, Nanosecond: 123456789}}
+	if got, want := dt.ToTime(), time.Date(2026, 7, 7, 13, 20, 30, 123456789, time.UTC); !got.Equal(want) {
 		t.Errorf("Datetime.ToTime() = %v, want %v", got, want)
 	}
 }

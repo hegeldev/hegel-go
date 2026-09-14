@@ -565,7 +565,7 @@ func FromRegex(pattern string, fullmatch bool) Generator[string] {
 var (
 	fullDateMin = libhegel.Date{Year: 1, Month: 1, Day: 1}
 	fullDateMax = libhegel.Date{Year: 9999, Month: 12, Day: 31}
-	fullTimeMax = libhegel.Time{Hour: 23, Minute: 59, Second: 59, Microsecond: 999999}
+	fullTimeMax = libhegel.Time{Hour: 23, Minute: 59, Second: 59, Nanosecond: 999999999}
 )
 
 // Dates returns a Generator that produces time.Time values (date only, at

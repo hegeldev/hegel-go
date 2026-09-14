@@ -146,6 +146,8 @@ const (
 	PHASE_GENERATE
 	PHASE_TARGET
 	PHASE_SHRINK
+
+	PHASE_ALL Phase = PHASE_EXPLICIT | PHASE_REUSE | PHASE_GENERATE | PHASE_TARGET | PHASE_SHRINK
 )
 
 // StateMachineGroup identifies a group of rules in a state machine.
@@ -263,6 +265,9 @@ type pointer[T ~uintptr] struct {
 	raw  T
 }
 
+type printerT uintptr        // Equivalent of hegel_printer_t
+type printerOptionsT uintptr // Equivalent of hegel_printer_options_t
+
 type ctxT uintptr          // Equivalent of hegel_context_t
 type settingsT uintptr     // Equivalent of hegel_settings_t
 type runT uintptr          // Equivalent of hegel_run_t
@@ -299,11 +304,11 @@ func (d *Date) ToTime() time.Time {
 // Time mirrors hegel_time_t: a time of day passed to / returned from
 // hegel_generate_time by value.
 type Time struct {
-	Hour        uint8
-	Minute      uint8
-	Second      uint8
-	_           uint8 // pad to match C abi (purego limitation)
-	Microsecond uint32
+	Hour       uint8
+	Minute     uint8
+	Second     uint8
+	_          uint8 // pad to match C abi (purego limitation)
+	Nanosecond uint32
 }
 
 // Datetime mirrors hegel_datetime_t: a naive datetime (no timezone).
@@ -316,7 +321,7 @@ type Datetime struct {
 func (dt *Datetime) ToTime() time.Time {
 	return time.Date(int(dt.Date.Year), time.Month(dt.Date.Month), int(dt.Date.Day),
 		int(dt.Time.Hour), int(dt.Time.Minute), int(dt.Time.Second),
-		int(dt.Time.Microsecond)*1000, time.UTC)
+		int(dt.Time.Nanosecond), time.UTC)
 }
 
 // bytesResult mirrors hegel_generate_bytes_result_t: an engine-allocated byte
@@ -327,9 +332,10 @@ type bytesResult struct {
 	len  uint64
 }
 
-// stringResult mirrors hegel_generate_string_result_t: an engine-allocated,
-// length-delimited UTF-8 buffer (not NUL-terminated) written by
-// hegel_generate_string and released by hegel_generate_string_result_free.
+// stringResult mirrors hegel_generate_string_result_t and
+// hegel_printer_value_result_t: an engine-allocated, length-delimited UTF-8
+// buffer (not NUL-terminated). Release it with the producing API's matching
+// result_free function.
 type stringResult struct {
 	data *byte
 	len  uint64
@@ -436,6 +442,35 @@ type symbols struct {
 	FailureFree             func(ctxT, failureT) Error
 	FailureOrigin           func(ctxT, failureT, out[*byte]) Error
 	FailureReproductionBlob func(ctxT, failureT, out[*byte]) Error
+
+	SettingsSetShowStatistics        func(ctxT, settingsT, bool) Error
+	RecursionFinish                  func(ctxT, testCaseT, recursionT) Error
+	StateMachineShouldCheckInvariant func(ctxT, testCaseT, stateMachineT, int64, out[bool]) Error
+	Event                            func(ctxT, testCaseT, string) Error
+	EventValue                       func(ctxT, testCaseT, float64, string) Error
+	Note                             func(ctxT, testCaseT, *byte, uint64) Error
+	PrinterOptionsNew                func(ctxT, out[printerOptionsT]) Error
+	PrinterOptionsFree               func(ctxT, printerOptionsT) Error
+	PrinterOptionsSetMaxWidth        func(ctxT, printerOptionsT, uint64) Error
+	PrinterNew                       func(ctxT, printerOptionsT, out[printerT]) Error
+	PrinterFree                      func(ctxT, printerT) Error
+	PrinterIfBreak                   func(ctxT, printerT, *byte, uint64) Error
+	PrinterText                      func(ctxT, printerT, *byte, uint64) Error
+	PrinterBreakable                 func(ctxT, printerT, *byte, uint64) Error
+	PrinterComment                   func(ctxT, printerT, *byte, uint64) Error
+	PrinterEndGroup                  func(ctxT, printerT, *byte, uint64) Error
+	PrinterBeginGroup                func(ctxT, printerT, uint64, *byte, uint64) Error
+	PrinterShiftIndent               func(ctxT, printerT, int64) Error
+	PrinterHardBreak                 func(ctxT, printerT) Error
+	PrinterBeginSpeculative          func(ctxT, printerT) Error
+	PrinterCommitSpeculative         func(ctxT, printerT) Error
+	PrinterAbortSpeculative          func(ctxT, printerT) Error
+	PrinterResolve                   func(ctxT, printerT) Error
+	PrinterDeferred                  func(ctxT, printerT, out[printerT]) Error
+	PrinterIsLive                    func(ctxT, printerT, out[bool]) Error
+	PrinterValue                     func(ctxT, printerT, out[stringResult]) Error
+	PrinterValueFree                 func(ctxT, *stringResult) Error
+	TestCasePrinter                  func(ctxT, testCaseT, printerOptionsT, out[printerT]) Error
 
 	Version func(ctxT, out[*byte]) Error
 }
@@ -578,6 +613,35 @@ func tryOpen(path string) (syms *symbols, err error) {
 
 	syms = &symbols{handle: libHandle}
 	err = registerSymbols(libHandle, []symbol{
+		{"hegel_settings_set_show_statistics", &syms.SettingsSetShowStatistics},
+		{"hegel_recursion_finish", &syms.RecursionFinish},
+		{"hegel_state_machine_should_check_invariant", &syms.StateMachineShouldCheckInvariant},
+		{"hegel_event", &syms.Event},
+		{"hegel_event_value", &syms.EventValue},
+		{"hegel_note", &syms.Note},
+		{"hegel_printer_options_new", &syms.PrinterOptionsNew},
+		{"hegel_printer_options_free", &syms.PrinterOptionsFree},
+		{"hegel_printer_options_set_max_width", &syms.PrinterOptionsSetMaxWidth},
+		{"hegel_printer_new", &syms.PrinterNew},
+		{"hegel_printer_free", &syms.PrinterFree},
+		{"hegel_printer_if_break", &syms.PrinterIfBreak},
+		{"hegel_printer_text", &syms.PrinterText},
+		{"hegel_printer_breakable", &syms.PrinterBreakable},
+		{"hegel_printer_comment", &syms.PrinterComment},
+		{"hegel_printer_end_group", &syms.PrinterEndGroup},
+		{"hegel_printer_begin_group", &syms.PrinterBeginGroup},
+		{"hegel_printer_shift_indent", &syms.PrinterShiftIndent},
+		{"hegel_printer_hard_break", &syms.PrinterHardBreak},
+		{"hegel_printer_begin_speculative", &syms.PrinterBeginSpeculative},
+		{"hegel_printer_commit_speculative", &syms.PrinterCommitSpeculative},
+		{"hegel_printer_abort_speculative", &syms.PrinterAbortSpeculative},
+		{"hegel_printer_resolve", &syms.PrinterResolve},
+		{"hegel_printer_deferred", &syms.PrinterDeferred},
+		{"hegel_printer_is_live", &syms.PrinterIsLive},
+		{"hegel_printer_value", &syms.PrinterValue},
+		{"hegel_printer_value_result_free", &syms.PrinterValueFree},
+		{"hegel_test_case_printer", &syms.TestCasePrinter},
+
 		{"hegel_context_new", &syms.ContextNew},
 		{"hegel_context_free", &syms.ContextFree},
 		{"hegel_context_last_error", &syms.ContextLastError},
@@ -1663,4 +1727,62 @@ func cStringArray(ss []string) ([]*byte, error) {
 		ptrs[i] = &buf[0]
 	}
 	return ptrs, nil
+}
+
+// ShowStatistics controls the end-of-run statistics report.
+func (s *Settings) ShowStatistics(ctx *Context, on bool) error {
+	return ctx.invoke("hegel_settings_set_show_statistics", func(ctx ctxT) Error {
+		e := s.syms.SettingsSetShowStatistics(ctx, s.raw, on)
+		runtime.KeepAlive(s)
+		return e
+	})
+}
+
+// Finish accepts a completed recursive value, or returns E_RETRY to restart without Retry.
+func (r *Recursion) Finish(ctx *Context, tc *TestCase) error {
+	return ctx.invoke("hegel_recursion_finish", func(ctx ctxT) Error {
+		e := r.syms.RecursionFinish(ctx, tc.raw, r.raw)
+		runtime.KeepAlive(r)
+		runtime.KeepAlive(tc)
+		return e
+	})
+}
+
+// Event records a label for the statistics report.
+func (tc *TestCase) Event(ctx *Context, label string) error {
+	return ctx.invoke("hegel_event", func(ctx ctxT) Error {
+		e := tc.syms.Event(ctx, tc.raw, label)
+		runtime.KeepAlive(tc)
+		return e
+	})
+}
+
+// EventValue records a numeric observation for the statistics report.
+func (tc *TestCase) EventValue(ctx *Context, value float64, label string) error {
+	return ctx.invoke("hegel_event_value", func(ctx ctxT) Error {
+		e := tc.syms.EventValue(ctx, tc.raw, value, label)
+		runtime.KeepAlive(tc)
+		return e
+	})
+}
+
+// StateMachineShouldCheckInvariant reports whether an invariant is enabled in this round.
+func (tc *TestCase) StateMachineShouldCheckInvariant(ctx *Context, machine *StateMachine, invariantIndex int64) (bool, error) {
+	err := ctx.invoke("hegel_state_machine_should_check_invariant", func(ctx ctxT) Error {
+		e := tc.syms.StateMachineShouldCheckInvariant(ctx, tc.raw, machine.raw, invariantIndex, &tc.outBool)
+		runtime.KeepAlive(tc)
+		runtime.KeepAlive(machine)
+		return e
+	})
+	return tc.outBool, err
+}
+
+// Note appends UTF-8 text, which may include newlines, to the test case's print region.
+func (tc *TestCase) Note(ctx *Context, text string) error {
+	data, n := cString(&text)
+	return ctx.invoke("hegel_note", func(ctx ctxT) Error {
+		e := tc.syms.Note(ctx, tc.raw, data, n)
+		runtime.KeepAlive(tc)
+		return e
+	})
 }

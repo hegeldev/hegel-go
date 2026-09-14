@@ -157,6 +157,7 @@ func _() {
 	_ = x[PHASE_GENERATE-4]
 	_ = x[PHASE_TARGET-8]
 	_ = x[PHASE_SHRINK-16]
+	_ = x[PHASE_ALL-31]
 }
 
 const (
@@ -164,6 +165,7 @@ const (
 	_Phase_name_1 = "PHASE_GENERATE"
 	_Phase_name_2 = "PHASE_TARGET"
 	_Phase_name_3 = "PHASE_SHRINK"
+	_Phase_name_4 = "PHASE_ALL"
 )
 
 var (
@@ -181,6 +183,8 @@ func (i Phase) String() string {
 		return _Phase_name_2
 	case i == 16:
 		return _Phase_name_3
+	case i == 31:
+		return _Phase_name_4
 	default:
 		return "Phase(" + strconv.FormatInt(int64(i), 10) + ")"
 	}
