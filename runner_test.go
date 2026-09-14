@@ -521,16 +521,12 @@ func TestTestCaseCloneInheritsExecutionPolicy(t *testing.T) {
 	raw, _ := run.NextTestCase(lib)
 	var output strings.Builder
 	parent := newTestCase(lib, raw, &output, true)
-	parent.statefulStepCount = 17
 
 	cloned, err := parent.clone()
 	if err != nil {
 		t.Fatalf("clone: %v", err)
 	}
 	clone := cloned.(*testCase)
-	if clone.statefulStepCount != 17 {
-		t.Fatalf("clone step count = %d, want 17", clone.statefulStepCount)
-	}
 	if clone == parent || clone.tc == parent.tc {
 		t.Fatal("clone did not receive an independent handle")
 	}
@@ -829,7 +825,6 @@ func TestBuildSettingsExercisesAllSetters(t *testing.T) {
 	// each setter to fire.
 	opts := applyOpts([]Option{
 		WithTestCases(5),
-		WithStatefulStepCount(25),
 		WithDerandomize(false),
 		WithSeed(7),
 		WithDatabase("/tmp/does-not-matter.db"),
@@ -1252,54 +1247,37 @@ func TestBuildSettingsCreationError(t *testing.T) {
 	}
 }
 
-func TestStatefulStepCountValidation(t *testing.T) {
-	t.Parallel()
-	for _, count := range []int{0, -1} {
-		ctx := libhegel.Stub(t, uintptr(1), libhegel.OK)
-		opts := applyOpts([]Option{WithStatefulStepCount(count)})
-		if _, err := opts.buildSettings(ctx); err == nil {
-			t.Fatalf("step count %d accepted", count)
-		}
-	}
-	ctx := libhegel.Stub(t, uintptr(1), libhegel.OK)
-	opts := applyOpts([]Option{WithStatefulStepCount(0), WithStatefulStepCount(7)})
-	if _, err := opts.buildSettings(ctx); err != nil || *opts.statefulStepCount != 7 {
-		t.Fatalf("last option did not win: %v, %v", opts.statefulStepCount, err)
+func TestBackendAutoUsesProfile(t *testing.T) {
+	for _, test := range []struct {
+		profile string
+		want    Backend
+	}{
+		{"base", BackendDefault}, {"workload", BackendURandom},
+	} {
+		t.Run(test.profile, func(t *testing.T) {
+			t.Setenv("HEGEL_DEFAULT_PROFILE", test.profile)
+			ctx := libhegel.NewContext()
+			settings, err := applyOpts([]Option{WithBackend(BackendDefault), WithBackend(BackendAuto)}).buildSettings(ctx)
+			if err != nil {
+				t.Fatal(err)
+			}
+			got, err := settings.GetBackend(ctx)
+			if err != nil || got != test.want {
+				t.Fatalf("backend = %v, %v; want %v", got, err, test.want)
+			}
+		})
 	}
 }
 
-func TestStatefulStepCountReachesGenerationAndReplay(t *testing.T) {
+func TestBackendAutoProfileErrors(t *testing.T) {
 	t.Parallel()
-	for _, count := range []int{50, 7} {
-		var generated, replayed bool
-		opts := []Option{WithTestCases(1), WithDatabase(""), withOutput(&bytes.Buffer{})}
-		if count != 50 {
-			opts = append(opts, WithStatefulStepCount(count))
+	for _, returns := range [][]any{
+		{uintptr(1), libhegel.OK, uintptr(0), libhegel.E_INVALID_ARG, "invalid profile"},
+		{uintptr(1), libhegel.OK, uintptr(2), libhegel.OK, int32(0), libhegel.E_INVALID_HANDLE, "invalid settings"},
+	} {
+		ctx := libhegel.Stub(t, returns...)
+		if _, err := applyOpts([]Option{WithBackend(BackendAuto)}).buildSettings(ctx); err == nil {
+			t.Fatal("profile error lost")
 		}
-		err := run(func(tc TestCase) {
-			state := tc.(*testCase)
-			if state.statefulStepCount != int64(count) {
-				t.Errorf("step count = %d, want %d", state.statefulStepCount, count)
-			}
-			if state.panicPolicy == propagateUserPanics {
-				replayed = true
-			} else {
-				generated = true
-			}
-			tc.Fail()
-		}, opts...)
-		if !errors.Is(err, errPropTestFailed) || !generated || !replayed {
-			t.Fatalf("err = %v, generated = %v, replayed = %v", err, generated, replayed)
-		}
-	}
-}
-
-func TestBackendAutoWithAntithesisEnvironment(t *testing.T) {
-	// A stub avoids initializing the Antithesis SDK in this process while
-	// exercising explicit automatic selection in its detected environment.
-	t.Setenv("ANTITHESIS_OUTPUT_DIR", t.TempDir())
-	ctx := libhegel.Stub(t, uintptr(1), libhegel.OK, libhegel.OK)
-	if _, err := applyOpts([]Option{WithBackend(BackendAuto)}).buildSettings(ctx); err != nil {
-		t.Fatalf("automatic backend: %v", err)
 	}
 }

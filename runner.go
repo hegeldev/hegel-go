@@ -29,24 +29,22 @@ const (
 //
 // It is compatible with most popular TestingT interfaces from assert libraries.
 type testCase struct {
-	ctx               *libhegel.Context
-	tc                *libhegel.TestCase
-	out               io.Writer // nil when output is disabled; otherwise the current region
-	printer           *libhegel.Printer
-	document          *nativeDocument
-	depth             int
-	panicPolicy       panicPolicy
-	abortFn           func(error)
-	statefulStepCount int64
+	ctx         *libhegel.Context
+	tc          *libhegel.TestCase
+	out         io.Writer // nil when output is disabled; otherwise the current region
+	printer     *libhegel.Printer
+	document    *nativeDocument
+	depth       int
+	panicPolicy panicPolicy
+	abortFn     func(error)
 }
 
 func newTestCase(ctx *libhegel.Context, tc *libhegel.TestCase, out io.Writer, policy panicPolicy) *testCase {
 	return &testCase{
-		ctx:               ctx,
-		tc:                tc,
-		out:               out,
-		panicPolicy:       policy,
-		statefulStepCount: 50,
+		ctx:         ctx,
+		tc:          tc,
+		out:         out,
+		panicPolicy: policy,
 	}
 }
 
@@ -167,7 +165,6 @@ func (s *testCase) clone() (TestCase, error) {
 		return nil, err
 	}
 	clone := newTestCase(s.ctx.Clone(), tc, s.out, s.panicPolicy)
-	clone.statefulStepCount = s.statefulStepCount
 	if s.printer != nil {
 		s.document.needsResolve.Store(true)
 		clone.document = s.document
@@ -178,8 +175,8 @@ func (s *testCase) clone() (TestCase, error) {
 	return clone, nil
 }
 
-func (s *testCase) stateMachineNew(ruleNames []string, ruleGroups []int64, invariantNames []string, maxConcurrency int) (*libhegel.StateMachine, int64, error) {
-	machine, concurrency, err := s.tc.NewStateMachine(s.ctx, ruleNames, ruleGroups, invariantNames, nil, 1, int64(maxConcurrency), s.statefulStepCount)
+func (s *testCase) stateMachineNew(ruleNames []string, ruleGroups []int64, invariantNames []string, maxConcurrency, stepCount int) (*libhegel.StateMachine, int64, error) {
+	machine, concurrency, err := s.tc.NewStateMachine(s.ctx, ruleNames, ruleGroups, invariantNames, nil, 1, int64(maxConcurrency), int64(stepCount))
 	return machine, concurrency, err
 }
 
@@ -315,8 +312,7 @@ func AllHealthChecks() []HealthCheck {
 type Backend = libhegel.Backend
 
 const (
-	// BackendAuto chooses automatically: urandom under
-	// Antithesis, otherwise the default seeded PRNG.
+	// BackendAuto restores the backend selected by the active libhegel profile.
 	BackendAuto Backend = 0
 	// BackendDefault expands a single seeded PRNG; runs are reproducible from
 	// the seed and shrinking / replay work as usual.
@@ -379,8 +375,8 @@ type settingApplier func(*libhegel.Context, *libhegel.Settings) error
 // set/unset bookkeeping. Only options the runner itself reads (beyond
 // configuring libhegel) keep dedicated fields.
 type runOptions struct {
-	settingsAppliers  []settingApplier
-	statefulStepCount *int
+	settingsAppliers []settingApplier
+
 	// output receives note/draw-report output during the final replay of
 	// interesting cases. nil means no output.
 	output io.Writer
@@ -400,14 +396,6 @@ func WithTestCases(n int) Option {
 		o.addSetting(func(ctx *libhegel.Context, s *libhegel.Settings) error {
 			return s.TestCases(ctx, uint64(n))
 		})
-	}
-}
-
-// WithStatefulStepCount sets the target number of rule steps to run per
-// stateful test case. n must be at least 1; the default is 50.
-func WithStatefulStepCount(n int) Option {
-	return func(o *runOptions) {
-		o.statefulStepCount = &n
 	}
 }
 
@@ -469,9 +457,13 @@ func WithBackend(b Backend) Option {
 		o.addSetting(func(ctx *libhegel.Context, s *libhegel.Settings) error {
 			resolved := b
 			if resolved == BackendAuto {
-				resolved = BackendDefault
-				if _, antithesis := os.LookupEnv("ANTITHESIS_OUTPUT_DIR"); antithesis {
-					resolved = BackendURandom
+				defaults, err := ctx.SettingsNew()
+				if err != nil {
+					return err
+				}
+				resolved, err = defaults.GetBackend(ctx)
+				if err != nil {
+					return err
 				}
 			}
 			return s.Backend(ctx, resolved)
@@ -619,9 +611,6 @@ func runWithContext(ctx *libhegel.Context, fn testBody, opts runOptions) error {
 		}
 
 		state := newTestCase(ctx, tc, out, policy)
-		if opts.statefulStepCount != nil {
-			state.statefulStepCount = int64(*opts.statefulStepCount)
-		}
 
 		failed, err := state.run(fn)
 		if err != nil {
@@ -671,9 +660,6 @@ func (o runOptions) buildSettings(ctx *libhegel.Context) (*libhegel.Settings, er
 	}
 
 	var errs []error
-	if o.statefulStepCount != nil && *o.statefulStepCount < 1 {
-		errs = append(errs, fmt.Errorf("stateful step count must be at least 1, got %d", *o.statefulStepCount))
-	}
 	for _, apply := range o.settingsAppliers {
 		errs = append(errs, apply(ctx, s))
 	}
@@ -772,9 +758,6 @@ func replayFailures(ctx *libhegel.Context, s *libhegel.Settings, result *libhege
 			return err
 		}
 		state := newTestCase(ctx, tc, opts.output, propagateUserPanics)
-		if opts.statefulStepCount != nil {
-			state.statefulStepCount = int64(*opts.statefulStepCount)
-		}
 		if _, err := state.run(fn); err != nil {
 			return err
 		}

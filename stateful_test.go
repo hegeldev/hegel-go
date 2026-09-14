@@ -144,6 +144,7 @@ type concurrentTestCaseShared struct {
 	selectedConcurrency     int64
 	selectedGroup           libhegel.StateMachineGroup
 	requestedMaxConcurrency int
+	requestedStepCount      int
 	ruleGroups              []int64
 	cloneCount              int64
 	cloneErr                error
@@ -244,8 +245,9 @@ func (tc *concurrentTestCase) clone() (TestCase, error) {
 	return &concurrentTestCase{TestCase: clone, shared: tc.shared, out: tc.out}, nil
 }
 
-func (tc *concurrentTestCase) stateMachineNew(_ []string, ruleGroups []int64, _ []string, maxConcurrency int) (*libhegel.StateMachine, int64, error) {
+func (tc *concurrentTestCase) stateMachineNew(_ []string, ruleGroups []int64, _ []string, maxConcurrency, stepCount int) (*libhegel.StateMachine, int64, error) {
 	tc.shared.requestedMaxConcurrency = maxConcurrency
+	tc.shared.requestedStepCount = stepCount
 	tc.shared.ruleGroups = slices.Clone(ruleGroups)
 	return new(libhegel.StateMachine), tc.shared.selectedConcurrency, nil
 }
@@ -794,4 +796,45 @@ func TestRunStatefulRuleFailureAborts(t *testing.T) {
 	if err == nil {
 		t.Fatal("Expected error")
 	}
+}
+
+func TestStatefulStepCount(t *testing.T) {
+	t.Parallel()
+	for _, count := range []int{0, -1} {
+		if _, err := newStateMachine(&singleRuleMachine{}, WithStatefulStepCount(count)); err == nil {
+			t.Fatalf("invalid step count %d accepted", count)
+		}
+	}
+	for _, test := range []struct {
+		opts []StateMachineOption
+		want int
+	}{
+		{nil, 50},
+		{[]StateMachineOption{WithStatefulStepCount(7)}, 7},
+		{[]StateMachineOption{WithStatefulStepCount(0), WithStatefulStepCount(3)}, 3},
+	} {
+		shared := &concurrentTestCaseShared{selectedConcurrency: 1}
+		tc := &concurrentTestCase{shared: shared}
+		RunStateful(tc, &singleRuleMachine{}, test.opts...)
+		if got := shared.requestedStepCount; got != test.want {
+			t.Fatalf("constructor step count = %d, want %d", got, test.want)
+		}
+	}
+}
+
+type stepBudgetMachine struct{ steps int }
+
+func (m *stepBudgetMachine) RuleStep(TestCase) { m.steps++ }
+
+func TestRunStatefulIndependentStepBudgets(t *testing.T) {
+	t.Parallel()
+	Test(t, func(tc *T) {
+		for _, budget := range []int{1, 3, 2} {
+			machine := new(stepBudgetMachine)
+			RunStateful(tc, machine, WithStatefulStepCount(budget))
+			if machine.steps < 1 || machine.steps > budget {
+				tc.Fatalf("completed %d rules with budget %d", machine.steps, budget)
+			}
+		}
+	}, WithDatabase(""), WithTestCases(10))
 }

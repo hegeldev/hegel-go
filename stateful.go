@@ -22,6 +22,7 @@ type stateMachine struct {
 	rules                []stateMachineRule
 	invariants           []stateMachineRule
 	maxConcurrency       int
+	stepCount            int
 	configuredRuleGroups []stateMachineRuleGroup
 	ruleGroups           []int64
 }
@@ -62,6 +63,15 @@ func WithBoundedConcurrency(n int) StateMachineOption {
 	}
 }
 
+// WithStatefulStepCount sets the maximum number of rounds for this RunStateful
+// invocation. With sequential rules, each round is one completed rule.
+// The default is 50. RunStateful panics if n is less than 1.
+func WithStatefulStepCount(n int) StateMachineOption {
+	return func(sm *stateMachine) {
+		sm.stepCount = n
+	}
+}
+
 // WithRuleGroup assigns rules to a named concurrency group. Rules in the same
 // group may run concurrently with each other; rules in different groups never
 // overlap. Pass the full method names, including the Rule prefix. Calls using
@@ -98,12 +108,16 @@ func newStateMachine[M any, T interface{ *M }](machine T, opts ...StateMachineOp
 	if machine == nil {
 		return nil, fmt.Errorf("state machine pointer must not be nil")
 	}
-	sm := &stateMachine{maxConcurrency: 1}
+	sm := &stateMachine{maxConcurrency: 1, stepCount: 50}
 	for _, opt := range opts {
 		opt(sm)
 	}
 	if sm.maxConcurrency < 1 {
 		return nil, fmt.Errorf("state machine maximum concurrency must be positive")
+	}
+
+	if sm.stepCount < 1 {
+		return nil, fmt.Errorf("state machine step count must be positive")
 	}
 
 	rt := reflect.TypeOf(machine)
@@ -204,7 +218,7 @@ func names(rules []stateMachineRule) []string {
 // Rules that reject the current pre-state via [TestCase.Assume] are
 // skipped and another rule is drawn, up to a retry budget.
 func (sm *stateMachine) Run(tc TestCase) {
-	machine, concurrency, err := tc.stateMachineNew(names(sm.rules), sm.ruleGroups, names(sm.invariants), sm.maxConcurrency)
+	machine, concurrency, err := tc.stateMachineNew(names(sm.rules), sm.ruleGroups, names(sm.invariants), sm.maxConcurrency, sm.stepCount)
 	if err != nil {
 		tc.abort(err)
 	}
@@ -330,7 +344,8 @@ func invokeRule(tc TestCase, fn testBody) (bool, error) {
 //
 // Rules run sequentially by default. Pass [WithConcurrency] or
 // [WithBoundedConcurrency] to allow rules to run concurrently, and
-// [WithRuleGroup] to restrict which rules may overlap.
+// [WithRuleGroup] to restrict which rules may overlap. Pass
+// [WithStatefulStepCount] to change the default limit of 50 rounds.
 //
 // It panics if a method takes TestCase but is not prefixed
 // with Rule or Invariant, if a Rule- or Invariant-prefixed method has
