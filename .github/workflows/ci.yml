@@ -146,13 +146,16 @@ jobs:
         with:
           go-version: stable
 
-      - name: Build and vet
+      - name: Build, link tests, and vet
         env:
           TARGET: ${{ matrix.target }}
+          CGO_ENABLED: "0"
         run: |
           export GOOS="${TARGET%/*}" GOARCH="${TARGET#*/}"
           echo "Building for $GOOS/$GOARCH"
           go build ./...
+          # Link test binaries without executing foreign-platform code.
+          go test -exec=true ./...
           go vet ./...
 
   # Run the real test suite against the vendored, go:embed'd libhegel on the

@@ -3,10 +3,11 @@ package libhegel
 import (
 	"io"
 	"runtime"
-	"runtime/cgo"
 	"unsafe"
 
 	"github.com/ebitengine/purego"
+
+	"hegel.dev/go/hegel/internal/cgo"
 )
 
 func newOutputFn(w io.Writer) (outputCallbackT, cgo.Handle) {
