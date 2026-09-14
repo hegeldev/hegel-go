@@ -1,5 +1,9 @@
 # Changelog
 
+## 0.7.1 - 2026-09-14
+
+Fix linking tests with `CGO_ENABLED=0` on macOS ARM64, which previously failed with a duplicate `_cgo_init` symbol.
+
 ## 0.7.0 - 2026-09-14
 
 This release bumps our pinned libhegel ([hegel-rust](hegeldev/hegel-rust)) from [0.33.2](https://github.com/hegeldev/hegel-rust/releases/tag/v0.33.2) to [0.37.1](https://github.com/hegeldev/hegel-rust/releases/tag/v0.37.1).
