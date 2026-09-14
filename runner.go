@@ -36,13 +36,21 @@ type testCase struct {
 	abortFn     func(error)
 }
 
-func newTestCase(ctx *libhegel.Context, tc *libhegel.TestCase, out io.Writer, policy panicPolicy) *testCase {
-	return &testCase{
+func newTestCase(ctx *libhegel.Context, tc *libhegel.TestCase, out io.Writer, policy panicPolicy) (*testCase, error) {
+	s := &testCase{
 		ctx:         ctx,
 		tc:          tc,
 		out:         out,
 		panicPolicy: policy,
 	}
+	if out != nil {
+		printer, err := tc.Printer(ctx, nil)
+		if err != nil {
+			return nil, err
+		}
+		s.printer = printer
+	}
+	return s, nil
 }
 
 type invocationError struct {
@@ -152,7 +160,7 @@ func (s *testCase) clone() (TestCase, error) {
 	if err != nil {
 		return nil, err
 	}
-	clone := newTestCase(s.ctx.Clone(), tc, nil, s.panicPolicy)
+	clone := &testCase{ctx: s.ctx.Clone(), tc: tc, panicPolicy: s.panicPolicy}
 	if s.printer != nil {
 		clone.printer, err = tc.Printer(clone.ctx, nil)
 		if err != nil {
@@ -584,7 +592,10 @@ func runWithContext(ctx *libhegel.Context, fn testBody, opts runOptions) error {
 			out = new(bytes.Buffer)
 		}
 
-		state := newTestCase(ctx, tc, out, policy)
+		state, err := newTestCase(ctx, tc, out, policy)
+		if err != nil {
+			return err
+		}
 
 		failed, err := state.run(fn)
 		if err != nil {
@@ -680,12 +691,6 @@ func (s *testCase) invoke(fn testBody) (result error) {
 }
 
 func (s *testCase) run(fn testBody) (failed bool, err error) {
-	if s.out != nil {
-		s.printer, err = s.tc.Printer(s.ctx, nil)
-		if err != nil {
-			return false, err
-		}
-	}
 	var result error
 	defer func() {
 		err = errors.Join(err, s.flushNativeOutput())
@@ -734,7 +739,10 @@ func replayFailures(ctx *libhegel.Context, s *libhegel.Settings, result *libhege
 		if err != nil {
 			return err
 		}
-		state := newTestCase(ctx, tc, opts.output, propagateUserPanics)
+		state, err := newTestCase(ctx, tc, opts.output, propagateUserPanics)
+		if err != nil {
+			return err
+		}
 		if _, err := state.run(fn); err != nil {
 			return err
 		}

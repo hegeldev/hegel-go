@@ -432,7 +432,8 @@ func newStubTestCase(t testing.TB, opReturns ...any) *testCase {
 	s, _ := lib.SettingsNew()
 	run, _ := s.RunStart(lib, nil)
 	tc, _ := run.NextTestCase(lib)
-	return newTestCase(lib, tc, nil, captureUserPanics)
+	state, _ := newTestCase(lib, tc, nil, captureUserPanics)
+	return state
 }
 
 func TestFrameworkLogWritesWithoutLocation(t *testing.T) {
@@ -489,7 +490,8 @@ func newRealTestCase(t testing.TB) *testCase {
 	if err != nil {
 		t.Fatalf("NextTestCase: %v", err)
 	}
-	return newTestCase(ctx, tc, nil, false)
+	state, _ := newTestCase(ctx, tc, nil, false)
+	return state
 }
 
 func TestTestCaseCloneInheritsExecutionPolicy(t *testing.T) {
@@ -498,14 +500,19 @@ func TestTestCaseCloneInheritsExecutionPolicy(t *testing.T) {
 		uintptr(1), libhegel.OK, // settings_new
 		uintptr(1), libhegel.OK, // run_start
 		uintptr(1), libhegel.OK, // next_test_case
+		uintptr(1), libhegel.OK, // printer
 		uintptr(2), libhegel.OK, // test_case_clone
-		uintptr(2), // context_new for the cloned wrapper
+		uintptr(2),              // context_new for the cloned wrapper
+		uintptr(2), libhegel.OK, // nested printer
 	)
 	s, _ := lib.SettingsNew()
 	run, _ := s.RunStart(lib, nil)
 	raw, _ := run.NextTestCase(lib)
 	var output strings.Builder
-	parent := newTestCase(lib, raw, &output, true)
+	parent, err := newTestCase(lib, raw, &output, true)
+	if err != nil {
+		t.Fatal(err)
+	}
 
 	cloned, err := parent.clone()
 	if err != nil {

@@ -12,9 +12,7 @@ import (
 func newEmittingTestCase(t *testing.T, out io.Writer) *testCase {
 	t.Helper()
 	s := newRealTestCase(t)
-	s.out = out
-	var err error
-	s.printer, err = s.tc.Printer(s.ctx, nil)
+	s, err := newTestCase(s.ctx, s.tc, out, s.panicPolicy)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -22,9 +20,8 @@ func newEmittingTestCase(t *testing.T, out io.Writer) *testCase {
 }
 
 func TestNativeOutputLifecycle(t *testing.T) {
-	s := newRealTestCase(t)
 	var out strings.Builder
-	s.out = &out
+	s := newEmittingTestCase(t, &out)
 	_, err := s.run(func(tc TestCase) {
 		tc.Note("first\nsecond")
 		if out.Len() != 0 {
@@ -69,9 +66,8 @@ func TestNativeOutputLifecycle(t *testing.T) {
 }
 
 func TestNativeOutputFlushesOnPanic(t *testing.T) {
-	s := newRealTestCase(t)
 	var out strings.Builder
-	s.out = &out
+	s := newEmittingTestCase(t, &out)
 	s.panicPolicy = propagateUserPanics
 	defer func() {
 		if got := recover(); got != "boom" {
@@ -86,8 +82,7 @@ func TestNativeOutputFlushesOnPanic(t *testing.T) {
 
 func TestNativeOutputInitializationError(t *testing.T) {
 	s := newStubTestCase(t, uintptr(0), libhegel.E_BACKEND, "printer failed")
-	s.out = io.Discard
-	_, err := s.run(func(TestCase) { t.Fatal("body ran") })
+	_, err := newTestCase(s.ctx, s.tc, io.Discard, s.panicPolicy)
 	if !errors.Is(err, libhegel.E_BACKEND) {
 		t.Fatal(err)
 	}
@@ -201,5 +196,38 @@ func TestNativeOutputDisabled(t *testing.T) {
 	})
 	if err != nil {
 		t.Fatal(err)
+	}
+}
+
+func TestRunPrinterInitializationErrors(t *testing.T) {
+	for _, replay := range []bool{false, true} {
+		t.Run(map[bool]string{false: "nondeterministic", true: "replay"}[replay], func(t *testing.T) {
+			ops := []any{
+				uintptr(1), libhegel.OK, // settings
+				libhegel.OK,             // derandomize
+				uintptr(1), libhegel.OK, // run start
+			}
+			if replay {
+				ops = append(ops,
+					uintptr(0), libhegel.OK, // no next case
+					uintptr(1), libhegel.OK, // result
+					libhegel.RUN_STATUS_FAILED, libhegel.OK,
+					uint64(1), libhegel.OK, // failure count
+					uintptr(1), libhegel.OK, // failure
+					"blob", libhegel.OK,
+					uintptr(1), libhegel.OK, // case from blob
+				)
+			} else {
+				ops = append(ops, uintptr(1), libhegel.OK, true, libhegel.OK)
+			}
+			ops = append(ops, uintptr(0), libhegel.E_BACKEND, "printer failed")
+			ctx := libhegel.Stub(t, ops...)
+			opts := applyOpts([]Option{WithDerandomize(false)})
+			opts.output = io.Discard
+			err := runWithContext(ctx, func(TestCase) { t.Fatal("body ran after constructor failed") }, opts)
+			if !errors.Is(err, libhegel.E_BACKEND) {
+				t.Fatal(err)
+			}
+		})
 	}
 }
