@@ -21,15 +21,17 @@ import (
 	"crypto/sha256"
 	"encoding/hex"
 	"encoding/json"
-	"errors"
 	"flag"
 	"fmt"
+	"io"
+	"net/http"
+	"net/url"
 	"os"
-	"os/exec"
 	"path/filepath"
 	"regexp"
 	"sort"
 	"strings"
+	"time"
 )
 
 const repo = "hegeldev/hegel-rust"
@@ -50,83 +52,156 @@ var clientAssetRE = regexp.MustCompile(`^libhegel-[a-z0-9]+-[a-z0-9]+\.(so|dylib
 type asset struct {
 	Name   string `json:"name"`
 	Digest string `json:"digest"`
+	URL    string `json:"browser_download_url"`
 }
 
-// release queries a hegel-rust release and returns its version (the tag with
-// any leading "v" stripped) along with the client-requestable assets. An empty
-// want selects the latest release; otherwise the release tagged v<want> is
-// fetched.
-func release(want string) (version string, assets []asset, err error) {
-	args := []string{"release", "view"}
-	if want != "" {
-		// GitHub release tags are v-prefixed; accept a bare or v-prefixed want.
-		args = append(args, "v"+strings.TrimPrefix(want, "v"))
-	}
-	args = append(args, "--repo", repo, "--json", "tagName,assets")
+type githubRelease struct {
+	TagName     string    `json:"tag_name"`
+	PublishedAt time.Time `json:"published_at"`
+	Draft       bool      `json:"draft"`
+	Prerelease  bool      `json:"prerelease"`
+	Assets      []asset   `json:"assets"`
+}
 
-	out, err := exec.Command("gh", args...).Output()
-	if err != nil {
-		// gh writes the real reason (e.g. "HTTP 401", "release not found") to
-		// stderr; .Output() stashes it in *exec.ExitError.Stderr but the error
-		// string alone is just "exit status N". Surface it so failures are
-		// diagnosable instead of opaque.
-		var exitErr *exec.ExitError
-		if errors.As(err, &exitErr) && len(exitErr.Stderr) > 0 {
-			return "", nil, fmt.Errorf("gh release view: %w: %s", err, strings.TrimSpace(string(exitErr.Stderr)))
-		}
-		return "", nil, fmt.Errorf("gh release view: %w", err)
-	}
+var httpClient = &http.Client{Timeout: 5 * time.Minute}
+var releaseTagRE = regexp.MustCompile(`^(libhegel-v|v)[0-9]+\.[0-9]+\.[0-9]+(?:[-+][0-9A-Za-z.-]+)?$`)
 
-	var rel struct {
-		TagName string  `json:"tagName"`
-		Assets  []asset `json:"assets"`
-	}
-	if err := json.Unmarshal(out, &rel); err != nil {
-		return "", nil, fmt.Errorf("parse gh release view output: %w", err)
-	}
+func (r githubRelease) version() string {
+	return strings.TrimPrefix(strings.TrimPrefix(r.TagName, "libhegel-"), "v")
+}
 
-	for _, a := range rel.Assets {
+func (r githubRelease) clientAssets() []asset {
+	var assets []asset
+	for _, a := range r.Assets {
 		if clientAssetRE.MatchString(a.Name) {
 			assets = append(assets, a)
 		}
 	}
-	version = strings.TrimPrefix(rel.TagName, "v")
-	if want != "" && version != strings.TrimPrefix(want, "v") {
-		return "", nil, fmt.Errorf("requested release v%s but got tag %q", strings.TrimPrefix(want, "v"), rel.TagName)
-	}
-	return version, assets, nil
+	return assets
 }
 
-// download fetches a single asset from release v<version> into libsDir and
-// verifies its contents against the SHA-256 digest GitHub recorded for it.
-func download(version string, a asset) error {
+// get uses public endpoints without requiring gh authentication. A CI token is
+// optional and is only sent to the GitHub API, never to asset download hosts.
+func get(endpoint string) (*http.Response, error) {
+	req, err := http.NewRequest(http.MethodGet, endpoint, nil)
+	if err != nil {
+		return nil, err
+	}
+	req.Header.Set("User-Agent", "hegel-go-vendor-libhegel")
+	if req.URL.Host == "api.github.com" {
+		req.Header.Set("Accept", "application/vnd.github+json")
+		token := os.Getenv("GH_TOKEN")
+		if token == "" {
+			token = os.Getenv("GITHUB_TOKEN")
+		}
+		if token != "" {
+			req.Header.Set("Authorization", "Bearer "+token)
+		}
+	}
+	return httpClient.Do(req)
+}
+
+func releaseJSON(path string, dest any) (int, error) {
+	resp, err := get("https://api.github.com/repos/" + repo + path)
+	if err != nil {
+		return 0, err
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode != http.StatusOK {
+		return resp.StatusCode, fmt.Errorf("GitHub release API: %s", resp.Status)
+	}
+	return resp.StatusCode, json.NewDecoder(resp.Body).Decode(dest)
+}
+
+// release resolves an exact new/legacy tag, or tries both tag conventions for
+// a bare version. Latest scans releases because /releases/latest can refer to
+// an independently versioned native package instead of libhegel.
+func release(want string) (githubRelease, error) {
+	if want != "" {
+		tags := []string{want}
+		if !strings.HasPrefix(want, "v") && !strings.HasPrefix(want, "libhegel-") {
+			tags = []string{"libhegel-v" + want, "v" + want}
+		}
+		for _, tag := range tags {
+			if !releaseTagRE.MatchString(tag) {
+				return githubRelease{}, fmt.Errorf("invalid libhegel release tag %q", tag)
+			}
+			var rel githubRelease
+			status, err := releaseJSON("/releases/tags/"+url.PathEscape(tag), &rel)
+			if status == http.StatusNotFound {
+				continue
+			}
+			if err != nil {
+				return githubRelease{}, err
+			}
+			if rel.TagName != tag {
+				return githubRelease{}, fmt.Errorf("requested tag %q, got %q", tag, rel.TagName)
+			}
+			return rel, nil
+		}
+		return githubRelease{}, fmt.Errorf("libhegel release %q not found", want)
+	}
+	var latest githubRelease
+	// GitHub lists releases by creation time, which can differ from publication
+	// order when an older draft is published later. Inspect all pages.
+	for page := 1; ; page++ {
+		var releases []githubRelease
+		_, err := releaseJSON(fmt.Sprintf("/releases?per_page=100&page=%d", page), &releases)
+		if err != nil {
+			return githubRelease{}, err
+		}
+		for _, rel := range releases {
+			if !rel.Draft && !rel.Prerelease && releaseTagRE.MatchString(rel.TagName) && len(rel.clientAssets()) > 0 {
+				if latest.TagName == "" || rel.PublishedAt.After(latest.PublishedAt) {
+					latest = rel
+				}
+			}
+		}
+		if len(releases) < 100 {
+			if latest.TagName != "" {
+				return latest, nil
+			}
+			return githubRelease{}, fmt.Errorf("no stable libhegel release found")
+		}
+	}
+}
+
+// download verifies the GitHub SHA-256 digest before replacing a vendored file.
+func download(a asset) error {
 	wantHex, ok := strings.CutPrefix(a.Digest, "sha256:")
-	if !ok {
-		return fmt.Errorf("asset %s: expected a sha256: digest, got %q", a.Name, a.Digest)
+	digest, err := hex.DecodeString(wantHex)
+	if !ok || err != nil || len(digest) != sha256.Size {
+		return fmt.Errorf("asset %s: expected a SHA-256 digest, got %q", a.Name, a.Digest)
 	}
-
-	dest := filepath.Join(libsDir, a.Name)
-	cmd := exec.Command("gh", "release", "download", "v"+version,
-		"--repo", repo, "--pattern", a.Name, "--dir", libsDir, "--clobber")
-	cmd.Stderr = os.Stderr
-	if err := cmd.Run(); err != nil {
-		return fmt.Errorf("gh release download %s: %w", a.Name, err)
+	resp, err := get(a.URL)
+	if err != nil {
+		return fmt.Errorf("download %s: %w", a.Name, err)
 	}
-
-	got, err := os.ReadFile(dest)
+	defer resp.Body.Close()
+	if resp.StatusCode != http.StatusOK {
+		return fmt.Errorf("download %s: %s", a.Name, resp.Status)
+	}
+	f, err := os.CreateTemp(libsDir, ".download-*")
 	if err != nil {
 		return err
 	}
-	gotHex := hex.EncodeToString(sha256Sum(got))
-	if gotHex != wantHex {
+	defer os.Remove(f.Name())
+	defer f.Close()
+	h := sha256.New()
+	if _, err := io.Copy(io.MultiWriter(f, h), resp.Body); err != nil {
+		return err
+	}
+	gotHex := hex.EncodeToString(h.Sum(nil))
+	if gotHex != strings.ToLower(wantHex) {
 		return fmt.Errorf("checksum mismatch for %s: got %s, want %s", a.Name, gotHex, wantHex)
 	}
-	return nil
-}
-
-func sha256Sum(b []byte) []byte {
-	h := sha256.Sum256(b)
-	return h[:]
+	if err := f.Chmod(0o644); err != nil {
+		return err
+	}
+	if err := f.Close(); err != nil {
+		return err
+	}
+	return os.Rename(f.Name(), filepath.Join(libsDir, a.Name))
 }
 
 // versionTemplate is the generated version.go file.
@@ -145,18 +220,19 @@ const hegelVersion = %q
 
 func run() error {
 	// An empty -version selects the latest release; otherwise the named release
-	// (v-prefixed or not) is pinned. The repository_dispatch bump workflow
+	// (bare version or exact new/legacy tag) is pinned. The repository_dispatch bump workflow
 	// passes the exact released version so a later release can't race in.
 	want := flag.String("version", "", "release version to vendor (empty selects the latest)")
 	flag.Parse()
 
-	version, assets, err := release(*want)
+	rel, err := release(*want)
 	if err != nil {
 		return err
 	}
-	fmt.Fprintf(os.Stderr, "libhegel release: v%s\n", version)
+	version, assets := rel.version(), rel.clientAssets()
+	fmt.Fprintf(os.Stderr, "libhegel release: %s\n", rel.TagName)
 	if len(assets) == 0 {
-		return fmt.Errorf("no .so/.dylib/.dll assets found in release v%s", version)
+		return fmt.Errorf("no .so/.dylib/.dll assets found in release %s", rel.TagName)
 	}
 
 	if err := os.MkdirAll(libsDir, 0o755); err != nil {
@@ -166,7 +242,7 @@ func run() error {
 	wanted := make(map[string]struct{}, len(assets))
 	for _, a := range assets {
 		wanted[a.Name] = struct{}{}
-		if err := download(version, a); err != nil {
+		if err := download(a); err != nil {
 			return err
 		}
 		fmt.Fprintf(os.Stderr, "vendored %s\n", a.Name)

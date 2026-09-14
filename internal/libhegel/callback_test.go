@@ -12,7 +12,10 @@ import (
 // freeOutputFn's AddCleanup arm end-to-end.
 func TestOutputCallbackReceivesEngineOutput(t *testing.T) {
 	ctx := NewContext()
-	s := ctx.SettingsNew()
+	s, err := ctx.SettingsNew()
+	if err != nil {
+		t.Fatal(err)
+	}
 	s.TestCases(ctx, 3)
 	s.Database(ctx, "")
 	s.Verbosity(ctx, VERBOSITY_VERBOSE)

@@ -79,7 +79,10 @@ func TestPrinterTextAndNotes(t *testing.T) {
 	if err != nil || got != "a\x00b // comment\n  c" {
 		t.Fatalf("text = %q, %v", got, err)
 	}
-	settings := ctx.SettingsNew()
+	settings, err := ctx.SettingsNew()
+	if err != nil {
+		t.Fatal(err)
+	}
 	if err := settings.Database(ctx, ""); err != nil {
 		t.Fatal(err)
 	}
@@ -193,7 +196,10 @@ func TestNewControlBindings(t *testing.T) {
 
 func TestNanosecondDrawRoundTrip(t *testing.T) {
 	ctx := NewContext()
-	settings := ctx.SettingsNew()
+	settings, err := ctx.SettingsNew()
+	if err != nil {
+		t.Fatal(err)
+	}
 	if err := settings.Database(ctx, ""); err != nil {
 		t.Fatal(err)
 	}

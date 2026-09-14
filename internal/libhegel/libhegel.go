@@ -86,13 +86,9 @@ const (
 type Backend uint32 // Equivalent of hegel_backend_t (passed as a uint32_t param)
 
 const (
-	// Choose automatically (the default): urandom under Antithesis, otherwise
-	// the default seeded PRNG.
-	BACKEND_AUTO Backend = iota
-
 	// Expand a single seeded PRNG; runs are reproducible from the seed and
 	// shrinking / replay work as usual.
-	BACKEND_DEFAULT
+	BACKEND_DEFAULT Backend = iota + 1
 
 	// Read fresh entropy from /dev/urandom on every draw. Intended for running
 	// under Antithesis; you almost certainly don't want it otherwise.
@@ -102,8 +98,8 @@ const (
 type Verbosity uint32 // Equivalent of hegel_verbosity_t (passed as a uint32_t param)
 
 const (
-	VERBOSITY_QUIET Verbosity = iota
-	VERBOSITY_NORMAL
+	VERBOSITY_NORMAL Verbosity = iota
+	VERBOSITY_QUIET
 	VERBOSITY_VERBOSE
 	VERBOSITY_DEBUG
 )
@@ -162,102 +158,45 @@ const StateMachineDone = math.MinInt64
 
 type Label uint64
 
+// Labels are Go frontend span identities, derived with hegel_label_from_name
+// from the names below. Upstream no longer reserves numbered label constants.
 const (
-	// Outer span around a list / sequence.
-	LABEL_LIST Label = iota + 1
-
-	// One element of a list.
-	LABEL_LIST_ELEMENT
-
-	// Outer span around a set (unordered, no duplicates).
-	LABEL_SET
-
-	// One element of a set.
-	LABEL_SET_ELEMENT
-
-	// Outer span around a map / dictionary.
-	LABEL_MAP
-
-	// One (key, value) entry of a map.
-	LABEL_MAP_ENTRY
-
-	// Outer span around a tuple / fixed-arity record.
-	LABEL_TUPLE
-
-	// Outer span around a `one_of` / disjunction; useful so the shrinke/ can swap which branch is taken.
-	LABEL_ONE_OF
-
-	// Outer span around an `optional` (None vs Some(value)).
-	LABEL_OPTIONAL
-
-	// Outer span around a fixed-shape record (named fields know/ statically).
-	LABEL_FIXED_DICT
-
-	// Outer span around a `flat_map` / monadic dependent draw.
-	LABEL_FLAT_MAP
-
-	// Outer span around a `filter` / rejection-sampling wrapper.
-	LABEL_FILTER
-
-	// Outer span around a `map` / pure transformation.
-	LABEL_MAPPED
-
-	// Outer span around a `sampled_from` / pick-from-collection draw.
-	LABEL_SAMPLED_FROM
-
-	// Outer span around the variant discriminator of a sum-type draw.
-	LABEL_ENUM_VARIANT
-
-	// Span around one swarm-testing feature-flag draw. Emitted internally by
-	// the engine's state-machine rule selection; callers normally never open
-	// this span themselves.
-	LABEL_FEATURE_FLAG
-
-	// The remaining upstream labels (17..30) are emitted internally by the
-	// engine's per-draw primitives; callers normally never open these spans
-	// themselves. They are mirrored here so the binding's constant values stay
-	// aligned with hegel_label_t.
-	LABEL_REGEX
-	LABEL_EMAIL
-	LABEL_URL
-	LABEL_DOMAIN
-	LABEL_DATE
-	LABEL_TIME
-	LABEL_DATETIME
-	LABEL_UUID
-	LABEL_IP_ADDRESS
-	LABEL_INTEGER
-	LABEL_FLOAT
-	LABEL_BOOLEAN
-	LABEL_BYTES
-	LABEL_STRING
-
-	// Outer span around one stateful-testing rule invocation, grouping all the
-	// draws a single rule makes so the shrinker can delete a whole step at once.
-	// Opened by the frontend's state-machine driver.
-	LABEL_STATEFUL_RULE
-
-	// Span around one fresh-identifier draw (hegel_pool_add) and one
-	// choose-from-set draw (hegel_pool_generate). Emitted internally by the
-	// engine; callers normally never open these spans themselves. Mirrored here
-	// so the binding's constant values stay aligned with hegel_label_t.
-	LABEL_FRESH_ID
-	LABEL_SET_CHOICE
-
-	// Span around the concurrency-level draw made by hegel_new_state_machine.
-	LABEL_CONCURRENCY
-
-	// Span around one sub-value of a recursive generator: the leaf-or-branch
-	// decision plus the drawn content. Every sub-value at every depth uses this
-	// same label, which is what lets the shrinker replace a tree with one of its
-	// own subtrees. Emitted internally by the engine; mirrored here so the
-	// binding's constant values stay aligned with hegel_label_t.
-	LABEL_RECURSIVE
-
-	// Binding-specific labels, beyond the upstream HEGEL_LABEL_* range. The
-	// engine treats span labels as opaque shrinker hints, so hegel-go reserves
-	// values past the last upstream constant for its own span structures.
-	LABEL_COMPOSITE
+	LABEL_LIST          Label = 2801019076836953716  // hegel.go.list
+	LABEL_LIST_ELEMENT  Label = 17869309736790133779 // hegel.go.list_element
+	LABEL_SET           Label = 5865200140810442820  // hegel.go.set
+	LABEL_SET_ELEMENT   Label = 16914690668663268067 // hegel.go.set_element
+	LABEL_MAP           Label = 5590808215537288722  // hegel.go.map
+	LABEL_MAP_ENTRY     Label = 13638593894540015217 // hegel.go.map_entry
+	LABEL_TUPLE         Label = 2606859103638815834  // hegel.go.tuple
+	LABEL_ONE_OF        Label = 1646594287079187632  // hegel.go.one_of
+	LABEL_OPTIONAL      Label = 2831377877786720272  // hegel.go.optional
+	LABEL_FIXED_DICT    Label = 3378490235687764091  // hegel.go.fixed_dict
+	LABEL_FLAT_MAP      Label = 17589065948398953226 // hegel.go.flat_map
+	LABEL_FILTER        Label = 524933089993392430   // hegel.go.filter
+	LABEL_MAPPED        Label = 5332314179289137799  // hegel.go.mapped
+	LABEL_SAMPLED_FROM  Label = 11188332258118722663 // hegel.go.sampled_from
+	LABEL_ENUM_VARIANT  Label = 13694910494764798659 // hegel.go.enum_variant
+	LABEL_FEATURE_FLAG  Label = 6375675817545272289  // hegel.go.feature_flag
+	LABEL_REGEX         Label = 14852562533782475579 // hegel.go.regex
+	LABEL_EMAIL         Label = 14835994298877507076 // hegel.go.email
+	LABEL_URL           Label = 1985340265217183813  // hegel.go.url
+	LABEL_DOMAIN        Label = 17058301915510424728 // hegel.go.domain
+	LABEL_DATE          Label = 16402304753201470568 // hegel.go.date
+	LABEL_TIME          Label = 5300822282277835853  // hegel.go.time
+	LABEL_DATETIME      Label = 14221666525246718433 // hegel.go.datetime
+	LABEL_UUID          Label = 9890585168375486663  // hegel.go.uuid
+	LABEL_IP_ADDRESS    Label = 14857737725346391278 // hegel.go.ip_address
+	LABEL_INTEGER       Label = 2322818162524834726  // hegel.go.integer
+	LABEL_FLOAT         Label = 10378366191659462670 // hegel.go.float
+	LABEL_BOOLEAN       Label = 15851258441080226520 // hegel.go.boolean
+	LABEL_BYTES         Label = 5319699480805377615  // hegel.go.bytes
+	LABEL_STRING        Label = 14117235223881480941 // hegel.go.string
+	LABEL_STATEFUL_RULE Label = 13973930604097954071 // hegel.go.stateful_rule
+	LABEL_FRESH_ID      Label = 593156558150809056   // hegel.go.fresh_id
+	LABEL_SET_CHOICE    Label = 9316085528689457538  // hegel.go.set_choice
+	LABEL_CONCURRENCY   Label = 12925656410196983251 // hegel.go.concurrency
+	LABEL_RECURSIVE     Label = 52359896170306008    // hegel.go.recursive
+	LABEL_COMPOSITE     Label = 18247645122289998975 // hegel.go.composite
 )
 
 type pointer[T ~uintptr] struct {
@@ -355,11 +294,11 @@ type symbols struct {
 	ContextFree      func(ctxT) Error
 	ContextLastError func(ctxT) string
 
-	SettingsNew                       func(ctxT, out[settingsT]) Error
-	SettingsFree                      func(ctxT, settingsT) Error
-	SettingsSetBackend                func(ctxT, settingsT, Backend) Error
-	SettingsSetTestCases              func(ctxT, settingsT, uint64) Error
-	SettingsSetStatefulStepCount      func(ctxT, settingsT, int64) Error
+	SettingsNew          func(ctxT, out[settingsT]) Error
+	SettingsFree         func(ctxT, settingsT) Error
+	SettingsSetBackend   func(ctxT, settingsT, Backend) Error
+	SettingsSetTestCases func(ctxT, settingsT, uint64) Error
+
 	SettingsSetVerbosity              func(ctxT, settingsT, Verbosity) Error
 	SettingsSetSeed                   func(ctxT, settingsT, uint64, bool) Error
 	SettingsSetDerandomize            func(ctxT, settingsT, bool) Error
@@ -399,7 +338,7 @@ type symbols struct {
 	PoolAdd                  func(ctxT, testCaseT, poolT, out[int64]) Error
 	PoolGenerate             func(ctxT, testCaseT, poolT, bool, out[int64]) Error
 	PoolFree                 func(ctxT, poolT) Error
-	NewStateMachine          func(ctxT, testCaseT, **byte, *int64, uint64, **byte, *bool, uint64, int64, int64, out[stateMachineT], out[int64]) Error
+	NewStateMachine          func(ctxT, testCaseT, **byte, *int64, uint64, **byte, *bool, uint64, int64, int64, int64, out[stateMachineT], out[int64]) Error
 	StateMachineNextGroup    func(ctxT, testCaseT, stateMachineT, out[StateMachineGroup]) Error
 	StateMachineNextRule     func(ctxT, testCaseT, stateMachineT, int64, out[int64]) Error
 	StateMachineRuleRejected func(ctxT, testCaseT, stateMachineT, int64) Error
@@ -471,6 +410,27 @@ type symbols struct {
 	PrinterValue                     func(ctxT, printerT, out[stringResult]) Error
 	PrinterValueFree                 func(ctxT, *stringResult) Error
 	TestCasePrinter                  func(ctxT, testCaseT, printerOptionsT, out[printerT]) Error
+
+	SettingsNewForProfile             func(ctxT, string, out[settingsT]) Error
+	SettingsSetTestLocation           func(ctxT, settingsT, string, uint32, string, string) Error
+	SettingsSetPrintBlob              func(ctxT, settingsT, bool) Error
+	SettingsRegisterProfile           func(ctxT, string, settingsT) Error
+	SetDefaultProfile                 func(ctxT, *byte) Error
+	TestCaseBlock                     func(ctxT, testCaseT, uint64, out[testCaseT]) Error
+	TestCaseSetWorker                 func(ctxT, testCaseT, int64) Error
+	LabelFromName                     func(ctxT, string, out[uint64]) Error
+	LabelCombine                      func(ctxT, *Label, uint64, out[uint64]) Error
+	SettingsGetTestCases              func(ctxT, settingsT, out[uint64]) Error
+	SettingsGetVerbosity              func(ctxT, settingsT, out[int32]) Error
+	SettingsGetSeed                   func(ctxT, settingsT, out[uint64], out[bool]) Error
+	SettingsGetDerandomize            func(ctxT, settingsT, out[bool]) Error
+	SettingsGetDatabase               func(ctxT, settingsT, out[*byte]) Error
+	SettingsGetPhases                 func(ctxT, settingsT, out[uint32]) Error
+	SettingsGetSuppressHealthCheck    func(ctxT, settingsT, out[uint32]) Error
+	SettingsGetReportMultipleFailures func(ctxT, settingsT, out[bool]) Error
+	SettingsGetShowStatistics         func(ctxT, settingsT, out[bool]) Error
+	SettingsGetPrintBlob              func(ctxT, settingsT, out[bool]) Error
+	SettingsGetBackend                func(ctxT, settingsT, out[int32]) Error
 
 	Version func(ctxT, out[*byte]) Error
 }
@@ -613,6 +573,27 @@ func tryOpen(path string) (syms *symbols, err error) {
 
 	syms = &symbols{handle: libHandle}
 	err = registerSymbols(libHandle, []symbol{
+		{"hegel_settings_new_for_profile", &syms.SettingsNewForProfile},
+		{"hegel_settings_set_test_location", &syms.SettingsSetTestLocation},
+		{"hegel_settings_set_print_blob", &syms.SettingsSetPrintBlob},
+		{"hegel_settings_register_profile", &syms.SettingsRegisterProfile},
+		{"hegel_set_default_profile", &syms.SetDefaultProfile},
+		{"hegel_test_case_block", &syms.TestCaseBlock},
+		{"hegel_test_case_set_worker", &syms.TestCaseSetWorker},
+		{"hegel_label_from_name", &syms.LabelFromName},
+		{"hegel_label_combine", &syms.LabelCombine},
+		{"hegel_settings_get_test_cases", &syms.SettingsGetTestCases},
+		{"hegel_settings_get_verbosity", &syms.SettingsGetVerbosity},
+		{"hegel_settings_get_seed", &syms.SettingsGetSeed},
+		{"hegel_settings_get_derandomize", &syms.SettingsGetDerandomize},
+		{"hegel_settings_get_database", &syms.SettingsGetDatabase},
+		{"hegel_settings_get_phases", &syms.SettingsGetPhases},
+		{"hegel_settings_get_suppress_health_check", &syms.SettingsGetSuppressHealthCheck},
+		{"hegel_settings_get_report_multiple_failures", &syms.SettingsGetReportMultipleFailures},
+		{"hegel_settings_get_show_statistics", &syms.SettingsGetShowStatistics},
+		{"hegel_settings_get_print_blob", &syms.SettingsGetPrintBlob},
+		{"hegel_settings_get_backend", &syms.SettingsGetBackend},
+
 		{"hegel_settings_set_show_statistics", &syms.SettingsSetShowStatistics},
 		{"hegel_recursion_finish", &syms.RecursionFinish},
 		{"hegel_state_machine_should_check_invariant", &syms.StateMachineShouldCheckInvariant},
@@ -650,7 +631,7 @@ func tryOpen(path string) (syms *symbols, err error) {
 		{"hegel_settings_free", &syms.SettingsFree},
 		{"hegel_settings_set_backend", &syms.SettingsSetBackend},
 		{"hegel_settings_set_test_cases", &syms.SettingsSetTestCases},
-		{"hegel_settings_set_stateful_step_count", &syms.SettingsSetStatefulStepCount},
+
 		{"hegel_settings_set_verbosity", &syms.SettingsSetVerbosity},
 		{"hegel_settings_set_seed", &syms.SettingsSetSeed},
 		{"hegel_settings_set_derandomize", &syms.SettingsSetDerandomize},
@@ -736,11 +717,11 @@ func tryOpen(path string) (syms *symbols, err error) {
 type Settings pointer[settingsT]
 
 // SettingsNew allocates a fresh settings object on this context.
-func (c *Context) SettingsNew() *Settings {
-	ptr, _ := allocate[settingsT](c, "hegel_settings_new", func(ctx ctxT, raw *settingsT) Error {
+func (c *Context) SettingsNew() (*Settings, error) {
+	ptr, err := allocate[settingsT](c, "hegel_settings_new", func(ctx ctxT, raw *settingsT) Error {
 		return c.syms.SettingsNew(ctx, raw)
 	}, c.syms.SettingsFree)
-	return (*Settings)(ptr)
+	return (*Settings)(ptr), err
 }
 
 // Backend selects the engine's randomness backend. See [Backend].
@@ -755,17 +736,6 @@ func (s *Settings) Backend(ctx *Context, b Backend) error {
 func (s *Settings) TestCases(ctx *Context, n uint64) error {
 	return ctx.invoke("hegel_settings_set_test_cases", func(ctx ctxT) Error {
 		e := s.syms.SettingsSetTestCases(ctx, s.raw, n)
-		runtime.KeepAlive(s)
-		return e
-	})
-}
-
-// StatefulStepCount sets the target number of steps to run per stateful test
-// case (default 50; n must be at least 1). See
-// hegel_settings_set_stateful_step_count.
-func (s *Settings) StatefulStepCount(ctx *Context, n int64) error {
-	return ctx.invoke("hegel_settings_set_stateful_step_count", func(ctx ctxT) Error {
-		e := s.syms.SettingsSetStatefulStepCount(ctx, s.raw, n)
 		runtime.KeepAlive(s)
 		return e
 	})
@@ -1348,13 +1318,14 @@ type StateMachine pointer[stateMachineT]
 // in [minConcurrency, maxConcurrency] and returns it alongside the machine;
 // the caller must run exactly that many workers. minConcurrency ==
 // maxConcurrency fixes the level without consuming entropy (1, 1 for a
-// sequential machine).
+// sequential machine). stepCount bounds the number of completed rounds and
+// must be positive; the frontend supplies its default.
 //
 // invariantAlwaysCheck is a slice of flags parallel to invariantNames: a
 // flagged invariant is checked after every rule, the rest are sampled. A nil
 // slice (the C NULL default) leaves every invariant sampled. The returned
 // handle is owned by the caller and freed automatically via the GC.
-func (tc *TestCase) NewStateMachine(ctx *Context, ruleNames []string, ruleGroups []int64, invariantNames []string, invariantAlwaysCheck []bool, minConcurrency, maxConcurrency int64) (*StateMachine, int64, error) {
+func (tc *TestCase) NewStateMachine(ctx *Context, ruleNames []string, ruleGroups []int64, invariantNames []string, invariantAlwaysCheck []bool, minConcurrency, maxConcurrency, stepCount int64) (*StateMachine, int64, error) {
 	if len(ruleGroups) != len(ruleNames) {
 		return nil, 0, fmt.Errorf("hegel_new_state_machine: %d rule groups for %d rule names", len(ruleGroups), len(ruleNames))
 	}
@@ -1374,7 +1345,7 @@ func (tc *TestCase) NewStateMachine(ctx *Context, ruleNames []string, ruleGroups
 			ctx, tc.raw,
 			slicePtr(rules), slicePtr(ruleGroups), uint64(len(ruleNames)),
 			slicePtr(invariants), slicePtr(invariantAlwaysCheck), uint64(len(invariantNames)),
-			minConcurrency, maxConcurrency,
+			minConcurrency, maxConcurrency, stepCount,
 			raw, &tc.outInt,
 		)
 		runtime.KeepAlive(tc)

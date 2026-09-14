@@ -106,7 +106,7 @@ func Stub(tb testingTB, returns ...any) *Context {
 				case in == reflect.TypeFor[out[stringResult]]():
 					b := []byte(retval().(string))
 					arg.Elem().Set(reflect.ValueOf(stringResult{data: slicePtr(b), len: uint64(len(b))}))
-				case in == reflect.TypeFor[out[uint64]](), in == reflect.TypeFor[out[RunStatus]](),
+				case in == reflect.TypeFor[out[uint64]](), in == reflect.TypeFor[out[uint32]](), in == reflect.TypeFor[out[int32]](), in == reflect.TypeFor[out[RunStatus]](),
 					in == reflect.TypeFor[out[bool]](), in == reflect.TypeFor[out[int64]](),
 					in == reflect.TypeFor[out[StateMachineGroup]](),
 					in == reflect.TypeFor[out[float64]](), in == reflect.TypeFor[out[Date]](),
