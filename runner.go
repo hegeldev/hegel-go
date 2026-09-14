@@ -9,7 +9,6 @@ import (
 	"os"
 	"runtime"
 	"strings"
-	"sync"
 	"testing"
 
 	"hegel.dev/go/hegel/internal/libhegel"
@@ -30,7 +29,7 @@ const (
 type testCase struct {
 	ctx         *libhegel.Context
 	tc          *libhegel.TestCase
-	out         io.Writer // nil when output is disabled; otherwise the current region
+	out         io.Writer // Final destination, owned only by the root; nil on clones.
 	printer     *libhegel.Printer
 	depth       int
 	panicPolicy panicPolicy
@@ -92,29 +91,25 @@ func (s *testCase) Assume(condition bool) {
 }
 
 func (s *testCase) Note(message string) {
-	if _, native := s.out.(*nativeOutput); native {
+	if s.printer != nil {
 		if err := s.tc.Note(s.ctx, message); err != nil {
 			s.abort(err)
 		}
-		return
-	}
-	if s.out != nil {
-		fmt.Fprintln(s.out, message)
 	}
 }
 
 func (s *testCase) log(format string, args ...any) {
-	if s.out != nil {
+	if s.printer != nil {
 		s.Note(fmt.Sprintf(format, args...))
 	}
 }
 
 func (s *testCase) reportDraw(skip int, value any) {
-	if s.out == nil {
+	if s.printer == nil {
 		return
 	}
 	msg := formatDrawReport(skip+1, value)
-	fmt.Fprintln(s.out, msg)
+	s.Note(msg)
 }
 
 func (s *testCase) Errorf(format string, args ...any) {
@@ -153,18 +148,14 @@ func (s *testCase) engine() (*libhegel.Context, *libhegel.TestCase) {
 
 // clone returns a test-case wrapper backed by an independent libhegel stream.
 func (s *testCase) clone() (TestCase, error) {
-	if s.out != nil && s.printer == nil {
-		if _, ok := s.out.(*lockedWriter); !ok {
-			s.out = &lockedWriter{w: s.out}
-		}
-	}
 	tc, err := s.tc.Clone(s.ctx)
 	if err != nil {
 		return nil, err
 	}
-	clone := newTestCase(s.ctx.Clone(), tc, s.out, s.panicPolicy)
+	clone := newTestCase(s.ctx.Clone(), tc, nil, s.panicPolicy)
 	if s.printer != nil {
-		if err := clone.initNativeOutput(); err != nil {
+		clone.printer, err = tc.Printer(clone.ctx, nil)
+		if err != nil {
 			return nil, err
 		}
 	}
@@ -689,14 +680,18 @@ func (s *testCase) invoke(fn testBody) (result error) {
 }
 
 func (s *testCase) run(fn testBody) (failed bool, err error) {
-	destination := s.out
-	if err := s.initNativeOutput(); err != nil {
-		return false, err
+	if s.out != nil {
+		s.printer, err = s.tc.Printer(s.ctx, nil)
+		if err != nil {
+			return false, err
+		}
 	}
+	var result error
 	defer func() {
-		err = errors.Join(err, s.flushNativeOutput(destination))
+		err = errors.Join(err, s.flushNativeOutput())
+		formatInvocationResult(s.out, result)
 	}()
-	result := s.invoke(fn)
+	result = s.invoke(fn)
 	if result == nil {
 		return false, s.tc.MarkComplete(s.ctx, libhegel.STATUS_VALID, "")
 	}
@@ -713,7 +708,6 @@ func (s *testCase) run(fn testBody) (failed bool, err error) {
 		if !errors.As(result, &outcome) {
 			return true, result
 		}
-		formatInvocationResult(s.out, result)
 		status = outcome.status
 		origin = findCallerInPCs(outcome.pcs, isNotHegelFrame)
 	}
@@ -803,38 +797,10 @@ func isNotHegelFrame(fn string) bool {
 	return !isHegelFrame(fn)
 }
 
-// lockedWriter serializes output shared by the engine callback and concurrent
-// state-machine workers.
-type lockedWriter struct {
-	mu sync.Mutex
-	w  io.Writer
-}
-
-func (w *lockedWriter) Write(p []byte) (int, error) {
-	w.mu.Lock()
-	defer w.mu.Unlock()
-	return w.w.Write(p)
-}
-
-// initNativeOutput is called before invoking user code. Each clone owns its
-// context and printer handle; the engine owns synchronization of their regions.
-func (s *testCase) initNativeOutput() error {
-	if s.out == nil {
-		return nil
-	}
-	printer, err := s.tc.Printer(s.ctx, nil)
-	if err != nil {
-		return err
-	}
-	s.printer = printer
-	s.out = &nativeOutput{ctx: s.ctx, printer: printer}
-	return nil
-}
-
 // flushNativeOutput runs after workers join, including while a final replay
 // panic unwinds. Only the root emits the shared document.
-func (s *testCase) flushNativeOutput(destination io.Writer) error {
-	if s.printer == nil {
+func (s *testCase) flushNativeOutput() error {
+	if s.out == nil {
 		return nil
 	}
 	// Match the Rust frontend: no deferred regions is a harmless resolve error;
@@ -844,34 +810,8 @@ func (s *testCase) flushNativeOutput(destination io.Writer) error {
 	if err != nil {
 		return err
 	}
-	_, err = io.WriteString(destination, value)
+	_, err = io.WriteString(s.out, value)
 	return err
-}
-
-// nativeOutput bridges existing text reports into the document without
-// changing their formatting. Unlike Note, Write preserves trailing newlines.
-type nativeOutput struct {
-	ctx     *libhegel.Context
-	printer *libhegel.Printer
-}
-
-func (w *nativeOutput) Write(p []byte) (int, error) {
-	written := 0
-	for len(p) > 0 {
-		line, rest, newline := bytes.Cut(p, []byte("\n"))
-		if err := w.printer.Text(w.ctx, string(line)); err != nil {
-			return written, err
-		}
-		written += len(line)
-		if newline {
-			if err := w.printer.HardBreak(w.ctx); err != nil {
-				return written, err
-			}
-			written++
-		}
-		p = rest
-	}
-	return written, nil
 }
 
 func (s *testCase) setWorker(index int64) error {

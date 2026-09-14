@@ -1,7 +1,6 @@
 package hegel
 
 import (
-	"bytes"
 	"errors"
 	"runtime"
 	"strings"
@@ -11,26 +10,6 @@ import (
 
 	"hegel.dev/go/hegel/internal/libhegel"
 )
-
-func TestLockedWriterSerializesWrites(t *testing.T) {
-	t.Parallel()
-
-	var dst bytes.Buffer
-	w := &lockedWriter{w: &dst}
-	const writes = 100
-	var group sync.WaitGroup
-	for range writes {
-		group.Go(func() {
-			if _, err := w.Write([]byte("x")); err != nil {
-				t.Errorf("Write: %v", err)
-			}
-		})
-	}
-	group.Wait()
-	if dst.Len() != writes {
-		t.Errorf("bytes written = %d, want %d", dst.Len(), writes)
-	}
-}
 
 // --- Run / MustRun / Test entry points ---
 
@@ -459,8 +438,11 @@ func newStubTestCase(t testing.TB, opReturns ...any) *testCase {
 func TestFrameworkLogWritesWithoutLocation(t *testing.T) {
 	t.Parallel()
 	var out strings.Builder
-	tc := &testCase{out: &out}
+	tc := newEmittingTestCase(t, &out)
 	tc.log("Round %d", 3)
+	if err := tc.flushNativeOutput(); err != nil {
+		t.Fatal(err)
+	}
 	if got, want := out.String(), "Round 3\n"; got != want {
 		t.Fatalf("log output = %q, want %q", got, want)
 	}
@@ -469,8 +451,11 @@ func TestFrameworkLogWritesWithoutLocation(t *testing.T) {
 func TestDrawReportOmitsLocation(t *testing.T) {
 	t.Parallel()
 	var out strings.Builder
-	tc := &testCase{out: &out}
+	tc := newEmittingTestCase(t, &out)
 	tc.reportDraw(0, 42)
+	if err := tc.flushNativeOutput(); err != nil {
+		t.Fatal(err)
+	}
 	if got := out.String(); !strings.Contains(got, " = 42\n") || strings.Contains(got, "runner_test.go:") {
 		t.Fatalf("draw output = %q, want draw report without location", got)
 	}
@@ -533,11 +518,8 @@ func TestTestCaseCloneInheritsExecutionPolicy(t *testing.T) {
 	if clone.ctx == parent.ctx {
 		t.Fatal("clone shares its parent's error-reporting context")
 	}
-	if _, ok := parent.out.(*lockedWriter); !ok {
-		t.Fatalf("clone did not protect shared output: %T", parent.out)
-	}
-	if clone.out != parent.out || clone.panicPolicy != parent.panicPolicy {
-		t.Fatalf("clone did not inherit wrapper state: parent=%+v clone=%+v", parent, clone)
+	if parent.out != &output || clone.out != nil || clone.panicPolicy != parent.panicPolicy {
+		t.Fatalf("clone changed output ownership or execution policy")
 	}
 }
 
@@ -711,9 +693,7 @@ func TestRunWithContextEmitsNondeterministicFailureOutput(t *testing.T) {
 		uintptr(1), libhegel.OK, // next_test_case: one case
 		true, libhegel.OK, // is_nondeterministic
 		uintptr(1), libhegel.OK, // printer
-		libhegel.OK,                                        // note
-		libhegel.OK, libhegel.OK, libhegel.OK, libhegel.OK, // diagnostic header
-		libhegel.OK, libhegel.OK, libhegel.OK, libhegel.OK, // diagnostic frame
+		libhegel.OK,                     // note
 		libhegel.OK,                     // mark_complete
 		libhegel.OK,                     // resolve
 		"failure output\n", libhegel.OK, // value

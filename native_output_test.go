@@ -9,6 +9,18 @@ import (
 	"hegel.dev/go/hegel/internal/libhegel"
 )
 
+func newEmittingTestCase(t *testing.T, out io.Writer) *testCase {
+	t.Helper()
+	s := newRealTestCase(t)
+	s.out = out
+	var err error
+	s.printer, err = s.tc.Printer(s.ctx, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return s
+}
+
 func TestNativeOutputLifecycle(t *testing.T) {
 	s := newRealTestCase(t)
 	var out strings.Builder
@@ -25,15 +37,30 @@ func TestNativeOutputLifecycle(t *testing.T) {
 		tc.Note("parent after clone")
 		clone.Note("child")
 		clone.log("framework %d", 3)
-		_, err = io.WriteString(clone.(*testCase).out, "literal\nlast")
+		grandchild, err := clone.clone()
 		if err != nil {
 			t.Fatal(err)
+		}
+		if nested := grandchild.(*testCase); nested.out != nil || nested.printer == nil {
+			t.Fatal("nested clone lost its printer or acquired output ownership")
+		}
+		grandchild.Note("grandchild")
+		child := clone.(*testCase)
+		if child.out != nil || child.printer == nil || s.out != &out {
+			t.Fatal("only the root should own the output destination")
+		}
+		err = child.flushNativeOutput()
+		if err != nil {
+			t.Fatal(err)
+		}
+		if out.Len() != 0 {
+			t.Fatal("clone flushed the document")
 		}
 	})
 	if err != nil {
 		t.Fatal(err)
 	}
-	if got, want := out.String(), "first\nsecond\nchild\nframework 3\nliteral\nlastparent after clone\n"; got != want {
+	if got, want := out.String(), "first\nsecond\nchild\nframework 3\ngrandchild\nparent after clone\n"; got != want {
 		t.Fatalf("output = %q, want %q", got, want)
 	}
 	if err := s.tc.Note(s.ctx, "late"); !errors.Is(err, libhegel.E_INVALID_HANDLE) {
@@ -69,8 +96,10 @@ func TestNativeOutputInitializationError(t *testing.T) {
 func TestNativeOutputCloneInitializationError(t *testing.T) {
 	s := newStubTestCase(t, uintptr(1), libhegel.OK, uintptr(2), libhegel.OK, uintptr(2), uintptr(0), libhegel.E_BACKEND, "clone printer failed")
 	s.out = io.Discard
-	if err := s.initNativeOutput(); err != nil {
+	if printer, err := s.tc.Printer(s.ctx, nil); err != nil {
 		t.Fatal(err)
+	} else {
+		s.printer = printer
 	}
 	if _, err := s.clone(); !errors.Is(err, libhegel.E_BACKEND) {
 		t.Fatal(err)
@@ -84,26 +113,25 @@ func TestNativeOutputReadErrors(t *testing.T) {
 		"", libhegel.E_BACKEND, "read failed", // value
 	)
 	s.out = io.Discard
-	if err := s.initNativeOutput(); err != nil {
+	if printer, err := s.tc.Printer(s.ctx, nil); err != nil {
 		t.Fatal(err)
+	} else {
+		s.printer = printer
 	}
-	if err := s.flushNativeOutput(io.Discard); !errors.Is(err, libhegel.E_BACKEND) {
+	if err := s.flushNativeOutput(); !errors.Is(err, libhegel.E_BACKEND) {
 		t.Fatal(err)
 	}
 }
 
 func TestNativeOutputWithoutDeferredRegions(t *testing.T) {
-	s := newRealTestCase(t)
-	s.out = io.Discard
-	if err := s.initNativeOutput(); err != nil {
-		t.Fatal(err)
-	}
+	s := newEmittingTestCase(t, io.Discard)
 	s.Note("plain output")
 	// Resolve reports NothingToResolve; the value remains readable, including
 	// when a sealed document is read again.
 	for range 2 {
 		var out strings.Builder
-		if err := s.flushNativeOutput(&out); err != nil {
+		s.out = &out
+		if err := s.flushNativeOutput(); err != nil {
 			t.Fatal(err)
 		}
 		if got := out.String(); got != "plain output\n" {
@@ -113,11 +141,7 @@ func TestNativeOutputWithoutDeferredRegions(t *testing.T) {
 }
 
 func TestNativeOutputDeferredLayoutError(t *testing.T) {
-	s := newRealTestCase(t)
-	s.out = io.Discard
-	if err := s.initNativeOutput(); err != nil {
-		t.Fatal(err)
-	}
+	s := newEmittingTestCase(t, io.Discard)
 	hole, err := s.printer.Deferred(s.ctx)
 	if err != nil {
 		t.Fatal(err)
@@ -128,7 +152,8 @@ func TestNativeOutputDeferredLayoutError(t *testing.T) {
 		t.Fatal(err)
 	}
 	var out strings.Builder
-	if err := s.flushNativeOutput(&out); !errors.Is(err, libhegel.E_INVALID_ARG) {
+	s.out = &out
+	if err := s.flushNativeOutput(); !errors.Is(err, libhegel.E_INVALID_ARG) {
 		t.Fatalf("layout error = %v", err)
 	}
 	if out.Len() != 0 {
@@ -137,38 +162,44 @@ func TestNativeOutputDeferredLayoutError(t *testing.T) {
 }
 
 func TestNativeNoteError(t *testing.T) {
-	s := newRealTestCase(t)
-	s.out = io.Discard
-	if err := s.initNativeOutput(); err != nil {
-		t.Fatal(err)
-	}
+	s := newEmittingTestCase(t, io.Discard)
 	err := s.invoke(func(tc TestCase) { tc.Note(string([]byte{255})) })
 	if !errors.Is(err, libhegel.E_INVALID_ARG) {
 		t.Fatalf("note = %v", err)
 	}
 }
 
-func TestNativeWriterErrors(t *testing.T) {
-	for _, newline := range []bool{false, true} {
-		t.Run(map[bool]string{false: "text", true: "break"}[newline], func(t *testing.T) {
-			ops := []any{uintptr(1), libhegel.OK}
-			if newline {
-				ops = append(ops, libhegel.OK)
-			}
-			ops = append(ops, libhegel.E_BACKEND, "write failed")
-			s := newStubTestCase(t, ops...)
-			s.out = io.Discard
-			if err := s.initNativeOutput(); err != nil {
-				t.Fatal(err)
-			}
-			n, err := s.out.Write([]byte("a\n"))
-			want := 0
-			if newline {
-				want = 1
-			}
-			if n != want || !errors.Is(err, libhegel.E_BACKEND) {
-				t.Fatalf("write = %d, %v", n, err)
-			}
-		})
+func TestNativeOutputWriteError(t *testing.T) {
+	want := errors.New("write failed")
+	s := newEmittingTestCase(t, failingNativeOutputWriter{want})
+	s.Note("output")
+	if err := s.flushNativeOutput(); !errors.Is(err, want) {
+		t.Fatal(err)
+	}
+}
+
+type failingNativeOutputWriter struct{ err error }
+
+func (w failingNativeOutputWriter) Write([]byte) (int, error) { return 0, w.err }
+
+func TestNativeOutputDisabled(t *testing.T) {
+	s := newStubTestCase(t,
+		uintptr(2), libhegel.OK, // clone
+		uintptr(2),  // context clone
+		libhegel.OK, // mark complete
+	)
+	_, err := s.run(func(tc TestCase) {
+		clone, err := tc.clone()
+		if err != nil {
+			t.Fatal(err)
+		}
+		if child := clone.(*testCase); child.out != nil || child.printer != nil {
+			t.Fatal("disabled output acquired a writer or printer")
+		}
+		clone.Note("silent child")
+		tc.Note("silent root")
+	})
+	if err != nil {
+		t.Fatal(err)
 	}
 }

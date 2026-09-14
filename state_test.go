@@ -24,7 +24,7 @@ func makeFakeT(t *testing.T) *T {
 // (which we can't capture directly) and/or testCase.out.
 func makeEmittingT(t *testing.T, buf *bytes.Buffer) *T {
 	return &T{
-		testCase: &testCase{out: buf},
+		testCase: newEmittingTestCase(t, buf),
 		T:        t,
 	}
 }
@@ -190,17 +190,23 @@ func TestTLogEmitsWhenEmitting(t *testing.T) {
 	ht.Log("hello", " world")
 	ht.Logf("value=%d", 42)
 	ht.Note("a note")
+	if err := ht.flushNativeOutput(); err != nil {
+		t.Fatal(err)
+	}
 	if got := strings.TrimSpace(out.String()); got != "a note" {
 		t.Errorf("Note output = %q, want %q", got, "a note")
 	}
 }
 
-// testCase.Note writes to s.out when set.
+// testCase.Note adds to the native document, which the root flushes to s.out.
 func TestTestCaseNoteWritesToOut(t *testing.T) {
 	t.Parallel()
 	var buf bytes.Buffer
-	s := &testCase{out: &buf}
+	s := newEmittingTestCase(t, &buf)
 	s.Note("hello world")
+	if err := s.flushNativeOutput(); err != nil {
+		t.Fatal(err)
+	}
 	if got := strings.TrimSpace(buf.String()); got != "hello world" {
 		t.Errorf("expected %q, got %q", "hello world", got)
 	}
@@ -210,7 +216,7 @@ func TestTestCaseNoteWritesToOut(t *testing.T) {
 func TestTestCaseErrorfDefersOutputAndFails(t *testing.T) {
 	t.Parallel()
 	var buf bytes.Buffer
-	s := &testCase{out: &buf}
+	s := newEmittingTestCase(t, &buf)
 	defer func() {
 		r := recover()
 		err, ok := r.(*invocationError)
@@ -228,8 +234,11 @@ func TestTestCaseErrorfDefersOutputAndFails(t *testing.T) {
 func TestTestCaseLogWritesToOut(t *testing.T) {
 	t.Parallel()
 	var buf bytes.Buffer
-	s := &testCase{out: &buf}
+	s := newEmittingTestCase(t, &buf)
 	s.Log("hello", " world")
+	if err := s.flushNativeOutput(); err != nil {
+		t.Fatal(err)
+	}
 	if got := strings.TrimSpace(buf.String()); got != "hello world" {
 		t.Errorf("expected %q, got %q", "hello world", got)
 	}
@@ -241,6 +250,9 @@ func TestTReportDrawEmits(t *testing.T) {
 	var out bytes.Buffer
 	ht := makeEmittingT(t, &out)
 	ht.reportDraw(0, 42)
+	if err := ht.flushNativeOutput(); err != nil {
+		t.Fatal(err)
+	}
 	if got := out.String(); !strings.Contains(got, " = 42") {
 		t.Fatalf("draw output = %q", got)
 	}
