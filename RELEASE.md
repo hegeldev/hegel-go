@@ -18,4 +18,6 @@ hegel.Test(t, func(tc *hegel.T) {
 })
 ```
 
-The default remains 50 rounds. `BackendAuto` now uses the backend selected by libhegel's active settings profile, including its Antithesis detection.
+The default remains 50 rounds.
+
+`BackendAuto` has been removed. Remove `WithBackend(BackendAuto)` to use the backend selected by libhegel's active settings profile, including its Antithesis detection. `BackendDefault` and `BackendURandom` remain available as explicit overrides.

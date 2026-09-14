@@ -381,7 +381,7 @@ func TestWithSeedIntegration(t *testing.T) {
 
 func TestWithBackendIntegration(t *testing.T) {
 	t.Parallel()
-	for _, b := range []Backend{BackendAuto, BackendDefault} {
+	for _, b := range []Backend{BackendDefault, BackendURandom} {
 		err := Run(func(tc TestCase) {
 			_ = Draw[int](tc, Integers[int](0, 100))
 		}, WithTestCases(5), WithBackend(b), WithDatabase(""))
@@ -1248,7 +1248,7 @@ func TestBuildSettingsCreationError(t *testing.T) {
 	}
 }
 
-func TestBackendAutoUsesProfile(t *testing.T) {
+func TestDefaultBackendUsesProfile(t *testing.T) {
 	for _, test := range []struct {
 		profile string
 		want    Backend
@@ -1258,7 +1258,7 @@ func TestBackendAutoUsesProfile(t *testing.T) {
 		t.Run(test.profile, func(t *testing.T) {
 			t.Setenv("HEGEL_DEFAULT_PROFILE", test.profile)
 			ctx := libhegel.NewContext()
-			settings, err := applyOpts([]Option{WithBackend(BackendDefault), WithBackend(BackendAuto)}).buildSettings(ctx)
+			settings, err := (runOptions{}).buildSettings(ctx)
 			if err != nil {
 				t.Fatal(err)
 			}
@@ -1267,18 +1267,5 @@ func TestBackendAutoUsesProfile(t *testing.T) {
 				t.Fatalf("backend = %v, %v; want %v", got, err, test.want)
 			}
 		})
-	}
-}
-
-func TestBackendAutoProfileErrors(t *testing.T) {
-	t.Parallel()
-	for _, returns := range [][]any{
-		{uintptr(1), libhegel.OK, uintptr(0), libhegel.E_INVALID_ARG, "invalid profile"},
-		{uintptr(1), libhegel.OK, uintptr(2), libhegel.OK, int32(0), libhegel.E_INVALID_HANDLE, "invalid settings"},
-	} {
-		ctx := libhegel.Stub(t, returns...)
-		if _, err := applyOpts([]Option{WithBackend(BackendAuto)}).buildSettings(ctx); err == nil {
-			t.Fatal("profile error lost")
-		}
 	}
 }

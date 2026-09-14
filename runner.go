@@ -308,8 +308,6 @@ func AllHealthChecks() []HealthCheck {
 type Backend = libhegel.Backend
 
 const (
-	// BackendAuto restores the backend selected by the active libhegel profile.
-	BackendAuto Backend = 0
 	// BackendDefault expands a single seeded PRNG; runs are reproducible from
 	// the seed and shrinking / replay work as usual.
 	BackendDefault = libhegel.BACKEND_DEFAULT
@@ -451,18 +449,7 @@ func WithSeed(seed int64) Option {
 func WithBackend(b Backend) Option {
 	return func(o *runOptions) {
 		o.addSetting(func(ctx *libhegel.Context, s *libhegel.Settings) error {
-			resolved := b
-			if resolved == BackendAuto {
-				defaults, err := ctx.SettingsNew()
-				if err != nil {
-					return err
-				}
-				resolved, err = defaults.GetBackend(ctx)
-				if err != nil {
-					return err
-				}
-			}
-			return s.Backend(ctx, resolved)
+			return s.Backend(ctx, b)
 		})
 	}
 }
