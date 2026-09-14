@@ -78,23 +78,61 @@ func TestNativeOutputCloneInitializationError(t *testing.T) {
 }
 
 func TestNativeOutputReadErrors(t *testing.T) {
-	for _, resolve := range []bool{false, true} {
-		t.Run(map[bool]string{false: "value", true: "resolve"}[resolve], func(t *testing.T) {
-			ops := []any{uintptr(1), libhegel.OK}
-			if !resolve {
-				ops = append(ops, "")
-			}
-			ops = append(ops, libhegel.E_BACKEND, "read failed")
-			s := newStubTestCase(t, ops...)
-			s.out = io.Discard
-			if err := s.initNativeOutput(); err != nil {
-				t.Fatal(err)
-			}
-			s.document.needsResolve.Store(resolve)
-			if err := s.flushNativeOutput(io.Discard); !errors.Is(err, libhegel.E_BACKEND) {
-				t.Fatal(err)
-			}
-		})
+	s := newStubTestCase(t,
+		uintptr(1), libhegel.OK, // printer
+		libhegel.OK,                           // resolve
+		"", libhegel.E_BACKEND, "read failed", // value
+	)
+	s.out = io.Discard
+	if err := s.initNativeOutput(); err != nil {
+		t.Fatal(err)
+	}
+	if err := s.flushNativeOutput(io.Discard); !errors.Is(err, libhegel.E_BACKEND) {
+		t.Fatal(err)
+	}
+}
+
+func TestNativeOutputWithoutDeferredRegions(t *testing.T) {
+	s := newRealTestCase(t)
+	s.out = io.Discard
+	if err := s.initNativeOutput(); err != nil {
+		t.Fatal(err)
+	}
+	s.Note("plain output")
+	// Resolve reports NothingToResolve; the value remains readable, including
+	// when a sealed document is read again.
+	for range 2 {
+		var out strings.Builder
+		if err := s.flushNativeOutput(&out); err != nil {
+			t.Fatal(err)
+		}
+		if got := out.String(); got != "plain output\n" {
+			t.Fatalf("output = %q", got)
+		}
+	}
+}
+
+func TestNativeOutputDeferredLayoutError(t *testing.T) {
+	s := newRealTestCase(t)
+	s.out = io.Discard
+	if err := s.initNativeOutput(); err != nil {
+		t.Fatal(err)
+	}
+	hole, err := s.printer.Deferred(s.ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	// Deferred writes are replayed only at resolution. An unmatched EndGroup
+	// fails then, and Value must still report that failure after Resolve.
+	if err := hole.EndGroup(s.ctx, "}"); err != nil {
+		t.Fatal(err)
+	}
+	var out strings.Builder
+	if err := s.flushNativeOutput(&out); !errors.Is(err, libhegel.E_INVALID_ARG) {
+		t.Fatalf("layout error = %v", err)
+	}
+	if out.Len() != 0 {
+		t.Fatalf("emitted invalid document: %q", out.String())
 	}
 }
 

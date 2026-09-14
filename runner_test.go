@@ -715,6 +715,7 @@ func TestRunWithContextEmitsNondeterministicFailureOutput(t *testing.T) {
 		libhegel.OK, libhegel.OK, libhegel.OK, libhegel.OK, // diagnostic header
 		libhegel.OK, libhegel.OK, libhegel.OK, libhegel.OK, // diagnostic frame
 		libhegel.OK,                     // mark_complete
+		libhegel.OK,                     // resolve
 		"failure output\n", libhegel.OK, // value
 		uintptr(0), libhegel.OK, // next_test_case: run finished
 		uintptr(1), libhegel.OK, // run_result

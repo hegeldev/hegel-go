@@ -10,7 +10,6 @@ import (
 	"runtime"
 	"strings"
 	"sync"
-	"sync/atomic"
 	"testing"
 
 	"hegel.dev/go/hegel/internal/libhegel"
@@ -33,7 +32,6 @@ type testCase struct {
 	tc          *libhegel.TestCase
 	out         io.Writer // nil when output is disabled; otherwise the current region
 	printer     *libhegel.Printer
-	document    *nativeDocument
 	depth       int
 	panicPolicy panicPolicy
 	abortFn     func(error)
@@ -166,8 +164,6 @@ func (s *testCase) clone() (TestCase, error) {
 	}
 	clone := newTestCase(s.ctx.Clone(), tc, s.out, s.panicPolicy)
 	if s.printer != nil {
-		s.document.needsResolve.Store(true)
-		clone.document = s.document
 		if err := clone.initNativeOutput(); err != nil {
 			return nil, err
 		}
@@ -843,9 +839,6 @@ func (s *testCase) initNativeOutput() error {
 	if err != nil {
 		return err
 	}
-	if s.document == nil {
-		s.document = new(nativeDocument)
-	}
 	s.printer = printer
 	s.out = &nativeOutput{ctx: s.ctx, printer: printer}
 	return nil
@@ -857,11 +850,9 @@ func (s *testCase) flushNativeOutput(destination io.Writer) error {
 	if s.printer == nil {
 		return nil
 	}
-	if s.document.needsResolve.Load() {
-		if err := s.printer.Resolve(s.ctx); err != nil {
-			return err
-		}
-	}
+	// Match the Rust frontend: no deferred regions is a harmless resolve error;
+	// Value still reports layout errors after resolution.
+	_ = s.printer.Resolve(s.ctx)
 	value, err := s.printer.Value(s.ctx)
 	if err != nil {
 		return err
@@ -894,12 +885,6 @@ func (w *nativeOutput) Write(p []byte) (int, error) {
 		p = rest
 	}
 	return written, nil
-}
-
-// nativeDocument is shared by all clones. Cloning opens deferred native slots;
-// only the root reads this flag after every worker has finished.
-type nativeDocument struct {
-	needsResolve atomic.Bool
 }
 
 func (s *testCase) setWorker(index int64) error {
