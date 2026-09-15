@@ -187,9 +187,16 @@ func (g FloatGenerator[T]) draw(tc TestCase) (T, error) {
 
 // Booleans returns a Generator that produces boolean values.
 func Booleans() Generator[bool] {
+	return WeightedBooleans(0.5)
+}
+
+// WeightedBooleans returns a Generator that produces true with probability p.
+// The probability must be within [0, 1]. Values 0 and 1 produce constants
+// without consuming entropy.
+func WeightedBooleans(p float64) Generator[bool] {
 	return genFunc[bool](func(tc TestCase) (bool, error) {
 		ctx, ltc := tc.engine()
-		return ltc.GenerateBoolean(ctx, 0.5, false, false)
+		return ltc.GenerateBoolean(ctx, p, false, false)
 	})
 }
 
@@ -568,32 +575,134 @@ var (
 	fullTimeMax = libhegel.Time{Hour: 23, Minute: 59, Second: 59, Nanosecond: 999999999}
 )
 
-// Dates returns a Generator that produces time.Time values (date only, at
-// midnight UTC).
-func Dates() Generator[time.Time] {
-	return genFunc[time.Time](func(tc TestCase) (time.Time, error) {
-		ctx, ltc := tc.engine()
-		d, err := ltc.GenerateDate(ctx, fullDateMin, fullDateMax)
-		if err != nil {
-			return time.Time{}, err
-		}
-		return d.ToTime(), nil
-	})
+func dateFromTime(v time.Time) (libhegel.Date, error) {
+	year := v.Year()
+	if year < -999999 || year > 999999 {
+		return libhegel.Date{}, fmt.Errorf("date year must be between -999999 and 999999, got %d", year)
+	}
+	return libhegel.Date{Year: int32(year), Month: uint8(v.Month()), Day: uint8(v.Day())}, nil
 }
 
-// Datetimes returns a Generator that produces time.Time values (naive datetime
-// in UTC).
-func Datetimes() Generator[time.Time] {
-	return genFunc[time.Time](func(tc TestCase) (time.Time, error) {
-		ctx, ltc := tc.engine()
-		dt, err := ltc.GenerateDatetime(ctx,
-			libhegel.Datetime{Date: fullDateMin},
-			libhegel.Datetime{Date: fullDateMax, Time: fullTimeMax})
+func datetimeFromTime(v time.Time) (libhegel.Datetime, error) {
+	date, err := dateFromTime(v)
+	if err != nil {
+		return libhegel.Datetime{}, err
+	}
+	return libhegel.Datetime{
+		Date: date,
+		Time: libhegel.Time{
+			Hour:       uint8(v.Hour()),
+			Minute:     uint8(v.Minute()),
+			Second:     uint8(v.Second()),
+			Nanosecond: uint32(v.Nanosecond()),
+		},
+	}, nil
+}
+
+// DateGenerator generates dates at midnight UTC within inclusive bounds.
+type DateGenerator struct {
+	minVal *time.Time
+	maxVal *time.Time
+}
+
+var _ Generator[time.Time] = DateGenerator{}
+
+// Dates returns a DateGenerator with default bounds of 0001-01-01 and
+// 9999-12-31. Custom bounds may use years from -999999 through 999999.
+func Dates() DateGenerator {
+	return DateGenerator{}
+}
+
+// Min sets the inclusive minimum from v's date fields. It ignores the time and
+// location.
+func (g DateGenerator) Min(v time.Time) DateGenerator {
+	g.minVal = &v
+	return g
+}
+
+// Max sets the inclusive maximum from v's date fields. It ignores the time and
+// location.
+func (g DateGenerator) Max(v time.Time) DateGenerator {
+	g.maxVal = &v
+	return g
+}
+
+func (g DateGenerator) draw(tc TestCase) (time.Time, error) {
+	minVal, maxVal := fullDateMin, fullDateMax
+	if g.minVal != nil {
+		var err error
+		minVal, err = dateFromTime(*g.minVal)
 		if err != nil {
 			return time.Time{}, err
 		}
-		return dt.ToTime(), nil
-	})
+	}
+	if g.maxVal != nil {
+		var err error
+		maxVal, err = dateFromTime(*g.maxVal)
+		if err != nil {
+			return time.Time{}, err
+		}
+	}
+	ctx, ltc := tc.engine()
+	d, err := ltc.GenerateDate(ctx, minVal, maxVal)
+	if err != nil {
+		return time.Time{}, err
+	}
+	return d.ToTime(), nil
+}
+
+// DatetimeGenerator generates UTC datetimes within inclusive bounds.
+type DatetimeGenerator struct {
+	minVal *time.Time
+	maxVal *time.Time
+}
+
+var _ Generator[time.Time] = DatetimeGenerator{}
+
+// Datetimes returns a DatetimeGenerator with default bounds from 0001-01-01
+// through the last nanosecond of 9999-12-31. Custom bounds may use years from
+// -999999 through 999999.
+func Datetimes() DatetimeGenerator {
+	return DatetimeGenerator{}
+}
+
+// Min sets the inclusive minimum from v's wall-clock fields. It ignores the
+// location.
+func (g DatetimeGenerator) Min(v time.Time) DatetimeGenerator {
+	g.minVal = &v
+	return g
+}
+
+// Max sets the inclusive maximum from v's wall-clock fields. It ignores the
+// location.
+func (g DatetimeGenerator) Max(v time.Time) DatetimeGenerator {
+	g.maxVal = &v
+	return g
+}
+
+func (g DatetimeGenerator) draw(tc TestCase) (time.Time, error) {
+	minVal := libhegel.Datetime{Date: fullDateMin}
+	maxVal := libhegel.Datetime{Date: fullDateMax, Time: fullTimeMax}
+	if g.minVal != nil {
+		var err error
+		minVal, err = datetimeFromTime(*g.minVal)
+		if err != nil {
+			return time.Time{}, err
+		}
+	}
+	if g.maxVal != nil {
+		var err error
+		maxVal, err = datetimeFromTime(*g.maxVal)
+		if err != nil {
+			return time.Time{}, err
+		}
+	}
+	ctx, ltc := tc.engine()
+	dt, err := ltc.GenerateDatetime(ctx, minVal, maxVal)
+	if err != nil {
+		return time.Time{}, err
+	}
+	return dt.ToTime(), nil
 }
 
 // --- Constants and sampling ---

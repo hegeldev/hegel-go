@@ -87,6 +87,28 @@ func TestBooleansE2E(t *testing.T) {
 	}, WithTestCases(50))
 }
 
+func TestWeightedBooleansConstantOutcomes(t *testing.T) {
+	t.Parallel()
+
+	Test(t, func(ht *T) {
+		if Draw(ht, WeightedBooleans(0)) {
+			panic("probability zero produced true")
+		}
+		if !Draw(ht, WeightedBooleans(1)) {
+			panic("probability one produced false")
+		}
+	}, WithTestCases(10))
+}
+
+func TestWeightedBooleansRejectsInvalidProbability(t *testing.T) {
+	t.Parallel()
+
+	for _, probability := range []float64{-0.1, 1.1, math.NaN()} {
+		_, err := WeightedBooleans(probability).draw(newRealTestCase(t))
+		assertErrorContains(t, "probability", err)
+	}
+}
+
 func TestTextE2E(t *testing.T) {
 	t.Parallel()
 
