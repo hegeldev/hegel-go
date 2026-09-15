@@ -10,7 +10,10 @@ calls it via purego FFI. When the pinned version changes, the C API in
 `hegel-c/include/hegel.h` may have added, removed, renamed, or re-typed symbols,
 and the low-level wrapper in `internal/libhegel/` must be re-aligned. The main
 `hegel` package's exported API must **not** change as a result — only the
-internal binding layer.
+internal binding layer — **except when libhegel removes an API**. In that case,
+remove the corresponding API from the public Go package too. Do not preserve it
+with a compatibility shim, emulation, or another workaround after its upstream
+libhegel support is gone.
 
 **Within that binding layer, the wrapper API *should* track the C API.** When a
 C function gains a parameter, plumb it through the `internal/libhegel` wrapper
@@ -118,8 +121,11 @@ registers but the lib no longer exports makes `registerSymbols` fail and
 
 Walk every C declaration and check it against the wrapper. Categorize each:
 
-- **Removed symbol** → delete its `symbols` field, its registration-table entry,
-  its `stub.go` closure, and any wrapper method. Re-route callers.
+- **Removed symbol/API** → delete its `symbols` field, its registration-table
+  entry, its `stub.go` closure, and any wrapper method. If it backs an exported
+  API in the main `hegel` package, remove that public API and its callers too;
+  do not add compatibility code that recreates or retains an API libhegel has
+  removed.
 - **Renamed/retyped symbol** (e.g. `hegel_run_result_passed`, a `bool`, became
   `hegel_run_result_status`, a `hegel_run_status_t` written through an out-param)
   → update the field signature, the registration name, the wrapper method, and

@@ -359,6 +359,7 @@ type symbols struct {
 	FailureReproductionBlob func(ctxT, failureT, out[*byte]) Error
 
 	SettingsSetShowStatistics        func(ctxT, settingsT, bool) Error
+	SettingsSetUnboundedChoices      func(ctxT, settingsT, bool) Error
 	RecursionFinish                  func(ctxT, testCaseT, recursionT) Error
 	StateMachineShouldCheckInvariant func(ctxT, testCaseT, stateMachineT, int64, out[bool]) Error
 	Event                            func(ctxT, testCaseT, string) Error
@@ -407,6 +408,7 @@ type symbols struct {
 	SettingsGetShowStatistics         func(ctxT, settingsT, out[bool]) Error
 	SettingsGetPrintBlob              func(ctxT, settingsT, out[bool]) Error
 	SettingsGetBackend                func(ctxT, settingsT, out[int32]) Error
+	SettingsGetUnboundedChoices       func(ctxT, settingsT, out[bool]) Error
 
 	Version func(ctxT, out[*byte]) Error
 }
@@ -626,8 +628,10 @@ func tryOpen(path string) (syms *symbols, err error) {
 		{"hegel_settings_get_show_statistics", &syms.SettingsGetShowStatistics},
 		{"hegel_settings_get_print_blob", &syms.SettingsGetPrintBlob},
 		{"hegel_settings_get_backend", &syms.SettingsGetBackend},
+		{"hegel_settings_get_unbounded_choices", &syms.SettingsGetUnboundedChoices},
 
 		{"hegel_settings_set_show_statistics", &syms.SettingsSetShowStatistics},
+		{"hegel_settings_set_unbounded_choices", &syms.SettingsSetUnboundedChoices},
 		{"hegel_recursion_finish", &syms.RecursionFinish},
 		{"hegel_state_machine_should_check_invariant", &syms.StateMachineShouldCheckInvariant},
 		{"hegel_event", &syms.Event},
@@ -917,6 +921,17 @@ func (s *Settings) GetBackend(ctx *Context) (Backend, error) {
 		return e
 	})
 	return Backend(value), err
+}
+
+// GetUnboundedChoices reads the effective unbounded choices setting.
+func (s *Settings) GetUnboundedChoices(ctx *Context) (bool, error) {
+	var value bool
+	err := ctx.invoke("hegel_settings_get_unbounded_choices", func(ctx ctxT) Error {
+		e := s.syms.SettingsGetUnboundedChoices(ctx, s.raw, &value)
+		runtime.KeepAlive(s)
+		return e
+	})
+	return bool(value), err
 }
 
 // Backend selects the engine's randomness backend. See [Backend].
@@ -1930,6 +1945,17 @@ func cStringArray(ss []string) ([]*byte, error) {
 func (s *Settings) ShowStatistics(ctx *Context, on bool) error {
 	return ctx.invoke("hegel_settings_set_show_statistics", func(ctx ctxT) Error {
 		e := s.syms.SettingsSetShowStatistics(ctx, s.raw, on)
+		runtime.KeepAlive(s)
+		return e
+	})
+}
+
+// UnboundedChoices controls whether a test case may make any number of choices,
+// lifting the default 2^20 per-case choice limit. See
+// hegel_settings_set_unbounded_choices.
+func (s *Settings) UnboundedChoices(ctx *Context, yes bool) error {
+	return ctx.invoke("hegel_settings_set_unbounded_choices", func(ctx ctxT) Error {
+		e := s.syms.SettingsSetUnboundedChoices(ctx, s.raw, yes)
 		runtime.KeepAlive(s)
 		return e
 	})
