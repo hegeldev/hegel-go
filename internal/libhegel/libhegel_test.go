@@ -108,6 +108,7 @@ func TestProfileSettingsRoundTrip(t *testing.T) {
 	must(s.SuppressHealthCheck(ctx, HC_TOO_SLOW))
 	must(s.ReportMultipleFailures(ctx, false))
 	must(s.ShowStatistics(ctx, true))
+	must(s.UnboundedChoices(ctx, true))
 	must(s.PrintBlob(ctx, false))
 	must(s.Backend(ctx, BACKEND_DEFAULT))
 	must(s.TestLocation(ctx, "example_test.go", 42, "Example", "TestProperty"))
@@ -137,6 +138,9 @@ func TestProfileSettingsRoundTrip(t *testing.T) {
 	}
 	if got, err := s.GetShowStatistics(ctx); !got || err != nil {
 		t.Fatalf("statistics = %v, %v", got, err)
+	}
+	if got, err := s.GetUnboundedChoices(ctx); !got || err != nil {
+		t.Fatalf("unbounded choices = %v, %v", got, err)
 	}
 	if got, err := s.GetPrintBlob(ctx); got || err != nil {
 		t.Fatalf("print blob = %v, %v", got, err)
