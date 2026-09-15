@@ -1222,8 +1222,6 @@ func TestStatefulInitialInvariantError(t *testing.T) {
 	sm.Run(tc)
 }
 
-// TestStatefulFinalInvariantError covers an error from the unconditional
-// final-state invariant sweep.
 func TestStatefulFinalInvariantError(t *testing.T) {
 	t.Parallel()
 	tc := newStubTestCase(t,
