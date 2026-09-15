@@ -6,7 +6,9 @@ import (
 )
 
 // PrinterOptions configures a printer's layout and is released automatically by the GC.
-type PrinterOptions pointer[printerOptionsT]
+type PrinterOptions struct {
+	pointer[printerOptionsT]
+}
 
 // Printer owns a reference to a document region, released automatically by the GC.
 // Resolve or Value seals a document; subsequent writes fail.
@@ -18,10 +20,14 @@ type Printer struct {
 
 // PrinterOptionsNew creates options with the engine's default line width (79).
 func (ctx *Context) PrinterOptionsNew() (*PrinterOptions, error) {
-	ptr, err := allocate(ctx, "hegel_printer_options_new", func(rawCtx ctxT, raw *printerOptionsT) Error {
+	opts := new(PrinterOptions)
+	ok, err := allocateInto(ctx, &opts.pointer, "hegel_printer_options_new", func(rawCtx ctxT, raw *printerOptionsT) Error {
 		return ctx.syms.PrinterOptionsNew(rawCtx, raw)
 	}, ctx.syms.PrinterOptionsFree)
-	return (*PrinterOptions)(ptr), err
+	if !ok {
+		return nil, err
+	}
+	return opts, err
 }
 
 // MaxWidth sets the document's line width, which must be positive.
