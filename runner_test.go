@@ -322,6 +322,16 @@ func TestSettingsOptionsRecordApplier(t *testing.T) {
 	}
 }
 
+func TestWithProfileRecordsName(t *testing.T) {
+	o := applyOpts([]Option{WithProfile("base"), WithProfile("workload")})
+	if o.profile != "workload" {
+		t.Fatalf("profile = %q, want workload", o.profile)
+	}
+	if len(o.settingsAppliers) != 0 {
+		t.Fatalf("WithProfile recorded %d settings appliers, want 0", len(o.settingsAppliers))
+	}
+}
+
 func TestSuppressHealthCheckIntegration(t *testing.T) {
 	t.Parallel()
 	var calls atomic.Int32
@@ -1245,6 +1255,41 @@ func TestBuildSettingsCreationError(t *testing.T) {
 	settings, err := (runOptions{}).buildSettings(ctx)
 	if settings != nil || err == nil || !strings.Contains(err.Error(), "invalid profile") {
 		t.Fatalf("buildSettings = %v, %v; want profile error", settings, err)
+	}
+}
+
+func TestBuildSettingsNamedProfileError(t *testing.T) {
+	t.Parallel()
+	ctx := libhegel.Stub(t, uintptr(0), libhegel.E_INVALID_ARG, "unknown profile")
+	settings, err := (runOptions{profile: "missing"}).buildSettings(ctx)
+	if settings != nil || err == nil || !strings.Contains(err.Error(), "unknown profile") {
+		t.Fatalf("buildSettings = %v, %v; want named profile error", settings, err)
+	}
+}
+
+func TestWithProfileSelectsNamedProfile(t *testing.T) {
+	t.Setenv("HEGEL_DEFAULT_PROFILE", "base")
+	ctx := libhegel.NewContext()
+	settings, err := applyOpts([]Option{WithProfile("workload")}).buildSettings(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	got, err := settings.GetBackend(ctx)
+	if err != nil || got != BackendURandom {
+		t.Fatalf("backend = %v, %v; want %v", got, err, BackendURandom)
+	}
+}
+
+func TestWithEmptyProfileUsesDefault(t *testing.T) {
+	t.Setenv("HEGEL_DEFAULT_PROFILE", "workload")
+	ctx := libhegel.NewContext()
+	settings, err := applyOpts([]Option{WithProfile("")}).buildSettings(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	got, err := settings.GetBackend(ctx)
+	if err != nil || got != BackendURandom {
+		t.Fatalf("backend = %v, %v; want %v", got, err, BackendURandom)
 	}
 }
 
