@@ -2,8 +2,6 @@ package hegel
 
 import (
 	"fmt"
-
-	"hegel.dev/go/hegel/internal/libhegel"
 )
 
 // --- Lists generator ---
@@ -51,7 +49,7 @@ func (g ListGenerator[T]) draw(tc TestCase) ([]T, error) {
 	if g.hasMax {
 		maxSize = &g.maxSize
 	}
-	return withSpan(tc, libhegel.LABEL_LIST, func() ([]T, error) {
+	return withSpan(tc, "list", func() ([]T, error) {
 		var result []T
 		coll, err := tc.newCollection(g.minSize, maxSize)
 		if err != nil {
@@ -118,7 +116,7 @@ func (g MapGenerator[K, V]) draw(tc TestCase) (map[K]V, error) {
 	if g.hasMax {
 		maxSize = &g.maxSize
 	}
-	return withSpan(tc, libhegel.LABEL_MAP, func() (map[K]V, error) {
+	return withSpan(tc, "map", func() (map[K]V, error) {
 		result := map[K]V{}
 		coll, err := tc.newCollection(g.minSize, maxSize)
 		if err != nil {

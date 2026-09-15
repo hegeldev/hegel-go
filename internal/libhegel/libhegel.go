@@ -37,7 +37,7 @@ import (
 	"unsafe"
 )
 
-//go:generate go tool stringer -type=Error,Status,Backend,Verbosity,RunStatus,HealthCheck,Phase,Label -linecomment -output=libhegel_string.go
+//go:generate go tool stringer -type=Error,Status,Backend,Verbosity,RunStatus,HealthCheck,Phase -linecomment -output=libhegel_string.go
 
 // LibraryPathEnv names the env var that pins libhegel to an explicit path.
 // When set, that path is loaded directly with no embedded fallback; when unset,
@@ -157,47 +157,6 @@ type StateMachineGroup int64
 const StateMachineDone = math.MinInt64
 
 type Label uint64
-
-// Labels are Go frontend span identities, derived with hegel_label_from_name
-// from the names below. Upstream no longer reserves numbered label constants.
-const (
-	LABEL_LIST          Label = 2801019076836953716  // hegel.go.list
-	LABEL_LIST_ELEMENT  Label = 17869309736790133779 // hegel.go.list_element
-	LABEL_SET           Label = 5865200140810442820  // hegel.go.set
-	LABEL_SET_ELEMENT   Label = 16914690668663268067 // hegel.go.set_element
-	LABEL_MAP           Label = 5590808215537288722  // hegel.go.map
-	LABEL_MAP_ENTRY     Label = 13638593894540015217 // hegel.go.map_entry
-	LABEL_TUPLE         Label = 2606859103638815834  // hegel.go.tuple
-	LABEL_ONE_OF        Label = 1646594287079187632  // hegel.go.one_of
-	LABEL_OPTIONAL      Label = 2831377877786720272  // hegel.go.optional
-	LABEL_FIXED_DICT    Label = 3378490235687764091  // hegel.go.fixed_dict
-	LABEL_FLAT_MAP      Label = 17589065948398953226 // hegel.go.flat_map
-	LABEL_FILTER        Label = 524933089993392430   // hegel.go.filter
-	LABEL_MAPPED        Label = 5332314179289137799  // hegel.go.mapped
-	LABEL_SAMPLED_FROM  Label = 11188332258118722663 // hegel.go.sampled_from
-	LABEL_ENUM_VARIANT  Label = 13694910494764798659 // hegel.go.enum_variant
-	LABEL_FEATURE_FLAG  Label = 6375675817545272289  // hegel.go.feature_flag
-	LABEL_REGEX         Label = 14852562533782475579 // hegel.go.regex
-	LABEL_EMAIL         Label = 14835994298877507076 // hegel.go.email
-	LABEL_URL           Label = 1985340265217183813  // hegel.go.url
-	LABEL_DOMAIN        Label = 17058301915510424728 // hegel.go.domain
-	LABEL_DATE          Label = 16402304753201470568 // hegel.go.date
-	LABEL_TIME          Label = 5300822282277835853  // hegel.go.time
-	LABEL_DATETIME      Label = 14221666525246718433 // hegel.go.datetime
-	LABEL_UUID          Label = 9890585168375486663  // hegel.go.uuid
-	LABEL_IP_ADDRESS    Label = 14857737725346391278 // hegel.go.ip_address
-	LABEL_INTEGER       Label = 2322818162524834726  // hegel.go.integer
-	LABEL_FLOAT         Label = 10378366191659462670 // hegel.go.float
-	LABEL_BOOLEAN       Label = 15851258441080226520 // hegel.go.boolean
-	LABEL_BYTES         Label = 5319699480805377615  // hegel.go.bytes
-	LABEL_STRING        Label = 14117235223881480941 // hegel.go.string
-	LABEL_STATEFUL_RULE Label = 13973930604097954071 // hegel.go.stateful_rule
-	LABEL_FRESH_ID      Label = 593156558150809056   // hegel.go.fresh_id
-	LABEL_SET_CHOICE    Label = 9316085528689457538  // hegel.go.set_choice
-	LABEL_CONCURRENCY   Label = 12925656410196983251 // hegel.go.concurrency
-	LABEL_RECURSIVE     Label = 52359896170306008    // hegel.go.recursive
-	LABEL_COMPOSITE     Label = 18247645122289998975 // hegel.go.composite
-)
 
 type pointer[T ~uintptr] struct {
 	syms    *symbols
@@ -499,7 +458,7 @@ func (c *Context) SetDefaultProfile(name string) error {
 	})
 }
 
-// LabelFromName derives a stable span identity from a generator's qualified name.
+// LabelFromName derives a stable span identity from a qualified name.
 func (c *Context) LabelFromName(name string) (Label, error) {
 	var value uint64
 	err := c.invoke("hegel_label_from_name", func(ctx ctxT) Error {

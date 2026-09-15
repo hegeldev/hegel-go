@@ -931,7 +931,7 @@ func TestTestCaseStartSpanError(t *testing.T) {
 	t.Parallel()
 	var got error
 	stubOpCase(t, func(tc *testCase) {
-		got = tc.startSpan(libhegel.LABEL_LIST)
+		got = tc.startSpan("list")
 	}, libhegel.E_BACKEND)
 	if got == nil {
 		t.Fatal("expected startSpan error")
@@ -1088,7 +1088,7 @@ func TestDrawListCollectionMoreError(t *testing.T) {
 func TestDrawMapNewCollectionError(t *testing.T) {
 	t.Parallel()
 	tc := newStubTestCase(t,
-		libhegel.OK,        // start_span (LABEL_MAP)
+		libhegel.OK,        // start_span
 		uintptr(1),         // new_collection out-param placeholder
 		libhegel.E_BACKEND, // new_collection fails
 		"boom",             // diagnostic read by invoke
@@ -1143,7 +1143,7 @@ func TestDrawMapBasic(t *testing.T) {
 
 func TestDrawFilterStartSpanError(t *testing.T) {
 	t.Parallel()
-	tc := newStubTestCase(t, libhegel.E_BACKEND, "boom") // start_span(FILTER) fails
+	tc := newStubTestCase(t, libhegel.E_BACKEND, "boom") // start_span fails
 	defer expectErrorPanic(t, libhegel.E_BACKEND)
 	Draw[int](tc, &filteredGenerator[int]{
 		source:    Integers[int](0, 10),

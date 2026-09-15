@@ -170,7 +170,6 @@ type concurrentTestCaseShared struct {
 	ranGroups               int
 	spanStarts              atomic.Int64
 	spanStops               atomic.Int64
-	spanLabel               atomic.Int64
 	spanDiscarded           atomic.Bool
 	rejectedRules           int
 	nextRuleErrors          map[int64]error
@@ -234,9 +233,8 @@ func (tc *concurrentTestCase) invoke(fn testBody) (err error) {
 	return nil
 }
 
-func (tc *concurrentTestCase) startSpan(label libhegel.Label) error {
+func (tc *concurrentTestCase) startSpan(_ label) error {
 	tc.shared.spanStarts.Add(1)
-	tc.shared.spanLabel.Store(int64(label))
 	return nil
 }
 

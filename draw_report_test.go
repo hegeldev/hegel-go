@@ -249,8 +249,7 @@ func TestDrawReportSuppressedInsideSpan(t *testing.T) {
 	}
 }
 
-// Isolates labelComposite from labelList: a top-level Composite must
-// suppress its own inner Draws even without an enclosing Lists span.
+// A top-level Composite suppresses its inner Draws without an enclosing Lists span.
 func TestDrawReportSuppressedInsideComposite(t *testing.T) {
 	t.Parallel()
 	gen := Composite(func(tc TestCase) int {

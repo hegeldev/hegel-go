@@ -67,9 +67,7 @@ type TestCase interface {
 	clone() (TestCase, error)
 	free()
 
-	// startSpan begins a generation span. label is one of the [libhegel.Label]
-	// constants; the engine uses labels for shrinking.
-	startSpan(label libhegel.Label) error
+	startSpan(spanLabel label) error
 
 	// stopSpan ends the current generation span. discard=true tells the
 	// engine the entire span's choices should be reverted.
@@ -141,17 +139,14 @@ func Draw[T any](tc TestCase, g Generator[T]) T {
 // --- mappedGenerator ---
 
 // mappedGenerator wraps a Generator[T] and transforms its output to U.
-// It emits start_span / stop_span around the inner draw call.
 type mappedGenerator[T, U any] struct {
 	inner Generator[T]
 	fn    func(T) U
 }
 
-// draw calls the inner generator inside a MAPPED span and applies fn.
-//
 //lint:ignore U1000 satisfies Generator interface; staticcheck misses generic dispatch
 func (g *mappedGenerator[T, U]) draw(tc TestCase) (U, error) {
-	return withSpan(tc, libhegel.LABEL_MAPPED, func() (U, error) {
+	return withSpan(tc, "mapped", func() (U, error) {
 		var zero U
 		v, err := g.inner.draw(tc)
 		if err != nil {
@@ -179,7 +174,7 @@ const maxFilterAttempts = 3
 func (g *filteredGenerator[T]) draw(tc TestCase) (T, error) {
 	var zero T
 	for range maxFilterAttempts {
-		if err := tc.startSpan(libhegel.LABEL_FILTER); err != nil {
+		if err := tc.startSpan("filter"); err != nil {
 			return zero, err
 		}
 		value, err := g.source.draw(tc)
@@ -202,17 +197,15 @@ func (g *filteredGenerator[T]) draw(tc TestCase) (T, error) {
 // --- flatMappedGenerator ---
 
 // flatMappedGenerator generates a value from source, passes it to f, and then
-// generates from the generator returned by f. Wrapped in a FLAT_MAP span.
+// generates from the generator returned by f.
 type flatMappedGenerator[T, U any] struct {
 	source Generator[T]
 	f      func(T) Generator[U]
 }
 
-// draw generates from source, then from the dependent generator, inside a FLAT_MAP span.
-//
 //lint:ignore U1000 satisfies Generator interface; staticcheck misses generic dispatch
 func (g *flatMappedGenerator[T, U]) draw(tc TestCase) (U, error) {
-	return withSpan(tc, libhegel.LABEL_FLAT_MAP, func() (U, error) {
+	return withSpan(tc, "flat_map", func() (U, error) {
 		var zero U
 		first, err := g.source.draw(tc)
 		if err != nil {
@@ -252,12 +245,12 @@ func Filter[T any](g Generator[T], pred func(T) bool) Generator[T] {
 //
 // Use the inline (*testCase).startSpan/stopSpan pair when the discard
 // decision depends on the body's outcome (see filteredGenerator.draw).
-func withSpan[T any](tc TestCase, label libhegel.Label, body func() (T, error)) (T, error) {
+func withSpan[T any](tc TestCase, spanLabel label, body func() (T, error)) (T, error) {
 	if h, ok := tc.(interface{ Helper() }); ok {
 		h.Helper()
 	}
 	var zero T
-	if err := tc.startSpan(label); err != nil {
+	if err := tc.startSpan(spanLabel); err != nil {
 		return zero, err
 	}
 	v, err := body()
