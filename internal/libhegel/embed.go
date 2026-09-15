@@ -9,21 +9,32 @@ import (
 
 var chmodCacheDir = os.Chmod
 var lockCacheDir = lockLibraryCache
+var mkdirTemp = os.MkdirTemp
 
-// writeDynamicLibrary writes lib to the per-version cache directory atomically
-// (temp file + rename), marked executable, and returns the destination path.
-// An existing destination of the expected size is authoritative: because this
-// function installs it by atomic rename, its presence short-circuits the write.
-// On Windows, an inter-process lock serializes the cache check and rename so the
-// rename never has to replace a DLL another process has already loaded.
-// An empty lib (unsupported platform) is reported as an error before touching
-// the disk.
-func writeDynamicLibrary(lib []byte) (path string, err error) {
+// writeDynamicLibrary materializes lib on disk and returns the path to dlopen.
+//
+// The per-version user cache is preferred. When it cannot be used, the bytes are
+// extracted to a fresh directory under the system temp dir instead.
+func writeDynamicLibrary(lib []byte) (string, error) {
 	if len(lib) == 0 {
 		return "", fmt.Errorf("no vendored libhegel for %s/%s; build libhegel yourself and set %s to its path",
 			runtime.GOOS, runtime.GOARCH, LibraryPathEnv)
 	}
 
+	path, cacheErr := cachedLibrary(lib)
+	if cacheErr == nil {
+		return path, nil
+	}
+	path, tmpErr := tempLibrary(lib)
+	if tmpErr != nil {
+		return "", fmt.Errorf("%w (cache also unusable: %v)", tmpErr, cacheErr)
+	}
+	return path, nil
+}
+
+// cachedLibrary returns the per-version cached copy of lib, writing it on
+// first use.
+func cachedLibrary(lib []byte) (path string, err error) {
 	dir, err := libhegelCacheDir(hegelVersion)
 	if err != nil {
 		return "", err
@@ -53,8 +64,24 @@ func writeDynamicLibrary(lib []byte) (path string, err error) {
 		return dest, nil
 	}
 
+	return installLibrary(dir, lib)
+}
+
+// tempLibrary extracts lib to a fresh private directory under the system temp
+// dir.
+func tempLibrary(lib []byte) (string, error) {
+	dir, err := mkdirTemp("", "hegel-go-libhegel-")
+	if err != nil {
+		return "", fmt.Errorf("create temp dir: %w", err)
+	}
+	return installLibrary(dir, lib)
+}
+
+// installLibrary writes lib into dir atomically (temp file + rename to dest),
+// marked executable, and returns dest.
+func installLibrary(dir string, lib []byte) (string, error) {
 	tmp, err := os.CreateTemp(dir, ".libhegel-*.partial")
-	if err != nil { // coverage-ignore (rare under user cache dir)
+	if err != nil { // coverage-ignore (rare under a directory we just created)
 		return "", err
 	}
 	tmpName := tmp.Name()
@@ -71,8 +98,7 @@ func writeDynamicLibrary(lib []byte) (path string, err error) {
 	if err := os.Chmod(tmpName, 0o755); err != nil { // coverage-ignore
 		return "", err
 	}
-	// On Windows the publication lock guarantees dest does not exist, avoiding
-	// the unsupported operation of replacing a DLL mapped by another process.
+	dest := filepath.Join(dir, libhegelAssetName())
 	if err := os.Rename(tmpName, dest); err != nil { // coverage-ignore
 		return "", err
 	}

@@ -13,9 +13,12 @@
 //  2. the libhegel binary go:embed'd from internal/libhegel/libs (vendored via
 //     git-lfs), materialized to
 //     ~/.cache/hegel-go/libhegel/<version>/libhegel-<goos>-<goarch>.<ext> and
-//     dlopen'd from there. Skipped when HEGEL_LIBHEGEL_PATH is set (an explicit
-//     override means the user wants that exact file) or on platforms with no
-//     vendored artifact.
+//     dlopen'd from there. The cache is purely a performance optimization:
+//     when it cannot be read or written (e.g. a sandbox that denies access to
+//     the user cache dir), the binary is extracted to a fresh directory under
+//     the system temp dir instead. Skipped when HEGEL_LIBHEGEL_PATH is set (an
+//     explicit override means the user wants that exact file) or on platforms
+//     with no vendored artifact.
 //
 // The library does not search for a sibling hegel-rust checkout; local
 // development against a fresh build goes through HEGEL_LIBHEGEL_PATH.

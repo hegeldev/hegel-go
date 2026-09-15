@@ -74,8 +74,10 @@ The library is resolved in this order; first hit wins:
    fails to open)
 2. the `go:embed`'d vendored binary for the host platform (see below),
    materialized to `~/.cache/hegel-go/libhegel/<version>/` and dlopen'd from
-   there. Skipped when `$HEGEL_LIBHEGEL_PATH` is set or on a platform with no
-   vendored artifact.
+   there. The cache is best-effort: if it cannot be read or written (e.g. a
+   sandbox that denies access to the user cache dir), the binary is extracted
+   to a fresh directory under the system temp dir instead. Skipped when
+   `$HEGEL_LIBHEGEL_PATH` is set or on a platform with no vendored artifact.
 
 The library does **not** hunt for a sibling `hegel-rust` checkout; local
 development against a fresh build goes through `HEGEL_LIBHEGEL_PATH` (see below).

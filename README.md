@@ -16,7 +16,7 @@ Hegel is a property-based testing library for Go. Hegel is based on [Hypothesis]
 
 To install: `go get hegel.dev/go/hegel@latest`.
 
-Hegel for Go drives [libhegel](https://github.com/hegeldev/hegel-rust) — the native Rust engine. At runtime hegel-go loads `libhegel.so` (Linux), `libhegel.dylib` (macOS), or `libhegel.dll` (Windows) from `$HEGEL_LIBHEGEL_PATH` if set; otherwise it falls back to a pre-compiled `libhegel` vendored inside the module: it is stored via git-lfs, `go:embed`'d into your binary at build time, and materialized under `~/.cache/hegel-go/libhegel/<version>/` to be loaded. The vendored build matches the pinned hegel-rust release, so nothing is downloaded at runtime.
+Hegel for Go drives [libhegel](https://github.com/hegeldev/hegel-rust) — the native Rust engine. At runtime hegel-go loads `libhegel.so` (Linux), `libhegel.dylib` (macOS), or `libhegel.dll` (Windows) shipped with hegel-go. You can override this behavior with `$HEGEL_LIBHEGEL_PATH`.
 
 Supported platforms (those with a published libhegel artifact): Linux amd64/arm64, macOS arm64 (Apple Silicon), and Windows amd64/arm64.
 
