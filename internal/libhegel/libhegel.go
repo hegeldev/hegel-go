@@ -200,8 +200,25 @@ const (
 )
 
 type pointer[T ~uintptr] struct {
-	syms *symbols
-	raw  T
+	syms    *symbols
+	raw     T
+	free    func(ctxT, T) Error
+	cleanup runtime.Cleanup
+}
+
+// Free releases this native handle immediately and cancels its automatic
+// cleanup. It is safe to call Free more than once.
+func (p *pointer[T]) Free() {
+	if p == nil || p.raw == 0 {
+		return
+	}
+	p.cleanup.Stop()
+	raw := p.raw
+	p.raw = 0
+	if p.free != nil {
+		_ = p.free(0, raw)
+	}
+	runtime.KeepAlive(p)
 }
 
 type printerT uintptr        // Equivalent of hegel_printer_t
@@ -454,19 +471,20 @@ func (c *Context) Clone() *Context {
 }
 
 func newContext(syms *symbols) *Context {
-	ctx := &Context{syms, syms.ContextNew()}
+	ctx := &Context{syms: syms, raw: syms.ContextNew()}
 	runtime.AddCleanup(ctx, func(ctx ctxT) { syms.ContextFree(ctx) }, ctx.raw)
 	return ctx
 }
 
-func allocate[R ~uintptr](c *Context, op string, new func(ctx ctxT, raw *R) Error, free func(ctx ctxT, raw R) Error) (*pointer[R], error) {
-	ptr := pointer[R]{syms: c.syms}
+func allocateInto[R ~uintptr](c *Context, ptr *pointer[R], op string, newHandle func(ctx ctxT, raw *R) Error, free func(ctx ctxT, raw R) Error) (bool, error) {
+	ptr.syms = c.syms
+	ptr.free = free
 	err := c.invoke(op, func(ctx ctxT) Error {
-		return new(ctx, &ptr.raw)
+		return newHandle(ctx, &ptr.raw)
 	})
 
 	if err != nil {
-		return nil, err
+		return false, err
 	}
 
 	// A zero handle with no error is the "no handle" sentinel: the engine
@@ -475,14 +493,23 @@ func allocate[R ~uintptr](c *Context, op string, new func(ctx ctxT, raw *R) Erro
 	// hegel_test_case_from_blob rejecting a stale blob). Callers map this to a
 	// nil result.
 	if ptr.raw == 0 {
-		return nil, nil
+		return false, nil
 	}
 
 	if free != nil {
-		runtime.AddCleanup(&ptr, func(raw R) { free(0, raw) }, ptr.raw)
+		ptr.cleanup = runtime.AddCleanup(ptr, func(raw R) { free(0, raw) }, ptr.raw)
 	}
 
-	return &ptr, nil
+	return true, nil
+}
+
+func allocate[R ~uintptr](c *Context, op string, newHandle func(ctx ctxT, raw *R) Error, free func(ctx ctxT, raw R) Error) (*pointer[R], error) {
+	ptr := new(pointer[R])
+	ok, err := allocateInto(c, ptr, op, newHandle, free)
+	if !ok {
+		return nil, err
+	}
+	return ptr, nil
 }
 
 // invoke a function with a ctxT parameter.
@@ -714,14 +741,20 @@ func tryOpen(path string) (syms *symbols, err error) {
 	return syms, nil
 }
 
-type Settings pointer[settingsT]
+type Settings struct {
+	pointer[settingsT]
+}
 
 // SettingsNew allocates a fresh settings object on this context.
 func (c *Context) SettingsNew() (*Settings, error) {
-	ptr, err := allocate[settingsT](c, "hegel_settings_new", func(ctx ctxT, raw *settingsT) Error {
+	s := new(Settings)
+	ok, err := allocateInto(c, &s.pointer, "hegel_settings_new", func(ctx ctxT, raw *settingsT) Error {
 		return c.syms.SettingsNew(ctx, raw)
 	}, c.syms.SettingsFree)
-	return (*Settings)(ptr), err
+	if !ok {
+		return nil, err
+	}
+	return s, nil
 }
 
 // Backend selects the engine's randomness backend. See [Backend].
@@ -810,20 +843,25 @@ func (s *Settings) SuppressHealthCheck(ctx *Context, checks HealthCheck) error {
 // output on stderr, which every hegel-package caller currently does.
 func (s *Settings) RunStart(ctx *Context, out io.Writer) (*Run, error) {
 	callback, handle := newOutputFn(out)
-	ptr, err := allocate(ctx, "hegel_run_start", func(ctx ctxT, raw *runT) Error {
+	r := new(Run)
+	ok, err := allocateInto(ctx, &r.pointer, "hegel_run_start", func(ctx ctxT, raw *runT) Error {
 		e := s.syms.RunStart(ctx, s.raw, callback, uintptr(handle), raw)
 		runtime.KeepAlive(s)
 		return e
 	}, s.syms.RunFree)
-	freeOutputFn(ptr, handle)
-	return (*Run)(ptr), err
+	if !ok {
+		freeOutputFn[runT](nil, handle)
+		return nil, err
+	}
+	freeOutputFn(&r.pointer, handle)
+	return r, nil
 }
 
 // TestCaseFromBlob builds a standalone test case that replays the example
 // encoded in a base64 failure blob (from [Failure.ReproductionBlob]). Unlike
 // test cases from [Run.NextTestCase], the returned handle is owned by the
-// caller and is freed automatically via the GC. A rejected blob surfaces as a
-// nil test case and a non-nil error. callback and userData set the
+// caller and is freed automatically via the GC unless [TestCase.Free] releases
+// it first. A rejected blob surfaces as a nil test case and a non-nil error. callback and userData set the
 // engine-output destination for the replay (see [outputCallbackT]); pass a nil
 // writer to leave output on stderr, which every hegel-package caller currently does.
 func (s *Settings) TestCaseFromBlob(ctx *Context, blob string, out io.Writer) (tc *TestCase, err error) {
@@ -840,12 +878,15 @@ func (s *Settings) TestCaseFromBlob(ctx *Context, blob string, out io.Writer) (t
 	return &TestCase{pointer: ptr}, err
 }
 
-type Run pointer[runT]
+type Run struct {
+	pointer[runT]
+}
 
 // NextTestCase blocks until the engine produces the next test case. The
-// returned handle is owned by the caller and freed automatically via the GC;
-// the run keeps its own internal reference, so freeing the handle never
-// disturbs the run. Returns nil, nil when there are no more test cases.
+// returned handle is owned by the caller and freed automatically via the GC
+// unless [TestCase.Free] releases it first; the run keeps its own internal
+// reference, so freeing the handle never disturbs the run. Returns nil, nil
+// when there are no more test cases.
 func (r *Run) NextTestCase(ctx *Context) (*TestCase, error) {
 	ptr, err := allocate(ctx, "hegel_next_test_case", func(ctx ctxT, raw *testCaseT) Error {
 		e := r.syms.NextTestCase(ctx, r.raw, raw)
@@ -900,8 +941,8 @@ type TestCase struct {
 // handle in the family complete marks them all). Each handle has its own lock,
 // so clones may draw concurrently where a single shared handle would report
 // [E_CONCURRENT_USE]. The returned handle is owned by the caller and freed
-// automatically via the GC; the underlying test case stays alive until every
-// handle in the family is freed.
+// automatically via the GC unless [TestCase.Free] releases it first; the
+// underlying test case stays alive until every handle in the family is freed.
 func (tc *TestCase) Clone(ctx *Context) (*TestCase, error) {
 	ptr, err := allocate(ctx, "hegel_test_case_clone", func(ctx ctxT, raw *testCaseT) Error {
 		e := tc.syms.TestCaseClone(ctx, tc.raw, raw)

@@ -228,23 +228,6 @@ func (sm *stateMachine) Run(tc TestCase) {
 	}
 	tc.log("Initial invariant check.")
 
-	// Each worker's native clone anchors its whole transcript here. Attribute
-	// before starting goroutines; thereafter each handle has one owner.
-	workers := make([]TestCase, 0, concurrency)
-	for worker := range concurrency {
-		clone, err := tc.clone()
-		if err != nil {
-			tc.abort(err)
-		}
-		if concurrency > 1 {
-			if err := clone.setWorker(worker); err != nil {
-				tc.abort(err)
-			}
-		}
-		workers = append(workers, clone)
-	}
-
-	// Clone before running invariants so their draws retain the same streams.
 	for _, inv := range sm.invariants {
 		if _, err := invokeRule(tc, inv.fn); err != nil {
 			tc.abort(err)
@@ -271,35 +254,59 @@ func (sm *stateMachine) Run(tc TestCase) {
 		if group != 0 {
 			groupName = sm.configuredRuleGroups[int(group)-1].name
 		}
+		tc.log("---------------- Round %d: group %q ----------------", round, groupName)
 
-		for i, worker := range workers {
-			workersGroup.Go(i, func() error {
-				worker.log("---------------- Round %d: group %q ----------------", round, groupName)
-				for {
-					idx, err := worker.stateMachineNextRule(machine, int64(i))
-					if err != nil {
-						return err
-					}
-					if idx == libhegel.StateMachineDone {
-						return nil
-					}
-					rule := sm.rules[idx]
-					worker.log("Rule: %s", rule.name)
-
-					rejected, err := invokeRule(worker, rule.fn)
-					if err != nil {
-						return err
-					}
-					if rejected {
-						if err := worker.stateMachineRuleRejected(machine, int64(i)); err != nil { // coverage-ignore
-							return err
-						}
-						worker.log("Rule stopped early due to violated assumption.")
+		// A clone anchors its native output at the current position in the root
+		// document. Create fresh handles after the round heading so each round's
+		// worker transcripts follow that heading, as they did with Go buffers.
+		errs := func() []*workerError {
+			workers := make([]TestCase, 0, concurrency)
+			defer func() {
+				for _, worker := range workers {
+					worker.free()
+				}
+			}()
+			for worker := range concurrency {
+				clone, err := tc.clone()
+				if err != nil {
+					tc.abort(err)
+				}
+				workers = append(workers, clone)
+				if concurrency > 1 {
+					if err := clone.setWorker(worker); err != nil {
+						tc.abort(err)
 					}
 				}
-			})
-		}
-		errs := workersGroup.Wait()
+			}
+
+			for i, worker := range workers {
+				workersGroup.Go(i, func() error {
+					for {
+						idx, err := worker.stateMachineNextRule(machine, int64(i))
+						if err != nil {
+							return err
+						}
+						if idx == libhegel.StateMachineDone {
+							return nil
+						}
+						rule := sm.rules[idx]
+						worker.log("Rule: %s", rule.name)
+
+						rejected, err := invokeRule(worker, rule.fn)
+						if err != nil {
+							return err
+						}
+						if rejected {
+							if err := worker.stateMachineRuleRejected(machine, int64(i)); err != nil { // coverage-ignore
+								return err
+							}
+							worker.log("Rule stopped early due to violated assumption.")
+						}
+					}
+				})
+			}
+			return workersGroup.Wait()
+		}()
 		if len(errs) != 0 {
 			dropped := errs[1:]
 			sort.Slice(dropped, func(i, j int) bool {

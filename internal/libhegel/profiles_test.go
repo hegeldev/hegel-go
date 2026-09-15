@@ -70,7 +70,7 @@ func TestProfileSettingsRoundTrip(t *testing.T) {
 func TestProfileRegistrationBindings(t *testing.T) {
 	// Process-global mutations stay stubbed so unrelated tests retain their configuration.
 	ctx := Stub(t, OK, OK, OK)
-	s := &Settings{syms: ctx.syms, raw: 2}
+	s := &Settings{pointer: pointer[settingsT]{syms: ctx.syms, raw: 2}}
 	if err := s.RegisterProfile(ctx, "unit-profile"); err != nil {
 		t.Fatal(err)
 	}
@@ -93,7 +93,7 @@ func TestProfileBindingErrors(t *testing.T) {
 		t.Fatalf("settings = %v, %v", got, err)
 	}
 	ctx = Stub(t, "", E_INVALID_HANDLE, "missing settings")
-	s := &Settings{syms: ctx.syms, raw: 2}
+	s := &Settings{pointer: pointer[settingsT]{syms: ctx.syms, raw: 2}}
 	if got, err := s.GetDatabase(ctx); got != nil || !errors.Is(err, E_INVALID_HANDLE) {
 		t.Fatalf("database = %v, %v", got, err)
 	}
@@ -106,7 +106,7 @@ func TestProfileBindingErrors(t *testing.T) {
 
 func TestSettingsEnumOutParameters(t *testing.T) {
 	ctx := Stub(t, int32(VERBOSITY_QUIET), OK, uint32(PHASE_ALL), OK, int32(BACKEND_URANDOM), OK)
-	s := &Settings{syms: ctx.syms, raw: 2}
+	s := &Settings{pointer: pointer[settingsT]{syms: ctx.syms, raw: 2}}
 	if got, err := s.GetVerbosity(ctx); got != VERBOSITY_QUIET || err != nil {
 		t.Fatalf("verbosity = %v, %v", got, err)
 	}

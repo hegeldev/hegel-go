@@ -147,16 +147,19 @@ type concurrentTestCaseShared struct {
 	requestedStepCount      int
 	ruleGroups              []int64
 	cloneCount              int64
+	freedClones             int64
 	cloneErr                error
 	workerErr               error
-	ranGroup                bool
+	selectedRounds          int
+	ranGroups               int
 	spanStarts              atomic.Int64
 	spanStops               atomic.Int64
 	spanLabel               atomic.Int64
 	spanDiscarded           atomic.Bool
 	rejectedRules           int
 	nextRuleErrors          map[int64]error
-	reverseWorkerOrder      chan struct{}
+	reverseWorkerOrder      bool
+	workerOrderGate         chan struct{}
 }
 
 func (tc *concurrentTestCase) Note(message string) {
@@ -245,6 +248,13 @@ func (tc *concurrentTestCase) clone() (TestCase, error) {
 	return &concurrentTestCase{TestCase: clone, shared: tc.shared, out: tc.out}, nil
 }
 
+func (tc *concurrentTestCase) free() {
+	tc.shared.freedClones++
+	if tc.TestCase != nil {
+		tc.TestCase.free()
+	}
+}
+
 func (tc *concurrentTestCase) stateMachineNew(_ []string, ruleGroups []int64, _ []string, maxConcurrency, stepCount int) (*libhegel.StateMachine, int64, error) {
 	tc.shared.requestedMaxConcurrency = maxConcurrency
 	tc.shared.requestedStepCount = stepCount
@@ -253,8 +263,15 @@ func (tc *concurrentTestCase) stateMachineNew(_ []string, ruleGroups []int64, _ 
 }
 
 func (tc *concurrentTestCase) stateMachineNextGroup(*libhegel.StateMachine) (libhegel.StateMachineGroup, error) {
-	if !tc.shared.ranGroup {
-		tc.shared.ranGroup = true
+	rounds := tc.shared.selectedRounds
+	if rounds == 0 {
+		rounds = 1
+	}
+	if tc.shared.ranGroups < rounds {
+		tc.shared.ranGroups++
+		if tc.shared.reverseWorkerOrder {
+			tc.shared.workerOrderGate = make(chan struct{})
+		}
 		return tc.shared.selectedGroup, nil
 	}
 	return libhegel.StateMachineDone, nil
@@ -267,11 +284,11 @@ func (tc *concurrentTestCase) stateMachineNextRule(_ *libhegel.StateMachine, wor
 	if tc.drewRule {
 		return libhegel.StateMachineDone, nil
 	}
-	if tc.shared.reverseWorkerOrder != nil {
+	if tc.shared.workerOrderGate != nil {
 		if worker == 0 {
-			<-tc.shared.reverseWorkerOrder
+			<-tc.shared.workerOrderGate
 		} else {
-			close(tc.shared.reverseWorkerOrder)
+			close(tc.shared.workerOrderGate)
 		}
 	}
 	tc.drewRule = true
@@ -572,28 +589,40 @@ func TestStateMachineGroupsRoundOutputByWorker(t *testing.T) {
 		t.Fatalf("newStateMachine: %v", err)
 	}
 	var out strings.Builder
+	var shared *concurrentTestCaseShared
 	err = run(func(tc TestCase) {
-		shared := &concurrentTestCaseShared{selectedConcurrency: 2, reverseWorkerOrder: make(chan struct{})}
+		shared = &concurrentTestCaseShared{selectedConcurrency: 2, selectedRounds: 2, reverseWorkerOrder: true}
 		sm.Run(&concurrentTestCase{TestCase: tc, shared: shared})
 		tc.Fail()
 	}, WithTestCases(1), WithDatabase(""), withOutput(&out))
 	if err == nil {
 		t.Fatal("expected failure")
 	}
+	if got, want := shared.freedClones, int64(4); got != want {
+		t.Fatalf("freed clones = %d, want %d", got, want)
+	}
 
-	worker0 := strings.Index(out.String(), "[worker 0 +")
-	worker1 := strings.Index(out.String(), "[worker 1 +")
-	if worker0 == -1 || worker1 == -1 || worker0 > worker1 {
-		t.Fatalf("worker output is not grouped in index order:\n%s", out.String())
+	output := out.String()
+	positions := []int{
+		strings.Index(output, "Initial invariant check."),
+		strings.Index(output, "Round 1:"),
+		strings.Index(output, "[worker 0 +"),
+		strings.Index(output, "[worker 1 +"),
+		strings.Index(output, "Round 2:"),
+		strings.LastIndex(output, "[worker 0 +"),
+		strings.LastIndex(output, "[worker 1 +"),
 	}
-	if initial := strings.Index(out.String(), "Initial invariant check."); initial < 0 || initial > worker0 {
-		t.Fatalf("initial check follows worker output: %s", out.String())
+	if slices.Contains(positions, -1) || !slices.IsSorted(positions) {
+		t.Fatalf("round and worker output is not in execution order:\n%s", output)
 	}
-	for _, transcript := range []string{out.String()[worker0:worker1], out.String()[worker1:]} {
-		for _, want := range []string{"Round 1:", "Rule: RuleStep", "first note", "second note", "111111111,"} {
-			if !strings.Contains(transcript, want) {
-				t.Errorf("worker transcript missing %q: %s", want, transcript)
-			}
+	for _, want := range []string{"Round 1:", "Round 2:"} {
+		if strings.Count(output, want) != 1 {
+			t.Errorf("output contains %d copies of %q, want one:\n%s", strings.Count(output, want), want, output)
+		}
+	}
+	for _, want := range []string{"Rule: RuleStep", "first note", "second note", "_ = Draw("} {
+		if count := strings.Count(output, want); count != 4 {
+			t.Errorf("output contains %d copies of %q, want four:\n%s", count, want, output)
 		}
 	}
 
@@ -767,9 +796,9 @@ func TestRunStatefulNextRuleErrorAborts(t *testing.T) {
 	}
 	tc := newStubTestCase(t,
 		uintptr(2), int64(1), libhegel.OK, // new_state_machine
-		uintptr(3), libhegel.OK, // test_case_clone
-		uintptr(4),                                 // context_new for the cloned test case
 		libhegel.StateMachineGroup(0), libhegel.OK, // state_machine_next_group
+		uintptr(3), libhegel.OK, // test_case_clone
+		uintptr(4),                                // context_new for the cloned test case
 		int64(0), libhegel.E_STOP_TEST, "overrun", // state_machine_next_rule + last-error message
 	)
 	defer expectErrorPanic(t, libhegel.E_STOP_TEST)

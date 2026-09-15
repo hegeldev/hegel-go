@@ -164,10 +164,15 @@ func (s *testCase) clone() (TestCase, error) {
 	if s.printer != nil {
 		clone.printer, err = tc.Printer(clone.ctx, nil)
 		if err != nil {
+			tc.Free()
 			return nil, err
 		}
 	}
 	return clone, nil
+}
+
+func (s *testCase) free() {
+	s.tc.Free()
 }
 
 func (s *testCase) stateMachineNew(ruleNames []string, ruleGroups []int64, invariantNames []string, maxConcurrency, stepCount int) (*libhegel.StateMachine, int64, error) {

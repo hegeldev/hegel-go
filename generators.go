@@ -65,6 +65,7 @@ type TestCase interface {
 	// execution policy as this one. Concurrent state-machine workers use one
 	// clone apiece rather than sharing a native handle between goroutines.
 	clone() (TestCase, error)
+	free()
 
 	// startSpan begins a generation span. label is one of the [libhegel.Label]
 	// constants; the engine uses labels for shrinking.

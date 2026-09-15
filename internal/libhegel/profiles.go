@@ -4,10 +4,14 @@ import "runtime"
 
 // SettingsNewForProfile resolves a named settings profile into an owned snapshot.
 func (c *Context) SettingsNewForProfile(name string) (*Settings, error) {
-	ptr, err := allocate(c, "hegel_settings_new_for_profile", func(ctx ctxT, raw *settingsT) Error {
+	s := new(Settings)
+	ok, err := allocateInto(c, &s.pointer, "hegel_settings_new_for_profile", func(ctx ctxT, raw *settingsT) Error {
 		return c.syms.SettingsNewForProfile(ctx, name, raw)
 	}, c.syms.SettingsFree)
-	return (*Settings)(ptr), err
+	if !ok {
+		return nil, err
+	}
+	return s, nil
 }
 
 // SetDefaultProfile changes the process-wide default profile. A nil name clears it.

@@ -356,7 +356,7 @@ func TestStubBlobAndFailureAccessors(t *testing.T) {
 		OK,               // failure_reproduction_blob result
 	)
 
-	s := &Settings{syms: lib.syms, raw: 1}
+	s := &Settings{pointer: pointer[settingsT]{syms: lib.syms, raw: 1}}
 	tc, err := s.TestCaseFromBlob(lib, "YmxvYg==", nil)
 	if err != nil || tc == nil {
 		t.Fatalf("TestCaseFromBlob: tc=%v err=%v", tc, err)
@@ -412,7 +412,7 @@ func TestStubCloneError(t *testing.T) {
 // wrapper surfaces the wrapped last-error message.
 func TestStubBlobError(t *testing.T) {
 	lib := Stub(t, uintptr(0), E_INVALID_ARG, "bad blob") // handle, result, diagnostic
-	s := &Settings{syms: lib.syms, raw: 1}
+	s := &Settings{pointer: pointer[settingsT]{syms: lib.syms, raw: 1}}
 	tc, err := s.TestCaseFromBlob(lib, "not-base64", nil)
 	if err == nil || tc != nil {
 		t.Fatalf("expected error, got tc=%v err=%v", tc, err)

@@ -1192,8 +1192,6 @@ func TestStatefulNextGroupError(t *testing.T) {
 	t.Parallel()
 	tc := newStubTestCase(t,
 		uintptr(1), int64(1), libhegel.OK, // new_state_machine
-		uintptr(2), libhegel.OK, // worker test_case_clone
-		uintptr(2),                           // worker context_new
 		int64(0), libhegel.E_BACKEND, "boom", // next_group fails
 	)
 	sm := &stateMachine{rules: []stateMachineRule{{name: "Rule", fn: func(TestCase) {}}}, ruleGroups: []int64{0}}
@@ -1211,8 +1209,6 @@ func TestStatefulInitialInvariantError(t *testing.T) {
 	t.Parallel()
 	tc := newStubTestCase(t,
 		uintptr(1), int64(1), libhegel.OK, // new_state_machine
-		uintptr(2), libhegel.OK, // worker test_case_clone
-		uintptr(2), // worker context_new
 	)
 	sm := &stateMachine{invariants: []stateMachineRule{{name: "Inv", fn: func(TestCase) {
 		panic(libhegel.E_BACKEND)

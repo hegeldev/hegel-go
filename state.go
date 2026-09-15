@@ -116,6 +116,10 @@ func (t *T) clone() (TestCase, error) {
 	return &T{testCase: cloned.(*testCase), T: t.T}, nil
 }
 
+func (t *T) free() {
+	t.testCase.free()
+}
+
 func (t *T) invoke(fn testBody) error {
 	return t.testCase.invoke(func(tc TestCase) {
 		fn(&T{testCase: tc.(*testCase), T: t.T})
