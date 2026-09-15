@@ -90,8 +90,8 @@ func TestProfileSettingsRoundTrip(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if db, err := s.GetDatabase(ctx); err != nil || db != nil {
-		t.Fatalf("default database = %v, %v", db, err)
+	if db, hasDB, err := s.GetDatabase(ctx); err != nil || hasDB || db != "" {
+		t.Fatalf("default database = %v, %q, %v", hasDB, db, err)
 	}
 	must := func(err error) {
 		t.Helper()
@@ -123,8 +123,8 @@ func TestProfileSettingsRoundTrip(t *testing.T) {
 	if got, err := s.GetDerandomize(ctx); !got || err != nil {
 		t.Fatalf("derandomize = %v, %v", got, err)
 	}
-	if got, err := s.GetDatabase(ctx); got == nil || *got != "" || err != nil {
-		t.Fatalf("database = %v, %v", got, err)
+	if db, hasDB, err := s.GetDatabase(ctx); !hasDB || db != "" || err != nil {
+		t.Fatalf("database = %v, %q, %v", hasDB, db, err)
 	}
 	if got, err := s.GetPhases(ctx); got != PHASE_GENERATE|PHASE_SHRINK || err != nil {
 		t.Fatalf("phases = %v, %v", got, err)
@@ -153,15 +153,13 @@ func TestProfileRegistrationBindings(t *testing.T) {
 	if err := s.RegisterProfile(ctx, "unit-profile"); err != nil {
 		t.Fatal(err)
 	}
-	name := "unit-profile"
-	if err := ctx.SetDefaultProfile(&name); err != nil {
+	if err := ctx.SetDefaultProfile("unit-profile"); err != nil {
 		t.Fatal(err)
 	}
-	if err := ctx.SetDefaultProfile(nil); err != nil {
+	if err := ctx.SetDefaultProfile(""); err != nil {
 		t.Fatal(err)
 	}
-	name = "invalid\x00name"
-	if err := ctx.SetDefaultProfile(&name); err == nil {
+	if err := ctx.SetDefaultProfile("invalid\x00name"); err == nil {
 		t.Fatal("accepted interior NUL")
 	}
 }
@@ -173,8 +171,8 @@ func TestProfileBindingErrors(t *testing.T) {
 	}
 	ctx = Stub(t, "", E_INVALID_HANDLE, "missing settings")
 	s := &Settings{pointer: pointer[settingsT]{syms: ctx.syms, raw: 2}}
-	if got, err := s.GetDatabase(ctx); got != nil || !errors.Is(err, E_INVALID_HANDLE) {
-		t.Fatalf("database = %v, %v", got, err)
+	if db, hasDB, err := s.GetDatabase(ctx); hasDB || db != "" || !errors.Is(err, E_INVALID_HANDLE) {
+		t.Fatalf("database = %v, %q, %v", hasDB, db, err)
 	}
 	ctx = Stub(t, uintptr(0), E_INVALID_HANDLE, "missing test case")
 	tc := &TestCase{pointer: &pointer[testCaseT]{syms: ctx.syms, raw: 2}}

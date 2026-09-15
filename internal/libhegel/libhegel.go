@@ -482,13 +482,13 @@ func (c *Context) SettingsNewForProfile(name string) (*Settings, error) {
 	return s, nil
 }
 
-// SetDefaultProfile changes the process-wide default profile. A nil name clears it.
+// SetDefaultProfile changes the process-wide default profile. An empty name removes it.
 // Coordinate profile mutations with other users of this process-global configuration.
-func (c *Context) SetDefaultProfile(name *string) error {
+func (c *Context) SetDefaultProfile(name string) error {
 	var data *byte
-	if name != nil {
+	if name != "" {
 		// Unlike length-delimited text, the profile name must be NUL-terminated.
-		strings, _, err := cStringArrayArg([]string{*name})
+		strings, _, err := cStringArrayArg([]string{name})
 		if err != nil {
 			return err
 		}
@@ -843,9 +843,10 @@ func (s *Settings) GetSeed(ctx *Context) (uint64, bool, error) {
 	return seed, hasSeed, err
 }
 
-// GetDatabase returns nil for the default database, a pointer to "" for disabled,
-// or a pointer to the configured path. The borrowed native string is copied.
-func (s *Settings) GetDatabase(ctx *Context) (*string, error) {
+// GetDatabase returns the database value and whether it was explicitly
+// configured. An explicitly configured empty value disables the database. The
+// borrowed native string is copied.
+func (s *Settings) GetDatabase(ctx *Context) (string, bool, error) {
 	var data *byte
 	err := ctx.invoke("hegel_settings_get_database", func(ctx ctxT) Error {
 		e := s.syms.SettingsGetDatabase(ctx, s.raw, &data)
@@ -853,11 +854,11 @@ func (s *Settings) GetDatabase(ctx *Context) (*string, error) {
 		return e
 	})
 	if err != nil || data == nil {
-		return nil, err
+		return "", false, err
 	}
 	value := goString(data)
 	runtime.KeepAlive(s)
-	return &value, nil
+	return value, true, nil
 }
 
 // GetTestCases reads the effective test cases setting.

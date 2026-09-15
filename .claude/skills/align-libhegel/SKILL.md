@@ -198,6 +198,20 @@ the call shape does:
    struct (`TestCase`, `Result`, `Failure`) so the hot per-draw path doesn't
    allocate a fresh out-param on every call.
 
+   A pointer to a string is not a valid Go wrapper API choice. Keep nullable
+   pointers where required in the private `symbols` ABI signature, but expose
+   strings idiomatically from wrapper methods. In order of preference:
+
+   - Use `""` as the absent/remove sentinel when the empty string is not itself
+     a distinct valid value. This applies to both inputs and outputs.
+   - When `""` is a valid value and absence must remain distinguishable, use a
+     `(string, bool)` pair: accept `value string, present bool` for an input, or
+     return `value string, present bool, err error` for a fallible output. Keep
+     the string first, following Go's value/comma-ok convention.
+
+   Do not expose `*string` merely to mirror a nullable C `char *`; translate
+   between the idiomatic Go representation and NULL at the wrapper boundary.
+
 ### Regenerate the stringer output
 
 Enum types are listed in the `//go:generate` directive at the top of
