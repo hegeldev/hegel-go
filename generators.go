@@ -82,7 +82,7 @@ type TestCase interface {
 	// stateMachineNew registers an engine-owned state machine with the named
 	// rules, their parallel group IDs, and the invariants, returning its id.
 	// The engine owns rule selection (including swarm testing).
-	stateMachineNew(ruleNames []string, ruleGroups []int64, invariantNames []string, maxConcurrency, stepCount int) (*libhegel.StateMachine, int64, error)
+	stateMachineNew(ruleNames []string, ruleGroups []int64, invariantNames []string, invariantAlwaysCheck []bool, maxConcurrency, stepCount int) (*libhegel.StateMachine, int64, error)
 
 	// stateMachineNextGroup starts the machine's next round, returning the
 	// current concurrency group's index, or [libhegel.StateMachineDone] when
@@ -99,6 +99,10 @@ type TestCase interface {
 	// stateMachineRuleRejected reports that the worker's outstanding rule was
 	// rejected by Assume and should not consume its rule budget.
 	stateMachineRuleRejected(machine *libhegel.StateMachine, worker int64) error
+
+	// stateMachineShouldCheckInvariant reports whether the indexed invariant
+	// should run at the current join point.
+	stateMachineShouldCheckInvariant(machine *libhegel.StateMachine, invariant int64) (bool, error)
 
 	// reportDraw emits one draw-report line for value through the
 	// implementation's note channel, or no-ops when notes are suppressed.

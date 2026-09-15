@@ -175,8 +175,8 @@ func (s *testCase) free() {
 	s.tc.Free()
 }
 
-func (s *testCase) stateMachineNew(ruleNames []string, ruleGroups []int64, invariantNames []string, maxConcurrency, stepCount int) (*libhegel.StateMachine, int64, error) {
-	machine, concurrency, err := s.tc.NewStateMachine(s.ctx, ruleNames, ruleGroups, invariantNames, nil, 1, int64(maxConcurrency), int64(stepCount))
+func (s *testCase) stateMachineNew(ruleNames []string, ruleGroups []int64, invariantNames []string, invariantAlwaysCheck []bool, maxConcurrency, stepCount int) (*libhegel.StateMachine, int64, error) {
+	machine, concurrency, err := s.tc.NewStateMachine(s.ctx, ruleNames, ruleGroups, invariantNames, invariantAlwaysCheck, 1, int64(maxConcurrency), int64(stepCount))
 	return machine, concurrency, err
 }
 
@@ -190,6 +190,10 @@ func (s *testCase) stateMachineNextRule(machine *libhegel.StateMachine, worker i
 
 func (s *testCase) stateMachineRuleRejected(machine *libhegel.StateMachine, worker int64) error {
 	return s.tc.StateMachineRuleRejected(s.ctx, machine, worker)
+}
+
+func (s *testCase) stateMachineShouldCheckInvariant(machine *libhegel.StateMachine, invariant int64) (bool, error) {
+	return s.tc.StateMachineShouldCheckInvariant(s.ctx, machine, invariant)
 }
 
 func (s *testCase) startSpan(label libhegel.Label) error {

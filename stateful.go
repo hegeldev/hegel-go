@@ -24,7 +24,9 @@ type stateMachine struct {
 	maxConcurrency       int
 	stepCount            int
 	configuredRuleGroups []stateMachineRuleGroup
+	alwaysCheckNames     []string
 	ruleGroups           []int64
+	invariantAlwaysCheck []bool
 }
 
 type stateMachineRuleGroup struct {
@@ -69,6 +71,20 @@ func WithBoundedConcurrency(n int) StateMachineOption {
 func WithStatefulStepCount(n int) StateMachineOption {
 	return func(sm *stateMachine) {
 		sm.stepCount = n
+	}
+}
+
+// WithAlwaysCheckInvariants marks invariants that must run at every join point
+// (after every rule in a sequential machine). Other invariants are sampled at
+// intermediate states and run with probability 1 / the configured step count.
+// All invariants run unconditionally on the initial and final states.
+//
+// Pass the full method names, including the Invariant prefix. Calls are
+// additive. RunStateful panics if a name is not a discovered invariant.
+func WithAlwaysCheckInvariants(invariants ...string) StateMachineOption {
+	names := slices.Clone(invariants)
+	return func(sm *stateMachine) {
+		sm.alwaysCheckNames = append(sm.alwaysCheckNames, names...)
 	}
 }
 
@@ -167,9 +183,17 @@ func newStateMachine[M any, T interface{ *M }](machine T, opts ...StateMachineOp
 	for i, rule := range sm.rules {
 		ruleIndices[rule.name] = i
 	}
-	invariants := make(map[string]struct{}, len(sm.invariants))
-	for _, invariant := range sm.invariants {
-		invariants[invariant.name] = struct{}{}
+	invariantIndices := make(map[string]int, len(sm.invariants))
+	sm.invariantAlwaysCheck = make([]bool, len(sm.invariants))
+	for i, invariant := range sm.invariants {
+		invariantIndices[invariant.name] = i
+	}
+	for _, name := range sm.alwaysCheckNames {
+		index, ok := invariantIndices[name]
+		if !ok {
+			return nil, fmt.Errorf("state machine always-check configuration references unknown invariant %q; available invariants: %s", name, strings.Join(names(sm.invariants), ", "))
+		}
+		sm.invariantAlwaysCheck[index] = true
 	}
 
 	// Group 0 is the "catch all".
@@ -182,7 +206,7 @@ func newStateMachine[M any, T interface{ *M }](machine T, opts ...StateMachineOp
 		for _, name := range group.rules {
 			ruleIndex, ok := ruleIndices[name]
 			if !ok {
-				if _, ok := invariants[name]; ok {
+				if _, ok := invariantIndices[name]; ok {
 					return nil, fmt.Errorf("state machine rule group names invariant %q; only rules can be grouped", name)
 				}
 				return nil, fmt.Errorf("state machine rule group references unknown rule %q; available rules: %s", name, strings.Join(names(sm.rules), ", "))
@@ -213,12 +237,13 @@ func names(rules []stateMachineRule) []string {
 // It registers the machine with the engine, runs every invariant once, then
 // draws a step count and for each step asks the engine which rule to run next
 // (the engine owns rule selection, including swarm testing) and invokes it.
-// After each successful rule all invariants are re-run.
+// At each join point always-check invariants are run, while the rest are
+// sampled by the engine. Every invariant is run again on the final state.
 //
 // Rules that reject the current pre-state via [TestCase.Assume] are
 // skipped and another rule is drawn, up to a retry budget.
 func (sm *stateMachine) Run(tc TestCase) {
-	machine, concurrency, err := tc.stateMachineNew(names(sm.rules), sm.ruleGroups, names(sm.invariants), sm.maxConcurrency, sm.stepCount)
+	machine, concurrency, err := tc.stateMachineNew(names(sm.rules), sm.ruleGroups, names(sm.invariants), sm.invariantAlwaysCheck, sm.maxConcurrency, sm.stepCount)
 	if err != nil {
 		tc.abort(err)
 	}
@@ -320,10 +345,24 @@ func (sm *stateMachine) Run(tc TestCase) {
 			}
 			tc.abort(errs[0])
 		}
-		for _, inv := range sm.invariants {
+		for i, inv := range sm.invariants {
+			shouldCheck, err := tc.stateMachineShouldCheckInvariant(machine, int64(i))
+			if err != nil {
+				tc.abort(err)
+			}
+			if !shouldCheck {
+				continue
+			}
 			if _, err := invokeRule(tc, inv.fn); err != nil {
 				tc.abort(err)
 			}
+		}
+	}
+
+	tc.log("Final invariant check.")
+	for _, inv := range sm.invariants {
+		if _, err := invokeRule(tc, inv.fn); err != nil {
+			tc.abort(err)
 		}
 	}
 }
@@ -352,7 +391,10 @@ func invokeRule(tc TestCase, fn testBody) (bool, error) {
 // Rules run sequentially by default. Pass [WithConcurrency] or
 // [WithBoundedConcurrency] to allow rules to run concurrently, and
 // [WithRuleGroup] to restrict which rules may overlap. Pass
-// [WithStatefulStepCount] to change the default limit of 50 rounds.
+// [WithStatefulStepCount] to change the default limit of 50 rounds, and
+// [WithAlwaysCheckInvariants] for invariants that must observe every join
+// point. Other invariants are sampled between unconditional initial and final
+// checks.
 //
 // It panics if a method takes TestCase but is not prefixed
 // with Rule or Invariant, if a Rule- or Invariant-prefixed method has

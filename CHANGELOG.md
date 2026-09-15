@@ -1,5 +1,12 @@
 # Changelog
 
+## Unreleased
+
+Stateful invariants are now checked unconditionally on the initial and final
+states and sampled at intermediate join points. Use
+`WithAlwaysCheckInvariants` for invariants that must observe every intermediate
+state.
+
 ## 0.8.0 - 2026-09-15
 
 This release updates libhegel to [0.42.1](https://github.com/hegeldev/hegel-rust/releases/tag/libhegel-v0.42.1).
