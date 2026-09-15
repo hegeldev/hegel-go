@@ -1,5 +1,9 @@
 # Changelog
 
+## 0.8.2 - 2026-09-15
+
+This release improves internal span-label ownership in the Go frontend.
+
 ## 0.8.1 - 2026-09-15
 
 Stateful invariants are now checked unconditionally on the initial and final
