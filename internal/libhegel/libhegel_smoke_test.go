@@ -11,7 +11,10 @@ import (
 func TestLibhegelEndToEnd(t *testing.T) {
 	ctx := NewContext()
 
-	settings := ctx.SettingsNew()
+	settings, err := ctx.SettingsNew()
+	if err != nil {
+		t.Fatal(err)
+	}
 
 	settings.TestCases(ctx, 10)
 	settings.Derandomize(ctx, true)

@@ -40,14 +40,12 @@ panic("force final replay")`, "hegel.WithTestCases(1)").
 		goTest()
 }
 
-// TestDrawDecoratesWithUserFileLine verifies the helper marking on Draw lets
-// the noteFn-driven t.Log decoration point at the user's file. When Draw runs
 // Draw output uses the Hegel output stream without a synthetic location.
 func TestDrawOmitsUserFileLine(t *testing.T) {
 	t.Parallel()
 	newTempGoProject(t).
 		testBody(`_ = hegel.Draw(ht, hegel.Integers(0, 100))
-panic("force final replay")`, "hegel.WithTestCases(1)").
+ht.Fail()`, "hegel.WithTestCases(1)").
 		expectFailure(`(?m)^\s+_ = hegel\.Draw\(ht, hegel\.Integers\(0, 100\)\)`).
 		goTest()
 }

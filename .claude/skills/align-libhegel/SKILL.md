@@ -1,6 +1,6 @@
 ---
 name: align-libhegel
-description: "How to align the Go FFI wrapper to a new libhegel (hegel-c) release. Use after bumping the pinned libhegel version (internal/libhegel/version.go, via `just vendor-libhegel`), when `just check` fails with a symbol-resolution or version-mismatch error against libhegel, or whenever the hegel-c C API in hegel.h has changed and the Go bindings need to catch up."
+description: "How to align the Go FFI wrapper to a new libhegel (hegel-c) release. Use when updating to the latest libhegel release or aligning an explicitly requested version, when `just check` fails with a symbol-resolution or version-mismatch error against libhegel, or whenever the hegel-c C API in hegel.h has changed and the Go bindings need to catch up."
 ---
 
 # Aligning the Go wrapper to a new libhegel release
@@ -47,18 +47,32 @@ while the per-call error state lives on a `*Context`. The wrapper threads a
   zero out-handle to a `nil` result (the engine's "no object" sentinel, e.g. a
   finished run) and registers a GC cleanup that calls `free`.
 
-## 1. Find the pinned version and fetch the matching header
+## 1. Vendor the target release first and fetch its actual header
 
-The version lives in `internal/libhegel/version.go` as `hegelVersion` (bump it
-with `just vendor-libhegel <version>`, which also refreshes the vendored
-binaries under `internal/libhegel/libs/`).
+**Start by running `just vendor-libhegel` to vendor the latest stable libhegel
+release unless the user explicitly specifies a version.** The existing pin in
+`internal/libhegel/version.go` is the starting state, not the requested target.
+For an explicit version, run `just vendor-libhegel <version-or-tag>` instead.
+The command accepts bare versions, new tags such as `libhegel-v0.42.1`, and
+legacy tags such as `v0.37.1`. It downloads and checksum-verifies the binaries
+and updates `hegelVersion`. It uses public GitHub HTTP endpoints; `gh` login is
+not required (an optional `GH_TOKEN` or `GITHUB_TOKEN` supports CI rate limits).
 
-The release **tag is `v<VERSION>`** (note the `v` prefix — the raw path without
-it 404s):
+Record the **actual tag printed by the vendoring command**. Native packages in
+hegel-rust have independent release versions, so the repository's overall
+latest release is not necessarily the latest libhegel. Do not assume a tag is
+`v<VERSION>` or derive the target from a native package release.
+
+Fetch the header from that exact tag, and confirm it exists before editing:
 
 ```bash
-curl -sSL https://raw.githubusercontent.com/hegeldev/hegel-rust/v<VERSION>/hegel-c/include/hegel.h
+curl -fsSL https://raw.githubusercontent.com/hegeldev/hegel-rust/<ACTUAL_TAG>/hegel-c/include/hegel.h
 ```
+
+If resuming with only a pinned version, query the GitHub release API for
+`libhegel-v<VERSION>` and, if absent, `v<VERSION>`; use the returned `tag_name`
+and verify its assets include libhegel binaries. Keep that resolved tag with
+the header for the independent audit in §8.
 
 ## 2. Get the matching library — always `just check vendored`
 
@@ -87,11 +101,11 @@ ${XDG_CACHE_HOME:-$HOME/.cache}/hegel-go/libhegel/<VERSION>/libhegel-linux-amd64
 ```
 
 **When you need the symbol table**, run `nm -D` against that cached `.so` — no
-build required. Resolve the path with a glob so you don't have to spell out the
-version:
+build required. Use the exact pinned version so an older or newer cached release cannot
+be selected:
 
 ```bash
-LIB=$(ls "${XDG_CACHE_HOME:-$HOME/.cache}"/hegel-go/libhegel/*/libhegel-linux-amd64.so | tail -1)
+LIB="${XDG_CACHE_HOME:-$HOME/.cache}/hegel-go/libhegel/<VERSION>/libhegel-linux-amd64.so"
 nm -D "$LIB" | grep '^.* T hegel_' | sort
 ```
 
@@ -183,6 +197,20 @@ the call shape does:
    `Failure.Origin`, …) use the reusable `out*` scratch fields on the wrapper
    struct (`TestCase`, `Result`, `Failure`) so the hot per-draw path doesn't
    allocate a fresh out-param on every call.
+
+   A pointer to a string is not a valid Go wrapper API choice. Keep nullable
+   pointers where required in the private `symbols` ABI signature, but expose
+   strings idiomatically from wrapper methods. In order of preference:
+
+   - Use `""` as the absent/remove sentinel when the empty string is not itself
+     a distinct valid value. This applies to both inputs and outputs.
+   - When `""` is a valid value and absence must remain distinguishable, use a
+     `(string, bool)` pair: accept `value string, present bool` for an input, or
+     return `value string, present bool, err error` for a fallible output. Keep
+     the string first, following Go's value/comma-ok convention.
+
+   Do not expose `*string` merely to mirror a nullable C `char *`; translate
+   between the idiomatic Go representation and NULL at the wrapper boundary.
 
 ### Regenerate the stringer output
 
@@ -308,16 +336,18 @@ final gate. Launch a separate agent (Task tool, `subagent_type:
 the header against the binding and report anything missing.
 
 Give the agent a self-contained prompt — it starts with no context, so spell
-out the version, the two files to compare, and the exact output you want:
+out the version and actual release tag, the two files to compare, and the exact output you want:
 
 ```
 Audit the libhegel FFI binding for completeness against the C header. Do NOT
 edit anything — this is a read-only verification.
 
 1. Read the pinned version from internal/libhegel/version.go (hegelVersion).
-2. Fetch the matching header:
-   curl -sSL https://raw.githubusercontent.com/hegeldev/hegel-rust/v<VERSION>/hegel-c/include/hegel.h
-   (note the `v` prefix on the tag).
+2. Independently verify that release tag <ACTUAL_TAG> corresponds to the pin
+   using the GitHub release API and its libhegel assets. Fetch its header:
+   curl -fsSL https://raw.githubusercontent.com/hegeldev/hegel-rust/<ACTUAL_TAG>/hegel-c/include/hegel.h
+   Tags may use libhegel-v<VERSION> or legacy v<VERSION>; do not assume a prefix
+   or substitute the repository-wide latest native package release.
 3. Extract every `hegel_*` function declared in the header.
 4. Cross-check each against internal/libhegel/libhegel.go: it must have (a) a
    field in the `symbols` struct, (b) an entry in the `registerSymbols` table

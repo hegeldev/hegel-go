@@ -60,7 +60,7 @@ format:
 # into internal/libhegel/libs (git-lfs) and pin hegelVersion in version.go,
 # then commit the result. With no argument this targets the latest release;
 # pass a version (e.g. `just vendor-libhegel 0.17.5`) to vendor that exact
-# release. Requires `gh` and `git lfs`.
+# release. Requires `git lfs`; GitHub authentication is optional.
 vendor-libhegel version="":
     go run scripts/vendor-libhegel.go -version={{version}}
     gofmt -w internal/libhegel/version.go

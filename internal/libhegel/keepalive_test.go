@@ -4,8 +4,67 @@ import (
 	"go/ast"
 	"go/parser"
 	"go/token"
+	"runtime"
+	"sync/atomic"
 	"testing"
 )
+
+func TestTestCaseFreeStopsCleanup(t *testing.T) {
+	var frees atomic.Int32
+	syms := &symbols{TestCaseFree: func(ctx ctxT, raw testCaseT) Error {
+		if ctx != 0 || raw != 7 {
+			t.Errorf("TestCaseFree(%d, %d), want (0, 7)", ctx, raw)
+		}
+		frees.Add(1)
+		return OK
+	}}
+	ptr := &pointer[testCaseT]{syms: syms, raw: 7, free: syms.TestCaseFree}
+	ptr.cleanup = runtime.AddCleanup(ptr, func(raw testCaseT) {
+		_ = syms.TestCaseFree(0, raw)
+	}, ptr.raw)
+	tc := &TestCase{pointer: ptr}
+
+	tc.Free()
+	tc.Free()
+	if got := frees.Load(); got != 1 {
+		t.Fatalf("free calls = %d, want 1", got)
+	}
+	if tc.raw != 0 {
+		t.Fatalf("raw handle = %d after Free, want 0", tc.raw)
+	}
+
+	tc = nil
+	ptr = nil
+	runtime.GC()
+	runtime.Gosched()
+	runtime.GC()
+	if got := frees.Load(); got != 1 {
+		t.Fatalf("free calls after GC = %d, want 1", got)
+	}
+
+	(&TestCase{}).Free()
+}
+
+func TestInPlaceAllocatedWrappersExposeFree(t *testing.T) {
+	ctx := Stub(t,
+		uintptr(1), OK, // settings_new
+		uintptr(2), OK, // run_start
+	)
+	settings, err := ctx.SettingsNew()
+	if err != nil {
+		t.Fatal(err)
+	}
+	run, err := settings.RunStart(ctx, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	run.Free()
+	settings.Free()
+	if run.raw != 0 || settings.raw != 0 {
+		t.Fatalf("handles after Free = run %d, settings %d; want zero", run.raw, settings.raw)
+	}
+}
 
 // TestNativeCallsKeepHandleOwnersAlive enforces the binding's lifetime rule:
 // every function that reads a wrapper's raw handle must also pass the wrapper
@@ -33,9 +92,10 @@ func TestNativeCallsKeepHandleOwnersAlive(t *testing.T) {
 	// Constructors that only touch raw before registering the cleanup: no
 	// cleanup exists yet, so nothing can free the handle mid-call.
 	exempt := map[string]bool{
-		"allocate":   true,
-		"NewContext": true,
-		"newContext": true,
+		"allocate":     true,
+		"allocateInto": true,
+		"NewContext":   true,
+		"newContext":   true,
 	}
 
 	for _, decl := range f.Decls {

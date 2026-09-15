@@ -89,7 +89,7 @@ func (t *T) Failed() bool {
 
 // Log routes the message through the embedded [*testing.T].
 func (t *T) Log(args ...any) {
-	if t.out != nil {
+	if t.printer != nil {
 		t.Helper()
 		t.T.Log(fmt.Sprint(args...))
 	}
@@ -97,7 +97,7 @@ func (t *T) Log(args ...any) {
 
 // Logf routes the formatted message through the embedded [*testing.T].
 func (t *T) Logf(format string, args ...any) {
-	if t.out != nil {
+	if t.printer != nil {
 		t.Helper()
 		t.T.Logf(format, args...)
 	}
@@ -114,6 +114,10 @@ func (t *T) clone() (TestCase, error) {
 		return nil, err
 	}
 	return &T{testCase: cloned.(*testCase), T: t.T}, nil
+}
+
+func (t *T) free() {
+	t.testCase.free()
 }
 
 func (t *T) invoke(fn testBody) error {

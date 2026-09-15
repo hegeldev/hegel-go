@@ -86,13 +86,9 @@ const (
 type Backend uint32 // Equivalent of hegel_backend_t (passed as a uint32_t param)
 
 const (
-	// Choose automatically (the default): urandom under Antithesis, otherwise
-	// the default seeded PRNG.
-	BACKEND_AUTO Backend = iota
-
 	// Expand a single seeded PRNG; runs are reproducible from the seed and
 	// shrinking / replay work as usual.
-	BACKEND_DEFAULT
+	BACKEND_DEFAULT Backend = iota + 1
 
 	// Read fresh entropy from /dev/urandom on every draw. Intended for running
 	// under Antithesis; you almost certainly don't want it otherwise.
@@ -102,8 +98,8 @@ const (
 type Verbosity uint32 // Equivalent of hegel_verbosity_t (passed as a uint32_t param)
 
 const (
-	VERBOSITY_QUIET Verbosity = iota
-	VERBOSITY_NORMAL
+	VERBOSITY_NORMAL Verbosity = iota
+	VERBOSITY_QUIET
 	VERBOSITY_VERBOSE
 	VERBOSITY_DEBUG
 )
@@ -146,6 +142,8 @@ const (
 	PHASE_GENERATE
 	PHASE_TARGET
 	PHASE_SHRINK
+
+	PHASE_ALL Phase = PHASE_EXPLICIT | PHASE_REUSE | PHASE_GENERATE | PHASE_TARGET | PHASE_SHRINK
 )
 
 // StateMachineGroup identifies a group of rules in a state machine.
@@ -160,108 +158,71 @@ const StateMachineDone = math.MinInt64
 
 type Label uint64
 
+// Labels are Go frontend span identities, derived with hegel_label_from_name
+// from the names below. Upstream no longer reserves numbered label constants.
 const (
-	// Outer span around a list / sequence.
-	LABEL_LIST Label = iota + 1
-
-	// One element of a list.
-	LABEL_LIST_ELEMENT
-
-	// Outer span around a set (unordered, no duplicates).
-	LABEL_SET
-
-	// One element of a set.
-	LABEL_SET_ELEMENT
-
-	// Outer span around a map / dictionary.
-	LABEL_MAP
-
-	// One (key, value) entry of a map.
-	LABEL_MAP_ENTRY
-
-	// Outer span around a tuple / fixed-arity record.
-	LABEL_TUPLE
-
-	// Outer span around a `one_of` / disjunction; useful so the shrinke/ can swap which branch is taken.
-	LABEL_ONE_OF
-
-	// Outer span around an `optional` (None vs Some(value)).
-	LABEL_OPTIONAL
-
-	// Outer span around a fixed-shape record (named fields know/ statically).
-	LABEL_FIXED_DICT
-
-	// Outer span around a `flat_map` / monadic dependent draw.
-	LABEL_FLAT_MAP
-
-	// Outer span around a `filter` / rejection-sampling wrapper.
-	LABEL_FILTER
-
-	// Outer span around a `map` / pure transformation.
-	LABEL_MAPPED
-
-	// Outer span around a `sampled_from` / pick-from-collection draw.
-	LABEL_SAMPLED_FROM
-
-	// Outer span around the variant discriminator of a sum-type draw.
-	LABEL_ENUM_VARIANT
-
-	// Span around one swarm-testing feature-flag draw. Emitted internally by
-	// the engine's state-machine rule selection; callers normally never open
-	// this span themselves.
-	LABEL_FEATURE_FLAG
-
-	// The remaining upstream labels (17..30) are emitted internally by the
-	// engine's per-draw primitives; callers normally never open these spans
-	// themselves. They are mirrored here so the binding's constant values stay
-	// aligned with hegel_label_t.
-	LABEL_REGEX
-	LABEL_EMAIL
-	LABEL_URL
-	LABEL_DOMAIN
-	LABEL_DATE
-	LABEL_TIME
-	LABEL_DATETIME
-	LABEL_UUID
-	LABEL_IP_ADDRESS
-	LABEL_INTEGER
-	LABEL_FLOAT
-	LABEL_BOOLEAN
-	LABEL_BYTES
-	LABEL_STRING
-
-	// Outer span around one stateful-testing rule invocation, grouping all the
-	// draws a single rule makes so the shrinker can delete a whole step at once.
-	// Opened by the frontend's state-machine driver.
-	LABEL_STATEFUL_RULE
-
-	// Span around one fresh-identifier draw (hegel_pool_add) and one
-	// choose-from-set draw (hegel_pool_generate). Emitted internally by the
-	// engine; callers normally never open these spans themselves. Mirrored here
-	// so the binding's constant values stay aligned with hegel_label_t.
-	LABEL_FRESH_ID
-	LABEL_SET_CHOICE
-
-	// Span around the concurrency-level draw made by hegel_new_state_machine.
-	LABEL_CONCURRENCY
-
-	// Span around one sub-value of a recursive generator: the leaf-or-branch
-	// decision plus the drawn content. Every sub-value at every depth uses this
-	// same label, which is what lets the shrinker replace a tree with one of its
-	// own subtrees. Emitted internally by the engine; mirrored here so the
-	// binding's constant values stay aligned with hegel_label_t.
-	LABEL_RECURSIVE
-
-	// Binding-specific labels, beyond the upstream HEGEL_LABEL_* range. The
-	// engine treats span labels as opaque shrinker hints, so hegel-go reserves
-	// values past the last upstream constant for its own span structures.
-	LABEL_COMPOSITE
+	LABEL_LIST          Label = 2801019076836953716  // hegel.go.list
+	LABEL_LIST_ELEMENT  Label = 17869309736790133779 // hegel.go.list_element
+	LABEL_SET           Label = 5865200140810442820  // hegel.go.set
+	LABEL_SET_ELEMENT   Label = 16914690668663268067 // hegel.go.set_element
+	LABEL_MAP           Label = 5590808215537288722  // hegel.go.map
+	LABEL_MAP_ENTRY     Label = 13638593894540015217 // hegel.go.map_entry
+	LABEL_TUPLE         Label = 2606859103638815834  // hegel.go.tuple
+	LABEL_ONE_OF        Label = 1646594287079187632  // hegel.go.one_of
+	LABEL_OPTIONAL      Label = 2831377877786720272  // hegel.go.optional
+	LABEL_FIXED_DICT    Label = 3378490235687764091  // hegel.go.fixed_dict
+	LABEL_FLAT_MAP      Label = 17589065948398953226 // hegel.go.flat_map
+	LABEL_FILTER        Label = 524933089993392430   // hegel.go.filter
+	LABEL_MAPPED        Label = 5332314179289137799  // hegel.go.mapped
+	LABEL_SAMPLED_FROM  Label = 11188332258118722663 // hegel.go.sampled_from
+	LABEL_ENUM_VARIANT  Label = 13694910494764798659 // hegel.go.enum_variant
+	LABEL_FEATURE_FLAG  Label = 6375675817545272289  // hegel.go.feature_flag
+	LABEL_REGEX         Label = 14852562533782475579 // hegel.go.regex
+	LABEL_EMAIL         Label = 14835994298877507076 // hegel.go.email
+	LABEL_URL           Label = 1985340265217183813  // hegel.go.url
+	LABEL_DOMAIN        Label = 17058301915510424728 // hegel.go.domain
+	LABEL_DATE          Label = 16402304753201470568 // hegel.go.date
+	LABEL_TIME          Label = 5300822282277835853  // hegel.go.time
+	LABEL_DATETIME      Label = 14221666525246718433 // hegel.go.datetime
+	LABEL_UUID          Label = 9890585168375486663  // hegel.go.uuid
+	LABEL_IP_ADDRESS    Label = 14857737725346391278 // hegel.go.ip_address
+	LABEL_INTEGER       Label = 2322818162524834726  // hegel.go.integer
+	LABEL_FLOAT         Label = 10378366191659462670 // hegel.go.float
+	LABEL_BOOLEAN       Label = 15851258441080226520 // hegel.go.boolean
+	LABEL_BYTES         Label = 5319699480805377615  // hegel.go.bytes
+	LABEL_STRING        Label = 14117235223881480941 // hegel.go.string
+	LABEL_STATEFUL_RULE Label = 13973930604097954071 // hegel.go.stateful_rule
+	LABEL_FRESH_ID      Label = 593156558150809056   // hegel.go.fresh_id
+	LABEL_SET_CHOICE    Label = 9316085528689457538  // hegel.go.set_choice
+	LABEL_CONCURRENCY   Label = 12925656410196983251 // hegel.go.concurrency
+	LABEL_RECURSIVE     Label = 52359896170306008    // hegel.go.recursive
+	LABEL_COMPOSITE     Label = 18247645122289998975 // hegel.go.composite
 )
 
 type pointer[T ~uintptr] struct {
-	syms *symbols
-	raw  T
+	syms    *symbols
+	raw     T
+	free    func(ctxT, T) Error
+	cleanup runtime.Cleanup
 }
+
+// Free releases this native handle immediately and cancels its automatic
+// cleanup. It is safe to call Free more than once.
+func (p *pointer[T]) Free() {
+	if p == nil || p.raw == 0 {
+		return
+	}
+	p.cleanup.Stop()
+	raw := p.raw
+	p.raw = 0
+	if p.free != nil {
+		_ = p.free(0, raw)
+	}
+	runtime.KeepAlive(p)
+}
+
+type printerT uintptr        // Equivalent of hegel_printer_t
+type printerOptionsT uintptr // Equivalent of hegel_printer_options_t
 
 type ctxT uintptr          // Equivalent of hegel_context_t
 type settingsT uintptr     // Equivalent of hegel_settings_t
@@ -299,11 +260,11 @@ func (d *Date) ToTime() time.Time {
 // Time mirrors hegel_time_t: a time of day passed to / returned from
 // hegel_generate_time by value.
 type Time struct {
-	Hour        uint8
-	Minute      uint8
-	Second      uint8
-	_           uint8 // pad to match C abi (purego limitation)
-	Microsecond uint32
+	Hour       uint8
+	Minute     uint8
+	Second     uint8
+	_          uint8 // pad to match C abi (purego limitation)
+	Nanosecond uint32
 }
 
 // Datetime mirrors hegel_datetime_t: a naive datetime (no timezone).
@@ -316,7 +277,7 @@ type Datetime struct {
 func (dt *Datetime) ToTime() time.Time {
 	return time.Date(int(dt.Date.Year), time.Month(dt.Date.Month), int(dt.Date.Day),
 		int(dt.Time.Hour), int(dt.Time.Minute), int(dt.Time.Second),
-		int(dt.Time.Microsecond)*1000, time.UTC)
+		int(dt.Time.Nanosecond), time.UTC)
 }
 
 // bytesResult mirrors hegel_generate_bytes_result_t: an engine-allocated byte
@@ -327,9 +288,10 @@ type bytesResult struct {
 	len  uint64
 }
 
-// stringResult mirrors hegel_generate_string_result_t: an engine-allocated,
-// length-delimited UTF-8 buffer (not NUL-terminated) written by
-// hegel_generate_string and released by hegel_generate_string_result_free.
+// stringResult mirrors hegel_generate_string_result_t and
+// hegel_printer_value_result_t: an engine-allocated, length-delimited UTF-8
+// buffer (not NUL-terminated). Release it with the producing API's matching
+// result_free function.
 type stringResult struct {
 	data *byte
 	len  uint64
@@ -349,11 +311,11 @@ type symbols struct {
 	ContextFree      func(ctxT) Error
 	ContextLastError func(ctxT) string
 
-	SettingsNew                       func(ctxT, out[settingsT]) Error
-	SettingsFree                      func(ctxT, settingsT) Error
-	SettingsSetBackend                func(ctxT, settingsT, Backend) Error
-	SettingsSetTestCases              func(ctxT, settingsT, uint64) Error
-	SettingsSetStatefulStepCount      func(ctxT, settingsT, int64) Error
+	SettingsNew          func(ctxT, out[settingsT]) Error
+	SettingsFree         func(ctxT, settingsT) Error
+	SettingsSetBackend   func(ctxT, settingsT, Backend) Error
+	SettingsSetTestCases func(ctxT, settingsT, uint64) Error
+
 	SettingsSetVerbosity              func(ctxT, settingsT, Verbosity) Error
 	SettingsSetSeed                   func(ctxT, settingsT, uint64, bool) Error
 	SettingsSetDerandomize            func(ctxT, settingsT, bool) Error
@@ -393,7 +355,7 @@ type symbols struct {
 	PoolAdd                  func(ctxT, testCaseT, poolT, out[int64]) Error
 	PoolGenerate             func(ctxT, testCaseT, poolT, bool, out[int64]) Error
 	PoolFree                 func(ctxT, poolT) Error
-	NewStateMachine          func(ctxT, testCaseT, **byte, *int64, uint64, **byte, *bool, uint64, int64, int64, out[stateMachineT], out[int64]) Error
+	NewStateMachine          func(ctxT, testCaseT, **byte, *int64, uint64, **byte, *bool, uint64, int64, int64, int64, out[stateMachineT], out[int64]) Error
 	StateMachineNextGroup    func(ctxT, testCaseT, stateMachineT, out[StateMachineGroup]) Error
 	StateMachineNextRule     func(ctxT, testCaseT, stateMachineT, int64, out[int64]) Error
 	StateMachineRuleRejected func(ctxT, testCaseT, stateMachineT, int64) Error
@@ -437,6 +399,56 @@ type symbols struct {
 	FailureOrigin           func(ctxT, failureT, out[*byte]) Error
 	FailureReproductionBlob func(ctxT, failureT, out[*byte]) Error
 
+	SettingsSetShowStatistics        func(ctxT, settingsT, bool) Error
+	RecursionFinish                  func(ctxT, testCaseT, recursionT) Error
+	StateMachineShouldCheckInvariant func(ctxT, testCaseT, stateMachineT, int64, out[bool]) Error
+	Event                            func(ctxT, testCaseT, string) Error
+	EventValue                       func(ctxT, testCaseT, float64, string) Error
+	Note                             func(ctxT, testCaseT, *byte, uint64) Error
+	PrinterOptionsNew                func(ctxT, out[printerOptionsT]) Error
+	PrinterOptionsFree               func(ctxT, printerOptionsT) Error
+	PrinterOptionsSetMaxWidth        func(ctxT, printerOptionsT, uint64) Error
+	PrinterNew                       func(ctxT, printerOptionsT, out[printerT]) Error
+	PrinterFree                      func(ctxT, printerT) Error
+	PrinterIfBreak                   func(ctxT, printerT, *byte, uint64) Error
+	PrinterText                      func(ctxT, printerT, *byte, uint64) Error
+	PrinterBreakable                 func(ctxT, printerT, *byte, uint64) Error
+	PrinterComment                   func(ctxT, printerT, *byte, uint64) Error
+	PrinterEndGroup                  func(ctxT, printerT, *byte, uint64) Error
+	PrinterBeginGroup                func(ctxT, printerT, uint64, *byte, uint64) Error
+	PrinterShiftIndent               func(ctxT, printerT, int64) Error
+	PrinterHardBreak                 func(ctxT, printerT) Error
+	PrinterBeginSpeculative          func(ctxT, printerT) Error
+	PrinterCommitSpeculative         func(ctxT, printerT) Error
+	PrinterAbortSpeculative          func(ctxT, printerT) Error
+	PrinterResolve                   func(ctxT, printerT) Error
+	PrinterDeferred                  func(ctxT, printerT, out[printerT]) Error
+	PrinterIsLive                    func(ctxT, printerT, out[bool]) Error
+	PrinterValue                     func(ctxT, printerT, out[stringResult]) Error
+	PrinterValueFree                 func(ctxT, *stringResult) Error
+	TestCasePrinter                  func(ctxT, testCaseT, printerOptionsT, out[printerT]) Error
+
+	SettingsNewForProfile             func(ctxT, string, out[settingsT]) Error
+	SettingsSetTestLocation           func(ctxT, settingsT, string, uint32, string, string) Error
+	SettingsSetPrintBlob              func(ctxT, settingsT, bool) Error
+	SettingsRegisterProfile           func(ctxT, string, settingsT) Error
+	SetDefaultProfile                 func(ctxT, *byte) Error
+	TestCaseBlock                     func(ctxT, testCaseT, uint64, out[testCaseT]) Error
+	TestCaseSetWorker                 func(ctxT, testCaseT, int64) Error
+	LabelFromName                     func(ctxT, string, out[uint64]) Error
+	LabelCombine                      func(ctxT, *Label, uint64, out[uint64]) Error
+	SettingsGetTestCases              func(ctxT, settingsT, out[uint64]) Error
+	SettingsGetVerbosity              func(ctxT, settingsT, out[int32]) Error
+	SettingsGetSeed                   func(ctxT, settingsT, out[uint64], out[bool]) Error
+	SettingsGetDerandomize            func(ctxT, settingsT, out[bool]) Error
+	SettingsGetDatabase               func(ctxT, settingsT, out[*byte]) Error
+	SettingsGetPhases                 func(ctxT, settingsT, out[uint32]) Error
+	SettingsGetSuppressHealthCheck    func(ctxT, settingsT, out[uint32]) Error
+	SettingsGetReportMultipleFailures func(ctxT, settingsT, out[bool]) Error
+	SettingsGetShowStatistics         func(ctxT, settingsT, out[bool]) Error
+	SettingsGetPrintBlob              func(ctxT, settingsT, out[bool]) Error
+	SettingsGetBackend                func(ctxT, settingsT, out[int32]) Error
+
 	Version func(ctxT, out[*byte]) Error
 }
 
@@ -458,20 +470,68 @@ func (c *Context) Clone() *Context {
 	return newContext(c.syms)
 }
 
+// SettingsNewForProfile resolves a named settings profile into an owned snapshot.
+func (c *Context) SettingsNewForProfile(name string) (*Settings, error) {
+	s := new(Settings)
+	ok, err := allocateInto(c, &s.pointer, "hegel_settings_new_for_profile", func(ctx ctxT, raw *settingsT) Error {
+		return c.syms.SettingsNewForProfile(ctx, name, raw)
+	}, c.syms.SettingsFree)
+	if !ok {
+		return nil, err
+	}
+	return s, nil
+}
+
+// SetDefaultProfile changes the process-wide default profile. An empty name removes it.
+// Coordinate profile mutations with other users of this process-global configuration.
+func (c *Context) SetDefaultProfile(name string) error {
+	var data *byte
+	if name != "" {
+		// Unlike length-delimited text, the profile name must be NUL-terminated.
+		strings, _, err := cStringArrayArg([]string{name})
+		if err != nil {
+			return err
+		}
+		data = *strings
+	}
+	return c.invoke("hegel_set_default_profile", func(ctx ctxT) Error {
+		return c.syms.SetDefaultProfile(ctx, data)
+	})
+}
+
+// LabelFromName derives a stable span identity from a generator's qualified name.
+func (c *Context) LabelFromName(name string) (Label, error) {
+	var value uint64
+	err := c.invoke("hegel_label_from_name", func(ctx ctxT) Error {
+		return c.syms.LabelFromName(ctx, name, &value)
+	})
+	return Label(value), err
+}
+
+// LabelCombine derives an order-sensitive span identity from component labels.
+func (c *Context) LabelCombine(labels []Label) (Label, error) {
+	var value uint64
+	err := c.invoke("hegel_label_combine", func(ctx ctxT) Error {
+		return c.syms.LabelCombine(ctx, slicePtr(labels), uint64(len(labels)), &value)
+	})
+	return Label(value), err
+}
+
 func newContext(syms *symbols) *Context {
-	ctx := &Context{syms, syms.ContextNew()}
+	ctx := &Context{syms: syms, raw: syms.ContextNew()}
 	runtime.AddCleanup(ctx, func(ctx ctxT) { syms.ContextFree(ctx) }, ctx.raw)
 	return ctx
 }
 
-func allocate[R ~uintptr](c *Context, op string, new func(ctx ctxT, raw *R) Error, free func(ctx ctxT, raw R) Error) (*pointer[R], error) {
-	ptr := pointer[R]{syms: c.syms}
+func allocateInto[R ~uintptr](c *Context, ptr *pointer[R], op string, newHandle func(ctx ctxT, raw *R) Error, free func(ctx ctxT, raw R) Error) (bool, error) {
+	ptr.syms = c.syms
+	ptr.free = free
 	err := c.invoke(op, func(ctx ctxT) Error {
-		return new(ctx, &ptr.raw)
+		return newHandle(ctx, &ptr.raw)
 	})
 
 	if err != nil {
-		return nil, err
+		return false, err
 	}
 
 	// A zero handle with no error is the "no handle" sentinel: the engine
@@ -480,14 +540,23 @@ func allocate[R ~uintptr](c *Context, op string, new func(ctx ctxT, raw *R) Erro
 	// hegel_test_case_from_blob rejecting a stale blob). Callers map this to a
 	// nil result.
 	if ptr.raw == 0 {
-		return nil, nil
+		return false, nil
 	}
 
 	if free != nil {
-		runtime.AddCleanup(&ptr, func(raw R) { free(0, raw) }, ptr.raw)
+		ptr.cleanup = runtime.AddCleanup(ptr, func(raw R) { free(0, raw) }, ptr.raw)
 	}
 
-	return &ptr, nil
+	return true, nil
+}
+
+func allocate[R ~uintptr](c *Context, op string, newHandle func(ctx ctxT, raw *R) Error, free func(ctx ctxT, raw R) Error) (*pointer[R], error) {
+	ptr := new(pointer[R])
+	ok, err := allocateInto(c, ptr, op, newHandle, free)
+	if !ok {
+		return nil, err
+	}
+	return ptr, nil
 }
 
 // invoke a function with a ctxT parameter.
@@ -578,6 +647,56 @@ func tryOpen(path string) (syms *symbols, err error) {
 
 	syms = &symbols{handle: libHandle}
 	err = registerSymbols(libHandle, []symbol{
+		{"hegel_settings_new_for_profile", &syms.SettingsNewForProfile},
+		{"hegel_settings_set_test_location", &syms.SettingsSetTestLocation},
+		{"hegel_settings_set_print_blob", &syms.SettingsSetPrintBlob},
+		{"hegel_settings_register_profile", &syms.SettingsRegisterProfile},
+		{"hegel_set_default_profile", &syms.SetDefaultProfile},
+		{"hegel_test_case_block", &syms.TestCaseBlock},
+		{"hegel_test_case_set_worker", &syms.TestCaseSetWorker},
+		{"hegel_label_from_name", &syms.LabelFromName},
+		{"hegel_label_combine", &syms.LabelCombine},
+		{"hegel_settings_get_test_cases", &syms.SettingsGetTestCases},
+		{"hegel_settings_get_verbosity", &syms.SettingsGetVerbosity},
+		{"hegel_settings_get_seed", &syms.SettingsGetSeed},
+		{"hegel_settings_get_derandomize", &syms.SettingsGetDerandomize},
+		{"hegel_settings_get_database", &syms.SettingsGetDatabase},
+		{"hegel_settings_get_phases", &syms.SettingsGetPhases},
+		{"hegel_settings_get_suppress_health_check", &syms.SettingsGetSuppressHealthCheck},
+		{"hegel_settings_get_report_multiple_failures", &syms.SettingsGetReportMultipleFailures},
+		{"hegel_settings_get_show_statistics", &syms.SettingsGetShowStatistics},
+		{"hegel_settings_get_print_blob", &syms.SettingsGetPrintBlob},
+		{"hegel_settings_get_backend", &syms.SettingsGetBackend},
+
+		{"hegel_settings_set_show_statistics", &syms.SettingsSetShowStatistics},
+		{"hegel_recursion_finish", &syms.RecursionFinish},
+		{"hegel_state_machine_should_check_invariant", &syms.StateMachineShouldCheckInvariant},
+		{"hegel_event", &syms.Event},
+		{"hegel_event_value", &syms.EventValue},
+		{"hegel_note", &syms.Note},
+		{"hegel_printer_options_new", &syms.PrinterOptionsNew},
+		{"hegel_printer_options_free", &syms.PrinterOptionsFree},
+		{"hegel_printer_options_set_max_width", &syms.PrinterOptionsSetMaxWidth},
+		{"hegel_printer_new", &syms.PrinterNew},
+		{"hegel_printer_free", &syms.PrinterFree},
+		{"hegel_printer_if_break", &syms.PrinterIfBreak},
+		{"hegel_printer_text", &syms.PrinterText},
+		{"hegel_printer_breakable", &syms.PrinterBreakable},
+		{"hegel_printer_comment", &syms.PrinterComment},
+		{"hegel_printer_end_group", &syms.PrinterEndGroup},
+		{"hegel_printer_begin_group", &syms.PrinterBeginGroup},
+		{"hegel_printer_shift_indent", &syms.PrinterShiftIndent},
+		{"hegel_printer_hard_break", &syms.PrinterHardBreak},
+		{"hegel_printer_begin_speculative", &syms.PrinterBeginSpeculative},
+		{"hegel_printer_commit_speculative", &syms.PrinterCommitSpeculative},
+		{"hegel_printer_abort_speculative", &syms.PrinterAbortSpeculative},
+		{"hegel_printer_resolve", &syms.PrinterResolve},
+		{"hegel_printer_deferred", &syms.PrinterDeferred},
+		{"hegel_printer_is_live", &syms.PrinterIsLive},
+		{"hegel_printer_value", &syms.PrinterValue},
+		{"hegel_printer_value_result_free", &syms.PrinterValueFree},
+		{"hegel_test_case_printer", &syms.TestCasePrinter},
+
 		{"hegel_context_new", &syms.ContextNew},
 		{"hegel_context_free", &syms.ContextFree},
 		{"hegel_context_last_error", &syms.ContextLastError},
@@ -586,7 +705,7 @@ func tryOpen(path string) (syms *symbols, err error) {
 		{"hegel_settings_free", &syms.SettingsFree},
 		{"hegel_settings_set_backend", &syms.SettingsSetBackend},
 		{"hegel_settings_set_test_cases", &syms.SettingsSetTestCases},
-		{"hegel_settings_set_stateful_step_count", &syms.SettingsSetStatefulStepCount},
+
 		{"hegel_settings_set_verbosity", &syms.SettingsSetVerbosity},
 		{"hegel_settings_set_seed", &syms.SettingsSetSeed},
 		{"hegel_settings_set_derandomize", &syms.SettingsSetDerandomize},
@@ -669,14 +788,176 @@ func tryOpen(path string) (syms *symbols, err error) {
 	return syms, nil
 }
 
-type Settings pointer[settingsT]
+type Settings struct {
+	pointer[settingsT]
+}
 
 // SettingsNew allocates a fresh settings object on this context.
-func (c *Context) SettingsNew() *Settings {
-	ptr, _ := allocate[settingsT](c, "hegel_settings_new", func(ctx ctxT, raw *settingsT) Error {
+func (c *Context) SettingsNew() (*Settings, error) {
+	s := new(Settings)
+	ok, err := allocateInto(c, &s.pointer, "hegel_settings_new", func(ctx ctxT, raw *settingsT) Error {
 		return c.syms.SettingsNew(ctx, raw)
 	}, c.syms.SettingsFree)
-	return (*Settings)(ptr)
+	if !ok {
+		return nil, err
+	}
+	return s, nil
+}
+
+// RegisterProfile registers this snapshot under name in the process-wide profile registry.
+func (s *Settings) RegisterProfile(ctx *Context, name string) error {
+	return ctx.invoke("hegel_settings_register_profile", func(ctx ctxT) Error {
+		e := s.syms.SettingsRegisterProfile(ctx, name, s.raw)
+		runtime.KeepAlive(s)
+		return e
+	})
+}
+
+// TestLocation sets the location used for Antithesis assertion reporting.
+func (s *Settings) TestLocation(ctx *Context, file string, beginLine uint32, className, function string) error {
+	return ctx.invoke("hegel_settings_set_test_location", func(ctx ctxT) Error {
+		e := s.syms.SettingsSetTestLocation(ctx, s.raw, file, beginLine, className, function)
+		runtime.KeepAlive(s)
+		return e
+	})
+}
+
+// PrintBlob controls reproduction-blob output in the engine report.
+func (s *Settings) PrintBlob(ctx *Context, yes bool) error {
+	return ctx.invoke("hegel_settings_set_print_blob", func(ctx ctxT) Error {
+		e := s.syms.SettingsSetPrintBlob(ctx, s.raw, yes)
+		runtime.KeepAlive(s)
+		return e
+	})
+}
+
+// GetSeed returns the configured seed and whether one was explicitly set.
+func (s *Settings) GetSeed(ctx *Context) (uint64, bool, error) {
+	var seed uint64
+	var hasSeed bool
+	err := ctx.invoke("hegel_settings_get_seed", func(ctx ctxT) Error {
+		e := s.syms.SettingsGetSeed(ctx, s.raw, &seed, &hasSeed)
+		runtime.KeepAlive(s)
+		return e
+	})
+	return seed, hasSeed, err
+}
+
+// GetDatabase returns the database value and whether it was explicitly
+// configured. An explicitly configured empty value disables the database. The
+// borrowed native string is copied.
+func (s *Settings) GetDatabase(ctx *Context) (string, bool, error) {
+	var data *byte
+	err := ctx.invoke("hegel_settings_get_database", func(ctx ctxT) Error {
+		e := s.syms.SettingsGetDatabase(ctx, s.raw, &data)
+		runtime.KeepAlive(s)
+		return e
+	})
+	if err != nil || data == nil {
+		return "", false, err
+	}
+	value := goString(data)
+	runtime.KeepAlive(s)
+	return value, true, nil
+}
+
+// GetTestCases reads the effective test cases setting.
+func (s *Settings) GetTestCases(ctx *Context) (uint64, error) {
+	var value uint64
+	err := ctx.invoke("hegel_settings_get_test_cases", func(ctx ctxT) Error {
+		e := s.syms.SettingsGetTestCases(ctx, s.raw, &value)
+		runtime.KeepAlive(s)
+		return e
+	})
+	return uint64(value), err
+}
+
+// GetVerbosity reads the effective verbosity setting.
+func (s *Settings) GetVerbosity(ctx *Context) (Verbosity, error) {
+	var value int32
+	err := ctx.invoke("hegel_settings_get_verbosity", func(ctx ctxT) Error {
+		e := s.syms.SettingsGetVerbosity(ctx, s.raw, &value)
+		runtime.KeepAlive(s)
+		return e
+	})
+	return Verbosity(value), err
+}
+
+// GetDerandomize reads the effective derandomize setting.
+func (s *Settings) GetDerandomize(ctx *Context) (bool, error) {
+	var value bool
+	err := ctx.invoke("hegel_settings_get_derandomize", func(ctx ctxT) Error {
+		e := s.syms.SettingsGetDerandomize(ctx, s.raw, &value)
+		runtime.KeepAlive(s)
+		return e
+	})
+	return bool(value), err
+}
+
+// GetPhases reads the effective phases setting.
+func (s *Settings) GetPhases(ctx *Context) (Phase, error) {
+	var value uint32
+	err := ctx.invoke("hegel_settings_get_phases", func(ctx ctxT) Error {
+		e := s.syms.SettingsGetPhases(ctx, s.raw, &value)
+		runtime.KeepAlive(s)
+		return e
+	})
+	return Phase(value), err
+}
+
+// GetSuppressHealthCheck reads the effective suppress health check setting.
+func (s *Settings) GetSuppressHealthCheck(ctx *Context) (HealthCheck, error) {
+	var value uint32
+	err := ctx.invoke("hegel_settings_get_suppress_health_check", func(ctx ctxT) Error {
+		e := s.syms.SettingsGetSuppressHealthCheck(ctx, s.raw, &value)
+		runtime.KeepAlive(s)
+		return e
+	})
+	return HealthCheck(value), err
+}
+
+// GetReportMultipleFailures reads the effective report multiple failures setting.
+func (s *Settings) GetReportMultipleFailures(ctx *Context) (bool, error) {
+	var value bool
+	err := ctx.invoke("hegel_settings_get_report_multiple_failures", func(ctx ctxT) Error {
+		e := s.syms.SettingsGetReportMultipleFailures(ctx, s.raw, &value)
+		runtime.KeepAlive(s)
+		return e
+	})
+	return bool(value), err
+}
+
+// GetShowStatistics reads the effective show statistics setting.
+func (s *Settings) GetShowStatistics(ctx *Context) (bool, error) {
+	var value bool
+	err := ctx.invoke("hegel_settings_get_show_statistics", func(ctx ctxT) Error {
+		e := s.syms.SettingsGetShowStatistics(ctx, s.raw, &value)
+		runtime.KeepAlive(s)
+		return e
+	})
+	return bool(value), err
+}
+
+// GetPrintBlob reads the effective print blob setting.
+func (s *Settings) GetPrintBlob(ctx *Context) (bool, error) {
+	var value bool
+	err := ctx.invoke("hegel_settings_get_print_blob", func(ctx ctxT) Error {
+		e := s.syms.SettingsGetPrintBlob(ctx, s.raw, &value)
+		runtime.KeepAlive(s)
+		return e
+	})
+	return bool(value), err
+}
+
+// GetBackend reads the effective backend setting.
+func (s *Settings) GetBackend(ctx *Context) (Backend, error) {
+	var value int32
+	err := ctx.invoke("hegel_settings_get_backend", func(ctx ctxT) Error {
+		e := s.syms.SettingsGetBackend(ctx, s.raw, &value)
+		runtime.KeepAlive(s)
+		return e
+	})
+	return Backend(value), err
 }
 
 // Backend selects the engine's randomness backend. See [Backend].
@@ -691,17 +972,6 @@ func (s *Settings) Backend(ctx *Context, b Backend) error {
 func (s *Settings) TestCases(ctx *Context, n uint64) error {
 	return ctx.invoke("hegel_settings_set_test_cases", func(ctx ctxT) Error {
 		e := s.syms.SettingsSetTestCases(ctx, s.raw, n)
-		runtime.KeepAlive(s)
-		return e
-	})
-}
-
-// StatefulStepCount sets the target number of steps to run per stateful test
-// case (default 50; n must be at least 1). See
-// hegel_settings_set_stateful_step_count.
-func (s *Settings) StatefulStepCount(ctx *Context, n int64) error {
-	return ctx.invoke("hegel_settings_set_stateful_step_count", func(ctx ctxT) Error {
-		e := s.syms.SettingsSetStatefulStepCount(ctx, s.raw, n)
 		runtime.KeepAlive(s)
 		return e
 	})
@@ -776,20 +1046,25 @@ func (s *Settings) SuppressHealthCheck(ctx *Context, checks HealthCheck) error {
 // output on stderr, which every hegel-package caller currently does.
 func (s *Settings) RunStart(ctx *Context, out io.Writer) (*Run, error) {
 	callback, handle := newOutputFn(out)
-	ptr, err := allocate(ctx, "hegel_run_start", func(ctx ctxT, raw *runT) Error {
+	r := new(Run)
+	ok, err := allocateInto(ctx, &r.pointer, "hegel_run_start", func(ctx ctxT, raw *runT) Error {
 		e := s.syms.RunStart(ctx, s.raw, callback, uintptr(handle), raw)
 		runtime.KeepAlive(s)
 		return e
 	}, s.syms.RunFree)
-	freeOutputFn(ptr, handle)
-	return (*Run)(ptr), err
+	if !ok {
+		freeOutputFn[runT](nil, handle)
+		return nil, err
+	}
+	freeOutputFn(&r.pointer, handle)
+	return r, nil
 }
 
 // TestCaseFromBlob builds a standalone test case that replays the example
 // encoded in a base64 failure blob (from [Failure.ReproductionBlob]). Unlike
 // test cases from [Run.NextTestCase], the returned handle is owned by the
-// caller and is freed automatically via the GC. A rejected blob surfaces as a
-// nil test case and a non-nil error. callback and userData set the
+// caller and is freed automatically via the GC unless [TestCase.Free] releases
+// it first. A rejected blob surfaces as a nil test case and a non-nil error. callback and userData set the
 // engine-output destination for the replay (see [outputCallbackT]); pass a nil
 // writer to leave output on stderr, which every hegel-package caller currently does.
 func (s *Settings) TestCaseFromBlob(ctx *Context, blob string, out io.Writer) (tc *TestCase, err error) {
@@ -806,12 +1081,15 @@ func (s *Settings) TestCaseFromBlob(ctx *Context, blob string, out io.Writer) (t
 	return &TestCase{pointer: ptr}, err
 }
 
-type Run pointer[runT]
+type Run struct {
+	pointer[runT]
+}
 
 // NextTestCase blocks until the engine produces the next test case. The
-// returned handle is owned by the caller and freed automatically via the GC;
-// the run keeps its own internal reference, so freeing the handle never
-// disturbs the run. Returns nil, nil when there are no more test cases.
+// returned handle is owned by the caller and freed automatically via the GC
+// unless [TestCase.Free] releases it first; the run keeps its own internal
+// reference, so freeing the handle never disturbs the run. Returns nil, nil
+// when there are no more test cases.
 func (r *Run) NextTestCase(ctx *Context) (*TestCase, error) {
 	ptr, err := allocate(ctx, "hegel_next_test_case", func(ctx ctxT, raw *testCaseT) Error {
 		e := r.syms.NextTestCase(ctx, r.raw, raw)
@@ -860,14 +1138,37 @@ type TestCase struct {
 	outFixed [16]byte
 }
 
+// Block opens an indented print region sharing this handle's choice sequence.
+// The block and its parent must not be used concurrently.
+func (tc *TestCase) Block(ctx *Context, indent uint64) (*TestCase, error) {
+	ptr, err := allocate(ctx, "hegel_test_case_block", func(ctx ctxT, raw *testCaseT) Error {
+		e := tc.syms.TestCaseBlock(ctx, tc.raw, indent, raw)
+		runtime.KeepAlive(tc)
+		return e
+	}, tc.syms.TestCaseFree)
+	if ptr == nil {
+		return nil, err
+	}
+	return &TestCase{pointer: ptr}, err
+}
+
+// SetWorker attributes subsequent output from this handle to a worker index.
+func (tc *TestCase) SetWorker(ctx *Context, workerIndex int64) error {
+	return ctx.invoke("hegel_test_case_set_worker", func(ctx ctxT) Error {
+		e := tc.syms.TestCaseSetWorker(ctx, tc.raw, workerIndex)
+		runtime.KeepAlive(tc)
+		return e
+	})
+}
+
 // Clone produces an independent handle onto the same underlying test case, so
 // it can be driven from another goroutine. The clone is a view, not a copy: it
 // draws from the same data source and shares completion state (marking any
 // handle in the family complete marks them all). Each handle has its own lock,
 // so clones may draw concurrently where a single shared handle would report
 // [E_CONCURRENT_USE]. The returned handle is owned by the caller and freed
-// automatically via the GC; the underlying test case stays alive until every
-// handle in the family is freed.
+// automatically via the GC unless [TestCase.Free] releases it first; the
+// underlying test case stays alive until every handle in the family is freed.
 func (tc *TestCase) Clone(ctx *Context) (*TestCase, error) {
 	ptr, err := allocate(ctx, "hegel_test_case_clone", func(ctx ctxT, raw *testCaseT) Error {
 		e := tc.syms.TestCaseClone(ctx, tc.raw, raw)
@@ -1284,13 +1585,14 @@ type StateMachine pointer[stateMachineT]
 // in [minConcurrency, maxConcurrency] and returns it alongside the machine;
 // the caller must run exactly that many workers. minConcurrency ==
 // maxConcurrency fixes the level without consuming entropy (1, 1 for a
-// sequential machine).
+// sequential machine). stepCount bounds the number of completed rounds and
+// must be positive; the frontend supplies its default.
 //
 // invariantAlwaysCheck is a slice of flags parallel to invariantNames: a
 // flagged invariant is checked after every rule, the rest are sampled. A nil
 // slice (the C NULL default) leaves every invariant sampled. The returned
 // handle is owned by the caller and freed automatically via the GC.
-func (tc *TestCase) NewStateMachine(ctx *Context, ruleNames []string, ruleGroups []int64, invariantNames []string, invariantAlwaysCheck []bool, minConcurrency, maxConcurrency int64) (*StateMachine, int64, error) {
+func (tc *TestCase) NewStateMachine(ctx *Context, ruleNames []string, ruleGroups []int64, invariantNames []string, invariantAlwaysCheck []bool, minConcurrency, maxConcurrency, stepCount int64) (*StateMachine, int64, error) {
 	if len(ruleGroups) != len(ruleNames) {
 		return nil, 0, fmt.Errorf("hegel_new_state_machine: %d rule groups for %d rule names", len(ruleGroups), len(ruleNames))
 	}
@@ -1310,7 +1612,7 @@ func (tc *TestCase) NewStateMachine(ctx *Context, ruleNames []string, ruleGroups
 			ctx, tc.raw,
 			slicePtr(rules), slicePtr(ruleGroups), uint64(len(ruleNames)),
 			slicePtr(invariants), slicePtr(invariantAlwaysCheck), uint64(len(invariantNames)),
-			minConcurrency, maxConcurrency,
+			minConcurrency, maxConcurrency, stepCount,
 			raw, &tc.outInt,
 		)
 		runtime.KeepAlive(tc)
@@ -1663,4 +1965,62 @@ func cStringArray(ss []string) ([]*byte, error) {
 		ptrs[i] = &buf[0]
 	}
 	return ptrs, nil
+}
+
+// ShowStatistics controls the end-of-run statistics report.
+func (s *Settings) ShowStatistics(ctx *Context, on bool) error {
+	return ctx.invoke("hegel_settings_set_show_statistics", func(ctx ctxT) Error {
+		e := s.syms.SettingsSetShowStatistics(ctx, s.raw, on)
+		runtime.KeepAlive(s)
+		return e
+	})
+}
+
+// Finish accepts a completed recursive value, or returns E_RETRY to restart without Retry.
+func (r *Recursion) Finish(ctx *Context, tc *TestCase) error {
+	return ctx.invoke("hegel_recursion_finish", func(ctx ctxT) Error {
+		e := r.syms.RecursionFinish(ctx, tc.raw, r.raw)
+		runtime.KeepAlive(r)
+		runtime.KeepAlive(tc)
+		return e
+	})
+}
+
+// Event records a label for the statistics report.
+func (tc *TestCase) Event(ctx *Context, label string) error {
+	return ctx.invoke("hegel_event", func(ctx ctxT) Error {
+		e := tc.syms.Event(ctx, tc.raw, label)
+		runtime.KeepAlive(tc)
+		return e
+	})
+}
+
+// EventValue records a numeric observation for the statistics report.
+func (tc *TestCase) EventValue(ctx *Context, value float64, label string) error {
+	return ctx.invoke("hegel_event_value", func(ctx ctxT) Error {
+		e := tc.syms.EventValue(ctx, tc.raw, value, label)
+		runtime.KeepAlive(tc)
+		return e
+	})
+}
+
+// StateMachineShouldCheckInvariant reports whether an invariant is enabled in this round.
+func (tc *TestCase) StateMachineShouldCheckInvariant(ctx *Context, machine *StateMachine, invariantIndex int64) (bool, error) {
+	err := ctx.invoke("hegel_state_machine_should_check_invariant", func(ctx ctxT) Error {
+		e := tc.syms.StateMachineShouldCheckInvariant(ctx, tc.raw, machine.raw, invariantIndex, &tc.outBool)
+		runtime.KeepAlive(tc)
+		runtime.KeepAlive(machine)
+		return e
+	})
+	return tc.outBool, err
+}
+
+// Note appends UTF-8 text, which may include newlines, to the test case's print region.
+func (tc *TestCase) Note(ctx *Context, text string) error {
+	data, n := cString(&text)
+	return ctx.invoke("hegel_note", func(ctx ctxT) Error {
+		e := tc.syms.Note(ctx, tc.raw, data, n)
+		runtime.KeepAlive(tc)
+		return e
+	})
 }

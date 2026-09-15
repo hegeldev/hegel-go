@@ -1,7 +1,6 @@
 package hegel
 
 import (
-	"bytes"
 	"errors"
 	"runtime"
 	"strings"
@@ -11,26 +10,6 @@ import (
 
 	"hegel.dev/go/hegel/internal/libhegel"
 )
-
-func TestLockedWriterSerializesWrites(t *testing.T) {
-	t.Parallel()
-
-	var dst bytes.Buffer
-	w := &lockedWriter{w: &dst}
-	const writes = 100
-	var group sync.WaitGroup
-	for range writes {
-		group.Go(func() {
-			if _, err := w.Write([]byte("x")); err != nil {
-				t.Errorf("Write: %v", err)
-			}
-		})
-	}
-	group.Wait()
-	if dst.Len() != writes {
-		t.Errorf("bytes written = %d, want %d", dst.Len(), writes)
-	}
-}
 
 // --- Run / MustRun / Test entry points ---
 
@@ -326,7 +305,6 @@ func TestSettingsOptionsRecordApplier(t *testing.T) {
 		opt  Option
 	}{
 		{"WithTestCases", WithTestCases(42)},
-		{"WithStatefulStepCount", WithStatefulStepCount(25)},
 		{"WithSeed", WithSeed(12345)},
 		{"WithDerandomize", WithDerandomize(true)},
 		{"WithDatabase", WithDatabase("/tmp/foo")},
@@ -382,7 +360,7 @@ func TestWithSeedIntegration(t *testing.T) {
 
 func TestWithBackendIntegration(t *testing.T) {
 	t.Parallel()
-	for _, b := range []Backend{BackendAuto, BackendDefault} {
+	for _, b := range []Backend{BackendDefault, BackendURandom} {
 		err := Run(func(tc TestCase) {
 			_ = Draw[int](tc, Integers[int](0, 100))
 		}, WithTestCases(5), WithBackend(b), WithDatabase(""))
@@ -451,36 +429,34 @@ func newStubTestCase(t testing.TB, opReturns ...any) *testCase {
 		uintptr(1), libhegel.OK, // next_test_case
 	}, opReturns...)
 	lib := libhegel.Stub(t, returns...)
-	s := lib.SettingsNew()
+	s, _ := lib.SettingsNew()
 	run, _ := s.RunStart(lib, nil)
 	tc, _ := run.NextTestCase(lib)
-	return &testCase{ctx: lib, tc: tc}
+	state, _ := newTestCase(lib, tc, nil, captureUserPanics)
+	return state
 }
 
 func TestFrameworkLogWritesWithoutLocation(t *testing.T) {
 	t.Parallel()
 	var out strings.Builder
-	tc := &testCase{out: &out}
+	tc := newEmittingTestCase(t, &out)
 	tc.log("Round %d", 3)
+	if _, err := tc.run(func(TestCase) {}); err != nil {
+		t.Fatal(err)
+	}
 	if got, want := out.String(), "Round 3\n"; got != want {
 		t.Fatalf("log output = %q, want %q", got, want)
-	}
-}
-
-func TestTestCaseSetOutput(t *testing.T) {
-	var out strings.Builder
-	tc := &testCase{}
-	tc.setOutput(&out)
-	if tc.output() != &out {
-		t.Fatal("setOutput did not replace the output writer")
 	}
 }
 
 func TestDrawReportOmitsLocation(t *testing.T) {
 	t.Parallel()
 	var out strings.Builder
-	tc := &testCase{out: &out}
+	tc := newEmittingTestCase(t, &out)
 	tc.reportDraw(0, 42)
+	if _, err := tc.run(func(TestCase) {}); err != nil {
+		t.Fatal(err)
+	}
 	if got := out.String(); !strings.Contains(got, " = 42\n") || strings.Contains(got, "runner_test.go:") {
 		t.Fatalf("draw output = %q, want draw report without location", got)
 	}
@@ -502,7 +478,10 @@ func TestTClonePropagatesError(t *testing.T) {
 func newRealTestCase(t testing.TB) *testCase {
 	t.Helper()
 	ctx := libhegel.NewContext()
-	s := ctx.SettingsNew()
+	s, err := ctx.SettingsNew()
+	if err != nil {
+		t.Fatalf("SettingsNew: %v", err)
+	}
 	run, err := s.RunStart(ctx, nil)
 	if err != nil {
 		t.Fatalf("RunStart: %v", err)
@@ -511,7 +490,8 @@ func newRealTestCase(t testing.TB) *testCase {
 	if err != nil {
 		t.Fatalf("NextTestCase: %v", err)
 	}
-	return newTestCase(ctx, tc, nil, false)
+	state, _ := newTestCase(ctx, tc, nil, false)
+	return state
 }
 
 func TestTestCaseCloneInheritsExecutionPolicy(t *testing.T) {
@@ -520,14 +500,19 @@ func TestTestCaseCloneInheritsExecutionPolicy(t *testing.T) {
 		uintptr(1), libhegel.OK, // settings_new
 		uintptr(1), libhegel.OK, // run_start
 		uintptr(1), libhegel.OK, // next_test_case
+		uintptr(1), libhegel.OK, // printer
 		uintptr(2), libhegel.OK, // test_case_clone
-		uintptr(2), // context_new for the cloned wrapper
+		uintptr(2),              // context_new for the cloned wrapper
+		uintptr(2), libhegel.OK, // nested printer
 	)
-	s := lib.SettingsNew()
+	s, _ := lib.SettingsNew()
 	run, _ := s.RunStart(lib, nil)
 	raw, _ := run.NextTestCase(lib)
 	var output strings.Builder
-	parent := newTestCase(lib, raw, &output, true)
+	parent, err := newTestCase(lib, raw, &output, true)
+	if err != nil {
+		t.Fatal(err)
+	}
 
 	cloned, err := parent.clone()
 	if err != nil {
@@ -540,11 +525,8 @@ func TestTestCaseCloneInheritsExecutionPolicy(t *testing.T) {
 	if clone.ctx == parent.ctx {
 		t.Fatal("clone shares its parent's error-reporting context")
 	}
-	if _, ok := parent.out.(*lockedWriter); !ok {
-		t.Fatalf("clone did not protect shared output: %T", parent.out)
-	}
-	if clone.out != parent.out || clone.panicPolicy != parent.panicPolicy {
-		t.Fatalf("clone did not inherit wrapper state: parent=%+v clone=%+v", parent, clone)
+	if parent.out != &output || clone.out != nil || clone.panicPolicy != parent.panicPolicy {
+		t.Fatalf("clone changed output ownership or execution policy")
 	}
 }
 
@@ -717,7 +699,11 @@ func TestRunWithContextEmitsNondeterministicFailureOutput(t *testing.T) {
 		uintptr(1), libhegel.OK, // run_start
 		uintptr(1), libhegel.OK, // next_test_case: one case
 		true, libhegel.OK, // is_nondeterministic
-		libhegel.OK,             // mark_complete
+		uintptr(1), libhegel.OK, // printer
+		libhegel.OK,                     // note
+		libhegel.OK,                     // mark_complete
+		libhegel.OK,                     // resolve
+		"failure output\n", libhegel.OK, // value
 		uintptr(0), libhegel.OK, // next_test_case: run finished
 		uintptr(1), libhegel.OK, // run_result
 		libhegel.RUN_STATUS_FAILED_NONDETERMINISTIC, libhegel.OK, // result status
@@ -727,7 +713,7 @@ func TestRunWithContextEmitsNondeterministicFailureOutput(t *testing.T) {
 	opts.output = &output
 	err := runWithContext(lib, func(tc TestCase) {
 		tc.Log("failure output")
-		tc.Fail()
+		tc.abort(&invocationError{status: libhegel.STATUS_INTERESTING, cause: "failed", kind: "failure"})
 	}, opts)
 	if err != nil {
 		t.Fatalf("runWithContext: %v", err)
@@ -800,7 +786,7 @@ func TestRunWithHandleRunError(t *testing.T) {
 
 // TestBuildSettingsExercisesAllSetters drives a clean (no-test-case) run with
 // every settings-backed option so buildSettings invokes each setter applier:
-// TestCases, StatefulStepCount, Derandomize, Seed, Database, DatabaseKey,
+// TestCases, Derandomize, Seed, Database, DatabaseKey,
 // SuppressHealthCheck, Backend, Verbosity, ReportMultipleFailures, Phases and
 // Mode.
 func TestBuildSettingsExercisesAllSetters(t *testing.T) {
@@ -808,7 +794,6 @@ func TestBuildSettingsExercisesAllSetters(t *testing.T) {
 	lib := libhegel.Stub(t,
 		uintptr(1), libhegel.OK, // settings_new
 		libhegel.OK,             // test_cases
-		libhegel.OK,             // stateful_step_count
 		libhegel.OK,             // derandomize
 		libhegel.OK,             // seed
 		libhegel.OK,             // database
@@ -828,7 +813,6 @@ func TestBuildSettingsExercisesAllSetters(t *testing.T) {
 	// each setter to fire.
 	opts := applyOpts([]Option{
 		WithTestCases(5),
-		WithStatefulStepCount(25),
 		WithDerandomize(false),
 		WithSeed(7),
 		WithDatabase("/tmp/does-not-matter.db"),
@@ -1208,8 +1192,6 @@ func TestStatefulNextGroupError(t *testing.T) {
 	t.Parallel()
 	tc := newStubTestCase(t,
 		uintptr(1), int64(1), libhegel.OK, // new_state_machine
-		uintptr(2), libhegel.OK, // worker test_case_clone
-		uintptr(2),                           // worker context_new
 		int64(0), libhegel.E_BACKEND, "boom", // next_group fails
 	)
 	sm := &stateMachine{rules: []stateMachineRule{{name: "Rule", fn: func(TestCase) {}}}, ruleGroups: []int64{0}}
@@ -1227,8 +1209,6 @@ func TestStatefulInitialInvariantError(t *testing.T) {
 	t.Parallel()
 	tc := newStubTestCase(t,
 		uintptr(1), int64(1), libhegel.OK, // new_state_machine
-		uintptr(2), libhegel.OK, // worker test_case_clone
-		uintptr(2), // worker context_new
 	)
 	sm := &stateMachine{invariants: []stateMachineRule{{name: "Inv", fn: func(TestCase) {
 		panic(libhegel.E_BACKEND)
@@ -1240,4 +1220,35 @@ func TestStatefulInitialInvariantError(t *testing.T) {
 		}
 	}()
 	sm.Run(tc)
+}
+
+func TestBuildSettingsCreationError(t *testing.T) {
+	t.Parallel()
+	ctx := libhegel.Stub(t, uintptr(0), libhegel.E_INVALID_ARG, "invalid profile")
+	settings, err := (runOptions{}).buildSettings(ctx)
+	if settings != nil || err == nil || !strings.Contains(err.Error(), "invalid profile") {
+		t.Fatalf("buildSettings = %v, %v; want profile error", settings, err)
+	}
+}
+
+func TestDefaultBackendUsesProfile(t *testing.T) {
+	for _, test := range []struct {
+		profile string
+		want    Backend
+	}{
+		{"base", BackendDefault}, {"workload", BackendURandom},
+	} {
+		t.Run(test.profile, func(t *testing.T) {
+			t.Setenv("HEGEL_DEFAULT_PROFILE", test.profile)
+			ctx := libhegel.NewContext()
+			settings, err := (runOptions{}).buildSettings(ctx)
+			if err != nil {
+				t.Fatal(err)
+			}
+			got, err := settings.GetBackend(ctx)
+			if err != nil || got != test.want {
+				t.Fatalf("backend = %v, %v; want %v", got, err, test.want)
+			}
+		})
+	}
 }

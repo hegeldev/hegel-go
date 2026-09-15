@@ -59,14 +59,17 @@ func TestStubSettingsSetters(t *testing.T) {
 		OK,         // verbosity
 		OK,         // report_multiple_failures
 		OK,         // phases
-		OK,         // stateful_step_count
+
 	)
-	s := lib.SettingsNew()
+	s, err := lib.SettingsNew()
+	if err != nil {
+		t.Fatal(err)
+	}
 	_ = s.Backend(lib, BACKEND_URANDOM)
 	_ = s.Verbosity(lib, VERBOSITY_VERBOSE)
 	_ = s.ReportMultipleFailures(lib, true)
 	_ = s.Phases(lib, PHASE_GENERATE)
-	_ = s.StatefulStepCount(lib, 25)
+
 }
 
 // TestStubUnwiredPrimitives exercises the per-test-case primitives that the
@@ -99,7 +102,7 @@ func TestStubUnwiredPrimitives(t *testing.T) {
 		t.Fatalf("Pool.Generate: %v", err)
 	}
 	// Non-empty rules + nil invariants exercises both cStringArray branches.
-	machine, concurrency, err := tc.NewStateMachine(lib, []string{"insert", "remove"}, []int64{0, 0}, nil, nil, 1, 1)
+	machine, concurrency, err := tc.NewStateMachine(lib, []string{"insert", "remove"}, []int64{0, 0}, nil, nil, 1, 1, 50)
 	if err != nil {
 		t.Fatalf("NewStateMachine: %v", err)
 	}
@@ -309,10 +312,10 @@ func TestStubStateMachineRejectsNULNames(t *testing.T) {
 	lib := Stub(t) // no returns: must error before the C call
 	tc := &TestCase{pointer: &pointer[testCaseT]{syms: lib.syms, raw: 1}}
 
-	if _, _, err := tc.NewStateMachine(lib, []string{"a\x00b"}, []int64{0}, nil, nil, 1, 1); err == nil {
+	if _, _, err := tc.NewStateMachine(lib, []string{"a\x00b"}, []int64{0}, nil, nil, 1, 1, 50); err == nil {
 		t.Error("expected error for NUL in a rule name")
 	}
-	if _, _, err := tc.NewStateMachine(lib, []string{"ok"}, []int64{0}, []string{"bad\x00"}, nil, 1, 1); err == nil {
+	if _, _, err := tc.NewStateMachine(lib, []string{"ok"}, []int64{0}, []string{"bad\x00"}, nil, 1, 1, 50); err == nil {
 		t.Error("expected error for NUL in an invariant name")
 	}
 }
@@ -323,7 +326,7 @@ func TestStubStateMachineRejectsGroupMismatch(t *testing.T) {
 	lib := Stub(t) // no returns: must error before the C call
 	tc := &TestCase{pointer: &pointer[testCaseT]{syms: lib.syms, raw: 1}}
 
-	if _, _, err := tc.NewStateMachine(lib, []string{"a", "b"}, []int64{0}, nil, nil, 1, 1); err == nil {
+	if _, _, err := tc.NewStateMachine(lib, []string{"a", "b"}, []int64{0}, nil, nil, 1, 1, 50); err == nil {
 		t.Error("expected error for mismatched rule-group length")
 	}
 }
@@ -335,7 +338,7 @@ func TestStubStateMachineRejectsInvariantFlagMismatch(t *testing.T) {
 	lib := Stub(t) // no returns: must error before the C call
 	tc := &TestCase{pointer: &pointer[testCaseT]{syms: lib.syms, raw: 1}}
 
-	if _, _, err := tc.NewStateMachine(lib, []string{"a"}, []int64{0}, []string{"inv"}, []bool{true, false}, 1, 1); err == nil {
+	if _, _, err := tc.NewStateMachine(lib, []string{"a"}, []int64{0}, []string{"inv"}, []bool{true, false}, 1, 1, 50); err == nil {
 		t.Error("expected error for mismatched always-check-flag length")
 	}
 }
@@ -353,7 +356,7 @@ func TestStubBlobAndFailureAccessors(t *testing.T) {
 		OK,               // failure_reproduction_blob result
 	)
 
-	s := &Settings{syms: lib.syms, raw: 1}
+	s := &Settings{pointer: pointer[settingsT]{syms: lib.syms, raw: 1}}
 	tc, err := s.TestCaseFromBlob(lib, "YmxvYg==", nil)
 	if err != nil || tc == nil {
 		t.Fatalf("TestCaseFromBlob: tc=%v err=%v", tc, err)
@@ -409,7 +412,7 @@ func TestStubCloneError(t *testing.T) {
 // wrapper surfaces the wrapped last-error message.
 func TestStubBlobError(t *testing.T) {
 	lib := Stub(t, uintptr(0), E_INVALID_ARG, "bad blob") // handle, result, diagnostic
-	s := &Settings{syms: lib.syms, raw: 1}
+	s := &Settings{pointer: pointer[settingsT]{syms: lib.syms, raw: 1}}
 	tc, err := s.TestCaseFromBlob(lib, "not-base64", nil)
 	if err == nil || tc != nil {
 		t.Fatalf("expected error, got tc=%v err=%v", tc, err)
@@ -420,10 +423,10 @@ func TestStubBlobError(t *testing.T) {
 }
 
 // TestStubSettingsNewError covers the settings_new failure branch together with
-// invoke()'s empty-message arm: SettingsNew swallows the error and returns nil.
+// invoke()'s empty-message arm: SettingsNew returns a nil handle and propagates the error.
 func TestStubSettingsNewError(t *testing.T) {
 	lib := Stub(t, uintptr(0), E_INTERNAL, "") // handle, result, no diagnostic
-	if s := lib.SettingsNew(); s != nil {
+	if s, err := lib.SettingsNew(); s != nil || err == nil {
 		t.Fatalf("expected nil settings on error, got %v", s)
 	}
 }
@@ -519,7 +522,10 @@ func TestHandleTrackerUseAfterFree(t *testing.T) {
 func TestStubUseAfterFreeErrors(t *testing.T) {
 	msg := captureError(func(tb testingTB) {
 		lib := Stub(tb, uintptr(1), OK) // settings_new
-		s := lib.SettingsNew()
+		s, err := lib.SettingsNew()
+		if err != nil {
+			t.Fatal(err)
+		}
 		raw := s.raw
 		s = nil // drop the wrapper so its GC cleanup frees the handle
 		_ = s

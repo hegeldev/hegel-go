@@ -1,8 +1,6 @@
 package hegel
 
 import (
-	"io"
-
 	"hegel.dev/go/hegel/internal/libhegel"
 )
 
@@ -52,11 +50,8 @@ type TestCase interface {
 	// log writes framework-generated output without user call-site attribution.
 	log(format string, args ...any)
 
-	// output returns the destination for notes and framework output.
-	output() io.Writer
-
-	// setOutput replaces the destination for notes and framework output.
-	setOutput(io.Writer)
+	// setWorker attributes output to a concurrent worker.
+	setWorker(int64) error
 
 	// Abort the current test case and update status.
 	//
@@ -70,6 +65,7 @@ type TestCase interface {
 	// execution policy as this one. Concurrent state-machine workers use one
 	// clone apiece rather than sharing a native handle between goroutines.
 	clone() (TestCase, error)
+	free()
 
 	// startSpan begins a generation span. label is one of the [libhegel.Label]
 	// constants; the engine uses labels for shrinking.
@@ -86,7 +82,7 @@ type TestCase interface {
 	// stateMachineNew registers an engine-owned state machine with the named
 	// rules, their parallel group IDs, and the invariants, returning its id.
 	// The engine owns rule selection (including swarm testing).
-	stateMachineNew(ruleNames []string, ruleGroups []int64, invariantNames []string, maxConcurrency int) (*libhegel.StateMachine, int64, error)
+	stateMachineNew(ruleNames []string, ruleGroups []int64, invariantNames []string, maxConcurrency, stepCount int) (*libhegel.StateMachine, int64, error)
 
 	// stateMachineNextGroup starts the machine's next round, returning the
 	// current concurrency group's index, or [libhegel.StateMachineDone] when

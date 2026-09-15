@@ -9,7 +9,6 @@ import (
 	"os"
 	"runtime"
 	"strings"
-	"sync"
 	"testing"
 
 	"hegel.dev/go/hegel/internal/libhegel"
@@ -30,19 +29,28 @@ const (
 type testCase struct {
 	ctx         *libhegel.Context
 	tc          *libhegel.TestCase
-	out         io.Writer // nil when output is deferred; otherwise emitted live
-	depth       int       // current span nesting depth
+	out         io.Writer // Final destination, owned only by the root; nil on clones.
+	printer     *libhegel.Printer
+	depth       int
 	panicPolicy panicPolicy
 	abortFn     func(error)
 }
 
-func newTestCase(ctx *libhegel.Context, tc *libhegel.TestCase, out io.Writer, policy panicPolicy) *testCase {
-	return &testCase{
+func newTestCase(ctx *libhegel.Context, tc *libhegel.TestCase, out io.Writer, policy panicPolicy) (*testCase, error) {
+	s := &testCase{
 		ctx:         ctx,
 		tc:          tc,
 		out:         out,
 		panicPolicy: policy,
 	}
+	if out != nil {
+		printer, err := tc.Printer(ctx, nil)
+		if err != nil {
+			return nil, err
+		}
+		s.printer = printer
+	}
+	return s, nil
 }
 
 type invocationError struct {
@@ -91,31 +99,25 @@ func (s *testCase) Assume(condition bool) {
 }
 
 func (s *testCase) Note(message string) {
-	if s.out != nil {
-		fmt.Fprintln(s.out, message)
+	if s.printer != nil {
+		if err := s.tc.Note(s.ctx, message); err != nil {
+			s.abort(err)
+		}
 	}
 }
 
 func (s *testCase) log(format string, args ...any) {
-	if s.out != nil {
-		fmt.Fprintln(s.out, fmt.Sprintf(format, args...))
+	if s.printer != nil {
+		s.Note(fmt.Sprintf(format, args...))
 	}
-}
-
-func (s *testCase) output() io.Writer {
-	return s.out
-}
-
-func (s *testCase) setOutput(out io.Writer) {
-	s.out = out
 }
 
 func (s *testCase) reportDraw(skip int, value any) {
-	if s.out == nil {
+	if s.printer == nil {
 		return
 	}
 	msg := formatDrawReport(skip+1, value)
-	fmt.Fprintln(s.out, msg)
+	s.Note(msg)
 }
 
 func (s *testCase) Errorf(format string, args ...any) {
@@ -154,20 +156,27 @@ func (s *testCase) engine() (*libhegel.Context, *libhegel.TestCase) {
 
 // clone returns a test-case wrapper backed by an independent libhegel stream.
 func (s *testCase) clone() (TestCase, error) {
-	if s.out != nil {
-		if _, ok := s.out.(*lockedWriter); !ok {
-			s.out = &lockedWriter{w: s.out}
-		}
-	}
 	tc, err := s.tc.Clone(s.ctx)
 	if err != nil {
 		return nil, err
 	}
-	return newTestCase(s.ctx.Clone(), tc, s.out, s.panicPolicy), nil
+	clone := &testCase{ctx: s.ctx.Clone(), tc: tc, panicPolicy: s.panicPolicy}
+	if s.printer != nil {
+		clone.printer, err = tc.Printer(clone.ctx, nil)
+		if err != nil {
+			tc.Free()
+			return nil, err
+		}
+	}
+	return clone, nil
 }
 
-func (s *testCase) stateMachineNew(ruleNames []string, ruleGroups []int64, invariantNames []string, maxConcurrency int) (*libhegel.StateMachine, int64, error) {
-	machine, concurrency, err := s.tc.NewStateMachine(s.ctx, ruleNames, ruleGroups, invariantNames, nil, 1, int64(maxConcurrency))
+func (s *testCase) free() {
+	s.tc.Free()
+}
+
+func (s *testCase) stateMachineNew(ruleNames []string, ruleGroups []int64, invariantNames []string, maxConcurrency, stepCount int) (*libhegel.StateMachine, int64, error) {
+	machine, concurrency, err := s.tc.NewStateMachine(s.ctx, ruleNames, ruleGroups, invariantNames, nil, 1, int64(maxConcurrency), int64(stepCount))
 	return machine, concurrency, err
 }
 
@@ -303,9 +312,6 @@ func AllHealthChecks() []HealthCheck {
 type Backend = libhegel.Backend
 
 const (
-	// BackendAuto chooses automatically (the default): urandom under
-	// Antithesis, otherwise the default seeded PRNG.
-	BackendAuto = libhegel.BACKEND_AUTO
 	// BackendDefault expands a single seeded PRNG; runs are reproducible from
 	// the seed and shrinking / replay work as usual.
 	BackendDefault = libhegel.BACKEND_DEFAULT
@@ -368,6 +374,7 @@ type settingApplier func(*libhegel.Context, *libhegel.Settings) error
 // configuring libhegel) keep dedicated fields.
 type runOptions struct {
 	settingsAppliers []settingApplier
+
 	// output receives note/draw-report output during the final replay of
 	// interesting cases. nil means no output.
 	output io.Writer
@@ -386,16 +393,6 @@ func WithTestCases(n int) Option {
 	return func(o *runOptions) {
 		o.addSetting(func(ctx *libhegel.Context, s *libhegel.Settings) error {
 			return s.TestCases(ctx, uint64(n))
-		})
-	}
-}
-
-// WithStatefulStepCount sets the target number of rule steps to run per
-// stateful test case. n must be at least 1; the default is 50.
-func WithStatefulStepCount(n int) Option {
-	return func(o *runOptions) {
-		o.addSetting(func(ctx *libhegel.Context, s *libhegel.Settings) error {
-			return s.StatefulStepCount(ctx, int64(n))
 		})
 	}
 }
@@ -452,7 +449,7 @@ func WithSeed(seed int64) Option {
 }
 
 // WithBackend selects the engine's randomness backend. See [Backend]. The
-// default is [BackendAuto].
+// default comes from the active libhegel settings profile.
 func WithBackend(b Backend) Option {
 	return func(o *runOptions) {
 		o.addSetting(func(ctx *libhegel.Context, s *libhegel.Settings) error {
@@ -462,7 +459,7 @@ func WithBackend(b Backend) Option {
 }
 
 // WithVerbosity sets how much the engine logs during a run. See [Verbosity].
-// The default is [VerbosityNormal].
+// The active profile supplies the default; the base profile uses [VerbosityNormal].
 func WithVerbosity(v Verbosity) Option {
 	return func(o *runOptions) {
 		o.addSetting(func(ctx *libhegel.Context, s *libhegel.Settings) error {
@@ -482,7 +479,7 @@ func WithReportMultipleFailures(report bool) Option {
 }
 
 // WithPhases restricts the run to the given test phases. See [Phase] and
-// [AllPhases]. When WithPhases is not specified the engine runs all phases.
+// [AllPhases]. The active profile supplies the default; the base profile runs all phases.
 func WithPhases(phases ...Phase) Option {
 	var mask Phase
 	for _, p := range phases {
@@ -600,7 +597,10 @@ func runWithContext(ctx *libhegel.Context, fn testBody, opts runOptions) error {
 			out = new(bytes.Buffer)
 		}
 
-		state := newTestCase(ctx, tc, out, policy)
+		state, err := newTestCase(ctx, tc, out, policy)
+		if err != nil {
+			return err
+		}
 
 		failed, err := state.run(fn)
 		if err != nil {
@@ -644,7 +644,10 @@ func runWithContext(ctx *libhegel.Context, fn testBody, opts runOptions) error {
 // collected (nil entries dropped by errors.Join) so a bad option is reported
 // instead of being lost.
 func (o runOptions) buildSettings(ctx *libhegel.Context) (*libhegel.Settings, error) {
-	s := ctx.SettingsNew()
+	s, err := ctx.SettingsNew()
+	if err != nil {
+		return nil, err
+	}
 
 	var errs []error
 	for _, apply := range o.settingsAppliers {
@@ -693,7 +696,19 @@ func (s *testCase) invoke(fn testBody) (result error) {
 }
 
 func (s *testCase) run(fn testBody) (failed bool, err error) {
-	result := s.invoke(fn)
+	var result error
+	defer func() {
+		// Rejected and overrun cases are probes, not results. Their native
+		// documents must remain private even when this case owns an output
+		// destination.
+		if errors.Is(result, libhegel.E_ASSUME) || errors.Is(result, libhegel.E_STOP_TEST) {
+			return
+		}
+		err = errors.Join(err, s.flushNativeOutput())
+		formatInvocationResult(s.out, result)
+	}()
+
+	result = s.invoke(fn)
 	if result == nil {
 		return false, s.tc.MarkComplete(s.ctx, libhegel.STATUS_VALID, "")
 	}
@@ -710,13 +725,27 @@ func (s *testCase) run(fn testBody) (failed bool, err error) {
 		if !errors.As(result, &outcome) {
 			return true, result
 		}
-		formatInvocationResult(s.out, result)
 		status = outcome.status
 		origin = findCallerInPCs(outcome.pcs, isNotHegelFrame)
 	}
 
 	return true, s.tc.MarkComplete(s.ctx, status, origin)
 
+}
+
+func (s *testCase) flushNativeOutput() error {
+	if s.out == nil {
+		return nil
+	}
+	// Match the Rust frontend: no deferred regions is a harmless resolve error;
+	// Value still reports layout errors after resolution.
+	_ = s.printer.Resolve(s.ctx)
+	value, err := s.printer.Value(s.ctx)
+	if err != nil {
+		return err
+	}
+	_, err = io.WriteString(s.out, value)
+	return err
 }
 
 // replayFailures walks the failures of a result and replays fn against them.
@@ -737,7 +766,10 @@ func replayFailures(ctx *libhegel.Context, s *libhegel.Settings, result *libhege
 		if err != nil {
 			return err
 		}
-		state := newTestCase(ctx, tc, opts.output, propagateUserPanics)
+		state, err := newTestCase(ctx, tc, opts.output, propagateUserPanics)
+		if err != nil {
+			return err
+		}
 		if _, err := state.run(fn); err != nil {
 			return err
 		}
@@ -800,15 +832,6 @@ func isNotHegelFrame(fn string) bool {
 	return !isHegelFrame(fn)
 }
 
-// lockedWriter serializes output shared by the engine callback and concurrent
-// state-machine workers.
-type lockedWriter struct {
-	mu sync.Mutex
-	w  io.Writer
-}
-
-func (w *lockedWriter) Write(p []byte) (int, error) {
-	w.mu.Lock()
-	defer w.mu.Unlock()
-	return w.w.Write(p)
+func (s *testCase) setWorker(index int64) error {
+	return s.tc.SetWorker(s.ctx, index)
 }

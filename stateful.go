@@ -1,16 +1,13 @@
 package hegel
 
 import (
-	"bytes"
 	"errors"
 	"fmt"
-	"io"
 	"reflect"
 	"runtime"
 	"slices"
 	"sort"
 	"strings"
-	"time"
 
 	"hegel.dev/go/hegel/internal/libhegel"
 )
@@ -25,6 +22,7 @@ type stateMachine struct {
 	rules                []stateMachineRule
 	invariants           []stateMachineRule
 	maxConcurrency       int
+	stepCount            int
 	configuredRuleGroups []stateMachineRuleGroup
 	ruleGroups           []int64
 }
@@ -65,6 +63,15 @@ func WithBoundedConcurrency(n int) StateMachineOption {
 	}
 }
 
+// WithStatefulStepCount sets the maximum number of rounds for this RunStateful
+// invocation. With sequential rules, each round is one completed rule.
+// The default is 50. RunStateful panics if n is less than 1.
+func WithStatefulStepCount(n int) StateMachineOption {
+	return func(sm *stateMachine) {
+		sm.stepCount = n
+	}
+}
+
 // WithRuleGroup assigns rules to a named concurrency group. Rules in the same
 // group may run concurrently with each other; rules in different groups never
 // overlap. Pass the full method names, including the Rule prefix. Calls using
@@ -101,12 +108,16 @@ func newStateMachine[M any, T interface{ *M }](machine T, opts ...StateMachineOp
 	if machine == nil {
 		return nil, fmt.Errorf("state machine pointer must not be nil")
 	}
-	sm := &stateMachine{maxConcurrency: 1}
+	sm := &stateMachine{maxConcurrency: 1, stepCount: 50}
 	for _, opt := range opts {
 		opt(sm)
 	}
 	if sm.maxConcurrency < 1 {
 		return nil, fmt.Errorf("state machine maximum concurrency must be positive")
+	}
+
+	if sm.stepCount < 1 {
+		return nil, fmt.Errorf("state machine step count must be positive")
 	}
 
 	rt := reflect.TypeOf(machine)
@@ -207,34 +218,16 @@ func names(rules []stateMachineRule) []string {
 // Rules that reject the current pre-state via [TestCase.Assume] are
 // skipped and another rule is drawn, up to a retry budget.
 func (sm *stateMachine) Run(tc TestCase) {
-	machine, concurrency, err := tc.stateMachineNew(names(sm.rules), sm.ruleGroups, names(sm.invariants), sm.maxConcurrency)
+	machine, concurrency, err := tc.stateMachineNew(names(sm.rules), sm.ruleGroups, names(sm.invariants), sm.maxConcurrency, sm.stepCount)
 	if err != nil {
 		tc.abort(err)
-	}
-
-	type stateMachineWorker struct {
-		tc     TestCase
-		output *bytes.Buffer
-	}
-	workers := make([]stateMachineWorker, 0, concurrency)
-	start := time.Now()
-	for worker := range concurrency {
-		clone, err := tc.clone()
-		if err != nil {
-			tc.abort(err)
-		}
-		var output *bytes.Buffer
-		if concurrency > 1 && clone.output() != nil {
-			output = new(bytes.Buffer)
-			clone.setOutput(&workerOutput{worker: worker, start: start, out: output, lineStart: true})
-		}
-		workers = append(workers, stateMachineWorker{tc: clone, output: output})
 	}
 
 	if sm.maxConcurrency != 1 {
 		tc.log("Concurrency level: %d", concurrency)
 	}
 	tc.log("Initial invariant check.")
+
 	for _, inv := range sm.invariants {
 		if _, err := invokeRule(tc, inv.fn); err != nil {
 			tc.abort(err)
@@ -263,39 +256,57 @@ func (sm *stateMachine) Run(tc TestCase) {
 		}
 		tc.log("---------------- Round %d: group %q ----------------", round, groupName)
 
-		for i, worker := range workers {
-			workersGroup.Go(i, func() error {
-				for {
-					idx, err := worker.tc.stateMachineNextRule(machine, int64(i))
-					if err != nil {
-						return err
-					}
-					if idx == libhegel.StateMachineDone {
-						return nil
-					}
-					rule := sm.rules[idx]
-					worker.tc.log("Rule: %s", rule.name)
-
-					rejected, err := invokeRule(worker.tc, rule.fn)
-					if err != nil {
-						return err
-					}
-					if rejected {
-						if err := worker.tc.stateMachineRuleRejected(machine, int64(i)); err != nil { // coverage-ignore
-							return err
-						}
-						worker.tc.log("Rule stopped early due to violated assumption.")
+		// A clone anchors its native output at the current position in the root
+		// document. Create fresh handles after the round heading so each round's
+		// worker transcripts follow that heading, as they did with Go buffers.
+		errs := func() []*workerError {
+			workers := make([]TestCase, 0, concurrency)
+			defer func() {
+				for _, worker := range workers {
+					worker.free()
+				}
+			}()
+			for worker := range concurrency {
+				clone, err := tc.clone()
+				if err != nil {
+					tc.abort(err)
+				}
+				workers = append(workers, clone)
+				if concurrency > 1 {
+					if err := clone.setWorker(worker); err != nil {
+						tc.abort(err)
 					}
 				}
-			})
-		}
-		errs := workersGroup.Wait()
-		for _, worker := range workers {
-			if worker.output != nil && worker.output.Len() != 0 {
-				tc.log("%s", strings.TrimSuffix(worker.output.String(), "\n"))
-				worker.output.Reset()
 			}
-		}
+
+			for i, worker := range workers {
+				workersGroup.Go(i, func() error {
+					for {
+						idx, err := worker.stateMachineNextRule(machine, int64(i))
+						if err != nil {
+							return err
+						}
+						if idx == libhegel.StateMachineDone {
+							return nil
+						}
+						rule := sm.rules[idx]
+						worker.log("Rule: %s", rule.name)
+
+						rejected, err := invokeRule(worker, rule.fn)
+						if err != nil {
+							return err
+						}
+						if rejected {
+							if err := worker.stateMachineRuleRejected(machine, int64(i)); err != nil { // coverage-ignore
+								return err
+							}
+							worker.log("Rule stopped early due to violated assumption.")
+						}
+					}
+				})
+			}
+			return workersGroup.Wait()
+		}()
 		if len(errs) != 0 {
 			dropped := errs[1:]
 			sort.Slice(dropped, func(i, j int) bool {
@@ -340,7 +351,8 @@ func invokeRule(tc TestCase, fn testBody) (bool, error) {
 //
 // Rules run sequentially by default. Pass [WithConcurrency] or
 // [WithBoundedConcurrency] to allow rules to run concurrently, and
-// [WithRuleGroup] to restrict which rules may overlap.
+// [WithRuleGroup] to restrict which rules may overlap. Pass
+// [WithStatefulStepCount] to change the default limit of 50 rounds.
 //
 // It panics if a method takes TestCase but is not prefixed
 // with Rule or Invariant, if a Rule- or Invariant-prefixed method has
@@ -356,41 +368,6 @@ func RunStateful[M any, T interface{ *M }](tc TestCase, machine T, opts ...State
 type workerResult struct {
 	worker int
 	err    error
-}
-
-type workerOutput struct {
-	worker    int64
-	start     time.Time
-	out       io.Writer
-	lineStart bool
-}
-
-func (w *workerOutput) Write(p []byte) (int, error) {
-	written := 0
-	for len(p) != 0 {
-		if w.lineStart {
-			elapsed := time.Since(w.start).Seconds() * 1000
-			if _, err := fmt.Fprintf(w.out, "[worker %d +%.3fms] ", w.worker, elapsed); err != nil {
-				return written, err
-			}
-			w.lineStart = false
-		}
-		end := bytes.IndexByte(p, '\n') + 1
-		if end == 0 {
-			end = len(p)
-		}
-		n, err := w.out.Write(p[:end])
-		written += n
-		if err != nil {
-			return written, err
-		}
-		if n != end {
-			return written, io.ErrShortWrite
-		}
-		w.lineStart = p[end-1] == '\n'
-		p = p[end:]
-	}
-	return written, nil
 }
 
 type workerError struct {

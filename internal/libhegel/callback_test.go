@@ -12,7 +12,10 @@ import (
 // freeOutputFn's AddCleanup arm end-to-end.
 func TestOutputCallbackReceivesEngineOutput(t *testing.T) {
 	ctx := NewContext()
-	s := ctx.SettingsNew()
+	s, err := ctx.SettingsNew()
+	if err != nil {
+		t.Fatal(err)
+	}
 	s.TestCases(ctx, 3)
 	s.Database(ctx, "")
 	s.Verbosity(ctx, VERBOSITY_VERBOSE)
@@ -55,7 +58,7 @@ func TestOutputCallbackReceivesEngineOutput(t *testing.T) {
 // error without panicking on runtime.AddCleanup(nil, ...).
 func TestFreeOutputFnFailedCall(t *testing.T) {
 	lib := Stub(t, uintptr(0), E_INTERNAL, "boom") // run_start: placeholder handle, error, diagnostic
-	s := &Settings{syms: lib.syms, raw: 1}
+	s := &Settings{pointer: pointer[settingsT]{syms: lib.syms, raw: 1}}
 
 	run, err := s.RunStart(lib, &strings.Builder{})
 	if err == nil || run != nil {

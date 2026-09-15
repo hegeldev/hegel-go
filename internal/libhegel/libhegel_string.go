@@ -57,18 +57,17 @@ func _() {
 	// An "invalid array index" compiler error signifies that the constant values have changed.
 	// Re-run the stringer command to generate them again.
 	var x [1]struct{}
-	_ = x[BACKEND_AUTO-0]
 	_ = x[BACKEND_DEFAULT-1]
 	_ = x[BACKEND_URANDOM-2]
 }
 
-const _Backend_name = "BACKEND_AUTOBACKEND_DEFAULTBACKEND_URANDOM"
+const _Backend_name = "BACKEND_DEFAULTBACKEND_URANDOM"
 
-var _Backend_index = [...]uint8{0, 12, 27, 42}
+var _Backend_index = [...]uint8{0, 15, 30}
 
 func (i Backend) String() string {
-	idx := int(i) - 0
-	if i < 0 || idx >= len(_Backend_index)-1 {
+	idx := int(i) - 1
+	if i < 1 || idx >= len(_Backend_index)-1 {
 		return "Backend(" + strconv.FormatInt(int64(i), 10) + ")"
 	}
 	return _Backend_name[_Backend_index[idx]:_Backend_index[idx+1]]
@@ -77,15 +76,15 @@ func _() {
 	// An "invalid array index" compiler error signifies that the constant values have changed.
 	// Re-run the stringer command to generate them again.
 	var x [1]struct{}
-	_ = x[VERBOSITY_QUIET-0]
-	_ = x[VERBOSITY_NORMAL-1]
+	_ = x[VERBOSITY_NORMAL-0]
+	_ = x[VERBOSITY_QUIET-1]
 	_ = x[VERBOSITY_VERBOSE-2]
 	_ = x[VERBOSITY_DEBUG-3]
 }
 
-const _Verbosity_name = "VERBOSITY_QUIETVERBOSITY_NORMALVERBOSITY_VERBOSEVERBOSITY_DEBUG"
+const _Verbosity_name = "VERBOSITY_NORMALVERBOSITY_QUIETVERBOSITY_VERBOSEVERBOSITY_DEBUG"
 
-var _Verbosity_index = [...]uint8{0, 15, 31, 48, 63}
+var _Verbosity_index = [...]uint8{0, 16, 31, 48, 63}
 
 func (i Verbosity) String() string {
 	idx := int(i) - 0
@@ -157,6 +156,7 @@ func _() {
 	_ = x[PHASE_GENERATE-4]
 	_ = x[PHASE_TARGET-8]
 	_ = x[PHASE_SHRINK-16]
+	_ = x[PHASE_ALL-31]
 }
 
 const (
@@ -164,6 +164,7 @@ const (
 	_Phase_name_1 = "PHASE_GENERATE"
 	_Phase_name_2 = "PHASE_TARGET"
 	_Phase_name_3 = "PHASE_SHRINK"
+	_Phase_name_4 = "PHASE_ALL"
 )
 
 var (
@@ -181,6 +182,8 @@ func (i Phase) String() string {
 		return _Phase_name_2
 	case i == 16:
 		return _Phase_name_3
+	case i == 31:
+		return _Phase_name_4
 	default:
 		return "Phase(" + strconv.FormatInt(int64(i), 10) + ")"
 	}
@@ -189,52 +192,88 @@ func _() {
 	// An "invalid array index" compiler error signifies that the constant values have changed.
 	// Re-run the stringer command to generate them again.
 	var x [1]struct{}
-	_ = x[LABEL_LIST-1]
-	_ = x[LABEL_LIST_ELEMENT-2]
-	_ = x[LABEL_SET-3]
-	_ = x[LABEL_SET_ELEMENT-4]
-	_ = x[LABEL_MAP-5]
-	_ = x[LABEL_MAP_ENTRY-6]
-	_ = x[LABEL_TUPLE-7]
-	_ = x[LABEL_ONE_OF-8]
-	_ = x[LABEL_OPTIONAL-9]
-	_ = x[LABEL_FIXED_DICT-10]
-	_ = x[LABEL_FLAT_MAP-11]
-	_ = x[LABEL_FILTER-12]
-	_ = x[LABEL_MAPPED-13]
-	_ = x[LABEL_SAMPLED_FROM-14]
-	_ = x[LABEL_ENUM_VARIANT-15]
-	_ = x[LABEL_FEATURE_FLAG-16]
-	_ = x[LABEL_REGEX-17]
-	_ = x[LABEL_EMAIL-18]
-	_ = x[LABEL_URL-19]
-	_ = x[LABEL_DOMAIN-20]
-	_ = x[LABEL_DATE-21]
-	_ = x[LABEL_TIME-22]
-	_ = x[LABEL_DATETIME-23]
-	_ = x[LABEL_UUID-24]
-	_ = x[LABEL_IP_ADDRESS-25]
-	_ = x[LABEL_INTEGER-26]
-	_ = x[LABEL_FLOAT-27]
-	_ = x[LABEL_BOOLEAN-28]
-	_ = x[LABEL_BYTES-29]
-	_ = x[LABEL_STRING-30]
-	_ = x[LABEL_STATEFUL_RULE-31]
-	_ = x[LABEL_FRESH_ID-32]
-	_ = x[LABEL_SET_CHOICE-33]
-	_ = x[LABEL_CONCURRENCY-34]
-	_ = x[LABEL_RECURSIVE-35]
-	_ = x[LABEL_COMPOSITE-36]
+	_ = x[LABEL_LIST-2801019076836953716]
+	_ = x[LABEL_LIST_ELEMENT-17869309736790133779]
+	_ = x[LABEL_SET-5865200140810442820]
+	_ = x[LABEL_SET_ELEMENT-16914690668663268067]
+	_ = x[LABEL_MAP-5590808215537288722]
+	_ = x[LABEL_MAP_ENTRY-13638593894540015217]
+	_ = x[LABEL_TUPLE-2606859103638815834]
+	_ = x[LABEL_ONE_OF-1646594287079187632]
+	_ = x[LABEL_OPTIONAL-2831377877786720272]
+	_ = x[LABEL_FIXED_DICT-3378490235687764091]
+	_ = x[LABEL_FLAT_MAP-17589065948398953226]
+	_ = x[LABEL_FILTER-524933089993392430]
+	_ = x[LABEL_MAPPED-5332314179289137799]
+	_ = x[LABEL_SAMPLED_FROM-11188332258118722663]
+	_ = x[LABEL_ENUM_VARIANT-13694910494764798659]
+	_ = x[LABEL_FEATURE_FLAG-6375675817545272289]
+	_ = x[LABEL_REGEX-14852562533782475579]
+	_ = x[LABEL_EMAIL-14835994298877507076]
+	_ = x[LABEL_URL-1985340265217183813]
+	_ = x[LABEL_DOMAIN-17058301915510424728]
+	_ = x[LABEL_DATE-16402304753201470568]
+	_ = x[LABEL_TIME-5300822282277835853]
+	_ = x[LABEL_DATETIME-14221666525246718433]
+	_ = x[LABEL_UUID-9890585168375486663]
+	_ = x[LABEL_IP_ADDRESS-14857737725346391278]
+	_ = x[LABEL_INTEGER-2322818162524834726]
+	_ = x[LABEL_FLOAT-10378366191659462670]
+	_ = x[LABEL_BOOLEAN-15851258441080226520]
+	_ = x[LABEL_BYTES-5319699480805377615]
+	_ = x[LABEL_STRING-14117235223881480941]
+	_ = x[LABEL_STATEFUL_RULE-13973930604097954071]
+	_ = x[LABEL_FRESH_ID-593156558150809056]
+	_ = x[LABEL_SET_CHOICE-9316085528689457538]
+	_ = x[LABEL_CONCURRENCY-12925656410196983251]
+	_ = x[LABEL_RECURSIVE-52359896170306008]
+	_ = x[LABEL_COMPOSITE-18247645122289998975]
 }
 
-const _Label_name = "LABEL_LISTLABEL_LIST_ELEMENTLABEL_SETLABEL_SET_ELEMENTLABEL_MAPLABEL_MAP_ENTRYLABEL_TUPLELABEL_ONE_OFLABEL_OPTIONALLABEL_FIXED_DICTLABEL_FLAT_MAPLABEL_FILTERLABEL_MAPPEDLABEL_SAMPLED_FROMLABEL_ENUM_VARIANTLABEL_FEATURE_FLAGLABEL_REGEXLABEL_EMAILLABEL_URLLABEL_DOMAINLABEL_DATELABEL_TIMELABEL_DATETIMELABEL_UUIDLABEL_IP_ADDRESSLABEL_INTEGERLABEL_FLOATLABEL_BOOLEANLABEL_BYTESLABEL_STRINGLABEL_STATEFUL_RULELABEL_FRESH_IDLABEL_SET_CHOICELABEL_CONCURRENCYLABEL_RECURSIVELABEL_COMPOSITE"
+const _Label_name = "hegel.go.recursivehegel.go.filterhegel.go.fresh_idhegel.go.one_ofhegel.go.urlhegel.go.integerhegel.go.tuplehegel.go.listhegel.go.optionalhegel.go.fixed_dicthegel.go.timehegel.go.byteshegel.go.mappedhegel.go.maphegel.go.sethegel.go.feature_flaghegel.go.set_choicehegel.go.uuidhegel.go.floathegel.go.sampled_fromhegel.go.concurrencyhegel.go.map_entryhegel.go.enum_varianthegel.go.stateful_rulehegel.go.stringhegel.go.datetimehegel.go.emailhegel.go.regexhegel.go.ip_addresshegel.go.booleanhegel.go.datehegel.go.set_elementhegel.go.domainhegel.go.flat_maphegel.go.list_elementhegel.go.composite"
 
-var _Label_index = [...]uint16{0, 10, 28, 37, 54, 63, 78, 89, 101, 115, 131, 145, 157, 169, 187, 205, 223, 234, 245, 254, 266, 276, 286, 300, 310, 326, 339, 350, 363, 374, 386, 405, 419, 435, 452, 467, 482}
+var _Label_map = map[Label]string{
+	52359896170306008:    _Label_name[0:18],
+	524933089993392430:   _Label_name[18:33],
+	593156558150809056:   _Label_name[33:50],
+	1646594287079187632:  _Label_name[50:65],
+	1985340265217183813:  _Label_name[65:77],
+	2322818162524834726:  _Label_name[77:93],
+	2606859103638815834:  _Label_name[93:107],
+	2801019076836953716:  _Label_name[107:120],
+	2831377877786720272:  _Label_name[120:137],
+	3378490235687764091:  _Label_name[137:156],
+	5300822282277835853:  _Label_name[156:169],
+	5319699480805377615:  _Label_name[169:183],
+	5332314179289137799:  _Label_name[183:198],
+	5590808215537288722:  _Label_name[198:210],
+	5865200140810442820:  _Label_name[210:222],
+	6375675817545272289:  _Label_name[222:243],
+	9316085528689457538:  _Label_name[243:262],
+	9890585168375486663:  _Label_name[262:275],
+	10378366191659462670: _Label_name[275:289],
+	11188332258118722663: _Label_name[289:310],
+	12925656410196983251: _Label_name[310:330],
+	13638593894540015217: _Label_name[330:348],
+	13694910494764798659: _Label_name[348:369],
+	13973930604097954071: _Label_name[369:391],
+	14117235223881480941: _Label_name[391:406],
+	14221666525246718433: _Label_name[406:423],
+	14835994298877507076: _Label_name[423:437],
+	14852562533782475579: _Label_name[437:451],
+	14857737725346391278: _Label_name[451:470],
+	15851258441080226520: _Label_name[470:486],
+	16402304753201470568: _Label_name[486:499],
+	16914690668663268067: _Label_name[499:519],
+	17058301915510424728: _Label_name[519:534],
+	17589065948398953226: _Label_name[534:551],
+	17869309736790133779: _Label_name[551:572],
+	18247645122289998975: _Label_name[572:590],
+}
 
 func (i Label) String() string {
-	idx := int(i) - 1
-	if i < 1 || idx >= len(_Label_index)-1 {
-		return "Label(" + strconv.FormatInt(int64(i), 10) + ")"
+	if str, ok := _Label_map[i]; ok {
+		return str
 	}
-	return _Label_name[_Label_index[idx]:_Label_index[idx+1]]
+	return "Label(" + strconv.FormatInt(int64(i), 10) + ")"
 }

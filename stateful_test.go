@@ -7,6 +7,7 @@ import (
 	"runtime"
 	"slices"
 	"strings"
+	"sync"
 	"sync/atomic"
 	"testing"
 	"time"
@@ -139,37 +140,61 @@ type concurrentTestCase struct {
 }
 
 type concurrentTestCaseShared struct {
+	outputMu                sync.Mutex // Protects the fallback writer shared by test clones.
 	selectedConcurrency     int64
 	selectedGroup           libhegel.StateMachineGroup
 	requestedMaxConcurrency int
+	requestedStepCount      int
 	ruleGroups              []int64
 	cloneCount              int64
+	freedClones             int64
 	cloneErr                error
-	ranGroup                bool
+	workerErr               error
+	selectedRounds          int
+	ranGroups               int
 	spanStarts              atomic.Int64
 	spanStops               atomic.Int64
 	spanLabel               atomic.Int64
 	spanDiscarded           atomic.Bool
 	rejectedRules           int
 	nextRuleErrors          map[int64]error
-	reverseWorkerOrder      chan struct{}
+	reverseWorkerOrder      bool
+	workerOrderGate         chan struct{}
 }
 
 func (tc *concurrentTestCase) Note(message string) {
+	if tc.TestCase != nil {
+		tc.TestCase.Note(message)
+		return
+	}
 	if tc.out != nil {
+		tc.shared.outputMu.Lock()
+		defer tc.shared.outputMu.Unlock()
 		fmt.Fprintln(tc.out, message)
 	}
 }
 
 func (tc *concurrentTestCase) log(format string, args ...any) {
+	if tc.TestCase != nil {
+		tc.TestCase.log(format, args...)
+		return
+	}
 	if tc.out != nil {
+		tc.shared.outputMu.Lock()
+		defer tc.shared.outputMu.Unlock()
 		fmt.Fprintln(tc.out, fmt.Sprintf(format, args...))
 	}
 }
 
-func (tc *concurrentTestCase) output() io.Writer { return tc.out }
-
-func (tc *concurrentTestCase) setOutput(out io.Writer) { tc.out = out }
+func (tc *concurrentTestCase) setWorker(index int64) error {
+	if tc.shared.workerErr != nil {
+		return tc.shared.workerErr
+	}
+	if tc.TestCase != nil {
+		return tc.TestCase.setWorker(index)
+	}
+	return nil
+}
 
 func (tc *concurrentTestCase) Assume(condition bool) {
 	if !condition {
@@ -212,18 +237,41 @@ func (tc *concurrentTestCase) clone() (TestCase, error) {
 	if tc.shared.cloneErr != nil {
 		return nil, tc.shared.cloneErr
 	}
-	return &concurrentTestCase{shared: tc.shared, out: tc.out}, nil
+	var clone TestCase
+	if tc.TestCase != nil {
+		var err error
+		clone, err = tc.TestCase.clone()
+		if err != nil {
+			return nil, err
+		}
+	}
+	return &concurrentTestCase{TestCase: clone, shared: tc.shared, out: tc.out}, nil
 }
 
-func (tc *concurrentTestCase) stateMachineNew(_ []string, ruleGroups []int64, _ []string, maxConcurrency int) (*libhegel.StateMachine, int64, error) {
+func (tc *concurrentTestCase) free() {
+	tc.shared.freedClones++
+	if tc.TestCase != nil {
+		tc.TestCase.free()
+	}
+}
+
+func (tc *concurrentTestCase) stateMachineNew(_ []string, ruleGroups []int64, _ []string, maxConcurrency, stepCount int) (*libhegel.StateMachine, int64, error) {
 	tc.shared.requestedMaxConcurrency = maxConcurrency
+	tc.shared.requestedStepCount = stepCount
 	tc.shared.ruleGroups = slices.Clone(ruleGroups)
 	return new(libhegel.StateMachine), tc.shared.selectedConcurrency, nil
 }
 
 func (tc *concurrentTestCase) stateMachineNextGroup(*libhegel.StateMachine) (libhegel.StateMachineGroup, error) {
-	if !tc.shared.ranGroup {
-		tc.shared.ranGroup = true
+	rounds := tc.shared.selectedRounds
+	if rounds == 0 {
+		rounds = 1
+	}
+	if tc.shared.ranGroups < rounds {
+		tc.shared.ranGroups++
+		if tc.shared.reverseWorkerOrder {
+			tc.shared.workerOrderGate = make(chan struct{})
+		}
 		return tc.shared.selectedGroup, nil
 	}
 	return libhegel.StateMachineDone, nil
@@ -236,11 +284,11 @@ func (tc *concurrentTestCase) stateMachineNextRule(_ *libhegel.StateMachine, wor
 	if tc.drewRule {
 		return libhegel.StateMachineDone, nil
 	}
-	if tc.shared.reverseWorkerOrder != nil {
+	if tc.shared.workerOrderGate != nil {
 		if worker == 0 {
-			<-tc.shared.reverseWorkerOrder
+			<-tc.shared.workerOrderGate
 		} else {
-			close(tc.shared.reverseWorkerOrder)
+			close(tc.shared.workerOrderGate)
 		}
 	}
 	tc.drewRule = true
@@ -455,6 +503,17 @@ func TestStateMachineAbortsWhenWorkerCloneFails(t *testing.T) {
 	sm.Run(&concurrentTestCase{shared: shared})
 }
 
+func TestStateMachineAbortsWhenWorkerAttributionFails(t *testing.T) {
+	want := errors.New("worker attribution failed")
+	sm, err := newStateMachine(&goodCounter{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	shared := &concurrentTestCaseShared{selectedConcurrency: 2, workerErr: want}
+	defer expectErrorPanic(t, want)
+	sm.Run(&concurrentTestCase{shared: shared})
+}
+
 func TestStateMachineReportsRejectedRule(t *testing.T) {
 	t.Parallel()
 
@@ -515,24 +574,58 @@ func TestStateMachineRunsEngineSelectedWorkersConcurrently(t *testing.T) {
 	}
 }
 
+type nativeOutputRuleMachine struct{}
+
+func (*nativeOutputRuleMachine) RuleStep(tc TestCase) {
+	tc.Note("first note\nsecond note")
+	_ = Draw(tc, Just([]int{111111111, 222222222, 333333333, 444444444}))
+}
+
 func TestStateMachineGroupsRoundOutputByWorker(t *testing.T) {
 	t.Parallel()
 
-	sm, err := newStateMachine(&outputRuleMachine{}, WithBoundedConcurrency(2))
+	sm, err := newStateMachine(&nativeOutputRuleMachine{}, WithBoundedConcurrency(2))
 	if err != nil {
 		t.Fatalf("newStateMachine: %v", err)
 	}
 	var out strings.Builder
-	shared := &concurrentTestCaseShared{
-		selectedConcurrency: 2,
-		reverseWorkerOrder:  make(chan struct{}),
+	var shared *concurrentTestCaseShared
+	err = run(func(tc TestCase) {
+		shared = &concurrentTestCaseShared{selectedConcurrency: 2, selectedRounds: 2, reverseWorkerOrder: true}
+		sm.Run(&concurrentTestCase{TestCase: tc, shared: shared})
+		tc.Fail()
+	}, WithTestCases(1), WithDatabase(""), withOutput(&out))
+	if err == nil {
+		t.Fatal("expected failure")
 	}
-	sm.Run(&concurrentTestCase{shared: shared, out: &out})
-	worker0 := strings.Index(out.String(), "[worker 0 +")
-	worker1 := strings.Index(out.String(), "[worker 1 +")
-	if worker0 == -1 || worker1 == -1 || worker0 > worker1 {
-		t.Fatalf("worker output is not grouped in index order:\n%s", out.String())
+	if got, want := shared.freedClones, int64(4); got != want {
+		t.Fatalf("freed clones = %d, want %d", got, want)
 	}
+
+	output := out.String()
+	positions := []int{
+		strings.Index(output, "Initial invariant check."),
+		strings.Index(output, "Round 1:"),
+		strings.Index(output, "[worker 0 +"),
+		strings.Index(output, "[worker 1 +"),
+		strings.Index(output, "Round 2:"),
+		strings.LastIndex(output, "[worker 0 +"),
+		strings.LastIndex(output, "[worker 1 +"),
+	}
+	if slices.Contains(positions, -1) || !slices.IsSorted(positions) {
+		t.Fatalf("round and worker output is not in execution order:\n%s", output)
+	}
+	for _, want := range []string{"Round 1:", "Round 2:"} {
+		if strings.Count(output, want) != 1 {
+			t.Errorf("output contains %d copies of %q, want one:\n%s", strings.Count(output, want), want, output)
+		}
+	}
+	for _, want := range []string{"Rule: RuleStep", "first note", "second note", "_ = Draw("} {
+		if count := strings.Count(output, want); count != 4 {
+			t.Errorf("output contains %d copies of %q, want four:\n%s", count, want, output)
+		}
+	}
+
 }
 
 func TestStateMachineOmitsWorkerMetadataAtConcurrencyOne(t *testing.T) {
@@ -547,88 +640,6 @@ func TestStateMachineOmitsWorkerMetadataAtConcurrencyOne(t *testing.T) {
 	sm.Run(&concurrentTestCase{shared: shared, out: &out})
 	if got := out.String(); strings.Contains(got, "Concurrency level:") || strings.Contains(got, "[worker") {
 		t.Fatalf("sequential output contains concurrency metadata:\n%s", got)
-	}
-}
-
-func TestWorkerOutputPrefixesEachLine(t *testing.T) {
-	t.Parallel()
-
-	tests := []struct {
-		name   string
-		writes []string
-		lines  []string
-	}{
-		{"multiple and fragmented lines", []string{"first\nsecond", " half\n"}, []string{"first", "second half"}},
-		{"fragmented line", []string{"fir", "st\n"}, []string{"first"}},
-		{"separate newline write", []string{"first", "\n"}, []string{"first"}},
-		{"empty write", []string{""}, nil},
-		{"blank line", []string{"\n"}, []string{""}},
-		{"consecutive blank lines", []string{"\n\n"}, []string{"", ""}},
-	}
-	for _, test := range tests {
-		t.Run(test.name, func(t *testing.T) {
-			var out strings.Builder
-			w := &workerOutput{worker: 3, start: time.Now(), out: &out, lineStart: true}
-			for _, input := range test.writes {
-				n, err := w.Write([]byte(input))
-				if err != nil || n != len(input) {
-					t.Fatalf("Write(%q) = (%d, %v), want (%d, nil)", input, n, err, len(input))
-				}
-			}
-
-			got := out.String()
-			if len(test.lines) == 0 {
-				if got != "" {
-					t.Fatalf("worker output = %q, want none", got)
-				}
-				return
-			}
-			physicalLines := strings.Split(strings.TrimSuffix(got, "\n"), "\n")
-			if len(physicalLines) != len(test.lines) {
-				t.Fatalf("worker output = %q, want %d lines", got, len(test.lines))
-			}
-			for i, line := range physicalLines {
-				if !strings.HasPrefix(line, "[worker 3 +") {
-					t.Fatalf("line %d = %q, want worker prefix", i, line)
-				}
-				_, content, ok := strings.Cut(line, "ms] ")
-				if !ok || content != test.lines[i] {
-					t.Fatalf("line %d = %q, want content %q", i, line, test.lines[i])
-				}
-			}
-		})
-	}
-}
-
-type failingWriter struct{}
-
-var errWriteFailed = errors.New("write failed")
-
-func (failingWriter) Write([]byte) (int, error) { return 0, errWriteFailed }
-
-type shortWriter struct{}
-
-func (shortWriter) Write(p []byte) (int, error) { return len(p) - 1, nil }
-
-func TestWorkerOutputPropagatesWriteFailures(t *testing.T) {
-	tests := []struct {
-		name      string
-		out       io.Writer
-		lineStart bool
-		want      error
-	}{
-		{"prefix failure", failingWriter{}, true, errWriteFailed},
-		{"body failure", failingWriter{}, false, errWriteFailed},
-		{"short body write", shortWriter{}, false, io.ErrShortWrite},
-	}
-	for _, test := range tests {
-		t.Run(test.name, func(t *testing.T) {
-			w := &workerOutput{worker: 1, start: time.Now(), out: test.out, lineStart: test.lineStart}
-			_, err := w.Write([]byte("line\n"))
-			if !errors.Is(err, test.want) {
-				t.Fatalf("Write error = %v, want %v", err, test.want)
-			}
-		})
 	}
 }
 
@@ -785,9 +796,9 @@ func TestRunStatefulNextRuleErrorAborts(t *testing.T) {
 	}
 	tc := newStubTestCase(t,
 		uintptr(2), int64(1), libhegel.OK, // new_state_machine
-		uintptr(3), libhegel.OK, // test_case_clone
-		uintptr(4),                                 // context_new for the cloned test case
 		libhegel.StateMachineGroup(0), libhegel.OK, // state_machine_next_group
+		uintptr(3), libhegel.OK, // test_case_clone
+		uintptr(4),                                // context_new for the cloned test case
 		int64(0), libhegel.E_STOP_TEST, "overrun", // state_machine_next_rule + last-error message
 	)
 	defer expectErrorPanic(t, libhegel.E_STOP_TEST)
@@ -814,4 +825,45 @@ func TestRunStatefulRuleFailureAborts(t *testing.T) {
 	if err == nil {
 		t.Fatal("Expected error")
 	}
+}
+
+func TestStatefulStepCount(t *testing.T) {
+	t.Parallel()
+	for _, count := range []int{0, -1} {
+		if _, err := newStateMachine(&singleRuleMachine{}, WithStatefulStepCount(count)); err == nil {
+			t.Fatalf("invalid step count %d accepted", count)
+		}
+	}
+	for _, test := range []struct {
+		opts []StateMachineOption
+		want int
+	}{
+		{nil, 50},
+		{[]StateMachineOption{WithStatefulStepCount(7)}, 7},
+		{[]StateMachineOption{WithStatefulStepCount(0), WithStatefulStepCount(3)}, 3},
+	} {
+		shared := &concurrentTestCaseShared{selectedConcurrency: 1}
+		tc := &concurrentTestCase{shared: shared}
+		RunStateful(tc, &singleRuleMachine{}, test.opts...)
+		if got := shared.requestedStepCount; got != test.want {
+			t.Fatalf("constructor step count = %d, want %d", got, test.want)
+		}
+	}
+}
+
+type stepBudgetMachine struct{ steps int }
+
+func (m *stepBudgetMachine) RuleStep(TestCase) { m.steps++ }
+
+func TestRunStatefulIndependentStepBudgets(t *testing.T) {
+	t.Parallel()
+	Test(t, func(tc *T) {
+		for _, budget := range []int{1, 3, 2} {
+			machine := new(stepBudgetMachine)
+			RunStateful(tc, machine, WithStatefulStepCount(budget))
+			if machine.steps < 1 || machine.steps > budget {
+				tc.Fatalf("completed %d rules with budget %d", machine.steps, budget)
+			}
+		}
+	}, WithDatabase(""), WithTestCases(10))
 }
