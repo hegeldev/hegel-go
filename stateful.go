@@ -48,8 +48,10 @@ type StateMachineOption func(*stateMachine)
 // passed to one rule must not be retained or shared with another worker.
 //
 // Execution proceeds in rounds. After every worker has finished its rules for
-// a round, all invariants run before the next round begins.
-// Invariants are never executed concurrently.
+// a round, selected invariants run before the next round begins: ordinary
+// invariants are sampled, while those configured with
+// [WithAlwaysCheckInvariants] always run. Invariants are never executed
+// concurrently.
 func WithConcurrency() StateMachineOption {
 	return WithBoundedConcurrency(runtime.GOMAXPROCS(0))
 }
