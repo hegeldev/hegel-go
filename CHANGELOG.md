@@ -1,5 +1,9 @@
 # Changelog
 
+## 0.8.4 - 2026-09-15
+
+This patch bumps our pinned libhegel ([hegel-rust](hegeldev/hegel-rust)) from [0.42.1](https://github.com/hegeldev/hegel-rust/releases/tag/v0.42.1) to [0.42.3](https://github.com/hegeldev/hegel-rust/releases/tag/v0.42.3).
+
 ## 0.8.3 - 2026-09-15
 
 This release adds `WithProfile` so property tests can select a named settings profile. Passing an empty profile name continues to use the process-wide default profile.
