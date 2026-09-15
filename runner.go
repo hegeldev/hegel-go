@@ -372,12 +372,12 @@ type settingApplier func(*libhegel.Context, *libhegel.Settings) error
 
 // runOptions holds options for property tests.
 //
-// Settings-backed options are recorded as appliers rather than inert fields, so
-// "not set" is simply "no applier" — the engine default applies and there is no
-// set/unset bookkeeping. Only options the runner itself reads (beyond
-// configuring libhegel) keep dedicated fields.
+// Settings-backed options add an applier only when set, which preserves engine
+// defaults. Options that select the initial settings or affect runner behavior
+// use dedicated fields.
 type runOptions struct {
 	settingsAppliers []settingApplier
+	profile          string
 
 	// output receives note/draw-report output during the final replay of
 	// interesting cases. nil means no output.
@@ -391,6 +391,12 @@ func (o *runOptions) addSetting(apply settingApplier) {
 
 // Option is a functional option for Test and Run.
 type Option func(*runOptions)
+
+// WithProfile uses the named profile as the base settings. Other options
+// override the profile. An empty name uses the process-wide default profile.
+func WithProfile(name string) Option {
+	return func(o *runOptions) { o.profile = name }
+}
 
 // WithTestCases sets the number of test cases to run.
 func WithTestCases(n int) Option {
@@ -648,7 +654,15 @@ func runWithContext(ctx *libhegel.Context, fn testBody, opts runOptions) error {
 // collected (nil entries dropped by errors.Join) so a bad option is reported
 // instead of being lost.
 func (o runOptions) buildSettings(ctx *libhegel.Context) (*libhegel.Settings, error) {
-	s, err := ctx.SettingsNew()
+	var (
+		s   *libhegel.Settings
+		err error
+	)
+	if o.profile == "" {
+		s, err = ctx.SettingsNew()
+	} else {
+		s, err = ctx.SettingsNewForProfile(o.profile)
+	}
 	if err != nil {
 		return nil, err
 	}
