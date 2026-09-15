@@ -190,9 +190,9 @@ func Booleans() Generator[bool] {
 	return WeightedBooleans(0.5)
 }
 
-// WeightedBooleans returns a Generator that produces true with probability p.
-// A probability of zero or one always produces false or true, respectively,
-// without consuming entropy.
+// WeightedBooleans returns a Generator that produces true with probability p,
+// which must be between zero and one inclusive. A probability of zero or one
+// always produces false or true, respectively, without consuming entropy.
 func WeightedBooleans(p float64) Generator[bool] {
 	return genFunc[bool](func(tc TestCase) (bool, error) {
 		ctx, ltc := tc.engine()
@@ -575,20 +575,28 @@ var (
 	fullTimeMax = libhegel.Time{Hour: 23, Minute: 59, Second: 59, Nanosecond: 999999999}
 )
 
-func dateFromTime(v time.Time) libhegel.Date {
-	return libhegel.Date{Year: int32(v.Year()), Month: uint8(v.Month()), Day: uint8(v.Day())}
+func dateFromTime(v time.Time) (libhegel.Date, error) {
+	year := v.Year()
+	if year < -999999 || year > 999999 {
+		return libhegel.Date{}, fmt.Errorf("date year must be between -999999 and 999999, got %d", year)
+	}
+	return libhegel.Date{Year: int32(year), Month: uint8(v.Month()), Day: uint8(v.Day())}, nil
 }
 
-func datetimeFromTime(v time.Time) libhegel.Datetime {
+func datetimeFromTime(v time.Time) (libhegel.Datetime, error) {
+	date, err := dateFromTime(v)
+	if err != nil {
+		return libhegel.Datetime{}, err
+	}
 	return libhegel.Datetime{
-		Date: dateFromTime(v),
+		Date: date,
 		Time: libhegel.Time{
 			Hour:       uint8(v.Hour()),
 			Minute:     uint8(v.Minute()),
 			Second:     uint8(v.Second()),
 			Nanosecond: uint32(v.Nanosecond()),
 		},
-	}
+	}, nil
 }
 
 // DateGenerator configures and generates dates as time.Time values at midnight
@@ -601,7 +609,9 @@ type DateGenerator struct {
 
 var _ Generator[time.Time] = DateGenerator{}
 
-// Dates returns a DateGenerator covering the full Gregorian date range.
+// Dates returns a DateGenerator covering the conventional Gregorian range from
+// 0001-01-01 through 9999-12-31. Bounds may widen it to engine-supported years
+// from -999999 through 999999.
 func Dates() DateGenerator {
 	return DateGenerator{}
 }
@@ -623,10 +633,18 @@ func (g DateGenerator) Max(v time.Time) DateGenerator {
 func (g DateGenerator) draw(tc TestCase) (time.Time, error) {
 	minVal, maxVal := fullDateMin, fullDateMax
 	if g.minVal != nil {
-		minVal = dateFromTime(*g.minVal)
+		var err error
+		minVal, err = dateFromTime(*g.minVal)
+		if err != nil {
+			return time.Time{}, err
+		}
 	}
 	if g.maxVal != nil {
-		maxVal = dateFromTime(*g.maxVal)
+		var err error
+		maxVal, err = dateFromTime(*g.maxVal)
+		if err != nil {
+			return time.Time{}, err
+		}
 	}
 	ctx, ltc := tc.engine()
 	d, err := ltc.GenerateDate(ctx, minVal, maxVal)
@@ -647,8 +665,9 @@ type DatetimeGenerator struct {
 
 var _ Generator[time.Time] = DatetimeGenerator{}
 
-// Datetimes returns a DatetimeGenerator covering the full Gregorian datetime
-// range.
+// Datetimes returns a DatetimeGenerator covering the conventional Gregorian
+// range from 0001-01-01 through the last nanosecond of 9999-12-31. Bounds may
+// widen it to engine-supported years from -999999 through 999999.
 func Datetimes() DatetimeGenerator {
 	return DatetimeGenerator{}
 }
@@ -671,10 +690,18 @@ func (g DatetimeGenerator) draw(tc TestCase) (time.Time, error) {
 	minVal := libhegel.Datetime{Date: fullDateMin}
 	maxVal := libhegel.Datetime{Date: fullDateMax, Time: fullTimeMax}
 	if g.minVal != nil {
-		minVal = datetimeFromTime(*g.minVal)
+		var err error
+		minVal, err = datetimeFromTime(*g.minVal)
+		if err != nil {
+			return time.Time{}, err
+		}
 	}
 	if g.maxVal != nil {
-		maxVal = datetimeFromTime(*g.maxVal)
+		var err error
+		maxVal, err = datetimeFromTime(*g.maxVal)
+		if err != nil {
+			return time.Time{}, err
+		}
 	}
 	ctx, ltc := tc.engine()
 	dt, err := ltc.GenerateDatetime(ctx, minVal, maxVal)

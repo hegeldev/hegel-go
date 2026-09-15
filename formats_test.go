@@ -149,6 +149,17 @@ func TestDatesOneSidedBounds(t *testing.T) {
 	}, WithTestCases(1))
 }
 
+func TestDatesSupportExtendedYears(t *testing.T) {
+	t.Parallel()
+
+	bound := time.Date(-10000, time.January, 1, 0, 0, 0, 0, time.UTC)
+	Test(t, func(ht *T) {
+		if got := Draw(ht, Dates().Min(bound).Max(bound)); !got.Equal(bound) {
+			panic("date did not preserve an engine-supported extended year")
+		}
+	}, WithTestCases(1))
+}
+
 // TestDatetimesE2E verifies that generated datetimes fall within the full
 // Gregorian range with valid time components. As with dates, the minimum
 // datetime equals time.Time's zero value, so IsZero() is not used.
@@ -205,6 +216,17 @@ func TestDatetimesOneSidedBounds(t *testing.T) {
 		}
 		if got := Draw(ht, Datetimes().Max(maxVal)); !got.Equal(maxVal) {
 			panic("datetime did not honor one-sided maximum")
+		}
+	}, WithTestCases(1))
+}
+
+func TestDatetimesSupportExtendedYears(t *testing.T) {
+	t.Parallel()
+
+	bound := time.Date(10000, time.December, 31, 23, 59, 59, 999999999, time.UTC)
+	Test(t, func(ht *T) {
+		if got := Draw(ht, Datetimes().Min(bound).Max(bound)); !got.Equal(bound) {
+			panic("datetime did not preserve an engine-supported extended year")
 		}
 	}, WithTestCases(1))
 }

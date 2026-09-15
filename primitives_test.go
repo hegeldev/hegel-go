@@ -103,8 +103,10 @@ func TestWeightedBooleansConstantOutcomes(t *testing.T) {
 func TestWeightedBooleansRejectsInvalidProbability(t *testing.T) {
 	t.Parallel()
 
-	_, err := WeightedBooleans(1.1).draw(newRealTestCase(t))
-	assertErrorContains(t, "probability", err)
+	for _, probability := range []float64{-0.1, 1.1, math.NaN()} {
+		_, err := WeightedBooleans(probability).draw(newRealTestCase(t))
+		assertErrorContains(t, "probability", err)
+	}
 }
 
 func TestTextE2E(t *testing.T) {
