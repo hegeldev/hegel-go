@@ -95,6 +95,19 @@ func (*groupedMachine) RuleDelta(TestCase)   {}
 func (*groupedMachine) RuleGamma(TestCase)   {}
 func (*groupedMachine) InvariantOK(TestCase) {}
 
+type invariantSelectionMachine struct {
+	alwaysCalls  int
+	sampledCalls int
+}
+
+func (*invariantSelectionMachine) RuleStep(TestCase) {}
+func (m *invariantSelectionMachine) InvariantAlways(TestCase) {
+	m.alwaysCalls++
+}
+func (m *invariantSelectionMachine) InvariantSampled(TestCase) {
+	m.sampledCalls++
+}
+
 type rejectingMachine struct{}
 
 func (*rejectingMachine) RuleReject(tc TestCase) { tc.Assume(false) }
@@ -146,6 +159,9 @@ type concurrentTestCaseShared struct {
 	requestedMaxConcurrency int
 	requestedStepCount      int
 	ruleGroups              []int64
+	invariantAlwaysCheck    []bool
+	invariantChecks         []int64
+	shouldCheckInvariant    func(int64) (bool, error)
 	cloneCount              int64
 	freedClones             int64
 	cloneErr                error
@@ -255,10 +271,11 @@ func (tc *concurrentTestCase) free() {
 	}
 }
 
-func (tc *concurrentTestCase) stateMachineNew(_ []string, ruleGroups []int64, _ []string, maxConcurrency, stepCount int) (*libhegel.StateMachine, int64, error) {
+func (tc *concurrentTestCase) stateMachineNew(_ []string, ruleGroups []int64, _ []string, invariantAlwaysCheck []bool, maxConcurrency, stepCount int) (*libhegel.StateMachine, int64, error) {
 	tc.shared.requestedMaxConcurrency = maxConcurrency
 	tc.shared.requestedStepCount = stepCount
 	tc.shared.ruleGroups = slices.Clone(ruleGroups)
+	tc.shared.invariantAlwaysCheck = slices.Clone(invariantAlwaysCheck)
 	return new(libhegel.StateMachine), tc.shared.selectedConcurrency, nil
 }
 
@@ -298,6 +315,14 @@ func (tc *concurrentTestCase) stateMachineNextRule(_ *libhegel.StateMachine, wor
 func (tc *concurrentTestCase) stateMachineRuleRejected(*libhegel.StateMachine, int64) error {
 	tc.shared.rejectedRules++
 	return nil
+}
+
+func (tc *concurrentTestCase) stateMachineShouldCheckInvariant(_ *libhegel.StateMachine, invariant int64) (bool, error) {
+	tc.shared.invariantChecks = append(tc.shared.invariantChecks, invariant)
+	if tc.shared.shouldCheckInvariant == nil {
+		return true, nil
+	}
+	return tc.shared.shouldCheckInvariant(invariant)
 }
 
 func TestNewStateMachineNilPointer(t *testing.T) {
@@ -461,6 +486,85 @@ func TestNewStateMachineRuleGroupValidation(t *testing.T) {
 	}
 }
 
+func TestNewStateMachineAlwaysCheckInvariants(t *testing.T) {
+	t.Parallel()
+
+	sm, err := newStateMachine(
+		&invariantSelectionMachine{},
+		WithAlwaysCheckInvariants("InvariantAlways"),
+	)
+	if err != nil {
+		t.Fatalf("newStateMachine: %v", err)
+	}
+	if want := []bool{true, false}; !slices.Equal(sm.invariantAlwaysCheck, want) {
+		t.Errorf("always-check flags = %v, want %v", sm.invariantAlwaysCheck, want)
+	}
+}
+
+func TestNewStateMachineAlwaysCheckInvariantValidation(t *testing.T) {
+	t.Parallel()
+
+	for _, name := range []string{"RuleStep", "InvariantMissing"} {
+		t.Run(name, func(t *testing.T) {
+			t.Parallel()
+			_, err := newStateMachine(
+				&invariantSelectionMachine{},
+				WithAlwaysCheckInvariants(name),
+			)
+			assertErrorContains(t, fmt.Sprintf("unknown invariant %q", name), err)
+		})
+	}
+}
+
+func TestStateMachineSelectsInvariantsAtJoinPoints(t *testing.T) {
+	t.Parallel()
+
+	probe := &invariantSelectionMachine{}
+	sm, err := newStateMachine(probe, WithAlwaysCheckInvariants("InvariantAlways"))
+	if err != nil {
+		t.Fatalf("newStateMachine: %v", err)
+	}
+	shared := &concurrentTestCaseShared{
+		selectedConcurrency: 1,
+		selectedRounds:      2,
+		shouldCheckInvariant: func(invariant int64) (bool, error) {
+			return invariant == 0, nil
+		},
+	}
+	sm.Run(&concurrentTestCase{shared: shared})
+
+	if want := []bool{true, false}; !slices.Equal(shared.invariantAlwaysCheck, want) {
+		t.Errorf("registered always-check flags = %v, want %v", shared.invariantAlwaysCheck, want)
+	}
+	if want := []int64{0, 1, 0, 1}; !slices.Equal(shared.invariantChecks, want) {
+		t.Errorf("intermediate invariant checks = %v, want %v", shared.invariantChecks, want)
+	}
+	if probe.alwaysCalls != 4 {
+		t.Errorf("always-check invariant calls = %d, want initial, two intermediate, and final checks", probe.alwaysCalls)
+	}
+	if probe.sampledCalls != 2 {
+		t.Errorf("sampled invariant calls = %d, want unconditional initial and final checks", probe.sampledCalls)
+	}
+}
+
+func TestStateMachineInvariantSelectionErrorAborts(t *testing.T) {
+	t.Parallel()
+
+	want := errors.New("invariant selection failed")
+	sm, err := newStateMachine(&invariantSelectionMachine{})
+	if err != nil {
+		t.Fatalf("newStateMachine: %v", err)
+	}
+	shared := &concurrentTestCaseShared{
+		selectedConcurrency: 1,
+		shouldCheckInvariant: func(int64) (bool, error) {
+			return false, want
+		},
+	}
+	defer expectErrorPanic(t, want)
+	sm.Run(&concurrentTestCase{shared: shared})
+}
+
 func TestStateMachineRunsSequentiallyByDefault(t *testing.T) {
 	t.Parallel()
 
@@ -566,8 +670,8 @@ func TestStateMachineRunsEngineSelectedWorkersConcurrently(t *testing.T) {
 	if probe.invariantWhileRuleRuns {
 		t.Error("invariant ran before all workers reached the join point")
 	}
-	if got := probe.invariantCalls; got != 2 {
-		t.Errorf("invariant calls = %d, want initial and post-round checks", got)
+	if got := probe.invariantCalls; got != 3 {
+		t.Errorf("invariant calls = %d, want initial, post-round, and final checks", got)
 	}
 	if starts, stops := shared.spanStarts.Load(), shared.spanStops.Load(); starts != 0 || stops != 0 {
 		t.Errorf("stateful spans = %d starts, %d stops; want none", starts, stops)

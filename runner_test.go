@@ -1222,6 +1222,23 @@ func TestStatefulInitialInvariantError(t *testing.T) {
 	sm.Run(tc)
 }
 
+func TestStatefulFinalInvariantError(t *testing.T) {
+	t.Parallel()
+	tc := newStubTestCase(t,
+		uintptr(1), int64(1), libhegel.OK, // new_state_machine
+		libhegel.StateMachineDone, libhegel.OK, // state_machine_next_group
+	)
+	calls := 0
+	sm := &stateMachine{invariants: []stateMachineRule{{name: "Inv", fn: func(tc TestCase) {
+		calls++
+		if calls == 2 {
+			tc.abort(libhegel.E_BACKEND)
+		}
+	}}}}
+	defer expectErrorPanic(t, libhegel.E_BACKEND)
+	sm.Run(tc)
+}
+
 func TestBuildSettingsCreationError(t *testing.T) {
 	t.Parallel()
 	ctx := libhegel.Stub(t, uintptr(0), libhegel.E_INVALID_ARG, "invalid profile")
