@@ -187,9 +187,16 @@ func (g FloatGenerator[T]) draw(tc TestCase) (T, error) {
 
 // Booleans returns a Generator that produces boolean values.
 func Booleans() Generator[bool] {
+	return WeightedBooleans(0.5)
+}
+
+// WeightedBooleans returns a Generator that produces true with probability p.
+// A probability of zero or one always produces false or true, respectively,
+// without consuming entropy.
+func WeightedBooleans(p float64) Generator[bool] {
 	return genFunc[bool](func(tc TestCase) (bool, error) {
 		ctx, ltc := tc.engine()
-		return ltc.GenerateBoolean(ctx, 0.5, false, false)
+		return ltc.GenerateBoolean(ctx, p, false, false)
 	})
 }
 
