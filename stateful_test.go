@@ -99,6 +99,22 @@ type rejectingMachine struct{}
 
 func (*rejectingMachine) RuleReject(tc TestCase) { tc.Assume(false) }
 
+type rejectionBudgetMachine struct {
+	attempts *atomic.Int64
+	value    int
+}
+
+func (m *rejectionBudgetMachine) RuleAdd(tc TestCase) {
+	m.attempts.Add(1)
+	m.value += Draw(tc, Integers(1, 9))
+}
+
+func (m *rejectionBudgetMachine) RuleReset(tc TestCase) {
+	m.attempts.Add(1)
+	tc.Assume(m.value != 0)
+	m.value = 0
+}
+
 type concurrentExecutionProbe struct {
 	expectedWorkers        int64
 	active                 atomic.Int64
@@ -780,6 +796,27 @@ func TestRunStatefulAssumeRejectionRetries(t *testing.T) {
 	}
 	if totalGateRuns == 0 {
 		t.Error("RuleGated never succeeded; assume retry appears broken")
+	}
+}
+
+func TestRunStatefulRejectionsDoNotConsumeStepBudget(t *testing.T) {
+	t.Parallel()
+
+	const (
+		testCases = 8
+		stepCount = 6
+	)
+	var attempts atomic.Int64
+	err := Run(func(tc TestCase) {
+		RunStateful(tc, &rejectionBudgetMachine{attempts: &attempts}, WithStatefulStepCount(stepCount))
+	}, WithTestCases(testCases), WithSeed(42), WithDerandomize(true), WithDatabase(""))
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	// Seed 42 produces enough rejected RuleReset attempts to exceed the accepted-step budget.
+	if got, chargedLimit := attempts.Load(), int64(testCases*stepCount); got <= chargedLimit {
+		t.Fatalf("rule attempts = %d, want more than the charged step limit %d", got, chargedLimit)
 	}
 }
 
