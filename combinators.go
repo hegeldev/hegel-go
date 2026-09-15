@@ -1,10 +1,6 @@
 package hegel
 
-import (
-	"net/netip"
-
-	"hegel.dev/go/hegel/internal/libhegel"
-)
+import "net/netip"
 
 // --- OneOf generator ---
 
@@ -13,11 +9,9 @@ type oneOfGenerator[T any] struct {
 	generators []Generator[T]
 }
 
-// draw produces a value by drawing a branch index under a ONE_OF span, then
-// drawing from the chosen branch.
 func (g *oneOfGenerator[T]) draw(tc TestCase) (T, error) {
 	var zero T
-	return withSpan(tc, libhegel.LABEL_ONE_OF, func() (T, error) {
+	return withSpan(tc, "one_of", func() (T, error) {
 		ctx, ltc := tc.engine()
 		idx, err := ltc.GenerateInteger(ctx, 0, int64(len(g.generators)-1))
 		if err != nil {
@@ -49,10 +43,8 @@ type optionalGenerator[T any] struct {
 	inner Generator[T]
 }
 
-// draw produces nil (branch 0) or a value from inner (branch 1), choosing the
-// branch under an OPTIONAL span.
 func (g *optionalGenerator[T]) draw(tc TestCase) (*T, error) {
-	return withSpan(tc, libhegel.LABEL_OPTIONAL, func() (*T, error) {
+	return withSpan(tc, "optional", func() (*T, error) {
 		ctx, ltc := tc.engine()
 		idx, err := ltc.GenerateInteger(ctx, 0, 1)
 		if err != nil {
@@ -117,8 +109,6 @@ func drawV6(tc TestCase) (netip.Addr, error) {
 	return netip.AddrFrom16(b), nil
 }
 
-// draw produces an IP address, choosing between v4 and v6 under a ONE_OF span
-// when no version was pinned.
 func (g IPAddressGenerator) draw(tc TestCase) (netip.Addr, error) {
 	switch g.version {
 	case 4:
@@ -126,7 +116,7 @@ func (g IPAddressGenerator) draw(tc TestCase) (netip.Addr, error) {
 	case 6:
 		return drawV6(tc)
 	default:
-		return withSpan(tc, libhegel.LABEL_ONE_OF, func() (netip.Addr, error) {
+		return withSpan(tc, "one_of", func() (netip.Addr, error) {
 			ctx, ltc := tc.engine()
 			idx, err := ltc.GenerateInteger(ctx, 0, 1)
 			if err != nil {

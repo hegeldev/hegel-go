@@ -196,8 +196,8 @@ func (s *testCase) stateMachineShouldCheckInvariant(machine *libhegel.StateMachi
 	return s.tc.StateMachineShouldCheckInvariant(s.ctx, machine, invariant)
 }
 
-func (s *testCase) startSpan(label libhegel.Label) error {
-	err := s.tc.StartSpan(s.ctx, label)
+func (s *testCase) startSpan(spanLabel label) error {
+	err := s.tc.StartSpan(s.ctx, spanLabel.hash())
 	if err != nil {
 		return err
 	}

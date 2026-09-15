@@ -203,7 +203,7 @@ func invalidFloats() Generator[float64] {
 // --- inner-error propagation from a nested generator's draw ---
 
 func TestListsInnerErrorPropagates(t *testing.T) {
-	// start_span(LIST), new_collection, collection_more=true, then the element
+	// start_span(list), new_collection, collection_more=true, then the element
 	// draw (invalidFloats) fails in params() before any engine call.
 	tc := newStubTestCase(t, libhegel.OK, uintptr(1), libhegel.OK, true, libhegel.OK)
 	_, err := Lists(invalidFloats()).draw(tc)
@@ -225,7 +225,7 @@ func TestMapsValueErrorPropagates(t *testing.T) {
 }
 
 func TestOneOfBranchErrorPropagates(t *testing.T) {
-	// start_span(ONE_OF), generate_integer (branch index 0), then the branch
+	// start_span(one_of), generate_integer (branch index 0), then the branch
 	// draw fails in params().
 	tc := newStubTestCase(t, libhegel.OK, int64(0), libhegel.OK)
 	_, err := OneOf(invalidFloats()).draw(tc)
@@ -233,7 +233,7 @@ func TestOneOfBranchErrorPropagates(t *testing.T) {
 }
 
 func TestOptionalInnerErrorPropagates(t *testing.T) {
-	// start_span(OPTIONAL), generate_integer=1 (draw the inner value), then the
+	// start_span(optional), generate_integer=1 (draw the inner value), then the
 	// inner draw fails in params().
 	tc := newStubTestCase(t, libhegel.OK, int64(1), libhegel.OK)
 	_, err := Optional(invalidFloats()).draw(tc)
@@ -259,7 +259,7 @@ func TestMapsDrawInvalidConfigReturnsError(t *testing.T) {
 // config surfaces when the mapped generator is drawn.
 func TestMapInvalidSourceReturnsErrorOnDraw(t *testing.T) {
 	gen := Map(invalidFloats(), func(v float64) float64 { return v })
-	// start_span(MAPPED), then the inner draw fails in params().
+	// start_span(mapped), then the inner draw fails in params().
 	tc := newStubTestCase(t, libhegel.OK)
 	_, err := gen.draw(tc)
 	assertErrorContains(t, "allow_nan", err)

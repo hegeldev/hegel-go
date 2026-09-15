@@ -246,14 +246,22 @@ func TestNativeBlockSharesChoiceSequence(t *testing.T) {
 func TestDerivedLabels(t *testing.T) {
 	ctx := NewContext()
 	list, err := ctx.LabelFromName("hegel.go.list")
-	if err != nil || list != LABEL_LIST {
-		t.Fatalf("list label = %v, %v", list, err)
-	}
-	a, err := ctx.LabelCombine([]Label{LABEL_LIST, LABEL_INTEGER})
 	if err != nil {
 		t.Fatal(err)
 	}
-	b, err := ctx.LabelCombine([]Label{LABEL_INTEGER, LABEL_LIST})
+	listAgain, err := ctx.LabelFromName("hegel.go.list")
+	if err != nil || listAgain != list {
+		t.Fatalf("repeated list label = %v, %v; want %v", listAgain, err, list)
+	}
+	integer, err := ctx.LabelFromName("hegel.go.integer")
+	if err != nil {
+		t.Fatal(err)
+	}
+	a, err := ctx.LabelCombine([]Label{list, integer})
+	if err != nil {
+		t.Fatal(err)
+	}
+	b, err := ctx.LabelCombine([]Label{integer, list})
 	if err != nil || a == b {
 		t.Fatalf("order-sensitive label = %v, %v", b, err)
 	}
