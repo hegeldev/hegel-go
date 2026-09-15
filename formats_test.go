@@ -108,6 +108,47 @@ func TestDatesE2E(t *testing.T) {
 	}, WithTestCases(30))
 }
 
+func TestDatesInclusiveBounds(t *testing.T) {
+	t.Parallel()
+
+	minVal := time.Date(1999, time.December, 31, 12, 30, 0, 0, time.FixedZone("ignored", 3600))
+	maxVal := time.Date(2000, time.January, 2, 1, 2, 3, 0, time.UTC)
+	Test(t, func(ht *T) {
+		v := Draw(ht, Dates().Min(minVal).Max(maxVal))
+		if v.Before(time.Date(1999, time.December, 31, 0, 0, 0, 0, time.UTC)) ||
+			v.After(time.Date(2000, time.January, 2, 0, 0, 0, 0, time.UTC)) {
+			panic("date outside configured bounds")
+		}
+	}, WithTestCases(30))
+}
+
+func TestDatesEqualBounds(t *testing.T) {
+	t.Parallel()
+
+	bound := time.Date(2024, time.February, 29, 18, 30, 0, 0, time.UTC)
+	Test(t, func(ht *T) {
+		want := time.Date(2024, time.February, 29, 0, 0, 0, 0, time.UTC)
+		if got := Draw(ht, Dates().Min(bound).Max(bound)); !got.Equal(want) {
+			panic("date with equal bounds did not produce the bound")
+		}
+	}, WithTestCases(1))
+}
+
+func TestDatesOneSidedBounds(t *testing.T) {
+	t.Parallel()
+
+	minVal := time.Date(9999, time.December, 31, 0, 0, 0, 0, time.UTC)
+	maxVal := time.Date(1, time.January, 1, 0, 0, 0, 0, time.UTC)
+	Test(t, func(ht *T) {
+		if got := Draw(ht, Dates().Min(minVal)); !got.Equal(minVal) {
+			panic("date did not honor one-sided minimum")
+		}
+		if got := Draw(ht, Dates().Max(maxVal)); !got.Equal(maxVal) {
+			panic("date did not honor one-sided maximum")
+		}
+	}, WithTestCases(1))
+}
+
 // TestDatetimesE2E verifies that generated datetimes fall within the full
 // Gregorian range with valid time components. As with dates, the minimum
 // datetime equals time.Time's zero value, so IsZero() is not used.
@@ -126,4 +167,44 @@ func TestDatetimesE2E(t *testing.T) {
 			panic("datetime is not in UTC")
 		}
 	}, WithTestCases(30))
+}
+
+func TestDatetimesInclusiveBounds(t *testing.T) {
+	t.Parallel()
+
+	minVal := time.Date(1999, time.December, 31, 23, 59, 59, 123, time.FixedZone("ignored", 3600))
+	maxVal := time.Date(2000, time.January, 1, 0, 0, 1, 456, time.UTC)
+	wantMin := time.Date(1999, time.December, 31, 23, 59, 59, 123, time.UTC)
+	Test(t, func(ht *T) {
+		v := Draw(ht, Datetimes().Min(minVal).Max(maxVal))
+		if v.Before(wantMin) || v.After(maxVal) {
+			panic("datetime outside configured bounds")
+		}
+	}, WithTestCases(30))
+}
+
+func TestDatetimesEqualBounds(t *testing.T) {
+	t.Parallel()
+
+	bound := time.Date(2024, time.February, 29, 12, 34, 56, 789, time.UTC)
+	Test(t, func(ht *T) {
+		if got := Draw(ht, Datetimes().Min(bound).Max(bound)); !got.Equal(bound) {
+			panic("datetime with equal bounds did not produce the bound")
+		}
+	}, WithTestCases(1))
+}
+
+func TestDatetimesOneSidedBounds(t *testing.T) {
+	t.Parallel()
+
+	minVal := time.Date(9999, time.December, 31, 23, 59, 59, 999999999, time.UTC)
+	maxVal := time.Date(1, time.January, 1, 0, 0, 0, 0, time.UTC)
+	Test(t, func(ht *T) {
+		if got := Draw(ht, Datetimes().Min(minVal)); !got.Equal(minVal) {
+			panic("datetime did not honor one-sided minimum")
+		}
+		if got := Draw(ht, Datetimes().Max(maxVal)); !got.Equal(maxVal) {
+			panic("datetime did not honor one-sided maximum")
+		}
+	}, WithTestCases(1))
 }

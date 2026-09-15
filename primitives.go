@@ -575,32 +575,113 @@ var (
 	fullTimeMax = libhegel.Time{Hour: 23, Minute: 59, Second: 59, Nanosecond: 999999999}
 )
 
-// Dates returns a Generator that produces time.Time values (date only, at
-// midnight UTC).
-func Dates() Generator[time.Time] {
-	return genFunc[time.Time](func(tc TestCase) (time.Time, error) {
-		ctx, ltc := tc.engine()
-		d, err := ltc.GenerateDate(ctx, fullDateMin, fullDateMax)
-		if err != nil {
-			return time.Time{}, err
-		}
-		return d.ToTime(), nil
-	})
+func dateFromTime(v time.Time) libhegel.Date {
+	return libhegel.Date{Year: int32(v.Year()), Month: uint8(v.Month()), Day: uint8(v.Day())}
 }
 
-// Datetimes returns a Generator that produces time.Time values (naive datetime
-// in UTC).
-func Datetimes() Generator[time.Time] {
-	return genFunc[time.Time](func(tc TestCase) (time.Time, error) {
-		ctx, ltc := tc.engine()
-		dt, err := ltc.GenerateDatetime(ctx,
-			libhegel.Datetime{Date: fullDateMin},
-			libhegel.Datetime{Date: fullDateMax, Time: fullTimeMax})
-		if err != nil {
-			return time.Time{}, err
-		}
-		return dt.ToTime(), nil
-	})
+func datetimeFromTime(v time.Time) libhegel.Datetime {
+	return libhegel.Datetime{
+		Date: dateFromTime(v),
+		Time: libhegel.Time{
+			Hour:       uint8(v.Hour()),
+			Minute:     uint8(v.Minute()),
+			Second:     uint8(v.Second()),
+			Nanosecond: uint32(v.Nanosecond()),
+		},
+	}
+}
+
+// DateGenerator configures and generates dates as time.Time values at midnight
+// UTC. Use [Dates] to create one, then chain [DateGenerator.Min] and
+// [DateGenerator.Max] to configure inclusive bounds.
+type DateGenerator struct {
+	minVal *time.Time
+	maxVal *time.Time
+}
+
+var _ Generator[time.Time] = DateGenerator{}
+
+// Dates returns a DateGenerator covering the full Gregorian date range.
+func Dates() DateGenerator {
+	return DateGenerator{}
+}
+
+// Min sets the inclusive minimum date. Only the date fields are used; the time
+// and location are ignored.
+func (g DateGenerator) Min(v time.Time) DateGenerator {
+	g.minVal = &v
+	return g
+}
+
+// Max sets the inclusive maximum date. Only the date fields are used; the time
+// and location are ignored.
+func (g DateGenerator) Max(v time.Time) DateGenerator {
+	g.maxVal = &v
+	return g
+}
+
+func (g DateGenerator) draw(tc TestCase) (time.Time, error) {
+	minVal, maxVal := fullDateMin, fullDateMax
+	if g.minVal != nil {
+		minVal = dateFromTime(*g.minVal)
+	}
+	if g.maxVal != nil {
+		maxVal = dateFromTime(*g.maxVal)
+	}
+	ctx, ltc := tc.engine()
+	d, err := ltc.GenerateDate(ctx, minVal, maxVal)
+	if err != nil {
+		return time.Time{}, err
+	}
+	return d.ToTime(), nil
+}
+
+// DatetimeGenerator configures and generates naive datetimes as time.Time
+// values in UTC. Use [Datetimes] to create one, then chain
+// [DatetimeGenerator.Min] and [DatetimeGenerator.Max] to configure inclusive
+// bounds.
+type DatetimeGenerator struct {
+	minVal *time.Time
+	maxVal *time.Time
+}
+
+var _ Generator[time.Time] = DatetimeGenerator{}
+
+// Datetimes returns a DatetimeGenerator covering the full Gregorian datetime
+// range.
+func Datetimes() DatetimeGenerator {
+	return DatetimeGenerator{}
+}
+
+// Min sets the inclusive minimum datetime. The wall-clock fields are used and
+// the location is ignored.
+func (g DatetimeGenerator) Min(v time.Time) DatetimeGenerator {
+	g.minVal = &v
+	return g
+}
+
+// Max sets the inclusive maximum datetime. The wall-clock fields are used and
+// the location is ignored.
+func (g DatetimeGenerator) Max(v time.Time) DatetimeGenerator {
+	g.maxVal = &v
+	return g
+}
+
+func (g DatetimeGenerator) draw(tc TestCase) (time.Time, error) {
+	minVal := libhegel.Datetime{Date: fullDateMin}
+	maxVal := libhegel.Datetime{Date: fullDateMax, Time: fullTimeMax}
+	if g.minVal != nil {
+		minVal = datetimeFromTime(*g.minVal)
+	}
+	if g.maxVal != nil {
+		maxVal = datetimeFromTime(*g.maxVal)
+	}
+	ctx, ltc := tc.engine()
+	dt, err := ltc.GenerateDatetime(ctx, minVal, maxVal)
+	if err != nil {
+		return time.Time{}, err
+	}
+	return dt.ToTime(), nil
 }
 
 // --- Constants and sampling ---

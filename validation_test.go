@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"strings"
 	"testing"
+	"time"
 
 	"hegel.dev/go/hegel/internal/libhegel"
 )
@@ -70,6 +71,20 @@ func TestFloatsMinGreaterThanMax(t *testing.T) {
 func TestFloatsAllowInfinityWithBothBounds(t *testing.T) {
 	_, err := Floats[float64]().Min(0.0).Max(10.0).AllowInfinity(true).draw(nil)
 	assertErrorContains(t, "allow_infinity", err)
+}
+
+func TestDatesMinGreaterThanMax(t *testing.T) {
+	minVal := time.Date(2025, time.January, 1, 0, 0, 0, 0, time.UTC)
+	maxVal := time.Date(2024, time.January, 1, 0, 0, 0, 0, time.UTC)
+	_, err := Dates().Min(minVal).Max(maxVal).draw(newRealTestCase(t))
+	assertErrorContains(t, "hegel_generate_date", err)
+}
+
+func TestDatetimesMinGreaterThanMax(t *testing.T) {
+	minVal := time.Date(2025, time.January, 1, 0, 0, 0, 0, time.UTC)
+	maxVal := time.Date(2024, time.January, 1, 0, 0, 0, 0, time.UTC)
+	_, err := Datetimes().Min(minVal).Max(maxVal).draw(newRealTestCase(t))
+	assertErrorContains(t, "hegel_generate_datetime", err)
 }
 
 // Text / Characters validation happens in build(), which the draw acquires the
