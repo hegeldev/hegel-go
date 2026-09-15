@@ -190,9 +190,9 @@ func Booleans() Generator[bool] {
 	return WeightedBooleans(0.5)
 }
 
-// WeightedBooleans returns a Generator that produces true with probability p,
-// which must be between zero and one inclusive. A probability of zero or one
-// always produces false or true, respectively, without consuming entropy.
+// WeightedBooleans returns a Generator that produces true with probability p.
+// The probability must be within [0, 1]. Values 0 and 1 produce constants
+// without consuming entropy.
 func WeightedBooleans(p float64) Generator[bool] {
 	return genFunc[bool](func(tc TestCase) (bool, error) {
 		ctx, ltc := tc.engine()
@@ -599,9 +599,7 @@ func datetimeFromTime(v time.Time) (libhegel.Datetime, error) {
 	}, nil
 }
 
-// DateGenerator configures and generates dates as time.Time values at midnight
-// UTC. Use [Dates] to create one, then chain [DateGenerator.Min] and
-// [DateGenerator.Max] to configure inclusive bounds.
+// DateGenerator generates dates at midnight UTC within inclusive bounds.
 type DateGenerator struct {
 	minVal *time.Time
 	maxVal *time.Time
@@ -609,22 +607,21 @@ type DateGenerator struct {
 
 var _ Generator[time.Time] = DateGenerator{}
 
-// Dates returns a DateGenerator covering the conventional Gregorian range from
-// 0001-01-01 through 9999-12-31. Bounds may widen it to engine-supported years
-// from -999999 through 999999.
+// Dates returns a DateGenerator with default bounds of 0001-01-01 and
+// 9999-12-31. Custom bounds may use years from -999999 through 999999.
 func Dates() DateGenerator {
 	return DateGenerator{}
 }
 
-// Min sets the inclusive minimum date. Only the date fields are used; the time
-// and location are ignored.
+// Min sets the inclusive minimum from v's date fields. It ignores the time and
+// location.
 func (g DateGenerator) Min(v time.Time) DateGenerator {
 	g.minVal = &v
 	return g
 }
 
-// Max sets the inclusive maximum date. Only the date fields are used; the time
-// and location are ignored.
+// Max sets the inclusive maximum from v's date fields. It ignores the time and
+// location.
 func (g DateGenerator) Max(v time.Time) DateGenerator {
 	g.maxVal = &v
 	return g
@@ -654,10 +651,7 @@ func (g DateGenerator) draw(tc TestCase) (time.Time, error) {
 	return d.ToTime(), nil
 }
 
-// DatetimeGenerator configures and generates naive datetimes as time.Time
-// values in UTC. Use [Datetimes] to create one, then chain
-// [DatetimeGenerator.Min] and [DatetimeGenerator.Max] to configure inclusive
-// bounds.
+// DatetimeGenerator generates UTC datetimes within inclusive bounds.
 type DatetimeGenerator struct {
 	minVal *time.Time
 	maxVal *time.Time
@@ -665,22 +659,22 @@ type DatetimeGenerator struct {
 
 var _ Generator[time.Time] = DatetimeGenerator{}
 
-// Datetimes returns a DatetimeGenerator covering the conventional Gregorian
-// range from 0001-01-01 through the last nanosecond of 9999-12-31. Bounds may
-// widen it to engine-supported years from -999999 through 999999.
+// Datetimes returns a DatetimeGenerator with default bounds from 0001-01-01
+// through the last nanosecond of 9999-12-31. Custom bounds may use years from
+// -999999 through 999999.
 func Datetimes() DatetimeGenerator {
 	return DatetimeGenerator{}
 }
 
-// Min sets the inclusive minimum datetime. The wall-clock fields are used and
-// the location is ignored.
+// Min sets the inclusive minimum from v's wall-clock fields. It ignores the
+// location.
 func (g DatetimeGenerator) Min(v time.Time) DatetimeGenerator {
 	g.minVal = &v
 	return g
 }
 
-// Max sets the inclusive maximum datetime. The wall-clock fields are used and
-// the location is ignored.
+// Max sets the inclusive maximum from v's wall-clock fields. It ignores the
+// location.
 func (g DatetimeGenerator) Max(v time.Time) DatetimeGenerator {
 	g.maxVal = &v
 	return g

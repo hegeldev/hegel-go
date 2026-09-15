@@ -91,12 +91,10 @@ func TestDomainsMaxLengthE2E(t *testing.T) {
 	}, WithTestCases(30))
 }
 
-// TestDatesE2E verifies that generated dates fall within the full Gregorian
-// range. Note: the minimum date 0001-01-01T00:00:00Z equals Go's time.Time
-// zero value, so IsZero() is not a validity check here — the year bound is.
 func TestDatesE2E(t *testing.T) {
 	t.Parallel()
 
+	// time.Time's zero value can be generated, so check the year bounds.
 	Test(t, func(ht *T) {
 		v := Draw(ht, Dates())
 		if v.Year() < 1 || v.Year() > 9999 {
@@ -160,12 +158,10 @@ func TestDatesSupportExtendedYears(t *testing.T) {
 	}, WithTestCases(1))
 }
 
-// TestDatetimesE2E verifies that generated datetimes fall within the full
-// Gregorian range with valid time components. As with dates, the minimum
-// datetime equals time.Time's zero value, so IsZero() is not used.
 func TestDatetimesE2E(t *testing.T) {
 	t.Parallel()
 
+	// time.Time's zero value can be generated, so check its fields.
 	Test(t, func(ht *T) {
 		v := Draw(ht, Datetimes())
 		if v.Year() < 1 || v.Year() > 9999 {
