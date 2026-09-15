@@ -701,9 +701,9 @@ func TestRunWithContextEmitsNondeterministicFailureOutput(t *testing.T) {
 		true, libhegel.OK, // is_nondeterministic
 		uintptr(1), libhegel.OK, // printer
 		libhegel.OK,                     // note
+		libhegel.OK,                     // mark_complete
 		libhegel.OK,                     // resolve
 		"failure output\n", libhegel.OK, // value
-		libhegel.OK,             // mark_complete
 		uintptr(0), libhegel.OK, // next_test_case: run finished
 		uintptr(1), libhegel.OK, // run_result
 		libhegel.RUN_STATUS_FAILED_NONDETERMINISTIC, libhegel.OK, // result status

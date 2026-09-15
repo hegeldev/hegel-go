@@ -61,6 +61,45 @@ func TestNativeOutputLifecycle(t *testing.T) {
 	}
 }
 
+func TestNativeOutputFlushesOnPanic(t *testing.T) {
+	var out strings.Builder
+	s := newEmittingTestCase(t, &out)
+	s.panicPolicy = propagateUserPanics
+	defer func() {
+		if got := recover(); got != "boom" {
+			t.Fatalf("panic = %v", got)
+		}
+		if got := out.String(); got != "before panic\n" {
+			t.Fatalf("output = %q", got)
+		}
+	}()
+	_, _ = s.run(func(tc TestCase) { tc.Note("before panic"); panic("boom") })
+}
+
+func TestNativeOutputDiscardsRejectedCases(t *testing.T) {
+	for name, reject := range map[string]func(TestCase){
+		"assume": func(tc TestCase) { tc.Assume(false) },
+		"overrun": func(tc TestCase) {
+			tc.(*testCase).abort(libhegel.E_STOP_TEST)
+		},
+	} {
+		t.Run(name, func(t *testing.T) {
+			var out strings.Builder
+			s := newEmittingTestCase(t, &out)
+			_, err := s.run(func(tc TestCase) {
+				tc.Note("rejected")
+				reject(tc)
+			})
+			if err != nil {
+				t.Fatal(err)
+			}
+			if out.Len() != 0 {
+				t.Fatalf("rejected output = %q", out.String())
+			}
+		})
+	}
+}
+
 func TestNativeOutputInitializationError(t *testing.T) {
 	s := newStubTestCase(t, uintptr(0), libhegel.E_BACKEND, "printer failed")
 	_, err := newTestCase(s.ctx, s.tc, io.Discard, s.panicPolicy)
@@ -85,6 +124,7 @@ func TestNativeOutputCloneInitializationError(t *testing.T) {
 func TestNativeOutputReadErrors(t *testing.T) {
 	s := newStubTestCase(t,
 		uintptr(1), libhegel.OK, // printer
+		libhegel.OK,                           // mark complete
 		libhegel.OK,                           // resolve
 		"", libhegel.E_BACKEND, "read failed", // value
 	)
@@ -148,6 +188,9 @@ func TestNativeOutputWriteError(t *testing.T) {
 	s.Note("output")
 	if _, err := s.run(func(TestCase) {}); !errors.Is(err, want) {
 		t.Fatal(err)
+	}
+	if err := s.tc.Note(s.ctx, "late"); !errors.Is(err, libhegel.E_INVALID_HANDLE) {
+		t.Fatalf("test case remained live after write error: %v", err)
 	}
 }
 

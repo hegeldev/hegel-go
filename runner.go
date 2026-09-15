@@ -690,21 +690,20 @@ func (s *testCase) invoke(fn testBody) (result error) {
 	return nil
 }
 
-func (s *testCase) run(fn testBody) (bool, error) {
-	result := s.invoke(fn)
-	if s.out != nil {
-		// Match the Rust frontend: no deferred regions is a harmless resolve error;
-		// Value still reports layout errors after resolution.
-		_ = s.printer.Resolve(s.ctx)
-		value, err := s.printer.Value(s.ctx)
-		if err != nil {
-			return false, err
+func (s *testCase) run(fn testBody) (failed bool, err error) {
+	var result error
+	defer func() {
+		// Rejected and overrun cases are probes, not results. Their native
+		// documents must remain private even when this case owns an output
+		// destination.
+		if errors.Is(result, libhegel.E_ASSUME) || errors.Is(result, libhegel.E_STOP_TEST) {
+			return
 		}
-		if _, err := io.WriteString(s.out, value); err != nil {
-			return false, err
-		}
+		err = errors.Join(err, s.flushNativeOutput())
 		formatInvocationResult(s.out, result)
-	}
+	}()
+
+	result = s.invoke(fn)
 	if result == nil {
 		return false, s.tc.MarkComplete(s.ctx, libhegel.STATUS_VALID, "")
 	}
@@ -727,6 +726,21 @@ func (s *testCase) run(fn testBody) (bool, error) {
 
 	return true, s.tc.MarkComplete(s.ctx, status, origin)
 
+}
+
+func (s *testCase) flushNativeOutput() error {
+	if s.out == nil {
+		return nil
+	}
+	// Match the Rust frontend: no deferred regions is a harmless resolve error;
+	// Value still reports layout errors after resolution.
+	_ = s.printer.Resolve(s.ctx)
+	value, err := s.printer.Value(s.ctx)
+	if err != nil {
+		return err
+	}
+	_, err = io.WriteString(s.out, value)
+	return err
 }
 
 // replayFailures walks the failures of a result and replays fn against them.
