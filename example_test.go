@@ -205,35 +205,24 @@ func ExampleComposite_dataDependentDrawCount() {
 	})
 }
 
-func ExampleComposite_recursive() {
-	// A binary tree generator that references itself: each node may contain
-	// subtrees produced by the same generator. The forward declaration lets
-	// the closure capture nodeGen before it's assigned.
-	//
-	// Recursion is explicitly bounded by a depth counter held in the closure
-	// — incremented before each recursive Draw and decremented after, so it
-	// tracks the live recursion stack. This is the safest pattern; an
-	// unbounded variant relying purely on Hegel's per-test-case data budget
-	// is possible but harder to reason about.
+func ExampleRecursive() {
 	type Node struct {
 		Value int
 		Left  *Node
 		Right *Node
 	}
 
-	const maxDepth = 5
-	depth := 0
-	var nodeGen hegel.Generator[*Node]
-	nodeGen = hegel.Composite(func(tc hegel.TestCase) *Node {
-		n := &Node{Value: hegel.Draw(tc, hegel.Integers(0, 100))}
-		if depth < maxDepth && hegel.Draw(tc, hegel.Booleans()) {
-			depth++
-			n.Left = hegel.Draw(tc, nodeGen)
-			n.Right = hegel.Draw(tc, nodeGen)
-			depth--
-		}
-		return n
+	leaf := hegel.Map(hegel.Integers(0, 100), func(value int) *Node {
+		return &Node{Value: value}
 	})
+	nodeGen := hegel.Recursive(leaf, func(subtree hegel.Generator[*Node]) hegel.Generator[*Node] {
+		return hegel.Composite(func(tc hegel.TestCase) *Node {
+			return &Node{
+				Left:  hegel.Draw(tc, subtree),
+				Right: hegel.Draw(tc, subtree),
+			}
+		})
+	}).MaxDepth(5).MaxLeaves(20)
 
 	t := &testing.T{}
 	hegel.Test(t, func(ht *hegel.T) {

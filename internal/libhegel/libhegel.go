@@ -1442,6 +1442,12 @@ func (tc *TestCase) CollectionReject(ctx *Context, coll *Collection, why string)
 // (hegel_recursion_free).
 type Recursion pointer[recursionT]
 
+// Free releases the recursion handle immediately and cancels its automatic
+// cleanup. It is safe to call Free more than once.
+func (r *Recursion) Free() {
+	(*pointer[recursionT])(r).Free()
+}
+
 // NewRecursion opens a recursive generation scope: the engine decides where the
 // value branches, where it bottoms out in leaves, and when an attempt has grown
 // too large and must be retried. maxDepth bounds how deep branches may nest (0
