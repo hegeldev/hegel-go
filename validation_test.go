@@ -188,9 +188,6 @@ func TestBinaryMinGreaterThanMax(t *testing.T) {
 	assertPanicsWithMessage(t, "max_size", func() { Binary(10, 5) })
 }
 
-// Lists / Maps validation happens in validate(), before withSpan / engine, so
-// draw(nil) surfaces the error.
-
 func TestListsMinGreaterThanMax(t *testing.T) {
 	_, err := Lists(Booleans()).MinSize(10).MaxSize(5).draw(nil)
 	assertErrorContains(t, "max_size", err)
@@ -257,15 +254,13 @@ func invalidFloats() Generator[float64] {
 // --- inner-error propagation from a nested generator's draw ---
 
 func TestListsInnerErrorPropagates(t *testing.T) {
-	// start_span(list), new_collection, collection_more=true, then the element
-	// draw (invalidFloats) fails in params() before any engine call.
-	tc := newStubTestCase(t, libhegel.OK, uintptr(1), libhegel.OK, true, libhegel.OK)
+	tc := newStubTestCase(t, uintptr(1), libhegel.OK, true, libhegel.OK)
 	_, err := Lists(invalidFloats()).draw(tc)
 	assertErrorContains(t, "allow_nan", err)
 }
 
 func TestMapsKeyErrorPropagates(t *testing.T) {
-	tc := newStubTestCase(t, libhegel.OK, uintptr(1), libhegel.OK, true, libhegel.OK)
+	tc := newStubTestCase(t, uintptr(1), libhegel.OK, true, libhegel.OK)
 	_, err := Maps[float64, int](invalidFloats(), Integers(0, 1)).draw(tc)
 	assertErrorContains(t, "allow_nan", err)
 }
@@ -273,23 +268,19 @@ func TestMapsKeyErrorPropagates(t *testing.T) {
 func TestMapsValueErrorPropagates(t *testing.T) {
 	// The key draw (Integers) succeeds before the value draw fails, so it
 	// consumes one generate_integer output.
-	tc := newStubTestCase(t, libhegel.OK, uintptr(1), libhegel.OK, true, libhegel.OK, int64(0), libhegel.OK)
+	tc := newStubTestCase(t, uintptr(1), libhegel.OK, true, libhegel.OK, int64(0), libhegel.OK)
 	_, err := Maps[int, float64](Integers(0, 1), invalidFloats()).draw(tc)
 	assertErrorContains(t, "allow_nan", err)
 }
 
 func TestOneOfBranchErrorPropagates(t *testing.T) {
-	// start_span(one_of), generate_integer (branch index 0), then the branch
-	// draw fails in params().
-	tc := newStubTestCase(t, libhegel.OK, int64(0), libhegel.OK)
+	tc := newStubTestCase(t, int64(0), libhegel.OK)
 	_, err := OneOf(invalidFloats()).draw(tc)
 	assertErrorContains(t, "allow_nan", err)
 }
 
 func TestOptionalInnerErrorPropagates(t *testing.T) {
-	// start_span(optional), generate_integer=1 (draw the inner value), then the
-	// inner draw fails in params().
-	tc := newStubTestCase(t, libhegel.OK, int64(1), libhegel.OK)
+	tc := newStubTestCase(t, int64(1), libhegel.OK)
 	_, err := Optional(invalidFloats()).draw(tc)
 	assertErrorContains(t, "allow_nan", err)
 }
@@ -313,8 +304,7 @@ func TestMapsDrawInvalidConfigReturnsError(t *testing.T) {
 // config surfaces when the mapped generator is drawn.
 func TestMapInvalidSourceReturnsErrorOnDraw(t *testing.T) {
 	gen := Map(invalidFloats(), func(v float64) float64 { return v })
-	// start_span(mapped), then the inner draw fails in params().
-	tc := newStubTestCase(t, libhegel.OK)
+	tc := newStubTestCase(t)
 	_, err := gen.draw(tc)
 	assertErrorContains(t, "allow_nan", err)
 }

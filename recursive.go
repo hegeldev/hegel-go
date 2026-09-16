@@ -113,7 +113,7 @@ type subtreeGenerator[T any] struct {
 
 func (g *subtreeGenerator[T]) draw(tc TestCase) (T, error) {
 	var zero T
-	if err := tc.startSpan("recursive"); err != nil {
+	if err := tc.startSpan(labelFor("recursive")); err != nil {
 		return zero, err
 	}
 

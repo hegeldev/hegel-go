@@ -131,7 +131,9 @@ func Draw[T any](tc TestCase, g Generator[T]) T {
 	if h, ok := tc.(interface{ Helper() }); ok {
 		h.Helper()
 	}
-	v, err := g.draw(tc)
+	v, err := withSpan(tc, labelFor(g), func() (T, error) {
+		return g.draw(tc)
+	})
 	if err != nil {
 		tc.abort(err)
 	}
@@ -152,14 +154,12 @@ type mappedGenerator[T, U any] struct {
 
 //lint:ignore U1000 satisfies Generator interface; staticcheck misses generic dispatch
 func (g *mappedGenerator[T, U]) draw(tc TestCase) (U, error) {
-	return withSpan(tc, "mapped", func() (U, error) {
-		var zero U
-		v, err := g.inner.draw(tc)
-		if err != nil {
-			return zero, err
-		}
-		return g.fn(v), nil
-	})
+	var zero U
+	v, err := g.inner.draw(tc)
+	if err != nil {
+		return zero, err
+	}
+	return g.fn(v), nil
 }
 
 // --- filteredGenerator ---
@@ -180,7 +180,7 @@ const maxFilterAttempts = 3
 func (g *filteredGenerator[T]) draw(tc TestCase) (T, error) {
 	var zero T
 	for range maxFilterAttempts {
-		if err := tc.startSpan("filter"); err != nil {
+		if err := tc.startSpan(labelFor("filter")); err != nil {
 			return zero, err
 		}
 		value, err := g.source.draw(tc)
@@ -211,14 +211,12 @@ type flatMappedGenerator[T, U any] struct {
 
 //lint:ignore U1000 satisfies Generator interface; staticcheck misses generic dispatch
 func (g *flatMappedGenerator[T, U]) draw(tc TestCase) (U, error) {
-	return withSpan(tc, "flat_map", func() (U, error) {
-		var zero U
-		first, err := g.source.draw(tc)
-		if err != nil {
-			return zero, err
-		}
-		return g.f(first).draw(tc)
-	})
+	var zero U
+	first, err := g.source.draw(tc)
+	if err != nil {
+		return zero, err
+	}
+	return g.f(first).draw(tc)
 }
 
 // --- Free function combinators ---
