@@ -1,16 +1,19 @@
 name: Bump hegel-rust
 
 on:
-  # Fired by hegel-rust's release workflow; client_payload.version carries the
-  # released version so we pin that exact release rather than racing on latest.
+  # Fired by hegel-rust's release workflow whenever a release includes hegel-c.
+  # client_payload.tag carries the `libhegel-v<version>` release tag (the tag
+  # the libhegel binaries hang off; the bare `v<version>` tag marks the
+  # hegeltest release and has no GitHub release), so we pin that exact
+  # release rather than racing on latest.
   repository_dispatch:
     types: [hegel-rust-release]
   # Manual escape hatch: run with an empty version to pin the latest release,
-  # or supply a specific version.
+  # or supply a specific version (bare, e.g. 0.42.4, or its libhegel-v tag).
   workflow_dispatch:
     inputs:
       version:
-        description: "hegel-rust version to pin (empty = latest release)"
+        description: "libhegel version or libhegel-v tag to pin (empty = latest release)"
         required: false
         default: ""
 
@@ -53,8 +56,8 @@ jobs:
         env:
           GH_TOKEN: ${{ steps.app-token.outputs.token }}
           HEGEL_RELEASE_APP_ID: ${{ vars.HEGEL_RELEASE_APP_ID }}
-          VERSION: ${{ github.event.client_payload.version || inputs.version }}
-        run: python .github/scripts/bump_hegel_rust.py "$VERSION"
+          REQUESTED: ${{ github.event.client_payload.tag || inputs.version }}
+        run: python .github/scripts/bump_hegel_rust.py "$REQUESTED"
 
       # The version bump changes the pinned constant and vendored binaries. The C ABI
       # may have shifted with the new release, so realign the FFI wrapper
@@ -72,7 +75,7 @@ jobs:
           # blocks bot-initiated runs by default; allow this specific bot.
           allowed_bots: hegel-release
           prompt: |
-            The pinned libhegel version was just bumped to v${{ steps.bump.outputs.version }}
+            The pinned libhegel version was just bumped to ${{ steps.bump.outputs.version }}
             (internal/libhegel/version.go and internal/libhegel/libs/) on this checkout. Use the align-libhegel skill
             to align the Go FFI wrapper in internal/libhegel/ to the new release, so that
             `just check vendored` passes. Do NOT change the public `hegel` package API — only
@@ -109,10 +112,10 @@ jobs:
           git push --force origin "$BRANCH"
 
           workflow_url="https://github.com/hegeldev/hegel-go/blob/main/.github/workflows/bump-hegel-rust.yml"
-          release_url="https://github.com/hegeldev/hegel-rust/releases/tag/v${VERSION}"
+          release_url="https://github.com/hegeldev/hegel-rust/releases/tag/libhegel-v${VERSION}"
           title="Bump pinned \`libhegel\` to \`${VERSION}\`"
           body=$(printf '%s\n' \
-            "This PR bumps our pinned \`libhegel\` version to [\`v${VERSION}\`](${release_url})." \
+            "This PR bumps our pinned \`libhegel\` version to [\`${VERSION}\`](${release_url})." \
             "" \
             "---" \
             "" \

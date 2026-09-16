@@ -41,7 +41,8 @@ def bump(requested: str) -> None:
     current = get_pinned_version()
 
     # `just vendor-libhegel` downloads the target release's libhegel artifacts
-    # into libs/ (empty requested -> latest) and rewrites version.go.
+    # into libs/ (empty requested -> latest) and rewrites version.go. The
+    # request may be a bare version or a release tag such as libhegel-v0.42.4;
     # vendor-libhegel.go discovers the resolved version itself, so we read it
     # back rather than trusting the request (which may be empty for a manual
     # latest-bump).
@@ -49,12 +50,14 @@ def bump(requested: str) -> None:
     new = get_pinned_version()
 
     if new == current:
-        print(f"Already pinned to v{current}; nothing to do.")
+        print(f"Already pinned to libhegel {current}; nothing to do.")
         set_output("bumped", "false")
         return
 
-    current_url = f"https://github.com/{RUST_REPO}/releases/tag/v{current}"
-    new_url = f"https://github.com/{RUST_REPO}/releases/tag/v{new}"
+    # libhegel releases hang off hegel-rust's `libhegel-v<version>` tags (the
+    # bare `v<version>` tags mark hegeltest releases and carry no binaries).
+    current_url = f"https://github.com/{RUST_REPO}/releases/tag/libhegel-v{current}"
+    new_url = f"https://github.com/{RUST_REPO}/releases/tag/libhegel-v{new}"
 
     RELEASE_MD.write_text(
         "RELEASE_TYPE: patch\n\n"
@@ -84,6 +87,7 @@ def bump(requested: str) -> None:
 
 
 if __name__ == "__main__":
-    # An optional argument pins that exact version; with none we take the
-    # latest. The repository_dispatch trigger passes client_payload.version.
+    # An optional argument pins that exact release (a bare version or a
+    # `libhegel-v<version>` tag); with none we take the latest. The
+    # repository_dispatch trigger passes client_payload.tag.
     bump(sys.argv[1] if len(sys.argv) > 1 else "")
