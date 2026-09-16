@@ -602,7 +602,7 @@ func run(fn testBody, opts ...Option) error {
 
 	var pcs [32]uintptr
 	n := runtime.Callers(2, pcs[:])
-	if location, ok := findCallerLocationInPCs(pcs[:n], isNotHegelFrame); ok {
+	if location, ok := findCallerLocationInPCs(pcs[:n], isNotRunWrapper); ok {
 		o.addSetting(func(ctx *libhegel.Context, s *libhegel.Settings) error {
 			return s.TestLocation(ctx, location.file, uint32(location.line), location.class, location.function)
 		})
@@ -838,17 +838,25 @@ func replayFailures(ctx *libhegel.Context, s *libhegel.Settings, result *libhege
 		if err != nil {
 			return err
 		}
-		if _, err := state.run(fn); err != nil {
+		if err := replayFailure(state, fn, opts.output, printBlob, blob); err != nil {
 			return err
-		}
-		if printBlob && opts.output != nil {
-			if _, err := fmt.Fprintf(opts.output, "reproduction blob: %s\n", blob); err != nil {
-				return err
-			}
 		}
 		origins = append(origins, fail.Origin(ctx))
 	}
 	return fmt.Errorf("%w: %d failures %v", errPropTestFailed, len(origins), origins)
+}
+
+// replayFailure appends the reproduction blob when enabled, even if replay panics.
+func replayFailure(state *testCase, fn testBody, out io.Writer, printBlob bool, blob string) (err error) {
+	defer func() {
+		if !printBlob || out == nil {
+			return
+		}
+		_, writeErr := fmt.Fprintf(out, "reproduction blob: %s\n", blob)
+		err = errors.Join(err, writeErr)
+	}()
+	_, err = state.run(fn)
+	return err
 }
 
 type callerLocation struct {
@@ -932,6 +940,19 @@ func isHegelFrame(fn string) bool {
 
 func isNotHegelFrame(fn string) bool {
 	return !isHegelFrame(fn)
+}
+
+func isNotRunWrapper(fn string) bool {
+	switch fn {
+	case "hegel.dev/go/hegel.Run",
+		"hegel.dev/go/hegel.MustRun",
+		"hegel.dev/go/hegel.Test",
+		"hegel.dev/go/hegel.Workload",
+		"hegel.dev/go/hegel.workload":
+		return false
+	default:
+		return true
+	}
 }
 
 func (s *testCase) setWorker(index int64) error {

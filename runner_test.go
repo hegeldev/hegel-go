@@ -4,6 +4,8 @@ import (
 	"errors"
 	"math"
 	"os"
+	"os/exec"
+	"path/filepath"
 	"runtime"
 	"strings"
 	"sync"
@@ -160,6 +162,34 @@ func TestRunPublicAPI(t *testing.T) {
 	}
 }
 
+func TestRunReportsSamePackageLocation(t *testing.T) {
+	const fixtureEnv = "HEGEL_TEST_LOCATION_FIXTURE"
+	if os.Getenv(fixtureEnv) == "1" {
+		if err := Run(func(TestCase) {}, WithTestCases(1), WithDatabase("")); err != nil {
+			t.Fatal(err)
+		}
+		return
+	}
+
+	sdkDir := t.TempDir()
+	cmd := exec.Command(os.Args[0], "-test.run=^TestRunReportsSamePackageLocation$")
+	cmd.Env = append(os.Environ(), fixtureEnv+"=1", "ANTITHESIS_OUTPUT_DIR="+sdkDir)
+	if output, err := cmd.CombinedOutput(); err != nil {
+		t.Fatalf("location fixture: %v\n%s", err, output)
+	}
+	data, err := os.ReadFile(filepath.Join(sdkDir, "sdk.jsonl"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	report := string(data)
+	if !strings.Contains(report, `"class":"hegel.dev/go/hegel"`) || !strings.Contains(report, `"function":"TestRunReportsSamePackageLocation"`) {
+		t.Fatalf("unexpected Antithesis report:\n%s", report)
+	}
+	if !strings.Contains(report, `runner_test.go`) {
+		t.Fatalf("report does not contain the property source file:\n%s", report)
+	}
+}
+
 // --- Test() entry point: success ---
 
 func TestTestSuccess(t *testing.T) {
@@ -210,6 +240,26 @@ func TestIsHegelFrame(t *testing.T) {
 	for _, tc := range cases {
 		if got := isHegelFrame(tc.fn); got != tc.want {
 			t.Errorf("isHegelFrame(%q) = %v, want %v", tc.fn, got, tc.want)
+		}
+	}
+}
+
+func TestIsNotRunWrapper(t *testing.T) {
+	t.Parallel()
+	for _, test := range []struct {
+		fn   string
+		want bool
+	}{
+		{"hegel.dev/go/hegel.Run", false},
+		{"hegel.dev/go/hegel.MustRun", false},
+		{"hegel.dev/go/hegel.Test", false},
+		{"hegel.dev/go/hegel.Workload", false},
+		{"hegel.dev/go/hegel.workload", false},
+		{"hegel.dev/go/hegel.TestUserProperty", true},
+		{"example.com/project.TestUserProperty", true},
+	} {
+		if got := isNotRunWrapper(test.fn); got != test.want {
+			t.Errorf("isNotRunWrapper(%q) = %v, want %v", test.fn, got, test.want)
 		}
 	}
 }
@@ -832,19 +882,27 @@ func TestRunWithContextReplayPropagatesUserPanic(t *testing.T) {
 		uint64(1), libhegel.OK, // one failure
 		uintptr(1), libhegel.OK, // failure handle
 		"blob-data", libhegel.OK, // reproduction blob
-		false, libhegel.OK, // print blob
+		true, libhegel.OK, // print blob
 		uintptr(1), libhegel.OK, // test_case_from_blob handle
-		libhegel.OK, // mark_complete replay during panic unwinding
+		uintptr(1), libhegel.OK, // printer
+		libhegel.OK,     // resolve during panic unwinding
+		"", libhegel.OK, // printer value
 	)
+	var output strings.Builder
+	opts := applyOpts([]Option{WithDerandomize(false)})
+	opts.output = &output
 
 	defer func() {
 		if got := recover(); got != "replay panic" {
 			t.Fatalf("panic = %v, want replay panic", got)
 		}
+		if got := output.String(); !strings.Contains(got, "reproduction blob: blob-data") {
+			t.Fatalf("output = %q, want reproduction blob", got)
+		}
 	}()
 	_ = runWithContext(lib, func(TestCase) {
 		panic("replay panic")
-	}, applyOpts([]Option{WithDerandomize(false)}))
+	}, opts)
 }
 
 func TestRunWithContextReplayMarkCompleteError(t *testing.T) {
