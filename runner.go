@@ -106,6 +106,18 @@ func (s *testCase) Note(message string) {
 	}
 }
 
+func (s *testCase) Event(label string) {
+	if err := s.tc.Event(s.ctx, label); err != nil {
+		s.abort(err)
+	}
+}
+
+func (s *testCase) EventValue(label string, value float64) {
+	if err := s.tc.EventValue(s.ctx, value, label); err != nil {
+		s.abort(err)
+	}
+}
+
 func (s *testCase) log(format string, args ...any) {
 	if s.printer != nil {
 		s.Note(fmt.Sprintf(format, args...))
@@ -488,6 +500,17 @@ func WithReportMultipleFailures(report bool) Option {
 	}
 }
 
+// WithStatistics controls end-of-run statistics for events recorded with
+// [TestCase.Event] and [TestCase.EventValue]. Statistics are disabled by default.
+// A nonempty HEGEL_STATISTICS value other than "0" enables them regardless of show.
+func WithStatistics(show bool) Option {
+	return func(o *runOptions) {
+		o.addSetting(func(ctx *libhegel.Context, s *libhegel.Settings) error {
+			return s.ShowStatistics(ctx, show)
+		})
+	}
+}
+
 // WithPhases restricts the run to the given test phases. See [Phase] and
 // [AllPhases]. The active profile supplies the default; the base profile runs all phases.
 func WithPhases(phases ...Phase) Option {
@@ -670,6 +693,9 @@ func (o runOptions) buildSettings(ctx *libhegel.Context) (*libhegel.Settings, er
 	var errs []error
 	for _, apply := range o.settingsAppliers {
 		errs = append(errs, apply(ctx, s))
+	}
+	if value, ok := os.LookupEnv("HEGEL_STATISTICS"); ok && value != "" && value != "0" {
+		errs = append(errs, s.ShowStatistics(ctx, true))
 	}
 
 	if err := errors.Join(errs...); err != nil {

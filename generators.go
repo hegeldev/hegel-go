@@ -28,6 +28,12 @@ type TestCase interface {
 	// to t.Log for [Test], or stdout for [Run].
 	Note(message string)
 
+	// Event records an occurrence under label for optional end-of-run statistics.
+	Event(label string)
+
+	// EventValue records a finite numeric observation under label for optional end-of-run statistics.
+	EventValue(label string, value float64)
+
 	// Target sends a target value to guide test generation.
 	Target(value float64, label string)
 
