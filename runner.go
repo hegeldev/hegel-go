@@ -694,6 +694,9 @@ func (o runOptions) buildSettings(ctx *libhegel.Context) (*libhegel.Settings, er
 	for _, apply := range o.settingsAppliers {
 		errs = append(errs, apply(ctx, s))
 	}
+	if value, ok := os.LookupEnv("HEGEL_STATISTICS"); ok && value != "" && value != "0" {
+		errs = append(errs, s.ShowStatistics(ctx, true))
+	}
 
 	if err := errors.Join(errs...); err != nil {
 		return nil, err

@@ -437,6 +437,7 @@ func TestStatisticsReporting(t *testing.T) {
 }
 
 func TestStatisticsDisabledByDefault(t *testing.T) {
+	t.Setenv("HEGEL_STATISTICS", "")
 	var out strings.Builder
 	err := run(func(tc TestCase) {
 		_ = Draw(tc, Booleans())
@@ -447,6 +448,44 @@ func TestStatisticsDisabledByDefault(t *testing.T) {
 	}
 	if got := out.String(); strings.Contains(got, "Statistics") {
 		t.Fatalf("unexpected statistics output:\n%s", got)
+	}
+}
+
+func TestStatisticsEnvironmentOverride(t *testing.T) {
+	t.Setenv("HEGEL_STATISTICS", "1")
+	var out strings.Builder
+	err := run(func(tc TestCase) {
+		_ = Draw(tc, Booleans())
+		tc.Event("visited")
+	}, WithTestCases(1), WithDatabase(""), WithShowStatistics(false), withOutput(&out))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got := out.String(); !strings.Contains(got, "* visited: 100.0% of test cases") {
+		t.Fatalf("statistics environment override was not applied:\n%s", got)
+	}
+}
+
+func TestStatisticsEnvironmentDisabledValues(t *testing.T) {
+	for _, test := range []struct {
+		name  string
+		value string
+	}{
+		{"empty", ""},
+		{"zero", "0"},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			t.Setenv("HEGEL_STATISTICS", test.value)
+			ctx := libhegel.NewContext()
+			settings, err := (runOptions{}).buildSettings(ctx)
+			if err != nil {
+				t.Fatal(err)
+			}
+			got, err := settings.GetShowStatistics(ctx)
+			if err != nil || got {
+				t.Fatalf("show statistics = %v, %v; want false", got, err)
+			}
+		})
 	}
 }
 
