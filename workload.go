@@ -26,7 +26,7 @@ var (
 //
 // opts are overridden by flags.
 func Workload(fn func(TestCase), opts ...Option) {
-	err := workload(2, os.Args, workloadStdout, workloadStderr, fn, opts)
+	err := workload(1, os.Args, workloadStdout, workloadStderr, fn, opts)
 	if err == nil {
 		return
 	}
@@ -63,7 +63,7 @@ func workload(callerSkip int, args []string, stdout io.Writer, stderr io.Writer,
 		}
 	})
 	allOpts = append(allOpts, withOutput(stdout))
-	return run(callerSkip, fn, allOpts...)
+	return run(callerSkip+1, fn, allOpts...)
 }
 
 type optionValue interface {
