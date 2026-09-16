@@ -1,5 +1,9 @@
 # Changelog
 
+## 0.9.3 - 2026-09-16
+
+This release adds event recording and end-of-run statistics through `TestCase.Event`, `TestCase.EventValue`, and `WithStatistics`.
+
 ## 0.9.2 - 2026-09-16
 
 This release adds `Recursive` generators for engine-managed recursive values with configurable depth and leaf limits.
