@@ -37,7 +37,7 @@ func TestDatabasePersistsFailingExamples(t *testing.T) {
 		t.Fatal("expected empty database directory before the run")
 	}
 
-	err = run(func(tc TestCase) {
+	err = run(1, func(tc TestCase) {
 		tc.Fail()
 	},
 		WithDatabase(dbDir),

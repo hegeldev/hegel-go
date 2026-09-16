@@ -4,6 +4,7 @@ import (
 	"errors"
 	"math"
 	"os"
+	"path/filepath"
 	"runtime"
 	"strings"
 	"sync"
@@ -160,6 +161,28 @@ func TestRunPublicAPI(t *testing.T) {
 	}
 }
 
+func TestRunReportsSamePackageLocation(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("libhegel's Antithesis reporter does not write sdk.jsonl on Windows")
+	}
+	sdkDir := t.TempDir()
+	t.Setenv("ANTITHESIS_OUTPUT_DIR", sdkDir)
+	if err := Run(func(TestCase) {}, WithTestCases(1), WithDatabase("")); err != nil {
+		t.Fatal(err)
+	}
+	data, err := os.ReadFile(filepath.Join(sdkDir, "sdk.jsonl"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	report := string(data)
+	if !strings.Contains(report, `"class":"hegel.dev/go/hegel"`) || !strings.Contains(report, `"function":"TestRunReportsSamePackageLocation"`) {
+		t.Fatalf("unexpected Antithesis report:\n%s", report)
+	}
+	if !strings.Contains(report, `runner_test.go`) {
+		t.Fatalf("report does not contain the property source file:\n%s", report)
+	}
+}
+
 // --- Test() entry point: success ---
 
 func TestTestSuccess(t *testing.T) {
@@ -214,10 +237,6 @@ func TestIsHegelFrame(t *testing.T) {
 	}
 }
 
-func anyFrame(string) bool {
-	return true
-}
-
 // TestFindCallerStableAcrossValues verifies that origin is stable per call
 // site. libhegel uses the origin as a shrink-grouping key, and per-value
 // origins would prevent the shrinker from converging.
@@ -260,6 +279,37 @@ func TestFindCallerInPCsWithoutMatchingFrame(t *testing.T) {
 	runtime.Callers(1, pcs[:])
 	if got, want := findCallerInPCs(pcs[:], func(string) bool { return false }), "<unknown>:0 (0x0)"; got != want {
 		t.Fatalf("origin = %q, want %q", got, want)
+	}
+}
+
+func TestFindCallerLocationInPCs(t *testing.T) {
+	t.Parallel()
+	pcs := make([]uintptr, 8)
+	n := runtime.Callers(1, pcs)
+	location, ok := findCallerLocationInPCs(pcs[:n], anyFrame)
+	if !ok {
+		t.Fatal("expected caller location")
+	}
+	if !strings.HasSuffix(location.file, "runner_test.go") {
+		t.Errorf("file = %q, want runner_test.go", location.file)
+	}
+	if location.line == 0 {
+		t.Error("line = 0, want source line")
+	}
+	if got, want := location.class, "hegel.dev/go/hegel"; got != want {
+		t.Errorf("class = %q, want %q", got, want)
+	}
+	if got, want := location.function, "TestFindCallerLocationInPCs"; got != want {
+		t.Errorf("function = %q, want %q", got, want)
+	}
+}
+
+func TestFindCallerLocationInPCsWithoutMatchingFrame(t *testing.T) {
+	t.Parallel()
+	var pcs [1]uintptr
+	runtime.Callers(1, pcs[:])
+	if _, ok := findCallerLocationInPCs(pcs[:], func(string) bool { return false }); ok {
+		t.Fatal("unexpected caller location")
 	}
 }
 
@@ -321,6 +371,7 @@ func TestSettingsOptionsRecordApplier(t *testing.T) {
 		{"WithVerbosity", WithVerbosity(VerbosityVerbose)},
 		{"WithReportMultipleFailures", WithReportMultipleFailures(true)},
 		{"WithStatistics", WithStatistics(true)},
+		{"WithReproductionBlob", WithReproductionBlob(true)},
 		{"WithPhases", WithPhases(PhaseGenerate, PhaseShrink)},
 		{"SuppressHealthCheck", SuppressHealthCheck(FilterTooMuch, TooSlow)},
 	}
@@ -427,7 +478,7 @@ func TestWithReportMultipleFailuresIntegration(t *testing.T) {
 
 func TestStatisticsReporting(t *testing.T) {
 	var out strings.Builder
-	err := run(func(tc TestCase) {
+	err := run(1, func(tc TestCase) {
 		_ = Draw(tc, Booleans())
 		tc.Event("visited")
 		tc.EventValue("size", 42)
@@ -447,7 +498,7 @@ func TestStatisticsReporting(t *testing.T) {
 func TestStatisticsDisabledByDefault(t *testing.T) {
 	t.Setenv("HEGEL_STATISTICS", "")
 	var out strings.Builder
-	err := run(func(tc TestCase) {
+	err := run(1, func(tc TestCase) {
 		_ = Draw(tc, Booleans())
 		tc.Event("visited")
 	}, WithTestCases(1), WithDatabase(""), withOutput(&out))
@@ -462,7 +513,7 @@ func TestStatisticsDisabledByDefault(t *testing.T) {
 func TestStatisticsEnvironmentOverride(t *testing.T) {
 	t.Setenv("HEGEL_STATISTICS", "1")
 	var out strings.Builder
-	err := run(func(tc TestCase) {
+	err := run(1, func(tc TestCase) {
 		_ = Draw(tc, Booleans())
 		tc.Event("visited")
 	}, WithTestCases(1), WithDatabase(""), WithStatistics(false), withOutput(&out))
@@ -685,6 +736,7 @@ func TestRunWithHandleCollectFailures(t *testing.T) {
 		uint64(1), libhegel.OK, // one failure
 		uintptr(1), libhegel.OK, // failure handle
 		"blob-data", libhegel.OK, // reproduction blob (replay)
+		false, libhegel.OK, // print blob
 		uintptr(1), libhegel.OK, // test_case_from_blob handle (replay)
 		libhegel.OK,                   // mark_complete replay
 		"prop_test.go:7", libhegel.OK, // failure origin
@@ -696,6 +748,95 @@ func TestRunWithHandleCollectFailures(t *testing.T) {
 	if !errors.Is(err, errPropTestFailed) || !strings.Contains(err.Error(), "prop_test.go:7") {
 		t.Fatalf("expected joined prop-test failure with origin, got %v", err)
 	}
+}
+
+func TestRunWithContextPrintsReproductionBlob(t *testing.T) {
+	t.Parallel()
+	lib := libhegel.Stub(t,
+		uintptr(1), libhegel.OK, // settings_new
+		libhegel.OK,             // derandomize
+		uintptr(1), libhegel.OK, // run_start
+		uintptr(0), libhegel.OK, // next_test_case: run finished
+		uintptr(1), libhegel.OK, // run_result
+		libhegel.RUN_STATUS_FAILED, libhegel.OK,
+		uint64(1), libhegel.OK, // failure count
+		uintptr(1), libhegel.OK, // failure
+		"blob-data", libhegel.OK,
+		true, libhegel.OK, // print blob
+		uintptr(1), libhegel.OK, // test_case_from_blob
+		uintptr(1), libhegel.OK, // printer
+		libhegel.OK,     // mark_complete
+		libhegel.OK,     // resolve
+		"", libhegel.OK, // printer value
+		"prop_test.go:7", libhegel.OK,
+	)
+	var output strings.Builder
+	opts := applyOpts([]Option{WithDerandomize(false)})
+	opts.output = &output
+	err := runWithContext(lib, func(TestCase) {}, opts)
+	if !errors.Is(err, errPropTestFailed) {
+		t.Fatalf("runWithContext error = %v, want property failure", err)
+	}
+	if got := output.String(); !strings.Contains(got, "reproduction blob: blob-data") {
+		t.Fatalf("output = %q, want reproduction blob", got)
+	}
+}
+
+func TestRunWithContextGetPrintBlobError(t *testing.T) {
+	t.Parallel()
+	lib := libhegel.Stub(t,
+		uintptr(1), libhegel.OK, // settings_new
+		libhegel.OK,             // derandomize
+		uintptr(1), libhegel.OK, // run_start
+		uintptr(0), libhegel.OK, // next_test_case: run finished
+		uintptr(1), libhegel.OK, // run_result
+		libhegel.RUN_STATUS_FAILED, libhegel.OK,
+		uint64(1), libhegel.OK, // failure count
+		uintptr(1), libhegel.OK, // failure
+		"blob-data", libhegel.OK,
+		false, libhegel.E_BACKEND, "print blob boom",
+	)
+	err := runWithContext(lib, func(TestCase) {}, applyOpts([]Option{WithDerandomize(false)}))
+	if err == nil || !strings.Contains(err.Error(), "print blob boom") {
+		t.Fatalf("error = %v, want print-blob error", err)
+	}
+}
+
+func TestRunWithContextReproductionBlobWriteError(t *testing.T) {
+	t.Parallel()
+	want := errors.New("write blob failed")
+	lib := libhegel.Stub(t,
+		uintptr(1), libhegel.OK, // settings_new
+		libhegel.OK,             // derandomize
+		uintptr(1), libhegel.OK, // run_start
+		uintptr(0), libhegel.OK, // next_test_case: run finished
+		uintptr(1), libhegel.OK, // run_result
+		libhegel.RUN_STATUS_FAILED, libhegel.OK,
+		uint64(1), libhegel.OK, // failure count
+		uintptr(1), libhegel.OK, // failure
+		"blob-data", libhegel.OK,
+		true, libhegel.OK, // print blob
+		uintptr(1), libhegel.OK, // test_case_from_blob
+		uintptr(1), libhegel.OK, // printer
+		libhegel.OK,     // mark_complete
+		libhegel.OK,     // resolve
+		"", libhegel.OK, // printer value
+	)
+	opts := applyOpts([]Option{WithDerandomize(false)})
+	opts.output = nonemptyWriteError{want}
+	err := runWithContext(lib, func(TestCase) {}, opts)
+	if !errors.Is(err, want) {
+		t.Fatalf("error = %v, want %v", err, want)
+	}
+}
+
+type nonemptyWriteError struct{ err error }
+
+func (w nonemptyWriteError) Write(p []byte) (int, error) {
+	if len(p) == 0 {
+		return 0, nil
+	}
+	return 0, w.err
 }
 
 func TestRunWithContextReplayPropagatesUserPanic(t *testing.T) {
@@ -710,18 +851,27 @@ func TestRunWithContextReplayPropagatesUserPanic(t *testing.T) {
 		uint64(1), libhegel.OK, // one failure
 		uintptr(1), libhegel.OK, // failure handle
 		"blob-data", libhegel.OK, // reproduction blob
+		true, libhegel.OK, // print blob
 		uintptr(1), libhegel.OK, // test_case_from_blob handle
-		libhegel.OK, // mark_complete replay during panic unwinding
+		uintptr(1), libhegel.OK, // printer
+		libhegel.OK,     // resolve during panic unwinding
+		"", libhegel.OK, // printer value
 	)
+	var output strings.Builder
+	opts := applyOpts([]Option{WithDerandomize(false)})
+	opts.output = &output
 
 	defer func() {
 		if got := recover(); got != "replay panic" {
 			t.Fatalf("panic = %v, want replay panic", got)
 		}
+		if got := output.String(); !strings.Contains(got, "reproduction blob: blob-data") {
+			t.Fatalf("output = %q, want reproduction blob", got)
+		}
 	}()
 	_ = runWithContext(lib, func(TestCase) {
 		panic("replay panic")
-	}, applyOpts([]Option{WithDerandomize(false)}))
+	}, opts)
 }
 
 func TestRunWithContextReplayMarkCompleteError(t *testing.T) {
@@ -736,6 +886,7 @@ func TestRunWithContextReplayMarkCompleteError(t *testing.T) {
 		uint64(1), libhegel.OK, // one failure
 		uintptr(1), libhegel.OK, // failure handle
 		"blob-data", libhegel.OK, // reproduction blob
+		false, libhegel.OK, // print blob
 		uintptr(1), libhegel.OK, // test_case_from_blob handle
 		libhegel.E_BACKEND, "replay mark boom", // mark_complete replay
 	)
@@ -839,6 +990,7 @@ func TestRunWithContextReplayBlobError(t *testing.T) {
 		uint64(1), libhegel.OK, // one failure
 		uintptr(1), libhegel.OK, // failure handle
 		"bad-blob", libhegel.OK, // reproduction blob
+		false, libhegel.OK, // print blob
 		uintptr(0), libhegel.E_BACKEND, "replay boom", // test_case_from_blob fails
 	)
 	err := runWithContext(lib, func(TestCase) {}, applyOpts([]Option{WithDerandomize(false)}))
@@ -899,6 +1051,7 @@ func TestBuildSettingsExercisesAllSetters(t *testing.T) {
 		libhegel.OK,             // verbosity
 		libhegel.OK,             // report_multiple_failures
 		libhegel.OK,             // show_statistics
+		libhegel.OK,             // print_blob
 		libhegel.OK,             // phases
 		libhegel.OK,             // settings
 		uintptr(1), libhegel.OK, // run_start
@@ -919,6 +1072,7 @@ func TestBuildSettingsExercisesAllSetters(t *testing.T) {
 		WithVerbosity(VerbosityVerbose),
 		WithReportMultipleFailures(true),
 		WithStatistics(true),
+		WithReproductionBlob(true),
 		WithPhases(PhaseGenerate, PhaseShrink),
 		WithTestCases(1),
 	})
@@ -1215,7 +1369,7 @@ func TestDrawMapNewCollectionError(t *testing.T) {
 // key generator that rejects via E_ASSUME, leaving the run all-invalid (passes).
 func TestDrawMapKeyError(t *testing.T) {
 	t.Parallel()
-	err := run(func(tc TestCase) {
+	err := run(1, func(tc TestCase) {
 		Draw[map[int]int](tc, Maps[int, int](
 			errGen[int]{err: libhegel.E_ASSUME}, errGen[int]{},
 		).MinSize(1))
@@ -1232,7 +1386,7 @@ func TestDrawMapKeyError(t *testing.T) {
 // sentinel mid-draw — which makes its coverage flaky.
 func TestDrawMapValueError(t *testing.T) {
 	t.Parallel()
-	err := run(func(tc TestCase) {
+	err := run(1, func(tc TestCase) {
 		Draw[map[int]int](tc, Maps[int, int](
 			Integers[int](0, 5), errGen[int]{err: libhegel.E_ASSUME},
 		).MinSize(1))
@@ -1245,7 +1399,7 @@ func TestDrawMapValueError(t *testing.T) {
 // TestDrawMapBasic covers the map collection path with primitive keys + values.
 func TestDrawMapBasic(t *testing.T) {
 	t.Parallel()
-	err := run(func(tc TestCase) {
+	err := run(1, func(tc TestCase) {
 		_ = Draw[map[int]int](tc, Maps[int, int](Integers[int](0, 5), Integers[int](0, 5)))
 	}, WithTestCases(5), WithDatabase(""))
 	if err != nil {

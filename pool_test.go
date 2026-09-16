@@ -61,7 +61,7 @@ func TestPoolDrawRejectsUnknownEngineID(t *testing.T) {
 }
 
 func TestPoolReusableAndConsumedValues(t *testing.T) {
-	err := run(func(tc TestCase) {
+	err := run(1, func(tc TestCase) {
 		pool := NewPool[int](tc)
 		if !pool.IsEmpty() || pool.Len() != 0 {
 			tc.Errorf("new pool is not empty")
@@ -129,7 +129,7 @@ func (m *concurrentPoolMachine) InvariantAccounting(tc TestCase) {
 }
 
 func TestPoolIsSafeForConcurrentStateMachines(t *testing.T) {
-	err := run(func(tc TestCase) {
+	err := run(1, func(tc TestCase) {
 		machine := &concurrentPoolMachine{
 			pool: NewPool[int64](tc),
 			seen: make(map[int64]struct{}),

@@ -213,7 +213,7 @@ func TestCompositeShrinksToFailingCase(t *testing.T) {
 	})
 
 	var minimalA, minimalB int
-	err := run(func(s TestCase) {
+	err := run(1, func(s TestCase) {
 		p := Draw(s, pairGen)
 		if p.a+p.b >= 100 {
 			minimalA, minimalB = p.a, p.b

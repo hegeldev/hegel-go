@@ -10,7 +10,7 @@ import (
 func TestUUIDs(t *testing.T) {
 	gen := UUIDs()
 
-	err := run(func(tc TestCase) {
+	err := run(1, func(tc TestCase) {
 		got := Draw(tc, gen)
 		if got == (uuid.UUID{}) {
 			tc.Errorf("UUIDs generated the nil UUID")
@@ -25,7 +25,7 @@ func TestUUIDs(t *testing.T) {
 }
 
 func TestUUIDsVersion(t *testing.T) {
-	err := run(func(tc TestCase) {
+	err := run(1, func(tc TestCase) {
 		got := Draw(tc, UUIDs().Version(4))
 		if version := got[6] >> 4; version != 4 {
 			tc.Errorf("UUIDs().Version(4) generated version %d UUID %q", version, got)

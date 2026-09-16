@@ -173,6 +173,7 @@ func TestParseHealthCheckRoundTrip(t *testing.T) {
 func TestWorkloadParsesFlags(t *testing.T) {
 	t.Parallel()
 	err := workload(
+		1,
 		[]string{
 			"prog",
 			"--test-cases=3",
@@ -192,7 +193,7 @@ func TestWorkloadParsesFlags(t *testing.T) {
 func TestWorkloadHelpReturnsNil(t *testing.T) {
 	t.Parallel()
 	var buf bytes.Buffer
-	err := workload([]string{"myprog", "--help"}, io.Discard, &buf, func(TestCase) {}, nil)
+	err := workload(1, []string{"myprog", "--help"}, io.Discard, &buf, func(TestCase) {}, nil)
 	if err != nil {
 		t.Errorf("expected nil error on --help, got %v", err)
 	}
@@ -207,7 +208,7 @@ func TestWorkloadHelpReturnsNil(t *testing.T) {
 func TestWorkloadBadFlagReturnsError(t *testing.T) {
 	t.Parallel()
 	var buf bytes.Buffer
-	err := workload([]string{"prog", "--bogus"}, io.Discard, &buf, func(TestCase) {}, nil)
+	err := workload(1, []string{"prog", "--bogus"}, io.Discard, &buf, func(TestCase) {}, nil)
 	if err == nil {
 		t.Fatal("expected error for unknown flag")
 	}
@@ -220,6 +221,7 @@ func TestWorkloadBadFlagReturnsError(t *testing.T) {
 func TestWorkloadBadHealthCheckReturnsError(t *testing.T) {
 	t.Parallel()
 	err := workload(
+		1,
 		[]string{"prog", "--suppress-health-check=nonsense"},
 		io.Discard,
 		io.Discard,

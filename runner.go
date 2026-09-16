@@ -7,6 +7,7 @@ import (
 	"io"
 	"math"
 	"os"
+	"path"
 	"runtime"
 	"strings"
 	"testing"
@@ -511,6 +512,17 @@ func WithStatistics(show bool) Option {
 	}
 }
 
+// WithReproductionBlob controls whether failure output includes the base64
+// reproduction blob for the counterexample. The blob remains available to the
+// runner for replay regardless of this setting.
+func WithReproductionBlob(show bool) Option {
+	return func(o *runOptions) {
+		o.addSetting(func(ctx *libhegel.Context, s *libhegel.Settings) error {
+			return s.PrintBlob(ctx, show)
+		})
+	}
+}
+
 // WithPhases restricts the run to the given test phases. See [Phase] and
 // [AllPhases]. The active profile supplies the default; the base profile runs all phases.
 func WithPhases(phases ...Phase) Option {
@@ -548,12 +560,12 @@ func withOutput(w io.Writer) Option {
 //
 // Note output goes to stdout. For use in standalone binaries and conformance tests.
 func Run(fn func(TestCase), opts ...Option) error {
-	return run(fn, append(opts, withOutput(os.Stdout))...)
+	return run(1, fn, append(opts, withOutput(os.Stdout))...)
 }
 
 // MustRun runs a property test and panics if it fails.
 func MustRun(fn func(TestCase), opts ...Option) {
-	if err := Run(fn, opts...); err != nil {
+	if err := run(1, fn, append(opts, withOutput(os.Stdout))...); err != nil {
 		panic(err)
 	}
 }
@@ -568,7 +580,7 @@ func Test(t *testing.T, fn func(*T), opts ...Option) {
 	}
 	allOpts := append(opts, withDatabaseKey(t.Name()), withOutput(t.Output()))
 
-	if err := run(body, allOpts...); err != nil { // coverage-ignore (run's error is covered via Run; this only delegates to stdlib testing.T)
+	if err := run(1, body, allOpts...); err != nil { // coverage-ignore (run's error is covered via Run; this only delegates to stdlib testing.T)
 		if errors.Is(err, errPropTestFailed) {
 			t.Fail()
 		} else {
@@ -577,15 +589,21 @@ func Test(t *testing.T, fn func(*T), opts ...Option) {
 	}
 }
 
-// run is the shared implementation for Run, MustRun, and Test.
-//
-// The example-database key is supplied (when applicable) by [Test]; non-test
-// entry points leave it nil. Note/draw-report output is routed via
-// [withOutput]; absent that option no output is produced.
-func run(fn testBody, opts ...Option) error {
+// run runs a property after skipping callerSkip stack frames above itself to
+// find the property definition. The example-database key is supplied by
+// [Test], and [withOutput] routes output.
+func run(callerSkip int, fn testBody, opts ...Option) error {
 	var o runOptions
 	for _, opt := range opts {
 		opt(&o)
+	}
+
+	var pcs [32]uintptr
+	n := runtime.Callers(2+callerSkip, pcs[:])
+	if location, ok := findCallerLocationInPCs(pcs[:n], anyFrame); ok {
+		o.addSetting(func(ctx *libhegel.Context, s *libhegel.Settings) error {
+			return s.TestLocation(ctx, location.file, uint32(location.line), location.class, location.function)
+		})
 	}
 
 	ctx := libhegel.NewContext()
@@ -806,6 +824,10 @@ func replayFailures(ctx *libhegel.Context, s *libhegel.Settings, result *libhege
 		if blob == "" {
 			return errPropTestFailed
 		}
+		printBlob, err := s.GetPrintBlob(ctx)
+		if err != nil {
+			return err
+		}
 		tc, err := s.TestCaseFromBlob(ctx, blob, opts.output)
 		if err != nil {
 			return err
@@ -814,7 +836,7 @@ func replayFailures(ctx *libhegel.Context, s *libhegel.Settings, result *libhege
 		if err != nil {
 			return err
 		}
-		if _, err := state.run(fn); err != nil {
+		if err := replayFailure(state, fn, opts.output, printBlob, blob); err != nil {
 			return err
 		}
 		origins = append(origins, fail.Origin(ctx))
@@ -822,20 +844,66 @@ func replayFailures(ctx *libhegel.Context, s *libhegel.Settings, result *libhege
 	return fmt.Errorf("%w: %d failures %v", errPropTestFailed, len(origins), origins)
 }
 
-// findCallerInPCs returns the first matching frame as "<file>:<line> (<pc>)".
-// The result is used as libhegel's stable shrink-grouping key.
-func findCallerInPCs(pcs []uintptr, filter func(string) bool) string {
+// replayFailure appends the reproduction blob when enabled, even if replay panics.
+func replayFailure(state *testCase, fn testBody, out io.Writer, printBlob bool, blob string) (err error) {
+	defer func() {
+		if !printBlob || out == nil {
+			return
+		}
+		_, writeErr := fmt.Fprintf(out, "reproduction blob: %s\n", blob)
+		err = errors.Join(err, writeErr)
+	}()
+	_, err = state.run(fn)
+	return err
+}
+
+type callerLocation struct {
+	file     string
+	line     int
+	class    string
+	function string
+}
+
+func findCallerLocationInPCs(pcs []uintptr, filter func(string) bool) (callerLocation, bool) {
+	frame, ok := findCallerFrameInPCs(pcs, filter)
+	if !ok {
+		return callerLocation{}, false
+	}
+	function := strings.TrimPrefix(path.Ext(frame.Function), ".")
+	class, _ := strings.CutSuffix(frame.Function, "."+function)
+	return callerLocation{
+		file:     frame.File,
+		line:     frame.Line,
+		class:    class,
+		function: function,
+	}, true
+}
+
+func findCallerFrameInPCs(pcs []uintptr, filter func(string) bool) (runtime.Frame, bool) {
 	frames := runtime.CallersFrames(pcs)
 	for {
 		frame, more := frames.Next()
 		if filter(frame.Function) {
-			return fmt.Sprintf("%s:%d (%#x)", frame.File, frame.Line, frame.PC)
+			return frame, true
 		}
 		if !more {
-			break
+			return runtime.Frame{}, false
 		}
 	}
-	return "<unknown>:0 (0x0)"
+}
+
+func anyFrame(string) bool {
+	return true
+}
+
+// findCallerInPCs returns the first matching frame as "<file>:<line> (<pc>)".
+// The result is used as libhegel's stable shrink-grouping key.
+func findCallerInPCs(pcs []uintptr, filter func(string) bool) string {
+	frame, ok := findCallerFrameInPCs(pcs, filter)
+	if !ok {
+		return "<unknown>:0 (0x0)"
+	}
+	return fmt.Sprintf("%s:%d (%#x)", frame.File, frame.Line, frame.PC)
 }
 
 func formatInvocationResult(out io.Writer, err error) {
