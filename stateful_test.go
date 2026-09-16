@@ -692,7 +692,7 @@ func TestStateMachineGroupsRoundOutputByWorker(t *testing.T) {
 	}
 	var out strings.Builder
 	var shared *concurrentTestCaseShared
-	err = run(func(tc TestCase) {
+	err = run(1, func(tc TestCase) {
 		shared = &concurrentTestCaseShared{selectedConcurrency: 2, selectedRounds: 2, reverseWorkerOrder: true}
 		sm.Run(&concurrentTestCase{TestCase: tc, shared: shared})
 		tc.Fail()
@@ -909,7 +909,7 @@ func TestRunStatefulNextRuleErrorAborts(t *testing.T) {
 
 func TestRunStatefulInvariantViolationFails(t *testing.T) {
 	t.Parallel()
-	err := run(func(tc TestCase) {
+	err := run(1, func(tc TestCase) {
 		RunStateful(tc, &invariantViolator{})
 	}, WithTestCases(10))
 	if err == nil {
@@ -921,7 +921,7 @@ func TestRunStatefulInvariantViolationFails(t *testing.T) {
 // rule leaves the case in a non-VALID status (via Fail) rather than panicking.
 func TestRunStatefulRuleFailureAborts(t *testing.T) {
 	t.Parallel()
-	err := run(func(tc TestCase) {
+	err := run(1, func(tc TestCase) {
 		RunStateful(tc, &ruleFailer{})
 	}, WithTestCases(10))
 	if err == nil {

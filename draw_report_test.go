@@ -211,7 +211,7 @@ func TestFormatDrawLineWithoutStatement(t *testing.T) {
 func TestDrawReportInProcess(t *testing.T) {
 	t.Parallel()
 	var buf bytes.Buffer
-	err := run(func(tc TestCase) {
+	err := run(1, func(tc TestCase) {
 		_ = Draw(tc, Integers(0, 100))
 		tc.Fail()
 	}, WithTestCases(1), withOutput(&buf))
@@ -236,7 +236,7 @@ func TestDrawReportSuppressedInsideSpan(t *testing.T) {
 	})).MinSize(2).MaxSize(2)
 
 	var buf bytes.Buffer
-	err := run(func(tc TestCase) {
+	err := run(1, func(tc TestCase) {
 		_ = Draw(tc, gen)
 		tc.Fail()
 	}, WithTestCases(1), withOutput(&buf))
@@ -259,7 +259,7 @@ func TestDrawReportSuppressedInsideComposite(t *testing.T) {
 	})
 
 	var buf bytes.Buffer
-	err := run(func(tc TestCase) {
+	err := run(1, func(tc TestCase) {
 		_ = Draw(tc, gen)
 		tc.Fail()
 	}, WithTestCases(1), withOutput(&buf))

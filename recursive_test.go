@@ -238,7 +238,7 @@ func TestRecursiveShrinksToMinimalBranch(t *testing.T) {
 	gen := recursiveTree().MaxDepth(4)
 	var minimal *recursiveNode
 
-	err := run(func(tc TestCase) {
+	err := run(1, func(tc TestCase) {
 		tree := Draw(tc, gen)
 		depth, _ := treeDimensions(tree)
 		if depth > 0 {

@@ -478,7 +478,7 @@ func TestWithReportMultipleFailuresIntegration(t *testing.T) {
 
 func TestStatisticsReporting(t *testing.T) {
 	var out strings.Builder
-	err := run(func(tc TestCase) {
+	err := run(1, func(tc TestCase) {
 		_ = Draw(tc, Booleans())
 		tc.Event("visited")
 		tc.EventValue("size", 42)
@@ -498,7 +498,7 @@ func TestStatisticsReporting(t *testing.T) {
 func TestStatisticsDisabledByDefault(t *testing.T) {
 	t.Setenv("HEGEL_STATISTICS", "")
 	var out strings.Builder
-	err := run(func(tc TestCase) {
+	err := run(1, func(tc TestCase) {
 		_ = Draw(tc, Booleans())
 		tc.Event("visited")
 	}, WithTestCases(1), WithDatabase(""), withOutput(&out))
@@ -513,7 +513,7 @@ func TestStatisticsDisabledByDefault(t *testing.T) {
 func TestStatisticsEnvironmentOverride(t *testing.T) {
 	t.Setenv("HEGEL_STATISTICS", "1")
 	var out strings.Builder
-	err := run(func(tc TestCase) {
+	err := run(1, func(tc TestCase) {
 		_ = Draw(tc, Booleans())
 		tc.Event("visited")
 	}, WithTestCases(1), WithDatabase(""), WithStatistics(false), withOutput(&out))
@@ -1369,7 +1369,7 @@ func TestDrawMapNewCollectionError(t *testing.T) {
 // key generator that rejects via E_ASSUME, leaving the run all-invalid (passes).
 func TestDrawMapKeyError(t *testing.T) {
 	t.Parallel()
-	err := run(func(tc TestCase) {
+	err := run(1, func(tc TestCase) {
 		Draw[map[int]int](tc, Maps[int, int](
 			errGen[int]{err: libhegel.E_ASSUME}, errGen[int]{},
 		).MinSize(1))
@@ -1386,7 +1386,7 @@ func TestDrawMapKeyError(t *testing.T) {
 // sentinel mid-draw — which makes its coverage flaky.
 func TestDrawMapValueError(t *testing.T) {
 	t.Parallel()
-	err := run(func(tc TestCase) {
+	err := run(1, func(tc TestCase) {
 		Draw[map[int]int](tc, Maps[int, int](
 			Integers[int](0, 5), errGen[int]{err: libhegel.E_ASSUME},
 		).MinSize(1))
@@ -1399,7 +1399,7 @@ func TestDrawMapValueError(t *testing.T) {
 // TestDrawMapBasic covers the map collection path with primitive keys + values.
 func TestDrawMapBasic(t *testing.T) {
 	t.Parallel()
-	err := run(func(tc TestCase) {
+	err := run(1, func(tc TestCase) {
 		_ = Draw[map[int]int](tc, Maps[int, int](Integers[int](0, 5), Integers[int](0, 5)))
 	}, WithTestCases(5), WithDatabase(""))
 	if err != nil {
