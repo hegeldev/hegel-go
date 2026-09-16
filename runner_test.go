@@ -885,11 +885,6 @@ func TestRunWithHandleRunError(t *testing.T) {
 	}
 }
 
-// TestBuildSettingsExercisesAllSetters drives a clean (no-test-case) run with
-// every settings-backed option so buildSettings invokes each setter applier:
-// TestCases, Derandomize, Seed, Database, DatabaseKey,
-// SuppressHealthCheck, Backend, Verbosity, ReportMultipleFailures,
-// ShowStatistics, Phases and Mode.
 func TestBuildSettingsExercisesAllSetters(t *testing.T) {
 	t.Parallel()
 	lib := libhegel.Stub(t,

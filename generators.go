@@ -28,12 +28,10 @@ type TestCase interface {
 	// to t.Log for [Test], or stdout for [Run].
 	Note(message string)
 
-	// Event records that the named event occurred in the current test case.
-	// Events are summarized at the end of a run when statistics are enabled.
+	// Event records an occurrence under label for optional end-of-run statistics.
 	Event(label string)
 
-	// EventValue records a finite numeric observation under the named label.
-	// Observations are summarized at the end of a run when statistics are enabled.
+	// EventValue records a finite numeric observation under label for optional end-of-run statistics.
 	EventValue(label string, value float64)
 
 	// Target sends a target value to guide test generation.
