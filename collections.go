@@ -55,7 +55,7 @@ func (g ListGenerator[T]) draw(tc TestCase) ([]T, error) {
 		return nil, err
 	}
 	for coll.More() {
-		v, err := g.elements.draw(tc)
+		v, err := draw(tc, g.elements)
 		if err != nil {
 			return nil, err
 		}
@@ -120,7 +120,7 @@ func (g MapGenerator[K, V]) draw(tc TestCase) (map[K]V, error) {
 		return nil, err
 	}
 	for coll.More() {
-		k, err := g.keys.draw(tc)
+		k, err := draw(tc, g.keys)
 		if err != nil {
 			return nil, err
 		}
@@ -128,7 +128,7 @@ func (g MapGenerator[K, V]) draw(tc TestCase) (map[K]V, error) {
 			coll.Reject("duplicate key")
 			continue
 		}
-		v, err := g.values.draw(tc)
+		v, err := draw(tc, g.values)
 		if err != nil {
 			return nil, err
 		}

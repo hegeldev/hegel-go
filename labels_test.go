@@ -3,16 +3,19 @@ package hegel
 import (
 	"fmt"
 	"hash/maphash"
+	"slices"
 	"testing"
+
+	"hegel.dev/go/hegel/internal/libhegel"
 )
 
 type labelRecordingTestCase struct {
 	TestCase
-	labels []label
+	labels []libhegel.Label
 	depth  int
 }
 
-func (tc *labelRecordingTestCase) startSpan(l label) error {
+func (tc *labelRecordingTestCase) startSpan(l libhegel.Label) error {
 	tc.labels = append(tc.labels, l)
 	tc.depth++
 	return nil
@@ -59,6 +62,21 @@ func TestDrawLabelsGeneratorSpan(t *testing.T) {
 	}
 	if tc.labels[0] == tc.labels[2] {
 		t.Fatalf("different generators share label %d", tc.labels[0])
+	}
+}
+
+func TestDrawLabelsInnerGenerator(t *testing.T) {
+	t.Parallel()
+	tc := &labelRecordingTestCase{}
+	inner := labelProbeGenerator{value: 1}
+	outer := Map(inner, func(value int) int { return value + 1 })
+
+	if got := Draw(tc, outer); got != 2 {
+		t.Fatalf("draw = %d, want 2", got)
+	}
+	want := []libhegel.Label{labelFor(outer), labelFor(inner)}
+	if !slices.Equal(tc.labels, want) {
+		t.Fatalf("span labels = %v, want %v", tc.labels, want)
 	}
 }
 

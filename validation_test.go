@@ -254,13 +254,13 @@ func invalidFloats() Generator[float64] {
 // --- inner-error propagation from a nested generator's draw ---
 
 func TestListsInnerErrorPropagates(t *testing.T) {
-	tc := newStubTestCase(t, uintptr(1), libhegel.OK, true, libhegel.OK)
+	tc := newStubTestCase(t, uintptr(1), libhegel.OK, true, libhegel.OK, libhegel.OK)
 	_, err := Lists(invalidFloats()).draw(tc)
 	assertErrorContains(t, "allow_nan", err)
 }
 
 func TestMapsKeyErrorPropagates(t *testing.T) {
-	tc := newStubTestCase(t, uintptr(1), libhegel.OK, true, libhegel.OK)
+	tc := newStubTestCase(t, uintptr(1), libhegel.OK, true, libhegel.OK, libhegel.OK)
 	_, err := Maps[float64, int](invalidFloats(), Integers(0, 1)).draw(tc)
 	assertErrorContains(t, "allow_nan", err)
 }
@@ -268,19 +268,24 @@ func TestMapsKeyErrorPropagates(t *testing.T) {
 func TestMapsValueErrorPropagates(t *testing.T) {
 	// The key draw (Integers) succeeds before the value draw fails, so it
 	// consumes one generate_integer output.
-	tc := newStubTestCase(t, uintptr(1), libhegel.OK, true, libhegel.OK, int64(0), libhegel.OK)
+	tc := newStubTestCase(t,
+		uintptr(1), libhegel.OK,
+		true, libhegel.OK,
+		libhegel.OK, int64(0), libhegel.OK, libhegel.OK,
+		libhegel.OK,
+	)
 	_, err := Maps[int, float64](Integers(0, 1), invalidFloats()).draw(tc)
 	assertErrorContains(t, "allow_nan", err)
 }
 
 func TestOneOfBranchErrorPropagates(t *testing.T) {
-	tc := newStubTestCase(t, int64(0), libhegel.OK)
+	tc := newStubTestCase(t, int64(0), libhegel.OK, libhegel.OK)
 	_, err := OneOf(invalidFloats()).draw(tc)
 	assertErrorContains(t, "allow_nan", err)
 }
 
 func TestOptionalInnerErrorPropagates(t *testing.T) {
-	tc := newStubTestCase(t, int64(1), libhegel.OK)
+	tc := newStubTestCase(t, int64(1), libhegel.OK, libhegel.OK)
 	_, err := Optional(invalidFloats()).draw(tc)
 	assertErrorContains(t, "allow_nan", err)
 }
@@ -304,7 +309,7 @@ func TestMapsDrawInvalidConfigReturnsError(t *testing.T) {
 // config surfaces when the mapped generator is drawn.
 func TestMapInvalidSourceReturnsErrorOnDraw(t *testing.T) {
 	gen := Map(invalidFloats(), func(v float64) float64 { return v })
-	tc := newStubTestCase(t)
+	tc := newStubTestCase(t, libhegel.OK)
 	_, err := gen.draw(tc)
 	assertErrorContains(t, "allow_nan", err)
 }

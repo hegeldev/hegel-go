@@ -16,7 +16,7 @@ func (g *oneOfGenerator[T]) draw(tc TestCase) (T, error) {
 	if err != nil {
 		return zero, err
 	}
-	return g.generators[idx].draw(tc)
+	return draw(tc, g.generators[idx])
 }
 
 // OneOf returns a Generator that produces values from one of the given generators.
@@ -50,7 +50,7 @@ func (g *optionalGenerator[T]) draw(tc TestCase) (*T, error) {
 	if idx == 0 {
 		return nil, nil
 	}
-	v, err := g.inner.draw(tc)
+	v, err := draw(tc, g.inner)
 	if err != nil {
 		return nil, err
 	}

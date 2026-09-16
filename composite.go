@@ -7,16 +7,9 @@ type compositeGenerator[T any] struct {
 	fn func(TestCase) T
 }
 
-// [Draw]'s span suppresses reports from the composite callback.
-//
-// Panics propagate unchanged so [extractPanicOrigin] reports the user's call site.
-//
 //lint:ignore U1000 satisfies Generator interface; staticcheck misses generic dispatch
 func (g *compositeGenerator[T]) draw(tc TestCase) (T, error) {
 	helper, _ := tc.(interface{ Helper() })
-	if helper != nil {
-		helper.Helper()
-	}
 	if helper != nil {
 		helper.Helper()
 	}

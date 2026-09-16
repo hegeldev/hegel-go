@@ -7,8 +7,6 @@ import (
 	"hegel.dev/go/hegel/internal/libhegel"
 )
 
-type label uint64
-
 var labelSeed = maphash.MakeSeed()
 
 func hashValue(seed maphash.Seed, v any) uint64 {
@@ -23,10 +21,6 @@ func hashValue(seed maphash.Seed, v any) uint64 {
 	return h.Sum64()
 }
 
-func labelFor(v any) label {
-	return label(hashValue(labelSeed, v))
-}
-
-func (l label) hash() libhegel.Label {
-	return libhegel.Label(l)
+func labelFor(v any) libhegel.Label {
+	return libhegel.Label(hashValue(labelSeed, v))
 }
