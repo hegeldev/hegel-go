@@ -1,5 +1,9 @@
 # Changelog
 
+## 0.9.2 - 2026-09-16
+
+This release adds `Recursive` generators for engine-managed recursive values with configurable depth and leaf limits.
+
 ## 0.9.1 - 2026-09-16
 
 This patch bumps our pinned libhegel ([hegel-rust](hegeldev/hegel-rust)) from [0.42.3](https://github.com/hegeldev/hegel-rust/releases/tag/v0.42.3) to [0.42.4](https://github.com/hegeldev/hegel-rust/releases/tag/v0.42.4).
