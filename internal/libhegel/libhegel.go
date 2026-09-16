@@ -1440,12 +1440,8 @@ func (tc *TestCase) CollectionReject(ctx *Context, coll *Collection, why string)
 // bookkeeping and is driven through any handle of the same test-case family. It
 // is owned by the caller and released automatically via the GC
 // (hegel_recursion_free).
-type Recursion pointer[recursionT]
-
-// Free releases the recursion handle immediately and cancels its automatic
-// cleanup. It is safe to call Free more than once.
-func (r *Recursion) Free() {
-	(*pointer[recursionT])(r).Free()
+type Recursion struct {
+	pointer[recursionT]
 }
 
 // NewRecursion opens a recursive generation scope: the engine decides where the
@@ -1455,15 +1451,16 @@ func (r *Recursion) Free() {
 // may contain. The returned handle is owned by the caller and freed
 // automatically via the GC.
 func (tc *TestCase) NewRecursion(ctx *Context, maxDepth, maxLeaves uint64) (*Recursion, error) {
-	ptr, err := allocate(ctx, "hegel_new_recursion", func(ctx ctxT, raw *recursionT) Error {
+	recursion := new(Recursion)
+	ok, err := allocateInto(ctx, &recursion.pointer, "hegel_new_recursion", func(ctx ctxT, raw *recursionT) Error {
 		e := tc.syms.NewRecursion(ctx, tc.raw, maxDepth, maxLeaves, raw)
 		runtime.KeepAlive(tc)
 		return e
 	}, tc.syms.RecursionFree)
-	if ptr == nil {
+	if !ok {
 		return nil, err
 	}
-	return (*Recursion)(ptr), err
+	return recursion, nil
 }
 
 // Branch draws the leaf-or-branch decision for the sub-value about to be drawn

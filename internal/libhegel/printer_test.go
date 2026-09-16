@@ -176,7 +176,7 @@ func TestNewControlBindings(t *testing.T) {
 			}
 			ctx := Stub(t, returns...)
 			tc := &TestCase{pointer: &pointer[testCaseT]{syms: ctx.syms, raw: 2}}
-			r := &Recursion{syms: ctx.syms, raw: 3}
+			r := &Recursion{pointer: pointer[recursionT]{syms: ctx.syms, raw: 3}}
 			err := r.Finish(ctx, tc)
 			if (result == OK && err != nil) || (result != OK && !errors.Is(err, result)) {
 				t.Fatalf("finish = %v", err)

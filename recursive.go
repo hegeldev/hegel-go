@@ -69,7 +69,6 @@ func (g RecursiveGenerator[T]) draw(tc TestCase) (T, error) {
 	if err != nil {
 		return zero, err
 	}
-	defer recursion.Free()
 
 	root := &subtreeGenerator[T]{
 		leaf:      g.leaf,
@@ -89,6 +88,8 @@ func (g RecursiveGenerator[T]) draw(tc TestCase) (T, error) {
 			return value, nil
 		}
 
+		// Both retry paths discard the attempt's native spans. The scoped
+		// TestCase passed to invoke keeps their Go-side depth from leaking too.
 		if _, ok := errors.AsType[*leafBudgetRetry](err); ok {
 			if err := recursion.Retry(ctx, nativeTC); err != nil {
 				return zero, err
