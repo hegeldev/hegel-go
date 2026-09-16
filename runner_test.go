@@ -2,6 +2,7 @@ package hegel
 
 import (
 	"errors"
+	"math"
 	"runtime"
 	"strings"
 	"sync"
@@ -311,6 +312,7 @@ func TestSettingsOptionsRecordApplier(t *testing.T) {
 		{"WithBackend", WithBackend(BackendURandom)},
 		{"WithVerbosity", WithVerbosity(VerbosityVerbose)},
 		{"WithReportMultipleFailures", WithReportMultipleFailures(true)},
+		{"WithShowStatistics", WithShowStatistics(true)},
 		{"WithPhases", WithPhases(PhaseGenerate, PhaseShrink)},
 		{"SuppressHealthCheck", SuppressHealthCheck(FilterTooMuch, TooSlow)},
 	}
@@ -412,6 +414,48 @@ func TestWithReportMultipleFailuresIntegration(t *testing.T) {
 	}, WithTestCases(5), WithReportMultipleFailures(true), WithDatabase(""))
 	if err != nil {
 		t.Errorf("report-multiple-failures integration: %v", err)
+	}
+}
+
+func TestStatisticsReporting(t *testing.T) {
+	var out strings.Builder
+	err := run(func(tc TestCase) {
+		_ = Draw(tc, Booleans())
+		tc.Event("visited")
+		tc.EventValue("size", 42)
+	}, WithTestCases(5), WithDatabase(""), WithDerandomize(true), WithShowStatistics(true), withOutput(&out))
+	if err != nil {
+		t.Fatal(err)
+	}
+	got := out.String()
+	if !strings.Contains(got, "* visited: 100.0% of test cases") {
+		t.Errorf("statistics missing event occurrence:\n%s", got)
+	}
+	if !strings.Contains(got, "* size: count 5") || !strings.Contains(got, "median 42") {
+		t.Errorf("statistics missing value distribution:\n%s", got)
+	}
+}
+
+func TestStatisticsDisabledByDefault(t *testing.T) {
+	var out strings.Builder
+	err := run(func(tc TestCase) {
+		_ = Draw(tc, Booleans())
+		tc.Event("visited")
+	}, WithTestCases(1), WithDatabase(""), withOutput(&out))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got := out.String(); strings.Contains(got, "Statistics") {
+		t.Fatalf("unexpected statistics output:\n%s", got)
+	}
+}
+
+func TestEventValueRejectsNonFiniteValues(t *testing.T) {
+	err := Run(func(tc TestCase) {
+		tc.EventValue("bad", math.NaN())
+	}, WithTestCases(1), WithDatabase(""))
+	if err == nil || !strings.Contains(err.Error(), "finite value") {
+		t.Fatalf("expected finite-value error, got %v", err)
 	}
 }
 
@@ -797,8 +841,8 @@ func TestRunWithHandleRunError(t *testing.T) {
 // TestBuildSettingsExercisesAllSetters drives a clean (no-test-case) run with
 // every settings-backed option so buildSettings invokes each setter applier:
 // TestCases, Derandomize, Seed, Database, DatabaseKey,
-// SuppressHealthCheck, Backend, Verbosity, ReportMultipleFailures, Phases and
-// Mode.
+// SuppressHealthCheck, Backend, Verbosity, ReportMultipleFailures,
+// ShowStatistics, Phases and Mode.
 func TestBuildSettingsExercisesAllSetters(t *testing.T) {
 	t.Parallel()
 	lib := libhegel.Stub(t,
@@ -812,6 +856,7 @@ func TestBuildSettingsExercisesAllSetters(t *testing.T) {
 		libhegel.OK,             // backend
 		libhegel.OK,             // verbosity
 		libhegel.OK,             // report_multiple_failures
+		libhegel.OK,             // show_statistics
 		libhegel.OK,             // phases
 		libhegel.OK,             // settings
 		uintptr(1), libhegel.OK, // run_start
@@ -831,6 +876,7 @@ func TestBuildSettingsExercisesAllSetters(t *testing.T) {
 		WithBackend(BackendURandom),
 		WithVerbosity(VerbosityVerbose),
 		WithReportMultipleFailures(true),
+		WithShowStatistics(true),
 		WithPhases(PhaseGenerate, PhaseShrink),
 		WithTestCases(1),
 	})
@@ -906,6 +952,20 @@ func TestRunWithHandleTargetError(t *testing.T) {
 	if !errors.Is(err, libhegel.E_BACKEND) || !strings.Contains(err.Error(), "boom") {
 		t.Fatalf("expected target backend error, got %v", err)
 	}
+}
+
+func TestEventAbortsOnEngineError(t *testing.T) {
+	t.Parallel()
+	tc := newStubTestCase(t, libhegel.E_BACKEND, "boom")
+	defer expectErrorPanic(t, libhegel.E_BACKEND)
+	tc.Event("visited")
+}
+
+func TestEventValueAbortsOnEngineError(t *testing.T) {
+	t.Parallel()
+	tc := newStubTestCase(t, libhegel.E_BACKEND, "boom")
+	defer expectErrorPanic(t, libhegel.E_BACKEND)
+	tc.EventValue("size", 42)
 }
 
 // stubOpCase drives a single test case whose body calls fn against the

@@ -106,6 +106,18 @@ func (s *testCase) Note(message string) {
 	}
 }
 
+func (s *testCase) Event(label string) {
+	if err := s.tc.Event(s.ctx, label); err != nil {
+		s.abort(err)
+	}
+}
+
+func (s *testCase) EventValue(label string, value float64) {
+	if err := s.tc.EventValue(s.ctx, value, label); err != nil {
+		s.abort(err)
+	}
+}
+
 func (s *testCase) log(format string, args ...any) {
 	if s.printer != nil {
 		s.Note(fmt.Sprintf(format, args...))
@@ -484,6 +496,17 @@ func WithReportMultipleFailures(report bool) Option {
 	return func(o *runOptions) {
 		o.addSetting(func(ctx *libhegel.Context, s *libhegel.Settings) error {
 			return s.ReportMultipleFailures(ctx, report)
+		})
+	}
+}
+
+// WithShowStatistics sets whether the engine prints an end-of-run summary of
+// events recorded with [TestCase.Event] and [TestCase.EventValue]. Statistics
+// are disabled by default and can also be enabled with HEGEL_STATISTICS.
+func WithShowStatistics(show bool) Option {
+	return func(o *runOptions) {
+		o.addSetting(func(ctx *libhegel.Context, s *libhegel.Settings) error {
+			return s.ShowStatistics(ctx, show)
 		})
 	}
 }
