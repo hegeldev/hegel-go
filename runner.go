@@ -7,6 +7,7 @@ import (
 	"io"
 	"math"
 	"os"
+	"path"
 	"runtime"
 	"strings"
 	"testing"
@@ -511,6 +512,17 @@ func WithStatistics(show bool) Option {
 	}
 }
 
+// WithReproductionBlob controls whether failure output includes the base64
+// reproduction blob for the counterexample. The blob remains available to the
+// runner for replay regardless of this setting.
+func WithReproductionBlob(show bool) Option {
+	return func(o *runOptions) {
+		o.addSetting(func(ctx *libhegel.Context, s *libhegel.Settings) error {
+			return s.PrintBlob(ctx, show)
+		})
+	}
+}
+
 // WithPhases restricts the run to the given test phases. See [Phase] and
 // [AllPhases]. The active profile supplies the default; the base profile runs all phases.
 func WithPhases(phases ...Phase) Option {
@@ -586,6 +598,14 @@ func run(fn testBody, opts ...Option) error {
 	var o runOptions
 	for _, opt := range opts {
 		opt(&o)
+	}
+
+	var pcs [32]uintptr
+	n := runtime.Callers(2, pcs[:])
+	if location, ok := findCallerLocationInPCs(pcs[:n], isNotHegelFrame); ok {
+		o.addSetting(func(ctx *libhegel.Context, s *libhegel.Settings) error {
+			return s.TestLocation(ctx, location.file, uint32(location.line), location.class, location.function)
+		})
 	}
 
 	ctx := libhegel.NewContext()
@@ -806,6 +826,10 @@ func replayFailures(ctx *libhegel.Context, s *libhegel.Settings, result *libhege
 		if blob == "" {
 			return errPropTestFailed
 		}
+		printBlob, err := s.GetPrintBlob(ctx)
+		if err != nil {
+			return err
+		}
 		tc, err := s.TestCaseFromBlob(ctx, blob, opts.output)
 		if err != nil {
 			return err
@@ -817,25 +841,59 @@ func replayFailures(ctx *libhegel.Context, s *libhegel.Settings, result *libhege
 		if _, err := state.run(fn); err != nil {
 			return err
 		}
+		if printBlob && opts.output != nil {
+			if _, err := fmt.Fprintf(opts.output, "reproduction blob: %s\n", blob); err != nil {
+				return err
+			}
+		}
 		origins = append(origins, fail.Origin(ctx))
 	}
 	return fmt.Errorf("%w: %d failures %v", errPropTestFailed, len(origins), origins)
 }
 
-// findCallerInPCs returns the first matching frame as "<file>:<line> (<pc>)".
-// The result is used as libhegel's stable shrink-grouping key.
-func findCallerInPCs(pcs []uintptr, filter func(string) bool) string {
+type callerLocation struct {
+	file     string
+	line     int
+	class    string
+	function string
+}
+
+func findCallerLocationInPCs(pcs []uintptr, filter func(string) bool) (callerLocation, bool) {
+	frame, ok := findCallerFrameInPCs(pcs, filter)
+	if !ok {
+		return callerLocation{}, false
+	}
+	function := strings.TrimPrefix(path.Ext(frame.Function), ".")
+	class, _ := strings.CutSuffix(frame.Function, "."+function)
+	return callerLocation{
+		file:     frame.File,
+		line:     frame.Line,
+		class:    class,
+		function: function,
+	}, true
+}
+
+func findCallerFrameInPCs(pcs []uintptr, filter func(string) bool) (runtime.Frame, bool) {
 	frames := runtime.CallersFrames(pcs)
 	for {
 		frame, more := frames.Next()
 		if filter(frame.Function) {
-			return fmt.Sprintf("%s:%d (%#x)", frame.File, frame.Line, frame.PC)
+			return frame, true
 		}
 		if !more {
-			break
+			return runtime.Frame{}, false
 		}
 	}
-	return "<unknown>:0 (0x0)"
+}
+
+// findCallerInPCs returns the first matching frame as "<file>:<line> (<pc>)".
+// The result is used as libhegel's stable shrink-grouping key.
+func findCallerInPCs(pcs []uintptr, filter func(string) bool) string {
+	frame, ok := findCallerFrameInPCs(pcs, filter)
+	if !ok {
+		return "<unknown>:0 (0x0)"
+	}
+	return fmt.Sprintf("%s:%d (%#x)", frame.File, frame.Line, frame.PC)
 }
 
 func formatInvocationResult(out io.Writer, err error) {

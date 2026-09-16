@@ -236,6 +236,7 @@ func TestRunPrinterInitializationErrors(t *testing.T) {
 					uint64(1), libhegel.OK, // failure count
 					uintptr(1), libhegel.OK, // failure
 					"blob", libhegel.OK,
+					false, libhegel.OK, // print blob
 					uintptr(1), libhegel.OK, // case from blob
 				)
 			} else {

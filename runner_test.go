@@ -263,6 +263,37 @@ func TestFindCallerInPCsWithoutMatchingFrame(t *testing.T) {
 	}
 }
 
+func TestFindCallerLocationInPCs(t *testing.T) {
+	t.Parallel()
+	pcs := make([]uintptr, 8)
+	n := runtime.Callers(1, pcs)
+	location, ok := findCallerLocationInPCs(pcs[:n], anyFrame)
+	if !ok {
+		t.Fatal("expected caller location")
+	}
+	if !strings.HasSuffix(location.file, "runner_test.go") {
+		t.Errorf("file = %q, want runner_test.go", location.file)
+	}
+	if location.line == 0 {
+		t.Error("line = 0, want source line")
+	}
+	if got, want := location.class, "hegel.dev/go/hegel"; got != want {
+		t.Errorf("class = %q, want %q", got, want)
+	}
+	if got, want := location.function, "TestFindCallerLocationInPCs"; got != want {
+		t.Errorf("function = %q, want %q", got, want)
+	}
+}
+
+func TestFindCallerLocationInPCsWithoutMatchingFrame(t *testing.T) {
+	t.Parallel()
+	var pcs [1]uintptr
+	runtime.Callers(1, pcs[:])
+	if _, ok := findCallerLocationInPCs(pcs[:], func(string) bool { return false }); ok {
+		t.Fatal("unexpected caller location")
+	}
+}
+
 func TestFormatInvocationResultIncludesWorkerAndStack(t *testing.T) {
 	t.Parallel()
 	pcs := make([]uintptr, 8)
@@ -321,6 +352,7 @@ func TestSettingsOptionsRecordApplier(t *testing.T) {
 		{"WithVerbosity", WithVerbosity(VerbosityVerbose)},
 		{"WithReportMultipleFailures", WithReportMultipleFailures(true)},
 		{"WithStatistics", WithStatistics(true)},
+		{"WithReproductionBlob", WithReproductionBlob(true)},
 		{"WithPhases", WithPhases(PhaseGenerate, PhaseShrink)},
 		{"SuppressHealthCheck", SuppressHealthCheck(FilterTooMuch, TooSlow)},
 	}
@@ -685,6 +717,7 @@ func TestRunWithHandleCollectFailures(t *testing.T) {
 		uint64(1), libhegel.OK, // one failure
 		uintptr(1), libhegel.OK, // failure handle
 		"blob-data", libhegel.OK, // reproduction blob (replay)
+		false, libhegel.OK, // print blob
 		uintptr(1), libhegel.OK, // test_case_from_blob handle (replay)
 		libhegel.OK,                   // mark_complete replay
 		"prop_test.go:7", libhegel.OK, // failure origin
@@ -696,6 +729,95 @@ func TestRunWithHandleCollectFailures(t *testing.T) {
 	if !errors.Is(err, errPropTestFailed) || !strings.Contains(err.Error(), "prop_test.go:7") {
 		t.Fatalf("expected joined prop-test failure with origin, got %v", err)
 	}
+}
+
+func TestRunWithContextPrintsReproductionBlob(t *testing.T) {
+	t.Parallel()
+	lib := libhegel.Stub(t,
+		uintptr(1), libhegel.OK, // settings_new
+		libhegel.OK,             // derandomize
+		uintptr(1), libhegel.OK, // run_start
+		uintptr(0), libhegel.OK, // next_test_case: run finished
+		uintptr(1), libhegel.OK, // run_result
+		libhegel.RUN_STATUS_FAILED, libhegel.OK,
+		uint64(1), libhegel.OK, // failure count
+		uintptr(1), libhegel.OK, // failure
+		"blob-data", libhegel.OK,
+		true, libhegel.OK, // print blob
+		uintptr(1), libhegel.OK, // test_case_from_blob
+		uintptr(1), libhegel.OK, // printer
+		libhegel.OK,     // mark_complete
+		libhegel.OK,     // resolve
+		"", libhegel.OK, // printer value
+		"prop_test.go:7", libhegel.OK,
+	)
+	var output strings.Builder
+	opts := applyOpts([]Option{WithDerandomize(false)})
+	opts.output = &output
+	err := runWithContext(lib, func(TestCase) {}, opts)
+	if !errors.Is(err, errPropTestFailed) {
+		t.Fatalf("runWithContext error = %v, want property failure", err)
+	}
+	if got := output.String(); !strings.Contains(got, "reproduction blob: blob-data") {
+		t.Fatalf("output = %q, want reproduction blob", got)
+	}
+}
+
+func TestRunWithContextGetPrintBlobError(t *testing.T) {
+	t.Parallel()
+	lib := libhegel.Stub(t,
+		uintptr(1), libhegel.OK, // settings_new
+		libhegel.OK,             // derandomize
+		uintptr(1), libhegel.OK, // run_start
+		uintptr(0), libhegel.OK, // next_test_case: run finished
+		uintptr(1), libhegel.OK, // run_result
+		libhegel.RUN_STATUS_FAILED, libhegel.OK,
+		uint64(1), libhegel.OK, // failure count
+		uintptr(1), libhegel.OK, // failure
+		"blob-data", libhegel.OK,
+		false, libhegel.E_BACKEND, "print blob boom",
+	)
+	err := runWithContext(lib, func(TestCase) {}, applyOpts([]Option{WithDerandomize(false)}))
+	if err == nil || !strings.Contains(err.Error(), "print blob boom") {
+		t.Fatalf("error = %v, want print-blob error", err)
+	}
+}
+
+func TestRunWithContextReproductionBlobWriteError(t *testing.T) {
+	t.Parallel()
+	want := errors.New("write blob failed")
+	lib := libhegel.Stub(t,
+		uintptr(1), libhegel.OK, // settings_new
+		libhegel.OK,             // derandomize
+		uintptr(1), libhegel.OK, // run_start
+		uintptr(0), libhegel.OK, // next_test_case: run finished
+		uintptr(1), libhegel.OK, // run_result
+		libhegel.RUN_STATUS_FAILED, libhegel.OK,
+		uint64(1), libhegel.OK, // failure count
+		uintptr(1), libhegel.OK, // failure
+		"blob-data", libhegel.OK,
+		true, libhegel.OK, // print blob
+		uintptr(1), libhegel.OK, // test_case_from_blob
+		uintptr(1), libhegel.OK, // printer
+		libhegel.OK,     // mark_complete
+		libhegel.OK,     // resolve
+		"", libhegel.OK, // printer value
+	)
+	opts := applyOpts([]Option{WithDerandomize(false)})
+	opts.output = nonemptyWriteError{want}
+	err := runWithContext(lib, func(TestCase) {}, opts)
+	if !errors.Is(err, want) {
+		t.Fatalf("error = %v, want %v", err, want)
+	}
+}
+
+type nonemptyWriteError struct{ err error }
+
+func (w nonemptyWriteError) Write(p []byte) (int, error) {
+	if len(p) == 0 {
+		return 0, nil
+	}
+	return 0, w.err
 }
 
 func TestRunWithContextReplayPropagatesUserPanic(t *testing.T) {
@@ -710,6 +832,7 @@ func TestRunWithContextReplayPropagatesUserPanic(t *testing.T) {
 		uint64(1), libhegel.OK, // one failure
 		uintptr(1), libhegel.OK, // failure handle
 		"blob-data", libhegel.OK, // reproduction blob
+		false, libhegel.OK, // print blob
 		uintptr(1), libhegel.OK, // test_case_from_blob handle
 		libhegel.OK, // mark_complete replay during panic unwinding
 	)
@@ -736,6 +859,7 @@ func TestRunWithContextReplayMarkCompleteError(t *testing.T) {
 		uint64(1), libhegel.OK, // one failure
 		uintptr(1), libhegel.OK, // failure handle
 		"blob-data", libhegel.OK, // reproduction blob
+		false, libhegel.OK, // print blob
 		uintptr(1), libhegel.OK, // test_case_from_blob handle
 		libhegel.E_BACKEND, "replay mark boom", // mark_complete replay
 	)
@@ -839,6 +963,7 @@ func TestRunWithContextReplayBlobError(t *testing.T) {
 		uint64(1), libhegel.OK, // one failure
 		uintptr(1), libhegel.OK, // failure handle
 		"bad-blob", libhegel.OK, // reproduction blob
+		false, libhegel.OK, // print blob
 		uintptr(0), libhegel.E_BACKEND, "replay boom", // test_case_from_blob fails
 	)
 	err := runWithContext(lib, func(TestCase) {}, applyOpts([]Option{WithDerandomize(false)}))
@@ -899,6 +1024,7 @@ func TestBuildSettingsExercisesAllSetters(t *testing.T) {
 		libhegel.OK,             // verbosity
 		libhegel.OK,             // report_multiple_failures
 		libhegel.OK,             // show_statistics
+		libhegel.OK,             // print_blob
 		libhegel.OK,             // phases
 		libhegel.OK,             // settings
 		uintptr(1), libhegel.OK, // run_start
@@ -919,6 +1045,7 @@ func TestBuildSettingsExercisesAllSetters(t *testing.T) {
 		WithVerbosity(VerbosityVerbose),
 		WithReportMultipleFailures(true),
 		WithStatistics(true),
+		WithReproductionBlob(true),
 		WithPhases(PhaseGenerate, PhaseShrink),
 		WithTestCases(1),
 	})
