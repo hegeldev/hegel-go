@@ -1,5 +1,12 @@
 # Changelog
 
+## 0.9.4 - 2026-09-16
+
+Property runs now report their source location to Antithesis and can include
+the counterexample's reproduction blob in failure output. Use
+`WithReproductionBlob(false)` to suppress that line when the active profile
+would otherwise enable it.
+
 ## 0.9.3 - 2026-09-16
 
 This release adds event recording and end-of-run statistics through `TestCase.Event`, `TestCase.EventValue`, and `WithStatistics`.
