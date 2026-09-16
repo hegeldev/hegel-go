@@ -3,6 +3,7 @@ package hegel
 import (
 	"errors"
 	"math"
+	"os"
 	"runtime"
 	"strings"
 	"sync"
@@ -11,6 +12,13 @@ import (
 
 	"hegel.dev/go/hegel/internal/libhegel"
 )
+
+func TestMain(m *testing.M) {
+	if err := os.Setenv("HEGEL_STATISTICS", ""); err != nil {
+		panic(err)
+	}
+	os.Exit(m.Run())
+}
 
 // --- Run / MustRun / Test entry points ---
 
