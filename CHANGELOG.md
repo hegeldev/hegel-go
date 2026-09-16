@@ -1,5 +1,9 @@
 # Changelog
 
+## 0.9.1 - 2026-09-16
+
+This patch bumps our pinned libhegel ([hegel-rust](hegeldev/hegel-rust)) from [0.42.3](https://github.com/hegeldev/hegel-rust/releases/tag/v0.42.3) to [0.42.4](https://github.com/hegeldev/hegel-rust/releases/tag/v0.42.4).
+
 ## 0.9.0 - 2026-09-15
 
 Add `WeightedBooleans` for configurable true probabilities, and add inclusive `Min` and `Max` bounds to the `Dates` and `Datetimes` generators. Date bounds may use the engine-supported years from -999999 through 999999; the existing default range remains years 1 through 9999.
