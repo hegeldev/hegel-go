@@ -163,6 +163,9 @@ func TestRunPublicAPI(t *testing.T) {
 }
 
 func TestRunReportsSamePackageLocation(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("libhegel's Antithesis reporter does not write sdk.jsonl on Windows")
+	}
 	const fixtureEnv = "HEGEL_TEST_LOCATION_FIXTURE"
 	if os.Getenv(fixtureEnv) == "1" {
 		if err := Run(func(TestCase) {}, WithTestCases(1), WithDatabase("")); err != nil {
