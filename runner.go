@@ -500,10 +500,10 @@ func WithReportMultipleFailures(report bool) Option {
 	}
 }
 
-// WithShowStatistics controls end-of-run statistics for events recorded with
+// WithStatistics controls end-of-run statistics for events recorded with
 // [TestCase.Event] and [TestCase.EventValue]. Statistics are disabled by default.
 // A nonempty HEGEL_STATISTICS value other than "0" enables them regardless of show.
-func WithShowStatistics(show bool) Option {
+func WithStatistics(show bool) Option {
 	return func(o *runOptions) {
 		o.addSetting(func(ctx *libhegel.Context, s *libhegel.Settings) error {
 			return s.ShowStatistics(ctx, show)

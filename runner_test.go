@@ -320,7 +320,7 @@ func TestSettingsOptionsRecordApplier(t *testing.T) {
 		{"WithBackend", WithBackend(BackendURandom)},
 		{"WithVerbosity", WithVerbosity(VerbosityVerbose)},
 		{"WithReportMultipleFailures", WithReportMultipleFailures(true)},
-		{"WithShowStatistics", WithShowStatistics(true)},
+		{"WithStatistics", WithStatistics(true)},
 		{"WithPhases", WithPhases(PhaseGenerate, PhaseShrink)},
 		{"SuppressHealthCheck", SuppressHealthCheck(FilterTooMuch, TooSlow)},
 	}
@@ -431,7 +431,7 @@ func TestStatisticsReporting(t *testing.T) {
 		_ = Draw(tc, Booleans())
 		tc.Event("visited")
 		tc.EventValue("size", 42)
-	}, WithTestCases(5), WithDatabase(""), WithDerandomize(true), WithShowStatistics(true), withOutput(&out))
+	}, WithTestCases(5), WithDatabase(""), WithDerandomize(true), WithStatistics(true), withOutput(&out))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -465,7 +465,7 @@ func TestStatisticsEnvironmentOverride(t *testing.T) {
 	err := run(func(tc TestCase) {
 		_ = Draw(tc, Booleans())
 		tc.Event("visited")
-	}, WithTestCases(1), WithDatabase(""), WithShowStatistics(false), withOutput(&out))
+	}, WithTestCases(1), WithDatabase(""), WithStatistics(false), withOutput(&out))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -918,7 +918,7 @@ func TestBuildSettingsExercisesAllSetters(t *testing.T) {
 		WithBackend(BackendURandom),
 		WithVerbosity(VerbosityVerbose),
 		WithReportMultipleFailures(true),
-		WithShowStatistics(true),
+		WithStatistics(true),
 		WithPhases(PhaseGenerate, PhaseShrink),
 		WithTestCases(1),
 	})
