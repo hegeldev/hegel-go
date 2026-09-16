@@ -4,7 +4,6 @@ import (
 	"errors"
 	"math"
 	"os"
-	"os/exec"
 	"path/filepath"
 	"runtime"
 	"strings"
@@ -166,19 +165,10 @@ func TestRunReportsSamePackageLocation(t *testing.T) {
 	if runtime.GOOS == "windows" {
 		t.Skip("libhegel's Antithesis reporter does not write sdk.jsonl on Windows")
 	}
-	const fixtureEnv = "HEGEL_TEST_LOCATION_FIXTURE"
-	if os.Getenv(fixtureEnv) == "1" {
-		if err := Run(func(TestCase) {}, WithTestCases(1), WithDatabase("")); err != nil {
-			t.Fatal(err)
-		}
-		return
-	}
-
 	sdkDir := t.TempDir()
-	cmd := exec.Command(os.Args[0], "-test.run=^TestRunReportsSamePackageLocation$")
-	cmd.Env = append(os.Environ(), fixtureEnv+"=1", "ANTITHESIS_OUTPUT_DIR="+sdkDir)
-	if output, err := cmd.CombinedOutput(); err != nil {
-		t.Fatalf("location fixture: %v\n%s", err, output)
+	t.Setenv("ANTITHESIS_OUTPUT_DIR", sdkDir)
+	if err := Run(func(TestCase) {}, WithTestCases(1), WithDatabase("")); err != nil {
+		t.Fatal(err)
 	}
 	data, err := os.ReadFile(filepath.Join(sdkDir, "sdk.jsonl"))
 	if err != nil {
@@ -245,30 +235,6 @@ func TestIsHegelFrame(t *testing.T) {
 			t.Errorf("isHegelFrame(%q) = %v, want %v", tc.fn, got, tc.want)
 		}
 	}
-}
-
-func TestIsNotRunWrapper(t *testing.T) {
-	t.Parallel()
-	for _, test := range []struct {
-		fn   string
-		want bool
-	}{
-		{"hegel.dev/go/hegel.Run", false},
-		{"hegel.dev/go/hegel.MustRun", false},
-		{"hegel.dev/go/hegel.Test", false},
-		{"hegel.dev/go/hegel.Workload", false},
-		{"hegel.dev/go/hegel.workload", false},
-		{"hegel.dev/go/hegel.TestUserProperty", true},
-		{"example.com/project.TestUserProperty", true},
-	} {
-		if got := isNotRunWrapper(test.fn); got != test.want {
-			t.Errorf("isNotRunWrapper(%q) = %v, want %v", test.fn, got, test.want)
-		}
-	}
-}
-
-func anyFrame(string) bool {
-	return true
 }
 
 // TestFindCallerStableAcrossValues verifies that origin is stable per call

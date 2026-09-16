@@ -26,7 +26,7 @@ var (
 //
 // opts are overridden by flags.
 func Workload(fn func(TestCase), opts ...Option) {
-	err := workload(os.Args, workloadStdout, workloadStderr, fn, opts)
+	err := workloadWithCaller(1, os.Args, workloadStdout, workloadStderr, fn, opts)
 	if err == nil {
 		return
 	}
@@ -39,6 +39,10 @@ func Workload(fn func(TestCase), opts ...Option) {
 // to stderr. Returns nil on success (including --help) or a non-nil error for
 // flag-parse problems and property-test failures.
 func workload(args []string, stdout io.Writer, stderr io.Writer, fn func(TestCase), opts []Option) error {
+	return workloadWithCaller(1, args, stdout, stderr, fn, opts)
+}
+
+func workloadWithCaller(callerSkip int, args []string, stdout io.Writer, stderr io.Writer, fn func(TestCase), opts []Option) error {
 	fs := flag.NewFlagSet(args[0], flag.ContinueOnError)
 	fs.SetOutput(stderr)
 
@@ -63,7 +67,7 @@ func workload(args []string, stdout io.Writer, stderr io.Writer, fn func(TestCas
 		}
 	})
 	allOpts = append(allOpts, withOutput(stdout))
-	return run(fn, allOpts...)
+	return runWithCaller(callerSkip, fn, allOpts...)
 }
 
 type optionValue interface {

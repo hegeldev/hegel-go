@@ -560,12 +560,12 @@ func withOutput(w io.Writer) Option {
 //
 // Note output goes to stdout. For use in standalone binaries and conformance tests.
 func Run(fn func(TestCase), opts ...Option) error {
-	return run(fn, append(opts, withOutput(os.Stdout))...)
+	return runWithCaller(0, fn, append(opts, withOutput(os.Stdout))...)
 }
 
 // MustRun runs a property test and panics if it fails.
 func MustRun(fn func(TestCase), opts ...Option) {
-	if err := Run(fn, opts...); err != nil {
+	if err := runWithCaller(0, fn, append(opts, withOutput(os.Stdout))...); err != nil {
 		panic(err)
 	}
 }
@@ -580,7 +580,7 @@ func Test(t *testing.T, fn func(*T), opts ...Option) {
 	}
 	allOpts := append(opts, withDatabaseKey(t.Name()), withOutput(t.Output()))
 
-	if err := run(body, allOpts...); err != nil { // coverage-ignore (run's error is covered via Run; this only delegates to stdlib testing.T)
+	if err := runWithCaller(0, body, allOpts...); err != nil { // coverage-ignore (run's error is covered via Run; this only delegates to stdlib testing.T)
 		if errors.Is(err, errPropTestFailed) {
 			t.Fail()
 		} else {
@@ -589,20 +589,22 @@ func Test(t *testing.T, fn func(*T), opts ...Option) {
 	}
 }
 
-// run is the shared implementation for Run, MustRun, and Test.
-//
-// The example-database key is supplied (when applicable) by [Test]; non-test
-// entry points leave it nil. Note/draw-report output is routed via
-// [withOutput]; absent that option no output is produced.
 func run(fn testBody, opts ...Option) error {
+	return runWithCaller(0, fn, opts...)
+}
+
+// runWithCaller runs a property whose public entry point has callerSkip
+// additional frames between it and the property definition. The
+// example-database key is supplied by [Test], and [withOutput] routes output.
+func runWithCaller(callerSkip int, fn testBody, opts ...Option) error {
 	var o runOptions
 	for _, opt := range opts {
 		opt(&o)
 	}
 
 	var pcs [32]uintptr
-	n := runtime.Callers(2, pcs[:])
-	if location, ok := findCallerLocationInPCs(pcs[:n], isNotRunWrapper); ok {
+	n := runtime.Callers(3+callerSkip, pcs[:])
+	if location, ok := findCallerLocationInPCs(pcs[:n], anyFrame); ok {
 		o.addSetting(func(ctx *libhegel.Context, s *libhegel.Settings) error {
 			return s.TestLocation(ctx, location.file, uint32(location.line), location.class, location.function)
 		})
@@ -894,6 +896,10 @@ func findCallerFrameInPCs(pcs []uintptr, filter func(string) bool) (runtime.Fram
 	}
 }
 
+func anyFrame(string) bool {
+	return true
+}
+
 // findCallerInPCs returns the first matching frame as "<file>:<line> (<pc>)".
 // The result is used as libhegel's stable shrink-grouping key.
 func findCallerInPCs(pcs []uintptr, filter func(string) bool) string {
@@ -940,19 +946,6 @@ func isHegelFrame(fn string) bool {
 
 func isNotHegelFrame(fn string) bool {
 	return !isHegelFrame(fn)
-}
-
-func isNotRunWrapper(fn string) bool {
-	switch fn {
-	case "hegel.dev/go/hegel.Run",
-		"hegel.dev/go/hegel.MustRun",
-		"hegel.dev/go/hegel.Test",
-		"hegel.dev/go/hegel.Workload",
-		"hegel.dev/go/hegel.workload":
-		return false
-	default:
-		return true
-	}
 }
 
 func (s *testCase) setWorker(index int64) error {
