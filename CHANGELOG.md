@@ -1,5 +1,9 @@
 # Changelog
 
+## 0.9.5 - 2026-09-17
+
+This patch bumps our pinned libhegel ([hegel-rust](hegeldev/hegel-rust)) from [0.42.4](https://github.com/hegeldev/hegel-rust/releases/tag/libhegel-v0.42.4) to [0.43.1](https://github.com/hegeldev/hegel-rust/releases/tag/libhegel-v0.43.1).
+
 ## 0.9.4 - 2026-09-16
 
 Property runs now report their source location to Antithesis and can include
