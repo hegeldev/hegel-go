@@ -102,7 +102,7 @@ func TestStubUnwiredPrimitives(t *testing.T) {
 		t.Fatalf("Pool.Generate: %v", err)
 	}
 	// Non-empty rules + nil invariants exercises both cStringArray branches.
-	machine, concurrency, err := tc.NewStateMachine(lib, []string{"insert", "remove"}, []int64{0, 0}, nil, nil, 1, 1, 50)
+	machine, concurrency, err := tc.NewStateMachine(lib, []string{"insert", "remove"}, []int64{0, 0}, nil, nil, nil, 1, 1, 50)
 	if err != nil {
 		t.Fatalf("NewStateMachine: %v", err)
 	}
@@ -312,10 +312,10 @@ func TestStubStateMachineRejectsNULNames(t *testing.T) {
 	lib := Stub(t) // no returns: must error before the C call
 	tc := &TestCase{pointer: &pointer[testCaseT]{syms: lib.syms, raw: 1}}
 
-	if _, _, err := tc.NewStateMachine(lib, []string{"a\x00b"}, []int64{0}, nil, nil, 1, 1, 50); err == nil {
+	if _, _, err := tc.NewStateMachine(lib, []string{"a\x00b"}, []int64{0}, nil, nil, nil, 1, 1, 50); err == nil {
 		t.Error("expected error for NUL in a rule name")
 	}
-	if _, _, err := tc.NewStateMachine(lib, []string{"ok"}, []int64{0}, []string{"bad\x00"}, nil, 1, 1, 50); err == nil {
+	if _, _, err := tc.NewStateMachine(lib, []string{"ok"}, []int64{0}, nil, []string{"bad\x00"}, nil, 1, 1, 50); err == nil {
 		t.Error("expected error for NUL in an invariant name")
 	}
 }
@@ -326,8 +326,19 @@ func TestStubStateMachineRejectsGroupMismatch(t *testing.T) {
 	lib := Stub(t) // no returns: must error before the C call
 	tc := &TestCase{pointer: &pointer[testCaseT]{syms: lib.syms, raw: 1}}
 
-	if _, _, err := tc.NewStateMachine(lib, []string{"a", "b"}, []int64{0}, nil, nil, 1, 1, 50); err == nil {
+	if _, _, err := tc.NewStateMachine(lib, []string{"a", "b"}, []int64{0}, nil, nil, nil, 1, 1, 50); err == nil {
 		t.Error("expected error for mismatched rule-group length")
+	}
+}
+
+// TestStubStateMachineRejectsWeightMismatch covers NewStateMachine's guard
+// against a non-nil ruleWeights slice whose length differs from ruleNames.
+func TestStubStateMachineRejectsWeightMismatch(t *testing.T) {
+	lib := Stub(t) // no returns: must error before the C call
+	tc := &TestCase{pointer: &pointer[testCaseT]{syms: lib.syms, raw: 1}}
+
+	if _, _, err := tc.NewStateMachine(lib, []string{"a", "b"}, []int64{0, 0}, []float64{1.0}, nil, nil, 1, 1, 50); err == nil {
+		t.Error("expected error for mismatched rule-weight length")
 	}
 }
 
@@ -338,7 +349,7 @@ func TestStubStateMachineRejectsInvariantFlagMismatch(t *testing.T) {
 	lib := Stub(t) // no returns: must error before the C call
 	tc := &TestCase{pointer: &pointer[testCaseT]{syms: lib.syms, raw: 1}}
 
-	if _, _, err := tc.NewStateMachine(lib, []string{"a"}, []int64{0}, []string{"inv"}, []bool{true, false}, 1, 1, 50); err == nil {
+	if _, _, err := tc.NewStateMachine(lib, []string{"a"}, []int64{0}, nil, []string{"inv"}, []bool{true, false}, 1, 1, 50); err == nil {
 		t.Error("expected error for mismatched always-check-flag length")
 	}
 }

@@ -314,7 +314,7 @@ type symbols struct {
 	PoolAdd                  func(ctxT, testCaseT, poolT, out[int64]) Error
 	PoolGenerate             func(ctxT, testCaseT, poolT, bool, out[int64]) Error
 	PoolFree                 func(ctxT, poolT) Error
-	NewStateMachine          func(ctxT, testCaseT, **byte, *int64, uint64, **byte, *bool, uint64, int64, int64, int64, out[stateMachineT], out[int64]) Error
+	NewStateMachine          func(ctxT, testCaseT, **byte, *int64, *float64, uint64, **byte, *bool, uint64, int64, int64, int64, out[stateMachineT], out[int64]) Error
 	StateMachineNextGroup    func(ctxT, testCaseT, stateMachineT, out[StateMachineGroup]) Error
 	StateMachineNextRule     func(ctxT, testCaseT, stateMachineT, int64, out[int64]) Error
 	StateMachineRuleRejected func(ctxT, testCaseT, stateMachineT, int64) Error
@@ -1565,13 +1565,21 @@ type StateMachine pointer[stateMachineT]
 // sequential machine). stepCount bounds the number of completed rounds and
 // must be positive; the frontend supplies its default.
 //
+// ruleWeights is a slice of selection weights parallel to ruleNames: each entry
+// must be finite and strictly positive, and gives its rule a selection weight
+// among the enabled rules of the current group. A nil slice (the C NULL default)
+// weights every rule equally.
+//
 // invariantAlwaysCheck is a slice of flags parallel to invariantNames: a
 // flagged invariant is checked after every rule, the rest are sampled. A nil
 // slice (the C NULL default) leaves every invariant sampled. The returned
 // handle is owned by the caller and freed automatically via the GC.
-func (tc *TestCase) NewStateMachine(ctx *Context, ruleNames []string, ruleGroups []int64, invariantNames []string, invariantAlwaysCheck []bool, minConcurrency, maxConcurrency, stepCount int64) (*StateMachine, int64, error) {
+func (tc *TestCase) NewStateMachine(ctx *Context, ruleNames []string, ruleGroups []int64, ruleWeights []float64, invariantNames []string, invariantAlwaysCheck []bool, minConcurrency, maxConcurrency, stepCount int64) (*StateMachine, int64, error) {
 	if len(ruleGroups) != len(ruleNames) {
 		return nil, 0, fmt.Errorf("hegel_new_state_machine: %d rule groups for %d rule names", len(ruleGroups), len(ruleNames))
+	}
+	if ruleWeights != nil && len(ruleWeights) != len(ruleNames) {
+		return nil, 0, fmt.Errorf("hegel_new_state_machine: %d rule weights for %d rule names", len(ruleWeights), len(ruleNames))
 	}
 	if invariantAlwaysCheck != nil && len(invariantAlwaysCheck) != len(invariantNames) {
 		return nil, 0, fmt.Errorf("hegel_new_state_machine: %d always-check flags for %d invariant names", len(invariantAlwaysCheck), len(invariantNames))
@@ -1587,7 +1595,7 @@ func (tc *TestCase) NewStateMachine(ctx *Context, ruleNames []string, ruleGroups
 	ptr, err := allocate(ctx, "hegel_new_state_machine", func(ctx ctxT, raw *stateMachineT) Error {
 		e := tc.syms.NewStateMachine(
 			ctx, tc.raw,
-			slicePtr(rules), slicePtr(ruleGroups), uint64(len(ruleNames)),
+			slicePtr(rules), slicePtr(ruleGroups), slicePtr(ruleWeights), uint64(len(ruleNames)),
 			slicePtr(invariants), slicePtr(invariantAlwaysCheck), uint64(len(invariantNames)),
 			minConcurrency, maxConcurrency, stepCount,
 			raw, &tc.outInt,
