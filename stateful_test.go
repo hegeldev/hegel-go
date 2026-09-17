@@ -233,7 +233,7 @@ func (tc *concurrentTestCase) invoke(fn testBody) (err error) {
 	return nil
 }
 
-func (tc *concurrentTestCase) startSpan(_ label) error {
+func (tc *concurrentTestCase) startSpan(_ libhegel.Label) error {
 	tc.shared.spanStarts.Add(1)
 	return nil
 }

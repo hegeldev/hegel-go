@@ -88,8 +88,7 @@ func TestSampledFromDrawError(t *testing.T) {
 
 func TestOneOfIndexDrawError(t *testing.T) {
 	t.Parallel()
-	// start_span succeeds, then the branch-index integer draw fails.
-	tc := newStubTestCase(t, libhegel.OK, int64(0), libhegel.E_BACKEND, "boom")
+	tc := newStubTestCase(t, int64(0), libhegel.E_BACKEND, "boom")
 	if _, err := OneOf(Booleans(), Booleans()).draw(tc); err == nil {
 		t.Fatal("expected one_of index draw error")
 	}
@@ -97,7 +96,7 @@ func TestOneOfIndexDrawError(t *testing.T) {
 
 func TestOptionalIndexDrawError(t *testing.T) {
 	t.Parallel()
-	tc := newStubTestCase(t, libhegel.OK, int64(0), libhegel.E_BACKEND, "boom")
+	tc := newStubTestCase(t, int64(0), libhegel.E_BACKEND, "boom")
 	if _, err := Optional(Booleans()).draw(tc); err == nil {
 		t.Fatal("expected optional index draw error")
 	}
@@ -121,7 +120,7 @@ func TestIPAddressesV6DrawError(t *testing.T) {
 
 func TestIPAddressesDefaultIndexDrawError(t *testing.T) {
 	t.Parallel()
-	tc := newStubTestCase(t, libhegel.OK, int64(0), libhegel.E_BACKEND, "boom")
+	tc := newStubTestCase(t, int64(0), libhegel.E_BACKEND, "boom")
 	if _, err := IPAddresses().draw(tc); err == nil {
 		t.Fatal("expected default ip index draw error")
 	}

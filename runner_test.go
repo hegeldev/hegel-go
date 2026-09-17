@@ -1120,7 +1120,7 @@ func TestRunWithHandleIsNondeterministicError(t *testing.T) {
 	t.Parallel()
 	lib := libhegel.Stub(t,
 		uintptr(1), libhegel.OK,
-		libhegel.OK,
+		libhegel.OK, // Draw span
 		uintptr(1), libhegel.OK,
 		uintptr(1), libhegel.OK,
 		false, libhegel.E_BACKEND, "capture boom",
@@ -1197,7 +1197,7 @@ func TestTestCaseStartSpanError(t *testing.T) {
 	t.Parallel()
 	var got error
 	stubOpCase(t, func(tc *testCase) {
-		got = tc.startSpan("list")
+		got = tc.startSpan(labelFor("list"))
 	}, libhegel.E_BACKEND)
 	if got == nil {
 		t.Fatal("expected startSpan error")
@@ -1313,7 +1313,10 @@ func TestDrawPanicsOnGenerateError(t *testing.T) {
 	t.Parallel()
 	// generate_integer writes its int64 out-parameter (placeholder) before
 	// returning the failing Error.
-	tc := newStubTestCase(t, int64(0), libhegel.E_BACKEND, "boom")
+	tc := newStubTestCase(t,
+		libhegel.OK,
+		int64(0), libhegel.E_BACKEND, "boom",
+	)
 	defer expectErrorPanic(t, libhegel.E_BACKEND)
 	Draw[int](tc, Integers[int](0, 10))
 }
@@ -1409,7 +1412,10 @@ func TestDrawMapBasic(t *testing.T) {
 
 func TestDrawFilterStartSpanError(t *testing.T) {
 	t.Parallel()
-	tc := newStubTestCase(t, libhegel.E_BACKEND, "boom") // start_span fails
+	tc := newStubTestCase(t,
+		libhegel.OK,                // Draw span
+		libhegel.E_BACKEND, "boom", // filter attempt span
+	)
 	defer expectErrorPanic(t, libhegel.E_BACKEND)
 	Draw[int](tc, &filteredGenerator[int]{
 		source:    Integers[int](0, 10),

@@ -2,17 +2,25 @@ package hegel
 
 import (
 	"hash/maphash"
+	"reflect"
 
 	"hegel.dev/go/hegel/internal/libhegel"
 )
 
-type label string
-
 var labelSeed = maphash.MakeSeed()
 
-func (l label) hash() libhegel.Label {
-	// Frontend span labels are process-local identities owned by this package.
-	// Shrinking compares them only within one process, so local hashing does not
-	// require libhegel's LabelFromName or LabelCombine APIs.
-	return libhegel.Label(maphash.String(labelSeed, string(l)))
+func hashValue(seed maphash.Seed, v any) uint64 {
+	var h maphash.Hash
+	h.SetSeed(seed)
+	value := reflect.ValueOf(v)
+	if value.IsValid() && value.Comparable() {
+		maphash.WriteComparable(&h, v)
+	} else {
+		maphash.WriteComparable(&h, reflect.TypeOf(v))
+	}
+	return h.Sum64()
+}
+
+func labelFor(v any) libhegel.Label {
+	return libhegel.Label(hashValue(labelSeed, v))
 }
