@@ -21,6 +21,15 @@ func testHomeOverride(t *testing.T) string {
 	return dir
 }
 
+// stubVar replaces the package-level stub *p with v for the duration of the
+// test, restoring the original on cleanup.
+func stubVar[T any](t *testing.T, p *T, v T) {
+	t.Helper()
+	orig := *p
+	*p = v
+	t.Cleanup(func() { *p = orig })
+}
+
 // TestEmbeddedLibPresent asserts that a vendored libhegel binary is embedded
 // for the platform the test suite runs on. CI runs this on linux/amd64,
 // darwin/arm64, and windows/amd64 — the published, vendored assets.
@@ -117,56 +126,82 @@ func TestMaterializeEmbeddedRepairsCacheDirMode(t *testing.T) {
 	}
 }
 
-// TestMaterializeEmbeddedCacheDirChmodError covers failure to repair the
-// permissions of an existing cache directory.
-func TestMaterializeEmbeddedCacheDirChmodError(t *testing.T) {
+// TestMaterializeEmbeddedFallsBackToTemp verifies an unusable cache degrades
+// to a fresh extraction under the system temp dir rather than an error: with
+// no cached library, the library must still materialize.
+func TestMaterializeEmbeddedFallsBackToTemp(t *testing.T) {
 	testHomeOverride(t)
-	want := errors.New("chmod failed")
-	original := chmodCacheDir
-	chmodCacheDir = func(string, os.FileMode) error { return want }
-	t.Cleanup(func() { chmodCacheDir = original })
+	tmp := t.TempDir()
+	t.Setenv("TMPDIR", tmp) // unix temp root
+	t.Setenv("TMP", tmp)    // windows temp root
+	stubVar(t, &chmodCacheDir, func(string, os.FileMode) error { return errors.New("chmod denied") })
 
-	_, err := writeDynamicLibrary([]byte("libhegel"))
-	if !errors.Is(err, want) {
-		t.Fatalf("writeDynamicLibrary: got %v, want chmod error", err)
+	payload := []byte("fallback payload")
+	path, err := writeDynamicLibrary(payload)
+	if err != nil {
+		t.Fatalf("writeDynamicLibrary: %v", err)
 	}
-	if !strings.Contains(err.Error(), "secure cache dir") {
-		t.Errorf("expected cache security context; got %q", err)
+	got, err := os.ReadFile(path)
+	if err != nil { // coverage-ignore
+		t.Fatalf("read: %v", err)
+	}
+	if string(got) != string(payload) {
+		t.Errorf("body mismatch: got %q", got)
+	}
+	if filepath.Base(path) != libhegelAssetName() {
+		t.Errorf("expected file named %q, got %q", libhegelAssetName(), filepath.Base(path))
 	}
 }
 
-// TestMaterializeEmbeddedCacheLockError covers failure to acquire the
-// cross-process publication lock.
-func TestMaterializeEmbeddedCacheLockError(t *testing.T) {
+// TestMaterializeEmbeddedTempFallbackError covers the terminal case: both the
+// cache and the temp-dir fallback are unusable. The error must surface both
+// causes.
+func TestMaterializeEmbeddedTempFallbackError(t *testing.T) {
 	testHomeOverride(t)
-	want := errors.New("lock failed")
-	original := lockCacheDir
-	lockCacheDir = func(string) (func() error, error) { return nil, want }
-	t.Cleanup(func() { lockCacheDir = original })
+	stubVar(t, &chmodCacheDir, func(string, os.FileMode) error { return errors.New("chmod denied") })
+	want := errors.New("temp dir denied")
+	stubVar(t, &mkdirTemp, func(string, string) (string, error) { return "", want })
 
 	_, err := writeDynamicLibrary([]byte("libhegel"))
 	if !errors.Is(err, want) {
-		t.Fatalf("writeDynamicLibrary: got %v, want lock error", err)
+		t.Fatalf("writeDynamicLibrary: got %v, want temp dir error", err)
+	}
+	if !strings.Contains(err.Error(), "cache also unusable") {
+		t.Errorf("expected the cache failure to be surfaced too; got %q", err)
+	}
+	if !strings.Contains(err.Error(), "secure cache dir") {
+		t.Errorf("expected the cache failure detail; got %q", err)
+	}
+}
+
+// TestCachedLibraryLockError covers failure to acquire the cross-process
+// publication lock.
+func TestCachedLibraryLockError(t *testing.T) {
+	testHomeOverride(t)
+	want := errors.New("lock failed")
+	stubVar(t, &lockCacheDir, func(string) (func() error, error) { return nil, want })
+
+	_, err := cachedLibrary([]byte("libhegel"))
+	if !errors.Is(err, want) {
+		t.Fatalf("cachedLibrary: got %v, want lock error", err)
 	}
 	if !strings.Contains(err.Error(), "lock cache dir") {
 		t.Errorf("expected cache lock context; got %q", err)
 	}
 }
 
-// TestMaterializeEmbeddedCacheUnlockError covers failure to release the
-// cross-process publication lock after a successful write.
-func TestMaterializeEmbeddedCacheUnlockError(t *testing.T) {
+// TestCachedLibraryUnlockError covers failure to release the cross-process
+// publication lock after a successful write.
+func TestCachedLibraryUnlockError(t *testing.T) {
 	testHomeOverride(t)
 	want := errors.New("unlock failed")
-	original := lockCacheDir
-	lockCacheDir = func(string) (func() error, error) {
+	stubVar(t, &lockCacheDir, func(string) (func() error, error) {
 		return func() error { return want }, nil
-	}
-	t.Cleanup(func() { lockCacheDir = original })
+	})
 
-	_, err := writeDynamicLibrary([]byte("libhegel"))
+	_, err := cachedLibrary([]byte("libhegel"))
 	if !errors.Is(err, want) {
-		t.Fatalf("writeDynamicLibrary: got %v, want unlock error", err)
+		t.Fatalf("cachedLibrary: got %v, want unlock error", err)
 	}
 	if !strings.Contains(err.Error(), "unlock cache dir") {
 		t.Errorf("expected cache unlock context; got %q", err)
@@ -187,9 +222,10 @@ func TestMaterializeEmbeddedEmpty(t *testing.T) {
 	}
 }
 
-// TestMaterializeEmbeddedUserCacheDirError verifies that failure to resolve a
-// per-user cache is returned rather than falling back to a shared temp dir.
-func TestMaterializeEmbeddedUserCacheDirError(t *testing.T) {
+// TestCachedLibraryUserCacheDirError verifies that failure to resolve a
+// per-user cache is reported to the caller (which then falls back to the
+// system temp dir).
+func TestCachedLibraryUserCacheDirError(t *testing.T) {
 	switch runtime.GOOS {
 	case "darwin": // coverage-ignore (unreachable on the linux CI runner)
 		t.Setenv("HOME", "")
@@ -199,7 +235,7 @@ func TestMaterializeEmbeddedUserCacheDirError(t *testing.T) {
 		t.Setenv("XDG_CACHE_HOME", "relative")
 	}
 
-	_, err := writeDynamicLibrary([]byte("libhegel"))
+	_, err := cachedLibrary([]byte("libhegel"))
 	if err == nil {
 		t.Fatal("expected user cache directory resolution to fail")
 	}
