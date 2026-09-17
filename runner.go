@@ -189,7 +189,7 @@ func (s *testCase) free() {
 }
 
 func (s *testCase) stateMachineNew(ruleNames []string, ruleGroups []int64, invariantNames []string, invariantAlwaysCheck []bool, maxConcurrency, stepCount int) (*libhegel.StateMachine, int64, error) {
-	machine, concurrency, err := s.tc.NewStateMachine(s.ctx, ruleNames, ruleGroups, invariantNames, invariantAlwaysCheck, 1, int64(maxConcurrency), int64(stepCount))
+	machine, concurrency, err := s.tc.NewStateMachine(s.ctx, ruleNames, ruleGroups, nil, invariantNames, invariantAlwaysCheck, 1, int64(maxConcurrency), int64(stepCount))
 	return machine, concurrency, err
 }
 
