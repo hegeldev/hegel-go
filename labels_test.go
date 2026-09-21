@@ -44,10 +44,10 @@ func (g labelProbeGenerator) draw(tc TestCase) (int, error) {
 }
 
 func (g labelProbeGenerator) hashFields(h *maphash.Hash) bool {
-	return hashComparable(h, g.value)
+	return hashValue(h, g.value)
 }
 
-func mustLabel(tb testing.TB, generator labelGenerator) libhegel.Label {
+func mustLabel[T any](tb testing.TB, generator Generator[T]) libhegel.Label {
 	tb.Helper()
 	label, ok := labelFor(generator)
 	if !ok {
@@ -100,7 +100,7 @@ type generatorField struct {
 	index []int
 }
 
-func checkGenerator(tb testing.TB, generator, equivalent labelGenerator, ignored ...string) {
+func checkGenerator[T any](tb testing.TB, generator, equivalent Generator[T], ignored ...string) {
 	tb.Helper()
 	want := mustLabel(tb, generator)
 	if got := mustLabel(tb, generator); got != want {
@@ -120,13 +120,22 @@ func checkGenerator(tb testing.TB, generator, equivalent labelGenerator, ignored
 			continue
 		}
 		mutated := mutateGenerator(tb, generator, field)
-		if got, ok := labelFor(mutated); ok && got == want {
+		if got, ok := recoverLabel(mutated); ok && got == want {
 			tb.Errorf("mutating %s did not change label %d", field.name, want)
 		}
 	}
 	for name := range ignoredFields {
 		tb.Errorf("ignored field %q does not exist", name)
 	}
+}
+
+func recoverLabel[T any](generator Generator[T]) (label libhegel.Label, ok bool) {
+	defer func() {
+		if recover() != nil {
+			ok = false
+		}
+	}()
+	return labelFor(generator)
 }
 
 func generatorFields(generatorType reflect.Type) []generatorField {
@@ -154,7 +163,7 @@ func generatorFields(generatorType reflect.Type) []generatorField {
 	return result
 }
 
-func mutateGenerator(tb testing.TB, generator labelGenerator, field generatorField) labelGenerator {
+func mutateGenerator[T any](tb testing.TB, generator Generator[T], field generatorField) Generator[T] {
 	tb.Helper()
 	original := reflect.ValueOf(generator)
 	var clone, root reflect.Value
@@ -195,7 +204,7 @@ func mutateGenerator(tb testing.TB, generator labelGenerator, field generatorFie
 	default:
 		tb.Fatalf("no mutation heuristic for %s field %s", root.Kind(), field.name)
 	}
-	return clone.Interface().(labelGenerator)
+	return clone.Interface().(Generator[T])
 }
 
 func increment(value int) int                             { return value + 1 }
@@ -205,6 +214,12 @@ func countInts(values []int) int                          { return len(values) }
 func compositeInt(tc TestCase) int                        { return Draw(tc, Integers(0, 10)) }
 func recursiveBranch(child Generator[int]) Generator[int] { return Map(Lists(child), countInts) }
 
+func generatorCheck[T any](generator, equivalent Generator[T], ignored ...string) func(*testing.T) {
+	return func(t *testing.T) {
+		checkGenerator(t, generator, equivalent, ignored...)
+	}
+}
+
 func TestGeneratorHashFields(t *testing.T) {
 	t.Parallel()
 	date := time.Date(2020, 2, 3, 4, 5, 6, 7, time.FixedZone("one", 3600))
@@ -213,35 +228,33 @@ func TestGeneratorHashFields(t *testing.T) {
 	recursion := &libhegel.Recursion{}
 
 	tests := []struct {
-		name       string
-		generator  labelGenerator
-		equivalent labelGenerator
-		ignored    []string
+		name  string
+		check func(*testing.T)
 	}{
-		{"integer", Integers(1, 9), Integers(1, 9), nil},
-		{"float", Floats[float64]().Min(1).Max(2).AllowNaN(false).AllowInfinity(false).ExcludeMin().ExcludeMax(), Floats[float64]().Min(1).Max(2).AllowNaN(false).AllowInfinity(false).ExcludeMin().ExcludeMax(), nil},
-		{"text", Text().MinSize(1).MaxSize(2).Codec("ascii").MinCodepoint('a').MaxCodepoint('z').Categories([]string{"L"}).ExcludeCategories([]string{"Lu"}).IncludeCharacters("x").ExcludeCharacters("y"), Text().MinSize(1).MaxSize(2).Codec("ascii").MinCodepoint('a').MaxCodepoint('z').Categories([]string{"L"}).ExcludeCategories([]string{"Lu"}).IncludeCharacters("x").ExcludeCharacters("y"), nil},
-		{"characters", Characters().Codec("ascii").MinCodepoint('a').MaxCodepoint('z').Categories([]string{"L"}).ExcludeCategories([]string{"Lu"}).IncludeCharacters("x").ExcludeCharacters("y"), Characters().Codec("ascii").MinCodepoint('a').MaxCodepoint('z').Categories([]string{"L"}).ExcludeCategories([]string{"Lu"}).IncludeCharacters("x").ExcludeCharacters("y"), nil},
-		{"domain", Domains().MaxLength(20), Domains().MaxLength(20), nil},
-		{"date", Dates().Min(date).Max(date), Dates().Min(equivalentDate).Max(equivalentDate), nil},
-		{"datetime", Datetimes().Min(date).Max(date), Datetimes().Min(equivalentDate).Max(equivalentDate), nil},
-		{"list", Lists(Integers(0, 10)).MinSize(1).MaxSize(3), Lists(Integers(0, 10)).MinSize(1).MaxSize(3), nil},
-		{"map", Maps(Integers(0, 10), Integers(0, 10)).MinSize(1).MaxSize(3), Maps(Integers(0, 10), Integers(0, 10)).MinSize(1).MaxSize(3), nil},
-		{"one-of", OneOf(Integers(0, 1), Integers(2, 3)), OneOf(Integers(0, 1), Integers(2, 3)), nil},
-		{"optional", Optional(Integers(0, 10)), Optional(Integers(0, 10)), nil},
-		{"ip-address", IPAddresses().IPv4(), IPAddresses().IPv4(), nil},
-		{"composite", Composite(compositeInt), Composite(compositeInt), nil},
-		{"map-function", Map(Integers(0, 10), increment), Map(Integers(0, 10), increment), nil},
-		{"filter", Filter(Integers(0, 10), positive), Filter(Integers(0, 10), positive), nil},
-		{"flat-map", FlatMap(Integers(0, 10), intGenerator), FlatMap(Integers(0, 10), intGenerator), nil},
-		{"recursive", Recursive(Integers(0, 10), recursiveBranch).MaxDepth(2).MaxLeaves(3), Recursive(Integers(0, 10), recursiveBranch).MaxDepth(2).MaxLeaves(3), nil},
-		{"subtree", &subtreeGenerator[int]{leaf: Integers(0, 10), branch: recursiveBranch, recursion: recursion, depth: 2}, &subtreeGenerator[int]{leaf: Integers(0, 10), branch: recursiveBranch, recursion: recursion, depth: 2}, []string{"recursion"}},
-		{"pool", poolGenerator[int]{pool: pool, consume: true}, poolGenerator[int]{pool: pool, consume: true}, nil},
+		{"integer", generatorCheck(Integers(1, 9), Integers(1, 9), "drawFunc")},
+		{"float", generatorCheck(Floats[float64]().Min(1).Max(2).AllowNaN(false).AllowInfinity(false).ExcludeMin().ExcludeMax(), Floats[float64]().Min(1).Max(2).AllowNaN(false).AllowInfinity(false).ExcludeMin().ExcludeMax())},
+		{"text", generatorCheck(Text().MinSize(1).MaxSize(2).Codec("ascii").MinCodepoint('a').MaxCodepoint('z').Categories([]string{"L"}).ExcludeCategories([]string{"Lu"}).IncludeCharacters("x").ExcludeCharacters("y"), Text().MinSize(1).MaxSize(2).Codec("ascii").MinCodepoint('a').MaxCodepoint('z').Categories([]string{"L"}).ExcludeCategories([]string{"Lu"}).IncludeCharacters("x").ExcludeCharacters("y"))},
+		{"characters", generatorCheck(Characters().Codec("ascii").MinCodepoint('a').MaxCodepoint('z').Categories([]string{"L"}).ExcludeCategories([]string{"Lu"}).IncludeCharacters("x").ExcludeCharacters("y"), Characters().Codec("ascii").MinCodepoint('a').MaxCodepoint('z').Categories([]string{"L"}).ExcludeCategories([]string{"Lu"}).IncludeCharacters("x").ExcludeCharacters("y"))},
+		{"domain", generatorCheck(Domains().MaxLength(20), Domains().MaxLength(20))},
+		{"date", generatorCheck(Dates().Min(date).Max(date), Dates().Min(equivalentDate).Max(equivalentDate))},
+		{"datetime", generatorCheck(Datetimes().Min(date).Max(date), Datetimes().Min(equivalentDate).Max(equivalentDate))},
+		{"list", generatorCheck(Lists(Integers(0, 10)).MinSize(1).MaxSize(3), Lists(Integers(0, 10)).MinSize(1).MaxSize(3))},
+		{"map", generatorCheck(Maps(Integers(0, 10), Integers(0, 10)).MinSize(1).MaxSize(3), Maps(Integers(0, 10), Integers(0, 10)).MinSize(1).MaxSize(3))},
+		{"one-of", generatorCheck(OneOf(Integers(0, 1), Integers(2, 3)), OneOf(Integers(0, 1), Integers(2, 3)))},
+		{"optional", generatorCheck(Optional(Integers(0, 10)), Optional(Integers(0, 10)))},
+		{"ip-address", generatorCheck(IPAddresses().IPv4(), IPAddresses().IPv4())},
+		{"composite", generatorCheck(Composite(compositeInt), Composite(compositeInt))},
+		{"map-function", generatorCheck(Map(Integers(0, 10), increment), Map(Integers(0, 10), increment))},
+		{"filter", generatorCheck(Filter(Integers(0, 10), positive), Filter(Integers(0, 10), positive))},
+		{"flat-map", generatorCheck(FlatMap(Integers(0, 10), intGenerator), FlatMap(Integers(0, 10), intGenerator))},
+		{"recursive", generatorCheck(Recursive(Integers(0, 10), recursiveBranch).MaxDepth(2).MaxLeaves(3), Recursive(Integers(0, 10), recursiveBranch).MaxDepth(2).MaxLeaves(3))},
+		{"subtree", generatorCheck(&subtreeGenerator[int]{leaf: Integers(0, 10), branch: recursiveBranch, recursion: recursion, depth: 2}, &subtreeGenerator[int]{leaf: Integers(0, 10), branch: recursiveBranch, recursion: recursion, depth: 2}, "recursion")},
+		{"pool", generatorCheck(poolGenerator[int]{pool: pool, consume: true}, poolGenerator[int]{pool: pool, consume: true})},
 	}
 
 	for _, test := range tests {
 		t.Run(test.name, func(t *testing.T) {
-			checkGenerator(t, test.generator, test.equivalent, test.ignored...)
+			test.check(t)
 		})
 	}
 }
@@ -253,74 +266,98 @@ func TestGeneratorTypeSeparatesLabels(t *testing.T) {
 	}
 }
 
+func differentLabelCheck[T any](left, right Generator[T]) func(*testing.T) {
+	return func(t *testing.T) {
+		if left, right := mustLabel(t, left), mustLabel(t, right); left == right {
+			t.Fatalf("different configurations share label %d", left)
+		}
+	}
+}
+
 func TestFunctionGeneratorConfigurationChangesLabels(t *testing.T) {
 	t.Parallel()
 	tests := []struct {
 		name  string
-		left  labelGenerator
-		right labelGenerator
+		check func(*testing.T)
 	}{
-		{"integer minimum", Integers(0, 10), Integers(1, 10)},
-		{"integer maximum", Integers(0, 10), Integers(0, 11)},
-		{"boolean weight", WeightedBooleans(0.25), WeightedBooleans(0.75)},
-		{"binary minimum", Binary(0, 10), Binary(1, 10)},
-		{"binary maximum", Binary(0, 10), Binary(0, 11)},
-		{"regex pattern", FromRegex("a", true), FromRegex("b", true)},
-		{"regex mode", FromRegex("a", true), FromRegex("a", false)},
-		{"constant", Just(1), Just(2)},
-		{"sampled value", SampledFrom([]int{1, 2}), SampledFrom([]int{1, 3})},
-		{"function body", Emails(), URLs()},
+		{"integer minimum", differentLabelCheck(Integers(0, 10), Integers(1, 10))},
+		{"integer maximum", differentLabelCheck(Integers(0, 10), Integers(0, 11))},
+		{"boolean weight", differentLabelCheck(WeightedBooleans(0.25), WeightedBooleans(0.75))},
+		{"binary minimum", differentLabelCheck(Binary(0, 10), Binary(1, 10))},
+		{"binary maximum", differentLabelCheck(Binary(0, 10), Binary(0, 11))},
+		{"regex pattern", differentLabelCheck(FromRegex("a", true), FromRegex("b", true))},
+		{"regex mode", differentLabelCheck(FromRegex("a", true), FromRegex("a", false))},
+		{"function body", differentLabelCheck(Emails(), URLs())},
 	}
 
 	for _, test := range tests {
 		t.Run(test.name, func(t *testing.T) {
-			if left, right := mustLabel(t, test.left), mustLabel(t, test.right); left == right {
-				t.Fatalf("different configurations share label %d", left)
-			}
+			test.check(t)
 		})
 	}
 }
 
-func TestUnhashableGeneratorHasNoLabel(t *testing.T) {
+func TestConstantAndSampledLabelsIgnoreValues(t *testing.T) {
 	t.Parallel()
-	if _, ok := labelFor(Just([]int{1})); ok {
-		t.Fatal("Just with an unhashable value has a label")
+	if left, right := mustLabel(t, Just(1)), mustLabel(t, Just(2)); left != right {
+		t.Fatalf("constants of the same type have labels %d and %d", left, right)
+	}
+	if left, right := mustLabel(t, SampledFrom([]int{1})), mustLabel(t, SampledFrom([]int{2, 3})); left != right {
+		t.Fatalf("samples of the same type have labels %d and %d", left, right)
+	}
+	if left, right := mustLabel(t, Just(1)), mustLabel(t, Just(int64(1))); left == right {
+		t.Fatalf("constants of different types share label %d", left)
 	}
 }
 
-func TestNaNGeneratorHasNoLabel(t *testing.T) {
-	t.Parallel()
-	tests := []struct {
-		name      string
-		generator labelGenerator
-	}{
-		{"direct", Just(math.NaN())},
-		{"struct", Just(struct{ value float64 }{math.NaN()})},
-		{"interface", Just(struct{ value any }{math.NaN()})},
-		{"array", Just([1]float64{math.NaN()})},
-		{"complex", Just(complex(math.NaN(), 0))},
-		{"sampled", SampledFrom([]float64{math.NaN()})},
+func valueHash(t *testing.T, value any) uint64 {
+	t.Helper()
+	var h maphash.Hash
+	h.SetSeed(labelSeed)
+	if !hashValue(&h, value) {
+		t.Fatalf("%T is not hashable", value)
 	}
-	for _, test := range tests {
-		t.Run(test.name, func(t *testing.T) {
-			if _, ok := labelFor(test.generator); ok {
-				t.Fatal("generator containing NaN has a label")
-			}
-		})
+	return h.Sum64()
+}
+
+func TestHashValueUsesFloatBits(t *testing.T) {
+	t.Parallel()
+	for _, value := range []any{
+		float32(math.NaN()),
+		math.NaN(),
+		complex(float32(math.NaN()), float32(1)),
+		complex(math.NaN(), 1),
+	} {
+		if left, right := valueHash(t, value), valueHash(t, value); left != right {
+			t.Fatalf("%T hash is unstable: %d != %d", value, left, right)
+		}
+	}
+	if positive, negative := valueHash(t, 0.0), valueHash(t, math.Copysign(0, -1)); positive == negative {
+		t.Fatalf("positive and negative zero share hash %d", positive)
 	}
 }
 
-func TestHashHelpersRejectUnsupportedValues(t *testing.T) {
+type unhashableGenerator struct{ value []int }
+
+func (g unhashableGenerator) draw(TestCase) ([]int, error) { return g.value, nil }
+
+func (g unhashableGenerator) hashFields(h *maphash.Hash) bool { return hashValue(h, g.value) }
+
+func TestHashValueRejectsUnsupportedValues(t *testing.T) {
 	t.Parallel()
 	var h maphash.Hash
-	h.SetSeed(maphash.MakeSeed())
-	if hashFunction(&h, 1) {
-		t.Fatal("non-function was hashable as a function")
-	}
-	if hashValues(&h, []int{1}) {
+	h.SetSeed(labelSeed)
+	_ = valueHash(t, nil)
+	if hashValue(&h, []int{1}) {
 		t.Fatal("non-comparable value was hashable")
 	}
-	if _, ok := labelFor(OneOf(Just([]int{1}))); ok {
+	if hashValues(&h, []int{1}) {
+		t.Fatal("hashValues accepted a non-comparable value")
+	}
+	if hashSlice(&h, [][]int{{1}}) {
+		t.Fatal("hashSlice accepted a non-comparable element")
+	}
+	if _, ok := labelFor(OneOf[[]int](unhashableGenerator{value: []int{1}})); ok {
 		t.Fatal("OneOf with an unlabelable child has a label")
 	}
 }
@@ -328,7 +365,7 @@ func TestHashHelpersRejectUnsupportedValues(t *testing.T) {
 func TestUnhashableGeneratorDrawHasNoSpan(t *testing.T) {
 	t.Parallel()
 	tc := &labelRecordingTestCase{}
-	if got := Draw(tc, Just([]int{1})); !slices.Equal(got, []int{1}) {
+	if got := Draw(tc, unhashableGenerator{value: []int{1}}); !slices.Equal(got, []int{1}) {
 		t.Fatalf("draw = %v, want [1]", got)
 	}
 	if len(tc.labels) != 0 {

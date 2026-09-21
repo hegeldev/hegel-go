@@ -24,7 +24,7 @@ type RecursiveGenerator[T any] struct {
 
 func (g RecursiveGenerator[T]) hashFields(h *maphash.Hash) bool {
 	return hashGenerator(h, g.leaf) &&
-		hashFunction(h, g.branch) &&
+		hashValue(h, g.branch) &&
 		hashValues(h, g.maxDepth, g.maxLeaves)
 }
 
@@ -119,7 +119,7 @@ type subtreeGenerator[T any] struct {
 }
 
 func (g *subtreeGenerator[T]) hashFields(h *maphash.Hash) bool {
-	return hashGenerator(h, g.leaf) && hashFunction(h, g.branch) && hashComparable(h, g.depth)
+	return hashGenerator(h, g.leaf) && hashValue(h, g.branch) && hashValue(h, g.depth)
 }
 
 func (g *subtreeGenerator[T]) draw(tc TestCase) (T, error) {

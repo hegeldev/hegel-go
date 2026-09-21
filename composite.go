@@ -10,7 +10,7 @@ type compositeGenerator[T any] struct {
 }
 
 func (g *compositeGenerator[T]) hashFields(h *maphash.Hash) bool {
-	return hashFunction(h, g.fn)
+	return hashValue(h, g.fn)
 }
 
 //lint:ignore U1000 satisfies Generator interface; staticcheck misses generic dispatch

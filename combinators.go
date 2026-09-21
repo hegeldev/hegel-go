@@ -13,7 +13,7 @@ type oneOfGenerator[T any] struct {
 }
 
 func (g *oneOfGenerator[T]) hashFields(h *maphash.Hash) bool {
-	_ = hashComparable(h, len(g.generators))
+	_ = hashValue(h, len(g.generators))
 	for _, generator := range g.generators {
 		if !hashGenerator(h, generator) {
 			return false
@@ -84,7 +84,7 @@ type IPAddressGenerator struct {
 }
 
 func (g IPAddressGenerator) hashFields(h *maphash.Hash) bool {
-	return hashComparable(h, g.version)
+	return hashValue(h, g.version)
 }
 
 var _ Generator[netip.Addr] = IPAddressGenerator{}

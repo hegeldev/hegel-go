@@ -175,7 +175,7 @@ type mappedGenerator[T, U any] struct {
 }
 
 func (g *mappedGenerator[T, U]) hashFields(h *maphash.Hash) bool {
-	return hashGenerator(h, g.inner) && hashFunction(h, g.fn)
+	return hashGenerator(h, g.inner) && hashValue(h, g.fn)
 }
 
 //lint:ignore U1000 satisfies Generator interface; staticcheck misses generic dispatch
@@ -198,7 +198,7 @@ type filteredGenerator[T any] struct {
 }
 
 func (g *filteredGenerator[T]) hashFields(h *maphash.Hash) bool {
-	return hashGenerator(h, g.source) && hashFunction(h, g.predicate)
+	return hashGenerator(h, g.source) && hashValue(h, g.predicate)
 }
 
 //lint:ignore U1000 used by filteredGenerator.draw, which is reached via Generator interface
@@ -240,7 +240,7 @@ type flatMappedGenerator[T, U any] struct {
 }
 
 func (g *flatMappedGenerator[T, U]) hashFields(h *maphash.Hash) bool {
-	return hashGenerator(h, g.source) && hashFunction(h, g.f)
+	return hashGenerator(h, g.source) && hashValue(h, g.f)
 }
 
 //lint:ignore U1000 satisfies Generator interface; staticcheck misses generic dispatch

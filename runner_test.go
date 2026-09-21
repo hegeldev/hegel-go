@@ -1297,7 +1297,7 @@ type errGen[T any] struct{ err error }
 //lint:ignore U1000 satisfies Generator interface; staticcheck misses generic dispatch
 func (g errGen[T]) draw(TestCase) (T, error) { var z T; return z, g.err }
 
-func (g errGen[T]) hashFields(h *maphash.Hash) bool { return hashComparable(h, "errGen") }
+func (g errGen[T]) hashFields(h *maphash.Hash) bool { return hashValue(h, "errGen") }
 
 // expectErrorPanic is deferred to recover a Draw panic and assert its error.
 func expectErrorPanic(t *testing.T, want error) {

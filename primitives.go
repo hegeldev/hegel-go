@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"hash/maphash"
 	"math"
+	"reflect"
 	"slices"
 	"time"
 	"unsafe"
@@ -22,20 +23,29 @@ type float interface {
 
 type drawFunc[T any] func(tc TestCase) (T, error)
 
+type integerGeneratorKind struct{}
+type booleanGeneratorKind struct{}
+type binaryGeneratorKind struct{}
+type emailGeneratorKind struct{}
+type urlGeneratorKind struct{}
+type regexGeneratorKind struct{}
+type justGeneratorKind struct{}
+type sampledGeneratorKind struct{}
+
 //lint:ignore U1000 promoted by functionGenerator to satisfy Generator; staticcheck misses generic dispatch
 func (f drawFunc[T]) draw(tc TestCase) (T, error) { return f(tc) }
 
-type functionGenerator[T any] struct {
+type functionGenerator[T, K any] struct {
 	drawFunc[T]
 	config []any
 }
 
-func (g functionGenerator[T]) hashFields(h *maphash.Hash) bool {
-	return hashFunction(h, g.drawFunc) && hashSlice(h, g.config)
+func (g functionGenerator[T, K]) hashFields(h *maphash.Hash) bool {
+	return hashSlice(h, g.config)
 }
 
-func generatorFunc[T any](draw drawFunc[T], config ...any) Generator[T] {
-	return functionGenerator[T]{drawFunc: draw, config: config}
+func generatorFunc[T, K any](draw drawFunc[T], config ...any) Generator[T] {
+	return functionGenerator[T, K]{drawFunc: draw, config: config}
 }
 
 // --- Integers ---
@@ -60,7 +70,7 @@ func Integers[T integer](minVal, maxVal T) Generator[T] {
 	if minVal > maxVal {
 		panic(fmt.Sprintf("Cannot have max_value=%d < min_value=%d", maxVal, minVal))
 	}
-	return generatorFunc[T](func(tc TestCase) (T, error) {
+	return generatorFunc[T, integerGeneratorKind](func(tc TestCase) (T, error) {
 		ctx, ltc := tc.engine()
 		if fitsInt64(minVal) && fitsInt64(maxVal) {
 			v, err := ltc.GenerateInteger(ctx, int64(minVal), int64(maxVal))
@@ -91,8 +101,8 @@ type FloatGenerator[T float] struct {
 }
 
 func (g FloatGenerator[T]) hashFields(h *maphash.Hash) bool {
-	return hashOptionalFloat(h, g.minVal) &&
-		hashOptionalFloat(h, g.maxVal) &&
+	return hashOptional(h, g.minVal) &&
+		hashOptional(h, g.maxVal) &&
 		hashOptional(h, g.allowNaN) &&
 		hashOptional(h, g.allowInf) &&
 		hashValues(h, g.excludeMin, g.excludeMax)
@@ -213,7 +223,7 @@ func Booleans() Generator[bool] {
 // The probability must be within [0, 1]. Values 0 and 1 produce constants
 // without consuming entropy.
 func WeightedBooleans(p float64) Generator[bool] {
-	return generatorFunc[bool](func(tc TestCase) (bool, error) {
+	return generatorFunc[bool, booleanGeneratorKind](func(tc TestCase) (bool, error) {
 		ctx, ltc := tc.engine()
 		return ltc.GenerateBoolean(ctx, p, false, false)
 	}, math.Float64bits(p))
@@ -247,7 +257,7 @@ func (cf characterFields) hashFields(h *maphash.Hash) bool {
 		hashSlice(h, cf.excludeCategories) &&
 		hashOptional(h, cf.includeCharacters) &&
 		hashOptional(h, cf.excludeCharacters) &&
-		hashComparable(h, cf.hasCategoriesSet)
+		hashValue(h, cf.hasCategoriesSet)
 }
 
 // textArgs returns the character-set arguments for
@@ -516,7 +526,7 @@ func Binary(minSize int, maxSize int) Generator[[]byte] {
 	if maxSize >= 0 {
 		maxVal = uint64(maxSize)
 	}
-	return generatorFunc[[]byte](func(tc TestCase) ([]byte, error) {
+	return generatorFunc[[]byte, binaryGeneratorKind](func(tc TestCase) ([]byte, error) {
 		ctx, ltc := tc.engine()
 		return ltc.GenerateBytes(ctx, uint64(minSize), maxVal)
 	}, minSize, maxSize)
@@ -526,7 +536,7 @@ func Binary(minSize int, maxSize int) Generator[[]byte] {
 
 // Emails returns a Generator that produces email address strings.
 func Emails() Generator[string] {
-	return generatorFunc[string](func(tc TestCase) (string, error) {
+	return generatorFunc[string, emailGeneratorKind](func(tc TestCase) (string, error) {
 		ctx, ltc := tc.engine()
 		sg, err := ctx.StringGeneratorEmail()
 		if err != nil { // coverage-ignore (email generator construction never fails)
@@ -540,7 +550,7 @@ func Emails() Generator[string] {
 //
 // The scheme is either "http" or "https".
 func URLs() Generator[string] {
-	return generatorFunc[string](func(tc TestCase) (string, error) {
+	return generatorFunc[string, urlGeneratorKind](func(tc TestCase) (string, error) {
 		ctx, ltc := tc.engine()
 		sg, err := ctx.StringGeneratorURL()
 		if err != nil { // coverage-ignore (url generator construction never fails)
@@ -598,7 +608,7 @@ func (g DomainGenerator) draw(tc TestCase) (string, error) {
 
 // FromRegex returns a Generator that produces strings matching the given regular expression.
 func FromRegex(pattern string, fullmatch bool) Generator[string] {
-	return generatorFunc[string](func(tc TestCase) (string, error) {
+	return generatorFunc[string, regexGeneratorKind](func(tc TestCase) (string, error) {
 		ctx, ltc := tc.engine()
 		// No alphabet constraint: padding and wildcards draw from the full
 		// character set (NULL on the C side).
@@ -761,9 +771,9 @@ func (g DatetimeGenerator) draw(tc TestCase) (time.Time, error) {
 
 // Just returns a Generator that always produces the given constant value.
 func Just[T any](value T) Generator[T] {
-	return generatorFunc[T](func(tc TestCase) (T, error) {
+	return generatorFunc[T, justGeneratorKind](func(tc TestCase) (T, error) {
 		return value, nil
-	}, value)
+	}, reflect.TypeOf(value))
 }
 
 // SampledFrom returns a Generator that picks at random from values.
@@ -775,7 +785,7 @@ func SampledFrom[T any](values []T) Generator[T] {
 	}
 	elements := make([]T, len(values))
 	copy(elements, values)
-	return generatorFunc[T](func(tc TestCase) (T, error) {
+	return generatorFunc[T, sampledGeneratorKind](func(tc TestCase) (T, error) {
 		ctx, ltc := tc.engine()
 		idx, err := ltc.GenerateInteger(ctx, 0, int64(len(elements)-1))
 		if err != nil {
@@ -783,13 +793,5 @@ func SampledFrom[T any](values []T) Generator[T] {
 			return zero, err
 		}
 		return elements[idx], nil
-	}, append([]any{len(elements)}, sliceToAny(elements)...)...)
-}
-
-func sliceToAny[T any](values []T) []any {
-	result := make([]any, len(values))
-	for i, value := range values {
-		result[i] = value
-	}
-	return result
+	}, reflect.TypeOf(elements))
 }
