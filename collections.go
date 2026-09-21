@@ -2,6 +2,7 @@ package hegel
 
 import (
 	"fmt"
+	"hash/maphash"
 )
 
 // --- Lists generator ---
@@ -14,6 +15,10 @@ type ListGenerator[T any] struct {
 	minSize  int
 	maxSize  int
 	hasMax   bool
+}
+
+func (g ListGenerator[T]) hashFields(h *maphash.Hash) bool {
+	return hashValues(h, g.minSize, g.maxSize, g.hasMax) && hashGenerator(h, g.elements)
 }
 
 // Lists returns a Generator that produces slices of values from the elements generator.
@@ -78,6 +83,12 @@ type MapGenerator[K comparable, V any] struct {
 	minSize int
 	maxSize int
 	hasMax  bool
+}
+
+func (g MapGenerator[K, V]) hashFields(h *maphash.Hash) bool {
+	return hashValues(h, g.minSize, g.maxSize, g.hasMax) &&
+		hashGenerator(h, g.keys) &&
+		hashGenerator(h, g.values)
 }
 
 // Maps returns a Generator that produces map[K]V values.

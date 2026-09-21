@@ -1,12 +1,25 @@
 package hegel
 
-import "net/netip"
+import (
+	"hash/maphash"
+	"net/netip"
+)
 
 // --- OneOf generator ---
 
 // oneOfGenerator generates a value from one of the given generators.
 type oneOfGenerator[T any] struct {
 	generators []Generator[T]
+}
+
+func (g *oneOfGenerator[T]) hashFields(h *maphash.Hash) bool {
+	_ = hashComparable(h, len(g.generators))
+	for _, generator := range g.generators {
+		if !hashGenerator(h, generator) {
+			return false
+		}
+	}
+	return true
 }
 
 func (g *oneOfGenerator[T]) draw(tc TestCase) (T, error) {
@@ -41,6 +54,10 @@ type optionalGenerator[T any] struct {
 	inner Generator[T]
 }
 
+func (g *optionalGenerator[T]) hashFields(h *maphash.Hash) bool {
+	return hashGenerator(h, g.inner)
+}
+
 func (g *optionalGenerator[T]) draw(tc TestCase) (*T, error) {
 	ctx, ltc := tc.engine()
 	idx, err := ltc.GenerateInteger(ctx, 0, 1)
@@ -64,6 +81,10 @@ func (g *optionalGenerator[T]) draw(tc TestCase) (*T, error) {
 type IPAddressGenerator struct {
 	// version is 0 (unset; both v4 and v6), 4, or 6.
 	version int
+}
+
+func (g IPAddressGenerator) hashFields(h *maphash.Hash) bool {
+	return hashComparable(h, g.version)
 }
 
 var _ Generator[netip.Addr] = IPAddressGenerator{}

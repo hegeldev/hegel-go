@@ -7,6 +7,11 @@ import (
 	"uuid"
 )
 
+func TestUUIDGeneratorHashFields(t *testing.T) {
+	t.Parallel()
+	checkGenerator(t, UUIDs().Version(4), UUIDs().Version(4))
+}
+
 func TestUUIDs(t *testing.T) {
 	gen := UUIDs()
 

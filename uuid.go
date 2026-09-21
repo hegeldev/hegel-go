@@ -4,6 +4,7 @@ package hegel
 
 import (
 	"fmt"
+	"hash/maphash"
 	"uuid"
 )
 
@@ -12,6 +13,10 @@ import (
 type UUIDGenerator struct {
 	version    int
 	hasVersion bool
+}
+
+func (g UUIDGenerator) hashFields(h *maphash.Hash) bool {
+	return hashValues(h, g.version, g.hasVersion)
 }
 
 var _ Generator[uuid.UUID] = UUIDGenerator{}

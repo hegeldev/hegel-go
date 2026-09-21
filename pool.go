@@ -2,6 +2,7 @@ package hegel
 
 import (
 	"fmt"
+	"hash/maphash"
 	"sync"
 
 	"hegel.dev/go/hegel/internal/libhegel"
@@ -84,6 +85,10 @@ func (p *Pool[T]) ValuesConsumed() Generator[T] {
 type poolGenerator[T any] struct {
 	pool    *Pool[T]
 	consume bool
+}
+
+func (g poolGenerator[T]) hashFields(h *maphash.Hash) bool {
+	return hashValues(h, g.pool, g.consume)
 }
 
 func (g poolGenerator[T]) draw(tc TestCase) (T, error) {

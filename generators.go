@@ -1,6 +1,8 @@
 package hegel
 
 import (
+	"hash/maphash"
+
 	"hegel.dev/go/hegel/internal/libhegel"
 )
 
@@ -13,6 +15,18 @@ type Generator[T any] interface {
 	// draw produces a value from the Hegel engine using the given test case.
 	// Unexported to seal the interface to this package.
 	draw(tc TestCase) (T, error)
+
+	// hashFields writes the generator-specific parts of a span label to h.
+	//
+	// libhegel uses labels to limit substitution candidates during mutation and
+	// shrinking. Spans with the same label are eligible for substitution, so a
+	// label describes compatible choice structure rather than value identity.
+	//
+	// hashGenerator writes the concrete generator type before calling hashFields.
+	// Implementations must write choice-relevant fields in a stable order and
+	// hash sub-generators through hashGenerator. Return false when no useful,
+	// stable label is available or a sub-generator returns false.
+	hashFields(h *maphash.Hash) bool
 }
 
 // TestCase is the test context for a Hegel property test.
@@ -143,7 +157,11 @@ func Draw[T any](tc TestCase, g Generator[T]) T {
 }
 
 func draw[T any](tc TestCase, g Generator[T]) (T, error) {
-	return withSpan(tc, labelFor(g), func() (T, error) {
+	spanLabel, ok := labelFor(g)
+	if !ok {
+		return g.draw(tc)
+	}
+	return withSpan(tc, spanLabel, func() (T, error) {
 		return g.draw(tc)
 	})
 }
@@ -154,6 +172,10 @@ func draw[T any](tc TestCase, g Generator[T]) (T, error) {
 type mappedGenerator[T, U any] struct {
 	inner Generator[T]
 	fn    func(T) U
+}
+
+func (g *mappedGenerator[T, U]) hashFields(h *maphash.Hash) bool {
+	return hashGenerator(h, g.inner) && hashFunction(h, g.fn)
 }
 
 //lint:ignore U1000 satisfies Generator interface; staticcheck misses generic dispatch
@@ -175,6 +197,10 @@ type filteredGenerator[T any] struct {
 	predicate func(T) bool
 }
 
+func (g *filteredGenerator[T]) hashFields(h *maphash.Hash) bool {
+	return hashGenerator(h, g.source) && hashFunction(h, g.predicate)
+}
+
 //lint:ignore U1000 used by filteredGenerator.draw, which is reached via Generator interface
 const maxFilterAttempts = 3
 
@@ -184,7 +210,7 @@ const maxFilterAttempts = 3
 func (g *filteredGenerator[T]) draw(tc TestCase) (T, error) {
 	var zero T
 	for range maxFilterAttempts {
-		if err := tc.startSpan(labelFor("filter")); err != nil {
+		if err := tc.startSpan(staticLabel("filter")); err != nil {
 			return zero, err
 		}
 		value, err := draw(tc, g.source)
@@ -211,6 +237,10 @@ func (g *filteredGenerator[T]) draw(tc TestCase) (T, error) {
 type flatMappedGenerator[T, U any] struct {
 	source Generator[T]
 	f      func(T) Generator[U]
+}
+
+func (g *flatMappedGenerator[T, U]) hashFields(h *maphash.Hash) bool {
+	return hashGenerator(h, g.source) && hashFunction(h, g.f)
 }
 
 //lint:ignore U1000 satisfies Generator interface; staticcheck misses generic dispatch

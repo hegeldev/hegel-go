@@ -1,10 +1,16 @@
 package hegel
 
+import "hash/maphash"
+
 // compositeGenerator is a Generator built from an imperative function that
 // composes other generators via [Draw]. It has no schema and always falls
 // back to compositional generation.
 type compositeGenerator[T any] struct {
 	fn func(TestCase) T
+}
+
+func (g *compositeGenerator[T]) hashFields(h *maphash.Hash) bool {
+	return hashFunction(h, g.fn)
 }
 
 //lint:ignore U1000 satisfies Generator interface; staticcheck misses generic dispatch

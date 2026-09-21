@@ -3,6 +3,7 @@ package hegel
 import (
 	"errors"
 	"fmt"
+	"hash/maphash"
 
 	"hegel.dev/go/hegel/internal/libhegel"
 )
@@ -19,6 +20,12 @@ type RecursiveGenerator[T any] struct {
 	branch    func(Generator[T]) Generator[T]
 	maxDepth  int
 	maxLeaves int
+}
+
+func (g RecursiveGenerator[T]) hashFields(h *maphash.Hash) bool {
+	return hashGenerator(h, g.leaf) &&
+		hashFunction(h, g.branch) &&
+		hashValues(h, g.maxDepth, g.maxLeaves)
 }
 
 // Recursive returns a generator for recursively defined values.
@@ -111,9 +118,13 @@ type subtreeGenerator[T any] struct {
 	depth     uint64
 }
 
+func (g *subtreeGenerator[T]) hashFields(h *maphash.Hash) bool {
+	return hashGenerator(h, g.leaf) && hashFunction(h, g.branch) && hashComparable(h, g.depth)
+}
+
 func (g *subtreeGenerator[T]) draw(tc TestCase) (T, error) {
 	var zero T
-	if err := tc.startSpan(labelFor("recursive")); err != nil {
+	if err := tc.startSpan(staticLabel("recursive")); err != nil {
 		return zero, err
 	}
 
