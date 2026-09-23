@@ -118,15 +118,20 @@ func TestRecursiveRetriesLeafBudgetOverflow(t *testing.T) {
 	t.Parallel()
 	tc := newStubTestCase(t,
 		uintptr(9), libhegel.OK, // new_recursion
-		libhegel.OK,        // first start_span
+		libhegel.OK,        // first generator span
+		libhegel.OK,        // first recursive span
 		false, libhegel.OK, // first branch
 		libhegel.E_RETRY, "leaf budget", // first leaf
 		libhegel.OK,        // retry
-		libhegel.OK,        // second start_span
+		libhegel.OK,        // second generator span
+		libhegel.OK,        // second recursive span
 		false, libhegel.OK, // second branch
 		libhegel.OK, // second leaf
+		libhegel.OK, // leaf generator span
+		libhegel.OK, // leaf generator stop
 		libhegel.OK, // finish
-		libhegel.OK, // stop_span
+		libhegel.OK, // recursive span stop
+		libhegel.OK, // generator span stop
 	)
 
 	got, err := Recursive(Just(42), func(Generator[int]) Generator[int] { return Just(0) }).draw(tc)
@@ -139,15 +144,22 @@ func TestRecursiveRestartsRepricedAttemptWithoutRetry(t *testing.T) {
 	t.Parallel()
 	tc := newStubTestCase(t,
 		uintptr(9), libhegel.OK, // new_recursion
-		libhegel.OK,        // first start_span
+		libhegel.OK,        // first generator span
+		libhegel.OK,        // first recursive span
 		false, libhegel.OK, // first branch
 		libhegel.OK,                  // first leaf
+		libhegel.OK,                  // first leaf generator span
+		libhegel.OK,                  // first leaf generator stop
 		libhegel.E_RETRY, "repriced", // first finish
-		libhegel.OK,        // second start_span
+		libhegel.OK,        // second generator span
+		libhegel.OK,        // second recursive span
 		false, libhegel.OK, // second branch
 		libhegel.OK, // second leaf
+		libhegel.OK, // second leaf generator span
+		libhegel.OK, // second leaf generator stop
 		libhegel.OK, // second finish
-		libhegel.OK, // stop_span
+		libhegel.OK, // recursive span stop
+		libhegel.OK, // generator span stop
 	)
 
 	got, err := Recursive(Just(42), func(Generator[int]) Generator[int] { return Just(0) }).draw(tc)
@@ -160,7 +172,8 @@ func TestRecursivePropagatesRetryExhaustion(t *testing.T) {
 	t.Parallel()
 	tc := newStubTestCase(t,
 		uintptr(9), libhegel.OK, // new_recursion
-		libhegel.OK,        // start_span
+		libhegel.OK,        // generator span
+		libhegel.OK,        // recursive span
 		false, libhegel.OK, // branch
 		libhegel.E_RETRY, "leaf budget", // leaf
 		libhegel.E_ASSUME, "attempts exhausted", // retry
@@ -176,7 +189,8 @@ func TestRecursivePropagatesStartSpanError(t *testing.T) {
 	t.Parallel()
 	tc := newStubTestCase(t,
 		uintptr(9), libhegel.OK, // new_recursion
-		libhegel.E_BACKEND, "span failed", // start_span
+		libhegel.OK,                       // generator span
+		libhegel.E_BACKEND, "span failed", // recursive span
 	)
 
 	_, err := Recursive(Just(42), func(Generator[int]) Generator[int] { return Just(0) }).draw(tc)
@@ -189,7 +203,8 @@ func TestRecursivePropagatesLeafError(t *testing.T) {
 	t.Parallel()
 	tc := newStubTestCase(t,
 		uintptr(9), libhegel.OK, // new_recursion
-		libhegel.OK,        // start_span
+		libhegel.OK,        // generator span
+		libhegel.OK,        // recursive span
 		false, libhegel.OK, // branch
 		libhegel.E_BACKEND, "leaf failed", // leaf
 	)
@@ -204,9 +219,12 @@ func TestRecursivePropagatesFinishError(t *testing.T) {
 	t.Parallel()
 	tc := newStubTestCase(t,
 		uintptr(9), libhegel.OK, // new_recursion
-		libhegel.OK,        // start_span
+		libhegel.OK,        // generator span
+		libhegel.OK,        // recursive span
 		false, libhegel.OK, // branch
 		libhegel.OK,                         // leaf
+		libhegel.OK,                         // leaf generator span
+		libhegel.OK,                         // leaf generator stop
 		libhegel.E_BACKEND, "finish failed", // finish
 	)
 
@@ -220,11 +238,14 @@ func TestRecursivePropagatesStopSpanError(t *testing.T) {
 	t.Parallel()
 	tc := newStubTestCase(t,
 		uintptr(9), libhegel.OK, // new_recursion
-		libhegel.OK,        // start_span
+		libhegel.OK,        // generator span
+		libhegel.OK,        // recursive span
 		false, libhegel.OK, // branch
 		libhegel.OK,                            // leaf
+		libhegel.OK,                            // leaf generator span
+		libhegel.OK,                            // leaf generator stop
 		libhegel.OK,                            // finish
-		libhegel.E_BACKEND, "stop span failed", // stop_span
+		libhegel.E_BACKEND, "stop span failed", // recursive span stop
 	)
 
 	_, err := Recursive(Just(42), func(Generator[int]) Generator[int] { return Just(0) }).draw(tc)
