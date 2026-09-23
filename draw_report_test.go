@@ -2,8 +2,10 @@ package hegel
 
 import (
 	"bytes"
+	"errors"
 	"os"
 	"path/filepath"
+	"runtime"
 	"strings"
 	"testing"
 )
@@ -205,6 +207,21 @@ func TestFormatDrawLineWithoutStatement(t *testing.T) {
 	wantStmt := "hegel.Draw[int](...) = 7"
 	if stmt != wantStmt {
 		t.Fatalf("formatDrawLine statement: got %q, want %q", stmt, wantStmt)
+	}
+}
+
+func TestFormatDrawReportPrefixWithoutSource(t *testing.T) {
+	_, file, _, ok := runtime.Caller(0)
+	if !ok {
+		t.Fatal("runtime.Caller failed")
+	}
+	original := drawReportSource
+	drawReportSource = newSourceCache()
+	drawReportSource.files[file] = cachedFile{err: errors.New("unavailable")}
+	t.Cleanup(func() { drawReportSource = original })
+
+	if got, want := formatDrawReportPrefix(0, 7), "hegel.Draw[int](...) = "; got != want {
+		t.Fatalf("formatDrawReportPrefix = %q, want %q", got, want)
 	}
 }
 

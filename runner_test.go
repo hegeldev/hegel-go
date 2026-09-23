@@ -614,6 +614,36 @@ func TestDrawReportOmitsLocation(t *testing.T) {
 	}
 }
 
+func TestDrawReportPropagatesPrinterErrors(t *testing.T) {
+	tests := []struct {
+		name    string
+		returns []any
+	}{
+		{name: "prefix", returns: []any{libhegel.E_BACKEND, "boom"}},
+		{name: "value", returns: []any{libhegel.OK, libhegel.E_BACKEND, "boom"}},
+		{name: "hard break", returns: []any{libhegel.OK, libhegel.OK, libhegel.E_BACKEND, "boom"}},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			returns := append([]any{uintptr(1), libhegel.OK}, tt.returns...)
+			ctx := libhegel.Stub(t, returns...)
+			printer, err := ctx.PrinterNew(nil)
+			if err != nil {
+				t.Fatal(err)
+			}
+			tc := &testCase{ctx: ctx, printer: printer}
+			defer func() {
+				err, ok := recover().(error)
+				if !ok || !errors.Is(err, libhegel.E_BACKEND) {
+					t.Fatalf("reportDraw panic = %v, want E_BACKEND", err)
+				}
+			}()
+			tc.reportDraw(0, 42)
+		})
+	}
+}
+
 func TestTClonePropagatesError(t *testing.T) {
 	t.Parallel()
 	tc := newStubTestCase(t, uintptr(0), libhegel.E_BACKEND, "clone boom")

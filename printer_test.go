@@ -1,6 +1,7 @@
 package hegel
 
 import (
+	"errors"
 	"strings"
 	"testing"
 
@@ -88,5 +89,36 @@ func TestPrintGoSyntaxPreservesExistingCommaBreak(t *testing.T) {
 	got := renderGoSyntax(t, 1, source)
 	if strings.Count(got, "\n") != 1 {
 		t.Fatalf("existing newline should not gain a preceding break: %q", got)
+	}
+}
+
+func TestPrintGoSyntaxPropagatesPrinterErrors(t *testing.T) {
+	tests := []struct {
+		name    string
+		source  string
+		returns []any
+	}{
+		{name: "fallback text", source: `(`, returns: []any{libhegel.E_BACKEND, "boom"}},
+		{name: "text before token", source: `x{}`, returns: []any{libhegel.E_BACKEND, "boom"}},
+		{name: "begin group", source: `{}`, returns: []any{libhegel.E_BACKEND, "boom"}},
+		{name: "end group", source: `{}`, returns: []any{libhegel.OK, libhegel.E_BACKEND, "boom"}},
+		{name: "comma", source: `{,}`, returns: []any{libhegel.OK, libhegel.E_BACKEND, "boom"}},
+		{name: "breakable", source: `{,}`, returns: []any{libhegel.OK, libhegel.OK, libhegel.E_BACKEND, "boom"}},
+		{name: "hard break", source: "\n", returns: []any{libhegel.E_BACKEND, "boom"}},
+		{name: "text", source: `x`, returns: []any{libhegel.E_BACKEND, "boom"}},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			returns := append([]any{uintptr(1), libhegel.OK}, tt.returns...)
+			ctx := libhegel.Stub(t, returns...)
+			printer, err := ctx.PrinterNew(nil)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if err := printGoSyntax(ctx, printer, tt.source); !errors.Is(err, libhegel.E_BACKEND) {
+				t.Fatalf("printGoSyntax error = %v, want E_BACKEND", err)
+			}
+		})
 	}
 }

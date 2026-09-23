@@ -62,11 +62,7 @@ func printGoSyntax(ctx *libhegel.Context, printer *libhegel.Printer, source stri
 		cursor = item.offset + 1
 	}
 
-	text := source[cursor:]
-	if trimSpace {
-		text = strings.TrimLeft(text, " \t")
-	}
-	return printText(ctx, printer, text)
+	return printText(ctx, printer, source[cursor:])
 }
 
 func startsWithLineBreak(text string) bool {
@@ -74,9 +70,8 @@ func startsWithLineBreak(text string) bool {
 	return strings.HasPrefix(text, "\n") || strings.HasPrefix(text, "\r\n")
 }
 
-// scanGoSyntax returns Go delimiters and nested commas. It rejects scanner
-// errors and unbalanced delimiters so arbitrary GoString output can be printed
-// literally.
+// scanGoSyntax rejects scanner errors and unbalanced delimiters so arbitrary
+// GoString output prints literally.
 func scanGoSyntax(source string) ([]goSyntaxToken, bool) {
 	fset := token.NewFileSet()
 	file := fset.AddFile("", -1, len(source))
@@ -118,7 +113,6 @@ func matchingDelimiters(open, close token.Token) bool {
 		open == token.LBRACE && close == token.RBRACE
 }
 
-// printText prints embedded newlines as hard breaks.
 func printText(ctx *libhegel.Context, printer *libhegel.Printer, text string) error {
 	for i, line := range strings.Split(text, "\n") {
 		if i > 0 {
