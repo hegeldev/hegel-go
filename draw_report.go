@@ -116,17 +116,18 @@ func (c *sourceCache) loadLocked(file string) (*ast.File, error) {
 	return f, err
 }
 
-// formatDrawReport resolves the caller's source position via runtime.Caller
-// and returns a printed "statement = value" line for the originating Draw
-// call. skip is the number of frames above this one to skip (Draw passes 1 to
-// point at the user's call site).
-func formatDrawReport(skip int, value any) string {
+// formatDrawReportPrefix returns the caller's source statement followed by
+// " = ". skip is the number of caller frames to skip.
+func formatDrawReportPrefix(skip int, value any) string {
 	_, file, line, ok := runtime.Caller(skip + 1)
 	if !ok { // coverage-ignore
 		panic(fmt.Errorf("runtime.Caller(%d) failed", skip+1))
 	}
 	stmt, _ := drawReportSource.statementAt(file, line)
-	return formatDrawLine(stmt, value)
+	if stmt == "" {
+		return fmt.Sprintf("hegel.Draw[%T](...) = ", value)
+	}
+	return stmt + " = "
 }
 
 func formatDrawLine(stmt string, value any) string {

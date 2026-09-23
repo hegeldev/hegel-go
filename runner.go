@@ -129,8 +129,16 @@ func (s *testCase) reportDraw(skip int, value any) {
 	if s.printer == nil {
 		return
 	}
-	msg := formatDrawReport(skip+1, value)
-	s.Note(msg)
+	prefix := formatDrawReportPrefix(skip+1, value)
+	if err := printText(s.ctx, s.printer, prefix); err != nil {
+		s.abort(err)
+	}
+	if err := printGoValue(s.ctx, s.printer, value); err != nil {
+		s.abort(err)
+	}
+	if err := s.printer.HardBreak(s.ctx); err != nil {
+		s.abort(err)
+	}
 }
 
 func (s *testCase) Errorf(format string, args ...any) {
