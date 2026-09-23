@@ -7,24 +7,13 @@ type compositeGenerator[T any] struct {
 	fn func(TestCase) T
 }
 
-// The composite span suppresses nested [Draw] reports.
-//
-// Panics from [Draw] (sentinel errors, fatalSentinel, user panics) propagate
-// uncaught so the runner's recover sees the original stack — [extractPanicOrigin]
-// points at the user's code rather than a defer site here.
-//
 //lint:ignore U1000 satisfies Generator interface; staticcheck misses generic dispatch
 func (g *compositeGenerator[T]) draw(tc TestCase) (T, error) {
 	helper, _ := tc.(interface{ Helper() })
 	if helper != nil {
 		helper.Helper()
 	}
-	return withSpan(tc, "composite", func() (T, error) {
-		if helper != nil {
-			helper.Helper()
-		}
-		return g.fn(tc), nil
-	})
+	return g.fn(tc), nil
 }
 
 // Composite returns a Generator backed by an imperative function.

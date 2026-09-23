@@ -79,7 +79,7 @@ func (g RecursiveGenerator[T]) draw(tc TestCase) (T, error) {
 		var value T
 		err := tc.invoke(func(attempt TestCase) {
 			var drawErr error
-			value, drawErr = root.draw(attempt)
+			value, drawErr = draw(attempt, root)
 			if drawErr != nil {
 				attempt.abort(drawErr)
 			}
@@ -113,7 +113,7 @@ type subtreeGenerator[T any] struct {
 
 func (g *subtreeGenerator[T]) draw(tc TestCase) (T, error) {
 	var zero T
-	if err := tc.startSpan("recursive"); err != nil {
+	if err := tc.startSpan(labelFromName("recursive")); err != nil {
 		return zero, err
 	}
 
@@ -127,7 +127,7 @@ func (g *subtreeGenerator[T]) draw(tc TestCase) (T, error) {
 	if isBranch {
 		child := *g
 		child.depth++
-		value, err = g.branch(&child).draw(tc)
+		value, err = draw(tc, g.branch(&child))
 	} else {
 		if err := g.recursion.Leaf(ctx, nativeTC); err != nil {
 			if errors.Is(err, libhegel.E_RETRY) {
@@ -135,7 +135,7 @@ func (g *subtreeGenerator[T]) draw(tc TestCase) (T, error) {
 			}
 			return zero, err
 		}
-		value, err = g.leaf.draw(tc)
+		value, err = draw(tc, g.leaf)
 	}
 	if err != nil {
 		return zero, err

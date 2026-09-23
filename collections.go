@@ -49,24 +49,22 @@ func (g ListGenerator[T]) draw(tc TestCase) ([]T, error) {
 	if g.hasMax {
 		maxSize = &g.maxSize
 	}
-	return withSpan(tc, "list", func() ([]T, error) {
-		var result []T
-		coll, err := tc.newCollection(g.minSize, maxSize)
+	var result []T
+	coll, err := tc.newCollection(g.minSize, maxSize)
+	if err != nil {
+		return nil, err
+	}
+	for coll.More() {
+		v, err := draw(tc, g.elements)
 		if err != nil {
 			return nil, err
 		}
-		for coll.More() {
-			v, err := g.elements.draw(tc)
-			if err != nil {
-				return nil, err
-			}
-			result = append(result, v)
-		}
-		if err := coll.Err(); err != nil {
-			return nil, err
-		}
-		return result, nil
-	})
+		result = append(result, v)
+	}
+	if err := coll.Err(); err != nil {
+		return nil, err
+	}
+	return result, nil
 }
 
 // --- Maps generator ---
@@ -116,30 +114,28 @@ func (g MapGenerator[K, V]) draw(tc TestCase) (map[K]V, error) {
 	if g.hasMax {
 		maxSize = &g.maxSize
 	}
-	return withSpan(tc, "map", func() (map[K]V, error) {
-		result := map[K]V{}
-		coll, err := tc.newCollection(g.minSize, maxSize)
+	result := map[K]V{}
+	coll, err := tc.newCollection(g.minSize, maxSize)
+	if err != nil {
+		return nil, err
+	}
+	for coll.More() {
+		k, err := draw(tc, g.keys)
 		if err != nil {
 			return nil, err
 		}
-		for coll.More() {
-			k, err := g.keys.draw(tc)
-			if err != nil {
-				return nil, err
-			}
-			if _, exists := result[k]; exists {
-				coll.Reject("duplicate key")
-				continue
-			}
-			v, err := g.values.draw(tc)
-			if err != nil {
-				return nil, err
-			}
-			result[k] = v
+		if _, exists := result[k]; exists {
+			coll.Reject("duplicate key")
+			continue
 		}
-		if err := coll.Err(); err != nil {
+		v, err := draw(tc, g.values)
+		if err != nil {
 			return nil, err
 		}
-		return result, nil
-	})
+		result[k] = v
+	}
+	if err := coll.Err(); err != nil {
+		return nil, err
+	}
+	return result, nil
 }

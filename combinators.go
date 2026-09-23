@@ -11,14 +11,12 @@ type oneOfGenerator[T any] struct {
 
 func (g *oneOfGenerator[T]) draw(tc TestCase) (T, error) {
 	var zero T
-	return withSpan(tc, "one_of", func() (T, error) {
-		ctx, ltc := tc.engine()
-		idx, err := ltc.GenerateInteger(ctx, 0, int64(len(g.generators)-1))
-		if err != nil {
-			return zero, err
-		}
-		return g.generators[idx].draw(tc)
-	})
+	ctx, ltc := tc.engine()
+	idx, err := ltc.GenerateInteger(ctx, 0, int64(len(g.generators)-1))
+	if err != nil {
+		return zero, err
+	}
+	return draw(tc, g.generators[idx])
 }
 
 // OneOf returns a Generator that produces values from one of the given generators.
@@ -44,21 +42,19 @@ type optionalGenerator[T any] struct {
 }
 
 func (g *optionalGenerator[T]) draw(tc TestCase) (*T, error) {
-	return withSpan(tc, "optional", func() (*T, error) {
-		ctx, ltc := tc.engine()
-		idx, err := ltc.GenerateInteger(ctx, 0, 1)
-		if err != nil {
-			return nil, err
-		}
-		if idx == 0 {
-			return nil, nil
-		}
-		v, err := g.inner.draw(tc)
-		if err != nil {
-			return nil, err
-		}
-		return &v, nil
-	})
+	ctx, ltc := tc.engine()
+	idx, err := ltc.GenerateInteger(ctx, 0, 1)
+	if err != nil {
+		return nil, err
+	}
+	if idx == 0 {
+		return nil, nil
+	}
+	v, err := draw(tc, g.inner)
+	if err != nil {
+		return nil, err
+	}
+	return &v, nil
 }
 
 // --- IPAddresses generator ---
@@ -116,16 +112,14 @@ func (g IPAddressGenerator) draw(tc TestCase) (netip.Addr, error) {
 	case 6:
 		return drawV6(tc)
 	default:
-		return withSpan(tc, "one_of", func() (netip.Addr, error) {
-			ctx, ltc := tc.engine()
-			idx, err := ltc.GenerateInteger(ctx, 0, 1)
-			if err != nil {
-				return netip.Addr{}, err
-			}
-			if idx == 0 {
-				return drawV4(tc)
-			}
-			return drawV6(tc)
-		})
+		ctx, ltc := tc.engine()
+		idx, err := ltc.GenerateInteger(ctx, 0, 1)
+		if err != nil {
+			return netip.Addr{}, err
+		}
+		if idx == 0 {
+			return drawV4(tc)
+		}
+		return drawV6(tc)
 	}
 }
