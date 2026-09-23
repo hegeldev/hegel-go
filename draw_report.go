@@ -124,17 +124,12 @@ func formatDrawReportPrefix(skip int, value any) string {
 		panic(fmt.Errorf("runtime.Caller(%d) failed", skip+1))
 	}
 	stmt, _ := drawReportSource.statementAt(file, line)
-	if stmt == "" {
-		return fmt.Sprintf("hegel.Draw[%T](...) = ", value)
-	}
-	return stmt + " = "
+	return formatDrawPrefix(stmt, value)
 }
 
-func formatDrawLine(stmt string, value any) string {
+func formatDrawPrefix(stmt string, value any) string {
 	if stmt == "" {
-		stmt = fmt.Sprintf("hegel.Draw[%T](...) = %#v", value, value)
-	} else {
-		stmt = fmt.Sprintf("%s = %#v", stmt, value)
+		stmt = fmt.Sprintf("hegel.Draw[%T](...)", value)
 	}
-	return stmt
+	return stmt + " = "
 }

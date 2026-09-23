@@ -192,21 +192,21 @@ func TestSourceCacheMultiLineStatement(t *testing.T) {
 	}
 }
 
-func TestFormatDrawLineWithStatement(t *testing.T) {
+func TestFormatDrawPrefixWithStatement(t *testing.T) {
 	t.Parallel()
-	stmt := formatDrawLine("x := hegel.Draw(...)", []int{0, 0})
-	wantStmt := "x := hegel.Draw(...) = []int{0, 0}"
-	if stmt != wantStmt {
-		t.Fatalf("formatDrawLine statement: got %q, want %q", stmt, wantStmt)
+	prefix := formatDrawPrefix("x := hegel.Draw(...)", []int{0, 0})
+	want := "x := hegel.Draw(...) = "
+	if prefix != want {
+		t.Fatalf("formatDrawPrefix = %q, want %q", prefix, want)
 	}
 }
 
-func TestFormatDrawLineWithoutStatement(t *testing.T) {
+func TestFormatDrawPrefixWithoutStatement(t *testing.T) {
 	t.Parallel()
-	stmt := formatDrawLine("", 7)
-	wantStmt := "hegel.Draw[int](...) = 7"
-	if stmt != wantStmt {
-		t.Fatalf("formatDrawLine statement: got %q, want %q", stmt, wantStmt)
+	prefix := formatDrawPrefix("", 7)
+	want := "hegel.Draw[int](...) = "
+	if prefix != want {
+		t.Fatalf("formatDrawPrefix = %q, want %q", prefix, want)
 	}
 }
 

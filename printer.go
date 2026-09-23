@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"go/scanner"
 	"go/token"
+	"iter"
 	"strings"
 
 	"hegel.dev/go/hegel/internal/libhegel"
@@ -28,7 +29,7 @@ func printGoSyntax(ctx *libhegel.Context, printer *libhegel.Printer, source stri
 
 	cursor := 0
 	trimSpace := false
-	for _, item := range tokens {
+	for item := range tokens {
 		text := source[cursor:item.offset]
 		if trimSpace {
 			text = strings.TrimLeft(text, " \t")
@@ -70,9 +71,18 @@ func startsWithLineBreak(text string) bool {
 	return strings.HasPrefix(text, "\n") || strings.HasPrefix(text, "\r\n")
 }
 
-// scanGoSyntax rejects scanner errors and unbalanced delimiters so arbitrary
-// GoString output prints literally.
-func scanGoSyntax(source string) ([]goSyntaxToken, bool) {
+// scanGoSyntax validates the full input before yielding tokens so malformed
+// GoString output can be printed literally.
+func scanGoSyntax(source string) (iter.Seq[goSyntaxToken], bool) {
+	if !walkGoSyntax(source, func(goSyntaxToken) bool { return true }) {
+		return nil, false
+	}
+	return func(yield func(goSyntaxToken) bool) {
+		walkGoSyntax(source, yield)
+	}, true
+}
+
+func walkGoSyntax(source string, yield func(goSyntaxToken) bool) bool {
 	fset := token.NewFileSet()
 	file := fset.AddFile("", -1, len(source))
 	valid := true
@@ -81,7 +91,6 @@ func scanGoSyntax(source string) ([]goSyntaxToken, bool) {
 		valid = false
 	}, 0)
 
-	var tokens []goSyntaxToken
 	var stack []token.Token
 	for {
 		pos, tok, _ := lexer.Scan()
@@ -91,20 +100,24 @@ func scanGoSyntax(source string) ([]goSyntaxToken, bool) {
 		switch tok {
 		case token.LPAREN, token.LBRACK, token.LBRACE:
 			stack = append(stack, tok)
-			tokens = append(tokens, goSyntaxToken{offset: file.Offset(pos), token: tok})
+			if !yield(goSyntaxToken{offset: file.Offset(pos), token: tok}) {
+				return true
+			}
 		case token.RPAREN, token.RBRACK, token.RBRACE:
 			if len(stack) == 0 || !matchingDelimiters(stack[len(stack)-1], tok) {
-				return nil, false
+				return false
 			}
 			stack = stack[:len(stack)-1]
-			tokens = append(tokens, goSyntaxToken{offset: file.Offset(pos), token: tok})
+			if !yield(goSyntaxToken{offset: file.Offset(pos), token: tok}) {
+				return true
+			}
 		case token.COMMA:
-			if len(stack) > 0 {
-				tokens = append(tokens, goSyntaxToken{offset: file.Offset(pos), token: tok})
+			if len(stack) > 0 && !yield(goSyntaxToken{offset: file.Offset(pos), token: tok}) {
+				return true
 			}
 		}
 	}
-	return tokens, valid && len(stack) == 0
+	return valid && len(stack) == 0
 }
 
 func matchingDelimiters(open, close token.Token) bool {
@@ -114,12 +127,14 @@ func matchingDelimiters(open, close token.Token) bool {
 }
 
 func printText(ctx *libhegel.Context, printer *libhegel.Printer, text string) error {
-	for i, line := range strings.Split(text, "\n") {
-		if i > 0 {
+	first := true
+	for line := range strings.SplitSeq(text, "\n") {
+		if !first {
 			if err := printer.HardBreak(ctx); err != nil {
 				return err
 			}
 		}
+		first = false
 		if line != "" {
 			if err := printer.Text(ctx, line); err != nil {
 				return err
