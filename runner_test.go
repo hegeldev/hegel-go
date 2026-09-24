@@ -510,7 +510,22 @@ func TestStatisticsDisabledByDefault(t *testing.T) {
 	}
 }
 
-func TestStatisticsEnvironmentOverride(t *testing.T) {
+func TestStatisticsEnvironmentDefault(t *testing.T) {
+	t.Setenv("HEGEL_STATISTICS", "1")
+	var out strings.Builder
+	err := run(1, func(tc TestCase) {
+		_ = Draw(tc, Booleans())
+		tc.Event("visited")
+	}, WithTestCases(1), WithDatabase(""), withOutput(&out))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got := out.String(); !strings.Contains(got, "* visited: 100.0% of test cases") {
+		t.Fatalf("statistics environment default was not applied:\n%s", got)
+	}
+}
+
+func TestStatisticsOptionOverridesEnvironment(t *testing.T) {
 	t.Setenv("HEGEL_STATISTICS", "1")
 	var out strings.Builder
 	err := run(1, func(tc TestCase) {
@@ -520,8 +535,8 @@ func TestStatisticsEnvironmentOverride(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if got := out.String(); !strings.Contains(got, "* visited: 100.0% of test cases") {
-		t.Fatalf("statistics environment override was not applied:\n%s", got)
+	if got := out.String(); strings.Contains(got, "Statistics") {
+		t.Fatalf("explicit WithStatistics(false) did not take precedence:\n%s", got)
 	}
 }
 
