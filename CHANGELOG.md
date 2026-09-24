@@ -1,5 +1,9 @@
 # Changelog
 
+## 0.9.7 - 2026-09-24
+
+This patch bumps our pinned libhegel ([hegel-rust](hegeldev/hegel-rust)) from [0.43.1](https://github.com/hegeldev/hegel-rust/releases/tag/libhegel-v0.43.1) to [0.43.2](https://github.com/hegeldev/hegel-rust/releases/tag/libhegel-v0.43.2).
+
 ## 0.9.6 - 2026-09-23
 
 This release derives shrinker span labels from generator types, preventing unlike draws from being treated as interchangeable.
