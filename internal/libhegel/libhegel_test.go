@@ -111,6 +111,7 @@ func TestProfileSettingsRoundTrip(t *testing.T) {
 	must(s.UnboundedChoices(ctx, true))
 	must(s.PrintBlob(ctx, false))
 	must(s.Backend(ctx, BACKEND_DEFAULT))
+	must(s.NondeterminismStrictness(ctx, NONDETERMINISM_ERROR))
 	must(s.TestLocation(ctx, "example_test.go", 42, "Example", "TestProperty"))
 	if got, err := s.GetTestCases(ctx); got != 17 || err != nil {
 		t.Fatalf("test cases = %v, %v", got, err)
@@ -147,6 +148,9 @@ func TestProfileSettingsRoundTrip(t *testing.T) {
 	}
 	if got, err := s.GetBackend(ctx); got != BACKEND_DEFAULT || err != nil {
 		t.Fatalf("backend = %v, %v", got, err)
+	}
+	if got, err := s.GetNondeterminismStrictness(ctx); got != NONDETERMINISM_ERROR || err != nil {
+		t.Fatalf("nondeterminism strictness = %v, %v", got, err)
 	}
 }
 
