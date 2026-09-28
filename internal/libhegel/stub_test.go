@@ -365,6 +365,8 @@ func TestStubBlobAndFailureAccessors(t *testing.T) {
 		OK,               // failure_origin result
 		"YmxvYg==",       // failure_reproduction_blob
 		OK,               // failure_reproduction_blob result
+		"flaky",          // failure_caveat
+		OK,               // failure_caveat result
 	)
 
 	s := &Settings{pointer: pointer[settingsT]{syms: lib.syms, raw: 1}}
@@ -379,6 +381,27 @@ func TestStubBlobAndFailureAccessors(t *testing.T) {
 	}
 	if got := f.ReproductionBlob(lib); got != "YmxvYg==" {
 		t.Errorf("ReproductionBlob: got %q", got)
+	}
+	if got := f.Caveat(lib); got != "flaky" {
+		t.Errorf("Caveat: got %q", got)
+	}
+}
+
+// TestStubRunStartBlob covers Settings.RunStartBlob, the blob-replay run
+// constructor no runner path drives: the happy path yields a run handle, and a
+// failing result surfaces the wrapped diagnostic with a nil run.
+func TestStubRunStartBlob(t *testing.T) {
+	lib := Stub(t, uintptr(1), OK) // run_start_blob: run handle
+	s := &Settings{pointer: pointer[settingsT]{syms: lib.syms, raw: 1}}
+	run, err := s.RunStartBlob(lib, "YmxvYg==", nil)
+	if err != nil || run == nil {
+		t.Fatalf("RunStartBlob: run=%v err=%v", run, err)
+	}
+
+	lib = Stub(t, uintptr(0), E_INVALID_ARG, "bad blob") // handle, result, diagnostic
+	s = &Settings{pointer: pointer[settingsT]{syms: lib.syms, raw: 1}}
+	if run, err := s.RunStartBlob(lib, "not-base64", nil); run != nil || err == nil {
+		t.Fatalf("expected error, got run=%v err=%v", run, err)
 	}
 }
 

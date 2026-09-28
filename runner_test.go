@@ -922,7 +922,7 @@ func TestRunWithContextOneCaseFailure(t *testing.T) {
 		libhegel.OK,             // settings
 		uintptr(1), libhegel.OK, // run_start
 		uintptr(1), libhegel.OK, // next_test_case: one case
-		false, libhegel.OK, // is_nondeterministic
+		false, libhegel.OK, // should_capture
 		libhegel.OK,             // mark_complete
 		uintptr(0), libhegel.OK, // next_test_case: run finished
 		uintptr(1), libhegel.OK, // run_result
@@ -965,7 +965,7 @@ func TestRunWithContextEmitsNondeterministicFailureOutput(t *testing.T) {
 		libhegel.OK,             // derandomize
 		uintptr(1), libhegel.OK, // run_start
 		uintptr(1), libhegel.OK, // next_test_case: one case
-		true, libhegel.OK, // is_nondeterministic
+		true, libhegel.OK, // should_capture
 		uintptr(1), libhegel.OK, // printer
 		libhegel.OK,                     // note
 		libhegel.OK,                     // mark_complete
@@ -1122,7 +1122,7 @@ func TestRunWithHandleMarkCompleteError(t *testing.T) {
 		libhegel.OK,             // derandomize
 		uintptr(1), libhegel.OK, // run_start
 		uintptr(1), libhegel.OK, // next_test_case: one case
-		false, libhegel.OK, // is_nondeterministic
+		false, libhegel.OK, // should_capture
 		libhegel.E_BACKEND, "mark boom", // mark_complete fails (diagnostic read by invoke)
 	)
 	err := runWithContext(lib, func(TestCase) {}, applyOpts([]Option{WithDerandomize(false)}))
@@ -1131,7 +1131,7 @@ func TestRunWithHandleMarkCompleteError(t *testing.T) {
 	}
 }
 
-func TestRunWithHandleIsNondeterministicError(t *testing.T) {
+func TestRunWithHandleShouldCaptureError(t *testing.T) {
 	t.Parallel()
 	lib := libhegel.Stub(t,
 		uintptr(1), libhegel.OK,
@@ -1142,7 +1142,7 @@ func TestRunWithHandleIsNondeterministicError(t *testing.T) {
 	)
 	err := runWithContext(lib, func(TestCase) {}, applyOpts([]Option{WithDerandomize(false)}))
 	if err == nil || !strings.Contains(err.Error(), "capture boom") {
-		t.Fatalf("expected is_nondeterministic error, got %v", err)
+		t.Fatalf("expected should_capture error, got %v", err)
 	}
 }
 
@@ -1154,7 +1154,7 @@ func TestRunWithHandleTargetError(t *testing.T) {
 		libhegel.OK,             // settings
 		uintptr(1), libhegel.OK, // run_start
 		uintptr(1), libhegel.OK, // next_test_case: one case
-		false, libhegel.OK, // is_nondeterministic
+		false, libhegel.OK, // should_capture
 		libhegel.E_BACKEND, "boom", // target fails (diagnostic read by invoke)
 	)
 	err := runWithContext(lib, func(tc TestCase) {
@@ -1192,7 +1192,7 @@ func stubOpCase(t *testing.T, fn func(*testCase), ops ...any) {
 		libhegel.OK,             // derandomize
 		uintptr(1), libhegel.OK, // run_start
 		uintptr(1), libhegel.OK, // next_test_case: one case
-		false, libhegel.OK, // is_nondeterministic
+		false, libhegel.OK, // should_capture
 	}
 	returns = append(returns, ops...) // the failing op's outputs + Error
 	returns = append(returns,
@@ -1251,7 +1251,7 @@ func TestRunWithHandleUnrecognizedShortCircuit(t *testing.T) {
 		libhegel.OK,             // settings
 		uintptr(1), libhegel.OK, // run_start
 		uintptr(1), libhegel.OK, // next_test_case: one case
-		false, libhegel.OK, // is_nondeterministic
+		false, libhegel.OK, // should_capture
 	)
 	var sentinel = errors.New("weird")
 	err := runWithContext(lib, func(tc TestCase) {

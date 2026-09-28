@@ -632,7 +632,7 @@ func runWithContext(ctx *libhegel.Context, fn testBody, opts runOptions) error {
 			break
 		}
 
-		nondeterministic, err := tc.IsNondeterministic(ctx)
+		nondeterministic, err := tc.ShouldCapture(ctx)
 		if err != nil {
 			return err
 		}

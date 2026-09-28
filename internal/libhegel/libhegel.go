@@ -37,7 +37,7 @@ import (
 	"unsafe"
 )
 
-//go:generate go tool stringer -type=Error,Status,Backend,Verbosity,RunStatus,HealthCheck,Phase -linecomment -output=libhegel_string.go
+//go:generate go tool stringer -type=Error,Status,Backend,Verbosity,RunStatus,HealthCheck,Phase,NondeterminismStrictness -linecomment -output=libhegel_string.go
 
 // LibraryPathEnv names the env var that pins libhegel to an explicit path.
 // When set, that path is loaded directly with no embedded fallback; when unset,
@@ -102,6 +102,21 @@ const (
 	VERBOSITY_QUIET
 	VERBOSITY_VERBOSE
 	VERBOSITY_DEBUG
+)
+
+type NondeterminismStrictness uint32 // Equivalent of hegel_nondeterminism_strictness_t (passed as a uint32_t param)
+
+const (
+	// Switch to nondeterministic handling silently: failures are confirmed by
+	// repeated replay before they are reported or shrunk. The default.
+	NONDETERMINISM_QUIET NondeterminismStrictness = iota
+
+	// Switch as under quiet, printing a one-line notice once per run.
+	NONDETERMINISM_WARN
+
+	// Abort the run with a flaky-test / nondeterminism error, for suites that
+	// use determinism as a lint.
+	NONDETERMINISM_ERROR
 )
 
 type RunStatus int32 // Equivalent of hegel_run_status_t
@@ -275,14 +290,15 @@ type symbols struct {
 	SettingsSetBackend   func(ctxT, settingsT, Backend) Error
 	SettingsSetTestCases func(ctxT, settingsT, uint64) Error
 
-	SettingsSetVerbosity              func(ctxT, settingsT, Verbosity) Error
-	SettingsSetSeed                   func(ctxT, settingsT, uint64, bool) Error
-	SettingsSetDerandomize            func(ctxT, settingsT, bool) Error
-	SettingsSetReportMultipleFailures func(ctxT, settingsT, bool) Error
-	SettingsSetDatabase               func(ctxT, settingsT, string) Error
-	SettingsSetDatabaseKey            func(ctxT, settingsT, string) Error
-	SettingsSetPhases                 func(ctxT, settingsT, Phase) Error
-	SettingsSetSuppressHealthCheck    func(ctxT, settingsT, HealthCheck) Error
+	SettingsSetVerbosity                func(ctxT, settingsT, Verbosity) Error
+	SettingsSetSeed                     func(ctxT, settingsT, uint64, bool) Error
+	SettingsSetDerandomize              func(ctxT, settingsT, bool) Error
+	SettingsSetReportMultipleFailures   func(ctxT, settingsT, bool) Error
+	SettingsSetDatabase                 func(ctxT, settingsT, string) Error
+	SettingsSetDatabaseKey              func(ctxT, settingsT, string) Error
+	SettingsSetPhases                   func(ctxT, settingsT, Phase) Error
+	SettingsSetSuppressHealthCheck      func(ctxT, settingsT, HealthCheck) Error
+	SettingsSetNondeterminismStrictness func(ctxT, settingsT, NondeterminismStrictness) Error
 
 	// RunStart and TestCaseFromBlob take a hegel_output_callback_t plus its
 	// void* user_data ahead of the trailing out-param. The wrapper methods
@@ -290,14 +306,15 @@ type symbols struct {
 	// output on stderr. user_data is a plain void* (uintptr); the callback
 	// carries its own type (see outputCallbackT).
 	RunStart     func(ctxT, settingsT, outputCallbackT, uintptr, out[runT]) Error
+	RunStartBlob func(ctxT, settingsT, string, outputCallbackT, uintptr, out[runT]) Error
 	RunFree      func(ctxT, runT) Error
 	NextTestCase func(ctxT, runT, out[testCaseT]) Error
 	RunResult    func(ctxT, runT, out[resultT]) Error
 
-	TestCaseFromBlob           func(ctxT, settingsT, string, outputCallbackT, uintptr, out[testCaseT]) Error
-	TestCaseClone              func(ctxT, testCaseT, out[testCaseT]) Error
-	TestCaseFree               func(ctxT, testCaseT) Error
-	TestCaseIsNondeterministic func(ctxT, testCaseT, out[bool]) Error
+	TestCaseFromBlob      func(ctxT, settingsT, string, outputCallbackT, uintptr, out[testCaseT]) Error
+	TestCaseClone         func(ctxT, testCaseT, out[testCaseT]) Error
+	TestCaseFree          func(ctxT, testCaseT) Error
+	TestCaseShouldCapture func(ctxT, testCaseT, out[bool]) Error
 
 	StartSpan                func(ctxT, testCaseT, Label) Error
 	StopSpan                 func(ctxT, testCaseT, bool) Error
@@ -357,6 +374,7 @@ type symbols struct {
 	FailureFree             func(ctxT, failureT) Error
 	FailureOrigin           func(ctxT, failureT, out[*byte]) Error
 	FailureReproductionBlob func(ctxT, failureT, out[*byte]) Error
+	FailureCaveat           func(ctxT, failureT, out[*byte]) Error
 
 	SettingsSetShowStatistics        func(ctxT, settingsT, bool) Error
 	SettingsSetUnboundedChoices      func(ctxT, settingsT, bool) Error
@@ -388,27 +406,28 @@ type symbols struct {
 	PrinterValueFree                 func(ctxT, *stringResult) Error
 	TestCasePrinter                  func(ctxT, testCaseT, printerOptionsT, out[printerT]) Error
 
-	SettingsNewForProfile             func(ctxT, string, out[settingsT]) Error
-	SettingsSetTestLocation           func(ctxT, settingsT, string, uint32, string, string) Error
-	SettingsSetPrintBlob              func(ctxT, settingsT, bool) Error
-	SettingsRegisterProfile           func(ctxT, string, settingsT) Error
-	SetDefaultProfile                 func(ctxT, *byte) Error
-	TestCaseBlock                     func(ctxT, testCaseT, uint64, out[testCaseT]) Error
-	TestCaseSetWorker                 func(ctxT, testCaseT, int64) Error
-	LabelFromName                     func(ctxT, string, out[uint64]) Error
-	LabelCombine                      func(ctxT, *Label, uint64, out[uint64]) Error
-	SettingsGetTestCases              func(ctxT, settingsT, out[uint64]) Error
-	SettingsGetVerbosity              func(ctxT, settingsT, out[int32]) Error
-	SettingsGetSeed                   func(ctxT, settingsT, out[uint64], out[bool]) Error
-	SettingsGetDerandomize            func(ctxT, settingsT, out[bool]) Error
-	SettingsGetDatabase               func(ctxT, settingsT, out[*byte]) Error
-	SettingsGetPhases                 func(ctxT, settingsT, out[uint32]) Error
-	SettingsGetSuppressHealthCheck    func(ctxT, settingsT, out[uint32]) Error
-	SettingsGetReportMultipleFailures func(ctxT, settingsT, out[bool]) Error
-	SettingsGetShowStatistics         func(ctxT, settingsT, out[bool]) Error
-	SettingsGetPrintBlob              func(ctxT, settingsT, out[bool]) Error
-	SettingsGetBackend                func(ctxT, settingsT, out[int32]) Error
-	SettingsGetUnboundedChoices       func(ctxT, settingsT, out[bool]) Error
+	SettingsNewForProfile               func(ctxT, string, out[settingsT]) Error
+	SettingsSetTestLocation             func(ctxT, settingsT, string, uint32, string, string) Error
+	SettingsSetPrintBlob                func(ctxT, settingsT, bool) Error
+	SettingsRegisterProfile             func(ctxT, string, settingsT) Error
+	SetDefaultProfile                   func(ctxT, *byte) Error
+	TestCaseBlock                       func(ctxT, testCaseT, uint64, out[testCaseT]) Error
+	TestCaseSetWorker                   func(ctxT, testCaseT, int64) Error
+	LabelFromName                       func(ctxT, string, out[uint64]) Error
+	LabelCombine                        func(ctxT, *Label, uint64, out[uint64]) Error
+	SettingsGetTestCases                func(ctxT, settingsT, out[uint64]) Error
+	SettingsGetVerbosity                func(ctxT, settingsT, out[int32]) Error
+	SettingsGetSeed                     func(ctxT, settingsT, out[uint64], out[bool]) Error
+	SettingsGetDerandomize              func(ctxT, settingsT, out[bool]) Error
+	SettingsGetDatabase                 func(ctxT, settingsT, out[*byte]) Error
+	SettingsGetPhases                   func(ctxT, settingsT, out[uint32]) Error
+	SettingsGetSuppressHealthCheck      func(ctxT, settingsT, out[uint32]) Error
+	SettingsGetReportMultipleFailures   func(ctxT, settingsT, out[bool]) Error
+	SettingsGetShowStatistics           func(ctxT, settingsT, out[bool]) Error
+	SettingsGetPrintBlob                func(ctxT, settingsT, out[bool]) Error
+	SettingsGetBackend                  func(ctxT, settingsT, out[int32]) Error
+	SettingsGetUnboundedChoices         func(ctxT, settingsT, out[bool]) Error
+	SettingsGetNondeterminismStrictness func(ctxT, settingsT, out[int32]) Error
 
 	Version func(ctxT, out[*byte]) Error
 }
@@ -629,6 +648,7 @@ func tryOpen(path string) (syms *symbols, err error) {
 		{"hegel_settings_get_print_blob", &syms.SettingsGetPrintBlob},
 		{"hegel_settings_get_backend", &syms.SettingsGetBackend},
 		{"hegel_settings_get_unbounded_choices", &syms.SettingsGetUnboundedChoices},
+		{"hegel_settings_get_nondeterminism_strictness", &syms.SettingsGetNondeterminismStrictness},
 
 		{"hegel_settings_set_show_statistics", &syms.SettingsSetShowStatistics},
 		{"hegel_settings_set_unbounded_choices", &syms.SettingsSetUnboundedChoices},
@@ -677,8 +697,10 @@ func tryOpen(path string) (syms *symbols, err error) {
 		{"hegel_settings_set_database_key", &syms.SettingsSetDatabaseKey},
 		{"hegel_settings_set_phases", &syms.SettingsSetPhases},
 		{"hegel_settings_set_suppress_health_check", &syms.SettingsSetSuppressHealthCheck},
+		{"hegel_settings_set_nondeterminism_strictness", &syms.SettingsSetNondeterminismStrictness},
 
 		{"hegel_run_start", &syms.RunStart},
+		{"hegel_run_start_blob", &syms.RunStartBlob},
 		{"hegel_next_test_case", &syms.NextTestCase},
 		{"hegel_run_result", &syms.RunResult},
 		{"hegel_run_free", &syms.RunFree},
@@ -686,7 +708,7 @@ func tryOpen(path string) (syms *symbols, err error) {
 		{"hegel_test_case_from_blob", &syms.TestCaseFromBlob},
 		{"hegel_test_case_clone", &syms.TestCaseClone},
 		{"hegel_test_case_free", &syms.TestCaseFree},
-		{"hegel_test_case_is_nondeterministic", &syms.TestCaseIsNondeterministic},
+		{"hegel_test_case_should_capture", &syms.TestCaseShouldCapture},
 
 		{"hegel_start_span", &syms.StartSpan},
 		{"hegel_stop_span", &syms.StopSpan},
@@ -741,6 +763,7 @@ func tryOpen(path string) (syms *symbols, err error) {
 		{"hegel_failure_free", &syms.FailureFree},
 		{"hegel_failure_origin", &syms.FailureOrigin},
 		{"hegel_failure_reproduction_blob", &syms.FailureReproductionBlob},
+		{"hegel_failure_caveat", &syms.FailureCaveat},
 
 		{"hegel_version", &syms.Version},
 	})
@@ -934,6 +957,17 @@ func (s *Settings) GetUnboundedChoices(ctx *Context) (bool, error) {
 	return bool(value), err
 }
 
+// GetNondeterminismStrictness reads the effective nondeterminism strictness setting.
+func (s *Settings) GetNondeterminismStrictness(ctx *Context) (NondeterminismStrictness, error) {
+	var value int32
+	err := ctx.invoke("hegel_settings_get_nondeterminism_strictness", func(ctx ctxT) Error {
+		e := s.syms.SettingsGetNondeterminismStrictness(ctx, s.raw, &value)
+		runtime.KeepAlive(s)
+		return e
+	})
+	return NondeterminismStrictness(value), err
+}
+
 // Backend selects the engine's randomness backend. See [Backend].
 func (s *Settings) Backend(ctx *Context, b Backend) error {
 	return ctx.invoke("hegel_settings_set_backend", func(ctx ctxT) Error {
@@ -1015,6 +1049,16 @@ func (s *Settings) SuppressHealthCheck(ctx *Context, checks HealthCheck) error {
 	})
 }
 
+// NondeterminismStrictness sets how the run reacts when it detects
+// nondeterministic test behavior. See [NondeterminismStrictness].
+func (s *Settings) NondeterminismStrictness(ctx *Context, strictness NondeterminismStrictness) error {
+	return ctx.invoke("hegel_settings_set_nondeterminism_strictness", func(ctx ctxT) Error {
+		e := s.syms.SettingsSetNondeterminismStrictness(ctx, s.raw, strictness)
+		runtime.KeepAlive(s)
+		return e
+	})
+}
+
 // RunStart starts a run against these settings. callback and userData set the
 // engine-output destination (see [outputCallbackT]); pass a nil writer to leave
 // output on stderr, which every hegel-package caller currently does.
@@ -1023,6 +1067,28 @@ func (s *Settings) RunStart(ctx *Context, out io.Writer) (*Run, error) {
 	r := new(Run)
 	ok, err := allocateInto(ctx, &r.pointer, "hegel_run_start", func(ctx ctxT, raw *runT) Error {
 		e := s.syms.RunStart(ctx, s.raw, callback, uintptr(handle), raw)
+		runtime.KeepAlive(s)
+		return e
+	}, s.syms.RunFree)
+	if !ok {
+		freeOutputFn[runT](nil, handle)
+		return nil, err
+	}
+	freeOutputFn(&r.pointer, handle)
+	return r, nil
+}
+
+// RunStartBlob starts a run that replays a base64 reproduction blob (from
+// [Failure.ReproductionBlob]) instead of exploring, but is otherwise driven
+// exactly like [Settings.RunStart]. A reproducing replay is the run's failure; a
+// run with no failures means the blob is stale. callback and userData set the
+// engine-output destination (see [outputCallbackT]); pass a nil writer to leave
+// output on stderr, which every hegel-package caller currently does.
+func (s *Settings) RunStartBlob(ctx *Context, blob string, out io.Writer) (*Run, error) {
+	callback, handle := newOutputFn(out)
+	r := new(Run)
+	ok, err := allocateInto(ctx, &r.pointer, "hegel_run_start_blob", func(ctx ctxT, raw *runT) Error {
+		e := s.syms.RunStartBlob(ctx, s.raw, blob, callback, uintptr(handle), raw)
 		runtime.KeepAlive(s)
 		return e
 	}, s.syms.RunFree)
@@ -1155,9 +1221,14 @@ func (tc *TestCase) Clone(ctx *Context) (*TestCase, error) {
 	return &TestCase{pointer: ptr}, err
 }
 
-func (tc *TestCase) IsNondeterministic(ctx *Context) (bool, error) {
-	err := ctx.invoke("hegel_test_case_is_nondeterministic", func(ctx ctxT) Error {
-		e := tc.syms.TestCaseIsNondeterministic(ctx, tc.raw, &tc.outBool)
+// ShouldCapture reports whether the caller should capture this test case's
+// output while running it. A blobless (nondeterministic) failure is reported
+// from what the caller captured while running the stamped test cases, so a true
+// result means this case's output must be buffered in case it turns out to be
+// that failure.
+func (tc *TestCase) ShouldCapture(ctx *Context) (bool, error) {
+	err := ctx.invoke("hegel_test_case_should_capture", func(ctx ctxT) Error {
+		e := tc.syms.TestCaseShouldCapture(ctx, tc.raw, &tc.outBool)
 		runtime.KeepAlive(tc)
 		return e
 	})
@@ -1756,6 +1827,18 @@ func (f *Failure) Origin(ctx *Context) string {
 func (f *Failure) ReproductionBlob(ctx *Context) string {
 	_ = ctx.invoke("hegel_failure_reproduction_blob", func(ctx ctxT) Error {
 		e := f.syms.FailureReproductionBlob(ctx, f.raw, &f.outBytes)
+		runtime.KeepAlive(f)
+		return e
+	})
+	return goString(f.outBytes)
+}
+
+// Caveat returns the failure's caveat — a note qualifying it, such as that it
+// was confirmed under nondeterministic handling — or the empty string if the
+// engine attached none.
+func (f *Failure) Caveat(ctx *Context) string {
+	_ = ctx.invoke("hegel_failure_caveat", func(ctx ctxT) Error {
+		e := f.syms.FailureCaveat(ctx, f.raw, &f.outBytes)
 		runtime.KeepAlive(f)
 		return e
 	})
