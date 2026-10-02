@@ -75,7 +75,7 @@ branch of `github.com/go-gremlins/gremlins` in `go.mod`; use `go tool gremlins`.
 For production code changed on your branch, run from the module root:
 
 ```sh
-go tool gremlins unleash --diff origin/main ./...
+go tool gremlins unleash --diff origin/main .
 ```
 
 The `--diff` flag limits mutations to changed lines. Use the appropriate base
@@ -87,10 +87,11 @@ Inspect each surviving mutant and explain whether it changes observable
 behavior before writing a test for it. Add tests for meaningful gaps; do not
 assert implementation details merely to kill equivalent mutants. Report the
 mutation command, survivors and explanations, and any run you could not finish.
-Gremlins' default configuration is sufficient; tune workers or timeouts only
-if a run has resource or timeout problems. Start mutation testing early when a
-run may take a while, and let it run in the background while doing independent
-review work.
+The repository's `.gremlins.yaml` shows only surviving mutants; Gremlins still
+includes all statuses in its summary. Keep other settings at their defaults;
+tune workers or timeouts only if a run has resource or timeout problems. Start
+mutation testing early when a run may take a while, and let it run in the
+background while doing independent review work.
 
 ## Locating libhegel
 
