@@ -1,0 +1,5 @@
+detect-equivalent: true
+exclude-files:
+  - '_string\.go$'
+  - '^internal/cgo/handle\.go$'
+  - '^internal/libhegel/version\.go$'
