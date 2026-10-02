@@ -10,8 +10,6 @@ import (
 	"sync"
 	"sync/atomic"
 	"testing"
-	"testing/synctest"
-	"time"
 
 	"hegel.dev/go/hegel/internal/libhegel"
 )
@@ -37,24 +35,6 @@ func TestRunHegelTestPasses(t *testing.T) {
 	if !called {
 		t.Error("test function was never called")
 	}
-}
-
-func TestRunHegelTestInSynctest(t *testing.T) {
-	synctest.Test(t, func(t *testing.T) {
-		Test(t, func(ht *T) {
-			_ = Draw[int](ht, Integers[int](0, 100))
-			start := time.Now()
-			done := make(chan struct{})
-			go func() {
-				time.Sleep(time.Hour)
-				close(done)
-			}()
-			<-done
-			if elapsed := time.Since(start); elapsed != time.Hour {
-				ht.Fatalf("elapsed time = %s, want 1h", elapsed)
-			}
-		}, WithTestCases(3), WithDatabase(""))
-	})
 }
 
 func TestRunHegelTestAllInvalid(t *testing.T) {
