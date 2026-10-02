@@ -1,5 +1,9 @@
 # Changelog
 
+## 0.9.12 - 2026-10-02
+
+Embedded `libhegel` binaries now fall back to a secure per-user temporary cache when the normal user cache is unavailable, allowing tests to run in sandboxes that prohibit writes outside the workspace.
+
 ## 0.9.11 - 2026-09-28
 
 This patch bumps our pinned libhegel ([hegel-rust](hegeldev/hegel-rust)) from [0.43.7](https://github.com/hegeldev/hegel-rust/releases/tag/libhegel-v0.43.7) to [0.44.1](https://github.com/hegeldev/hegel-rust/releases/tag/libhegel-v0.44.1).
