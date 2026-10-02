@@ -51,6 +51,38 @@ func TestFloatsE2E_Unbounded(t *testing.T) {
 	}, WithTestCases(50))
 }
 
+func TestTextAllowsZeroMaximum(t *testing.T) {
+	t.Parallel()
+	err := Run(func(tc TestCase) {
+		if got := Draw(tc, Text().MaxSize(0)); got != "" {
+			tc.Errorf("text = %q, want empty", got)
+		}
+	}, WithTestCases(1), WithDatabase(""))
+	if err != nil {
+		t.Fatal(err)
+	}
+}
+
+func TestBinaryExactSizeBounds(t *testing.T) {
+	t.Parallel()
+	for _, size := range []int{0, 1} {
+		t.Run(fmt.Sprintf("size_%d", size), func(t *testing.T) {
+			err := Run(func(tc TestCase) {
+				if got := Draw(tc, Binary(size, size)); len(got) != size {
+					tc.Errorf("binary length = %d, want %d", len(got), size)
+				}
+			}, WithTestCases(1), WithDatabase(""))
+			if err != nil {
+				t.Fatal(err)
+			}
+		})
+	}
+}
+
+func TestBinaryRejectsPositiveMinimumWithZeroMaximum(t *testing.T) {
+	assertPanicsWithMessage(t, "max_size", func() { Binary(1, 0) })
+}
+
 func TestFloatsE2E_OnlyMin(t *testing.T) {
 	t.Parallel()
 

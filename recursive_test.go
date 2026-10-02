@@ -43,7 +43,7 @@ func TestRecursiveGeneratesBoundedTrees(t *testing.T) {
 		maxLeaves = 8
 	)
 	gen := recursiveTree().MaxDepth(maxDepth).MaxLeaves(maxLeaves)
-	var sawBranch bool
+	var sawBranch, sawNestedBranch bool
 
 	Test(t, func(ht *T) {
 		tree := Draw(ht, gen)
@@ -57,9 +57,15 @@ func TestRecursiveGeneratesBoundedTrees(t *testing.T) {
 		if depth > 0 {
 			sawBranch = true
 		}
-	}, WithTestCases(100))
+		if depth > 1 {
+			sawNestedBranch = true
+		}
+	}, WithTestCases(100), WithSeed(42), WithDatabase(""))
 	if !sawBranch {
 		t.Fatal("recursive generator never generated a branch")
+	}
+	if !sawNestedBranch {
+		t.Fatal("recursive generator never generated a nested branch")
 	}
 }
 

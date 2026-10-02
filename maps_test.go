@@ -9,6 +9,23 @@ import (
 	"unicode/utf8"
 )
 
+func TestMapsAllowExactSizeBounds(t *testing.T) {
+	t.Parallel()
+	for _, size := range []int{0, 1} {
+		t.Run(fmt.Sprintf("size_%d", size), func(t *testing.T) {
+			err := Run(func(tc TestCase) {
+				got := Draw(tc, Maps(Integers[int](0, 10), Booleans()).MinSize(size).MaxSize(size))
+				if len(got) != size {
+					tc.Errorf("map length = %d, want %d", len(got), size)
+				}
+			}, WithTestCases(1), WithDatabase(""))
+			if err != nil {
+				t.Fatal(err)
+			}
+		})
+	}
+}
+
 // TestMapsCompositeMap verifies that Map on a MapGenerator returns a mappedGenerator.
 func TestMapsCompositeMap(t *testing.T) {
 	t.Parallel()

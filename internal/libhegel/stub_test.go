@@ -239,32 +239,33 @@ func TestStubStringGenerators(t *testing.T) {
 	if v, err := tc.GenerateString(lib, gen); err != nil || v != "hello" {
 		t.Fatalf("GenerateString: v=%q err=%v", v, err)
 	}
-	if _, err := lib.StringGeneratorEmail(); err != nil {
-		t.Fatalf("StringGeneratorEmail: %v", err)
+	if email, err := lib.StringGeneratorEmail(); err != nil || email == nil {
+		t.Fatalf("StringGeneratorEmail: gen=%v err=%v", email, err)
 	}
-	if _, err := lib.StringGeneratorURL(); err != nil {
-		t.Fatalf("StringGeneratorURL: %v", err)
+	if url, err := lib.StringGeneratorURL(); err != nil || url == nil {
+		t.Fatalf("StringGeneratorURL: gen=%v err=%v", url, err)
 	}
-	if _, err := lib.StringGeneratorDomain(255); err != nil {
-		t.Fatalf("StringGeneratorDomain: %v", err)
+	if domain, err := lib.StringGeneratorDomain(255); err != nil || domain == nil {
+		t.Fatalf("StringGeneratorDomain: gen=%v err=%v", domain, err)
 	}
-	if _, err := lib.StringGeneratorRegex("a+", true, nil); err != nil {
-		t.Fatalf("StringGeneratorRegex: %v", err)
+	if regex, err := lib.StringGeneratorRegex("a+", true, nil); err != nil || regex == nil {
+		t.Fatalf("StringGeneratorRegex: gen=%v err=%v", regex, err)
 	}
 	// A non-nil alphabet exercises the alphabet-handle branch.
-	if _, err := lib.StringGeneratorRegex("a+", true, gen); err != nil {
-		t.Fatalf("StringGeneratorRegex with alphabet: %v", err)
+	if regex, err := lib.StringGeneratorRegex("a+", true, gen); err != nil || regex == nil {
+		t.Fatalf("StringGeneratorRegex with alphabet: gen=%v err=%v", regex, err)
 	}
 }
 
-// TestStubStringGeneratorNULNames covers cStringArrayArg's interior-NUL guard.
 func TestStubStringGeneratorNULNames(t *testing.T) {
 	lib := Stub(t) // must error before the C call
-	if _, err := lib.StringGeneratorText(0, 8, "utf-8", 0, 0, []string{"a\x00b"}, nil, nil, nil); err == nil {
-		t.Error("expected error for NUL in a category name")
-	}
-	if _, err := lib.StringGeneratorText(0, 8, "utf-8", 0, 0, nil, []string{"x\x00"}, nil, nil); err == nil {
-		t.Error("expected error for NUL in an exclude-category name")
+	for _, name := range []string{"\x00start", "a\x00b", "end\x00"} {
+		if _, err := lib.StringGeneratorText(0, 8, "utf-8", 0, 0, []string{name}, nil, nil, nil); err == nil {
+			t.Errorf("expected error for NUL in category name %q", name)
+		}
+		if _, err := lib.StringGeneratorText(0, 8, "utf-8", 0, 0, nil, []string{name}, nil, nil); err == nil {
+			t.Errorf("expected error for NUL in exclude-category name %q", name)
+		}
 	}
 }
 
@@ -305,18 +306,17 @@ func TestStubIntegerBig(t *testing.T) {
 	}
 }
 
-// TestStubStateMachineRejectsNULNames covers cStringArray's interior-NUL guard
-// from both NewStateMachine call sites: a C string cannot carry an embedded
-// NUL, so such a name is rejected before reaching libhegel.
 func TestStubStateMachineRejectsNULNames(t *testing.T) {
 	lib := Stub(t) // no returns: must error before the C call
 	tc := &TestCase{pointer: &pointer[testCaseT]{syms: lib.syms, raw: 1}}
 
-	if _, _, err := tc.NewStateMachine(lib, []string{"a\x00b"}, []int64{0}, nil, nil, nil, 1, 1, 50); err == nil {
-		t.Error("expected error for NUL in a rule name")
-	}
-	if _, _, err := tc.NewStateMachine(lib, []string{"ok"}, []int64{0}, nil, []string{"bad\x00"}, nil, 1, 1, 50); err == nil {
-		t.Error("expected error for NUL in an invariant name")
+	for _, name := range []string{"\x00start", "a\x00b", "end\x00"} {
+		if _, _, err := tc.NewStateMachine(lib, []string{name}, []int64{0}, nil, nil, nil, 1, 1, 50); err == nil {
+			t.Errorf("expected error for NUL in rule name %q", name)
+		}
+		if _, _, err := tc.NewStateMachine(lib, []string{"ok"}, []int64{0}, nil, []string{name}, nil, 1, 1, 50); err == nil {
+			t.Errorf("expected error for NUL in invariant name %q", name)
+		}
 	}
 }
 
@@ -547,6 +547,19 @@ func TestHandleTrackerUseAfterFree(t *testing.T) {
 	}
 
 	h.free(settingsT(1)) // cascades to the borrowed run handle
+}
+
+func TestHandleTrackerReusedHandleIsAlive(t *testing.T) {
+	h := newHandleTracker()
+	h.track(settingsT(1))
+	h.free(settingsT(1))
+	if !h.check(settingsT(1)) {
+		t.Fatal("freed handle was not detected")
+	}
+	h.track(settingsT(1))
+	if h.check(settingsT(1)) {
+		t.Fatal("reused handle was reported as freed")
+	}
 }
 
 // TestStubUseAfterFreeErrors drives the Stub closure's use-after-free guard

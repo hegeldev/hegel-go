@@ -47,6 +47,22 @@ func TestWithNoexecHintStatfs(t *testing.T) {
 	}
 }
 
+func TestWithNoexecHintOnNoexecMount(t *testing.T) {
+	base := errors.New("dlopen boom")
+	for _, path := range []string{"/run/lock", "/dev/mqueue", "/sys/kernel/security"} {
+		var st unix.Statfs_t
+		if err := unix.Statfs(path, &st); err != nil || st.Flags&unix.ST_NOEXEC == 0 {
+			continue
+		}
+		got := withNoexecHint(path, base)
+		if !errors.Is(got, base) || !strings.Contains(got.Error(), "noexec") {
+			t.Fatalf("noexec path %q: got %v, want wrapped error with hint", path, got)
+		}
+		return
+	}
+	t.Skip("no noexec mount is available")
+}
+
 // TestDlopenNoexecHint drives the full dlopen failure path: opening a non-library
 // file on a normal (exec-capable) filesystem fails, and the error passes through
 // withNoexecHint without a noexec hint being appended.

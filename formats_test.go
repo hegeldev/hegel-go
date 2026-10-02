@@ -11,6 +11,15 @@ import (
 	"hegel.dev/go/hegel/internal/libhegel"
 )
 
+func TestDateFromTimeAcceptsExtremeYears(t *testing.T) {
+	for _, year := range []int{-999999, 999999} {
+		got, err := dateFromTime(time.Date(year, time.January, 1, 0, 0, 0, 0, time.UTC))
+		if err != nil || got.Year != int32(year) {
+			t.Errorf("dateFromTime(%d): date=%+v err=%v", year, got, err)
+		}
+	}
+}
+
 // =============================================================================
 // Domain MaxLength validation (draw returns an error out of [4, 255])
 // =============================================================================

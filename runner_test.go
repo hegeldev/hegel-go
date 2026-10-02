@@ -1456,6 +1456,21 @@ func TestStubCollectionReject(t *testing.T) {
 	}
 }
 
+func TestStubCollectionRejectError(t *testing.T) {
+	tc := newStubTestCase(t,
+		uintptr(1), libhegel.OK, // new_collection
+		libhegel.E_BACKEND, "reject failed", // collection_reject
+	)
+	coll, err := tc.newCollection(0, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	coll.Reject("duplicate key")
+	if err := coll.Err(); !errors.Is(err, libhegel.E_BACKEND) {
+		t.Fatalf("Reject error = %v, want E_BACKEND", err)
+	}
+}
+
 // TestStatefulNewStateMachineError covers stateMachine.Run's panic when the
 // engine rejects new_state_machine registration.
 func TestStatefulNewStateMachineError(t *testing.T) {
