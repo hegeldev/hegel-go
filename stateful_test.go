@@ -810,6 +810,9 @@ func TestStateMachineLogsDroppedWorkerErrors(t *testing.T) {
 			!strings.Contains(text, "Dropped concurrent failure from worker 3") || !strings.Contains(text, ": second failure") {
 			t.Fatalf("dropped errors not logged:\n%s", text)
 		}
+		if strings.Index(text, "Dropped concurrent panic from worker 2") > strings.Index(text, "Dropped concurrent failure from worker 3") {
+			t.Fatalf("dropped errors logged out of worker order:\n%s", text)
+		}
 	}()
 	sm.Run(&concurrentTestCase{shared: shared, out: &out})
 }

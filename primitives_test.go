@@ -51,6 +51,49 @@ func TestFloatsE2E_Unbounded(t *testing.T) {
 	}, WithTestCases(50))
 }
 
+func TestFloatDefaultParameters(t *testing.T) {
+	w64, min64, max64, _, _, smallest64, err := Floats[float64]().params()
+	if err != nil || w64 != 64 || !math.IsInf(min64, -1) || !math.IsInf(max64, 1) || smallest64 != math.SmallestNonzeroFloat64 {
+		t.Fatalf("float64 params = (%d, %v, %v, %v), err = %v", w64, min64, max64, smallest64, err)
+	}
+	w32, min32, max32, _, _, smallest32, err := Floats[float32]().params()
+	if err != nil || w32 != 32 || !math.IsInf(min32, -1) || !math.IsInf(max32, 1) || smallest32 != math.SmallestNonzeroFloat32 {
+		t.Fatalf("float32 params = (%d, %v, %v, %v), err = %v", w32, min32, max32, smallest32, err)
+	}
+}
+
+func TestTextAllowsZeroMaximum(t *testing.T) {
+	t.Parallel()
+	err := Run(func(tc TestCase) {
+		if got := Draw(tc, Text().MaxSize(0)); got != "" {
+			tc.Errorf("text = %q, want empty", got)
+		}
+	}, WithTestCases(1), WithDatabase(""))
+	if err != nil {
+		t.Fatal(err)
+	}
+}
+
+func TestBinaryExactSizeBounds(t *testing.T) {
+	t.Parallel()
+	for _, size := range []int{0, 1} {
+		t.Run(fmt.Sprintf("size_%d", size), func(t *testing.T) {
+			err := Run(func(tc TestCase) {
+				if got := Draw(tc, Binary(size, size)); len(got) != size {
+					tc.Errorf("binary length = %d, want %d", len(got), size)
+				}
+			}, WithTestCases(1), WithDatabase(""))
+			if err != nil {
+				t.Fatal(err)
+			}
+		})
+	}
+}
+
+func TestBinaryRejectsPositiveMinimumWithZeroMaximum(t *testing.T) {
+	assertPanicsWithMessage(t, "max_size", func() { Binary(1, 0) })
+}
+
 func TestFloatsE2E_OnlyMin(t *testing.T) {
 	t.Parallel()
 

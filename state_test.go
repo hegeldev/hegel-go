@@ -198,6 +198,27 @@ func TestTLogEmitsWhenEmitting(t *testing.T) {
 	}
 }
 
+func TestTLogAndLogfAppearInFailureOutput(t *testing.T) {
+	t.Parallel()
+	newTempGoProject(t).
+		testBody(`ht.Log("LOG_SENTINEL_A")
+ht.Logf("LOG_SENTINEL_%s", "B")
+ht.Fail()`, "hegel.WithTestCases(1)").
+		expectFailure(`(?s)LOG_SENTINEL_A.*LOG_SENTINEL_B`).
+		goTest()
+}
+
+func TestTLogAndLogfAreSilentOnSuccess(t *testing.T) {
+	t.Parallel()
+	out := newTempGoProject(t).
+		testBody(`ht.Log("LOG_SENTINEL_A")
+ht.Logf("LOG_SENTINEL_%s", "B")`, "hegel.WithTestCases(1)").
+		goTest()
+	if strings.Contains(out.Stdout, "LOG_SENTINEL_A") || strings.Contains(out.Stdout, "LOG_SENTINEL_B") {
+		t.Fatalf("successful property emitted deferred logs:\n%s", out.Stdout)
+	}
+}
+
 // testCase.Note adds to the native document, which the root flushes to s.out.
 func TestTestCaseNoteWritesToOut(t *testing.T) {
 	t.Parallel()

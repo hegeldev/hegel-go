@@ -19,6 +19,18 @@ func TestListsNegativeMinSizeError(t *testing.T) {
 	assertErrorContains(t, "min_size", err)
 }
 
+func TestListsAllowZeroMaximum(t *testing.T) {
+	t.Parallel()
+	err := Run(func(tc TestCase) {
+		if got := Draw(tc, Lists(Booleans()).MaxSize(0)); len(got) != 0 {
+			tc.Errorf("list length = %d, want 0", len(got))
+		}
+	}, WithTestCases(1), WithDatabase(""))
+	if err != nil {
+		t.Fatal(err)
+	}
+}
+
 // =============================================================================
 // Lists e2e integration tests (real hegel binary)
 // =============================================================================

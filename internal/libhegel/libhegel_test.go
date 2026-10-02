@@ -7,6 +7,20 @@ import (
 	"testing"
 )
 
+func TestInvokePassesContextHandle(t *testing.T) {
+	ctx := &Context{raw: ctxT(42)}
+	var got ctxT
+	if err := ctx.invoke("test", func(raw ctxT) Error {
+		got = raw
+		return OK
+	}); err != nil {
+		t.Fatal(err)
+	}
+	if got != ctx.raw {
+		t.Fatalf("context handle = %v, want %v", got, ctx.raw)
+	}
+}
+
 // TestLoadLibVersion smoke-tests the loader against the real libhegel built
 // by `just build-libhegel` (or in the sibling ../hegel-rust/ checkout, or the
 // vendored binary embedded at build time). Asserts that hegel_version returns
