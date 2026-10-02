@@ -2,6 +2,7 @@ package hegel
 
 import (
 	"fmt"
+	"math"
 	"strconv"
 	"strings"
 	"testing"
@@ -48,30 +49,35 @@ func TestIntegersFromMinGreaterThanMax(t *testing.T) {
 	assertPanicsWithMessage(t, "max_value", func() { Integers[int64](10, 5) })
 }
 
-// Float allow_nan / allow_infinity validation happens in params(), before any
-// engine call, so draw(nil) surfaces the error without touching the test case.
-// (max_value < min_value is validated by the engine instead — see below.)
-
 func TestFloatsAllowNaNWithMin(t *testing.T) {
-	_, err := Floats[float64]().Min(0.0).AllowNaN(true).draw(nil)
+	_, err := Floats[float64]().Min(0.0).AllowNaN(true).draw(newRealTestCase(t))
 	assertErrorContains(t, "allow_nan", err)
 }
 
 func TestFloatsAllowNaNWithMax(t *testing.T) {
-	_, err := Floats[float64]().Max(10.0).AllowNaN(true).draw(nil)
+	_, err := Floats[float64]().Max(10.0).AllowNaN(true).draw(newRealTestCase(t))
 	assertErrorContains(t, "allow_nan", err)
 }
 
-// max_value < min_value is validated by the engine, so this drives a real
-// test case rather than draw(nil).
 func TestFloatsMinGreaterThanMax(t *testing.T) {
 	_, err := Floats[float64]().Min(10.0).Max(5.0).draw(newRealTestCase(t))
 	assertErrorContains(t, "10", err)
 }
 
 func TestFloatsAllowInfinityWithBothBounds(t *testing.T) {
-	_, err := Floats[float64]().Min(0.0).Max(10.0).AllowInfinity(true).draw(nil)
+	_, err := Floats[float64]().Min(0.0).Max(10.0).AllowInfinity(true).draw(newRealTestCase(t))
 	assertErrorContains(t, "allow_infinity", err)
+}
+
+func TestFloatsInfiniteBoundsUseEngineValidation(t *testing.T) {
+	for _, g := range []FloatGenerator[float64]{
+		Floats[float64]().Min(math.Inf(-1)).AllowNaN(true),
+		Floats[float64]().Min(math.Inf(-1)).Max(1).AllowInfinity(true),
+	} {
+		if _, err := g.draw(newRealTestCase(t)); err != nil {
+			t.Fatalf("infinite bound rejected: %v", err)
+		}
+	}
 }
 
 func TestDatesMinGreaterThanMax(t *testing.T) {
@@ -245,24 +251,24 @@ func TestOneOfSingleGeneratorNoPanic(t *testing.T) {
 	OneOf(Booleans())
 }
 
-// invalidFloats returns a Floats generator whose draw always errors (invalid
-// params), for use as a malformed inner generator in error-propagation tests.
-func invalidFloats() Generator[float64] {
-	return Floats[float64]().Min(0.0).AllowNaN(true)
+func failingFloat() Generator[float64] {
+	return genFunc[float64](func(TestCase) (float64, error) {
+		return 0, fmt.Errorf("inner draw failed")
+	})
 }
 
 // --- inner-error propagation from a nested generator's draw ---
 
 func TestListsInnerErrorPropagates(t *testing.T) {
 	tc := newStubTestCase(t, uintptr(1), libhegel.OK, true, libhegel.OK, libhegel.OK)
-	_, err := Lists(invalidFloats()).draw(tc)
-	assertErrorContains(t, "allow_nan", err)
+	_, err := Lists(failingFloat()).draw(tc)
+	assertErrorContains(t, "inner draw failed", err)
 }
 
 func TestMapsKeyErrorPropagates(t *testing.T) {
 	tc := newStubTestCase(t, uintptr(1), libhegel.OK, true, libhegel.OK, libhegel.OK)
-	_, err := Maps[float64, int](invalidFloats(), Integers(0, 1)).draw(tc)
-	assertErrorContains(t, "allow_nan", err)
+	_, err := Maps[float64, int](failingFloat(), Integers(0, 1)).draw(tc)
+	assertErrorContains(t, "inner draw failed", err)
 }
 
 func TestMapsValueErrorPropagates(t *testing.T) {
@@ -274,20 +280,20 @@ func TestMapsValueErrorPropagates(t *testing.T) {
 		libhegel.OK, int64(0), libhegel.OK, libhegel.OK,
 		libhegel.OK,
 	)
-	_, err := Maps[int, float64](Integers(0, 1), invalidFloats()).draw(tc)
-	assertErrorContains(t, "allow_nan", err)
+	_, err := Maps[int, float64](Integers(0, 1), failingFloat()).draw(tc)
+	assertErrorContains(t, "inner draw failed", err)
 }
 
 func TestOneOfBranchErrorPropagates(t *testing.T) {
 	tc := newStubTestCase(t, int64(0), libhegel.OK, libhegel.OK)
-	_, err := OneOf(invalidFloats()).draw(tc)
-	assertErrorContains(t, "allow_nan", err)
+	_, err := OneOf(failingFloat()).draw(tc)
+	assertErrorContains(t, "inner draw failed", err)
 }
 
 func TestOptionalInnerErrorPropagates(t *testing.T) {
 	tc := newStubTestCase(t, int64(1), libhegel.OK, libhegel.OK)
-	_, err := Optional(invalidFloats()).draw(tc)
-	assertErrorContains(t, "allow_nan", err)
+	_, err := Optional(failingFloat()).draw(tc)
+	assertErrorContains(t, "inner draw failed", err)
 }
 
 // --- draw() surfaces invalid configuration ---
@@ -304,14 +310,11 @@ func TestMapsDrawInvalidConfigReturnsError(t *testing.T) {
 	assertErrorContains(t, "min_size", err)
 }
 
-// TestMapInvalidSourceReturnsErrorOnDraw verifies that Map no longer validates
-// its source at construction (it wraps unconditionally); the invalid inner
-// config surfaces when the mapped generator is drawn.
-func TestMapInvalidSourceReturnsErrorOnDraw(t *testing.T) {
-	gen := Map(invalidFloats(), func(v float64) float64 { return v })
+func TestMapSourceErrorReturnsOnDraw(t *testing.T) {
+	gen := Map(failingFloat(), func(v float64) float64 { return v })
 	tc := newStubTestCase(t, libhegel.OK)
 	_, err := gen.draw(tc)
-	assertErrorContains(t, "allow_nan", err)
+	assertErrorContains(t, "inner draw failed", err)
 }
 
 func TestFloatsDrawInvalidConfigReturnsError(t *testing.T) {

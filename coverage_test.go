@@ -24,13 +24,13 @@ func TestIntegersBigPathError(t *testing.T) {
 
 func TestFloatExcludeBoundsBuilders(t *testing.T) {
 	t.Parallel()
-	g := Floats[float64]().Min(0).Max(1).AllowNaN(false).AllowInfinity(false).ExcludeMin().ExcludeMax()
-	_, _, _, _, _, _, err := g.params()
-	if err != nil {
-		t.Fatalf("params: %v", err)
-	}
-	if !g.excludeMin || !g.excludeMax {
-		t.Fatal("ExcludeMin/ExcludeMax not recorded")
+	for _, g := range []FloatGenerator[float64]{
+		Floats[float64]().Min(0).Max(0).ExcludeMin(),
+		Floats[float64]().Min(0).Max(0).ExcludeMax(),
+	} {
+		if _, err := g.draw(newRealTestCase(t)); err == nil {
+			t.Fatal("expected exclusive bound to leave an empty range")
+		}
 	}
 }
 
