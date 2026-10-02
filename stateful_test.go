@@ -30,6 +30,13 @@ type singleRuleMachine struct{ n int }
 
 func (m *singleRuleMachine) RuleStep(_ TestCase) { m.n++ }
 
+type synctestMachine struct{ steps atomic.Int64 }
+
+func (m *synctestMachine) RuleStep(_ TestCase) {
+	m.steps.Add(1)
+	time.Sleep(time.Hour)
+}
+
 type outputRuleMachine struct{}
 
 func (*outputRuleMachine) RuleStep(TestCase) {}
@@ -675,6 +682,18 @@ func TestStateMachineRunsEngineSelectedWorkersConcurrently(t *testing.T) {
 		if starts, stops := shared.spanStarts.Load(), shared.spanStops.Load(); starts != 0 || stops != 0 {
 			t.Errorf("stateful spans = %d starts, %d stops; want none", starts, stops)
 		}
+	})
+}
+
+func TestRunStatefulInSynctest(t *testing.T) {
+	synctest.Test(t, func(t *testing.T) {
+		Test(t, func(ht *T) {
+			machine := &synctestMachine{}
+			RunStateful(ht, machine, WithBoundedConcurrency(2), WithStatefulStepCount(2))
+			if machine.steps.Load() == 0 {
+				ht.Fatal("state machine did not run a rule")
+			}
+		}, WithTestCases(3), WithDatabase(""))
 	})
 }
 
