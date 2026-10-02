@@ -1,5 +1,9 @@
 # Changelog
 
+## 0.9.13 - 2026-10-02
+
+Float generators now accept explicitly infinite bounds with `AllowNaN(true)` or `AllowInfinity(true)` when libhegel permits them.
+
 ## 0.9.12 - 2026-10-02
 
 Embedded `libhegel` binaries now fall back to a secure per-user temporary cache when the normal user cache is unavailable, allowing tests to run in sandboxes that prohibit writes outside the workspace.
