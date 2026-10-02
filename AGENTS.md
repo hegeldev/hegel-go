@@ -66,6 +66,33 @@ The user-facing surface lives in `hegel.go` (canonical package doc). Entry point
   paths.
 - **Use the real libhegel** for integration tests.
 
+## Mutation testing
+
+When adding or changing tests, run the normal Go tests and mutation test the
+code they exercise with gomutants. Run:
+
+```sh
+go tool gomutants --changed-since origin/main ./...
+```
+
+The `--changed-since` flag limits mutations to changed lines. Use the
+appropriate base ref if the branch does not target `main`.
+
+Before adding a test for a surviving mutant, state the intended guarantee it
+threatens and where that guarantee comes from, such as the protocol, documented
+behavior, or an agreed security assumption. An internal invariant is worth
+testing when it protects that guarantee. Assert the invariant at a stable
+boundary; do not turn incidental implementation choices into requirements
+merely to improve the mutation score. Explain survivors that do not reveal a
+meaningful test gap.
+
+Report the mutation command, survivors and explanations, and any run you could
+not finish. The repository's `.gomutants.yml` enables equivalent-mutant
+detection and excludes three files from mutation discovery. Keep other settings
+at their defaults; tune workers or timeouts only if a run has resource or
+timeout problems. Start mutation testing early when a run may take a while, and
+let it run in the background while doing independent review work.
+
 ## Locating libhegel
 
 The library is resolved in this order; first hit wins:

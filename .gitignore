@@ -32,6 +32,8 @@ CLAUDE.local.md
 coverage.out
 cover_test.out
 coverage.sanitized.out
+mutation-report.json
+.gomutants-cache.json
 *.test
 *.out
 
