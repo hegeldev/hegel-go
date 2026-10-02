@@ -8,17 +8,11 @@ import (
 	"os/exec"
 	"path/filepath"
 	"regexp"
-	"strings"
 	"testing"
 )
 
-// tempGoProject builds an isolated Go module in a temp directory that depends
-// on the hegel package via a `replace` directive pointing at the source tree.
-// It mirrors the Rust suite's TempRustProject: drop in a hegel.Test body,
-// run it via `go test`, and assert against the captured stdout/stderr/exit.
-//
-// Use this when a test needs to observe behavior that only manifests in a
-// real process (stdout/stderr output, exit codes, t.Log routing).
+// tempGoProject runs tests in a separate Go process to inspect output, exit
+// codes, and testing.T log routing.
 type tempGoProject struct {
 	t      *testing.T
 	dir    string
@@ -53,7 +47,7 @@ func newTempGoProject(t *testing.T) *tempGoProject {
 	if err := os.WriteFile(filepath.Join(p.dir, "go.mod"), []byte(goMod), 0o644); err != nil {
 		t.Fatalf("write go.mod: %v", err)
 	}
-	// Reuse the parent module's go.sum so `go run` doesn't need network access
+	// Reuse the parent module's go.sum so `go test` doesn't need network access
 	// to verify the transitive dependency graph.
 	if sum, err := os.ReadFile(filepath.Join(moduleDir, "go.sum")); err == nil {
 		_ = os.WriteFile(filepath.Join(p.dir, "go.sum"), sum, 0o644)
@@ -70,41 +64,6 @@ func (p *tempGoProject) writeFile(name, content string) *tempGoProject {
 	return p
 }
 
-// testBody installs a hegel_test.go that wraps code as the body of a
-// hegel.Test call inside a Go test function. Run via goTest.
-//
-// The hegel.T parameter is named ht. fmt is imported and silenced so bodies
-// can use it freely. Pass options as Go-source strings (e.g.
-// "hegel.WithTestCases(10)").
-func (p *tempGoProject) testBody(code string, opts ...string) *tempGoProject {
-	indented := "\t\t" + strings.ReplaceAll(code, "\n", "\n\t\t")
-	optsStr := ""
-	if len(opts) > 0 {
-		optsStr = ", " + strings.Join(opts, ", ")
-	}
-	return p.writeFile("hegel_test.go", fmt.Sprintf(`package temptest
-
-import (
-	"fmt"
-	"os"
-	"testing"
-
-	"hegel.dev/go/hegel"
-)
-
-var (
-	_ = fmt.Sprintf
-	_ = os.Getenv
-)
-
-func TestSubprocess(t *testing.T) {
-	hegel.Test(t, func(ht *hegel.T) {
-%s
-	}%s)
-}
-`, indented, optsStr))
-}
-
 // expectFailure asserts the command exits non-zero and the combined
 // stdout+stderr matches pattern. Without this, a non-zero exit fails the test.
 func (p *tempGoProject) expectFailure(pattern string) *tempGoProject {
@@ -112,12 +71,9 @@ func (p *tempGoProject) expectFailure(pattern string) *tempGoProject {
 	return p
 }
 
-// goTest runs `go test -v ./...` in the temp project. -v ensures t.Log
-// output is flushed regardless of pass/fail, so callers can grep for
-// note/log sentinels emitted by the test body.
 func (p *tempGoProject) goTest(args ...string) runOutput {
 	p.t.Helper()
-	return p.run(append([]string{"test", "-v", "./..."}, args...))
+	return p.run(append([]string{"test"}, args...))
 }
 
 func (p *tempGoProject) run(args []string) runOutput {
