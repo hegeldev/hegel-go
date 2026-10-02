@@ -1,9 +1,7 @@
 package hegel
 
 import (
-	"encoding/json"
 	"fmt"
-	"io"
 	"regexp"
 	"strings"
 	"testing"
@@ -73,37 +71,17 @@ func %s(t *testing.T) {
 	out := newTempGoProject(t).
 		writeFile("hegel_test.go", source.String()).
 		expectFailure(`"Action":"fail"`).
-		goTest("-json")
-
-	outputs := make(map[string]string)
-	failed := make(map[string]bool)
-	decoder := json.NewDecoder(strings.NewReader(out.Stdout))
-	for {
-		var event struct {
-			Action string
-			Test   string
-			Output string
-		}
-		if err := decoder.Decode(&event); err != nil {
-			if err == io.EOF {
-				break
-			}
-			t.Fatalf("decode go test output: %v", err)
-		}
-		outputs[event.Test] += event.Output
-		if event.Action == "fail" {
-			failed[event.Test] = true
-		}
-	}
+		goTest()
 	for _, tc := range cases {
-		if !failed[tc.name] {
-			t.Errorf("%s did not fail; output:\n%s", tc.name, outputs[tc.name])
+		result := out.Tests[tc.name]
+		if result.Status != "fail" {
+			t.Errorf("%s status = %q, want fail; output:\n%s", tc.name, result.Status, result.Output)
 		}
 		for _, want := range tc.wants {
-			if matched, err := regexp.MatchString(want, outputs[tc.name]); err != nil {
+			if matched, err := regexp.MatchString(want, result.Output); err != nil {
 				t.Fatalf("bad diagnostic regex %q: %v", want, err)
 			} else if !matched {
-				t.Errorf("%s output did not match %q:\n%s", tc.name, want, outputs[tc.name])
+				t.Errorf("%s output did not match %q:\n%s", tc.name, want, result.Output)
 			}
 		}
 	}

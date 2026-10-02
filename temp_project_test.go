@@ -2,12 +2,15 @@ package hegel
 
 import (
 	"bytes"
+	"encoding/json"
 	"errors"
 	"fmt"
+	"io"
 	"os"
 	"os/exec"
 	"path/filepath"
 	"regexp"
+	"strings"
 	"testing"
 )
 
@@ -23,6 +26,12 @@ type runOutput struct {
 	ExitCode int
 	Stdout   string
 	Stderr   string
+	Tests    map[string]testResult
+}
+
+type testResult struct {
+	Output string
+	Status string
 }
 
 func newTempGoProject(t *testing.T) *tempGoProject {
@@ -73,7 +82,31 @@ func (p *tempGoProject) expectFailure(pattern string) *tempGoProject {
 
 func (p *tempGoProject) goTest(args ...string) runOutput {
 	p.t.Helper()
-	return p.run(append([]string{"test"}, args...))
+	out := p.run(append([]string{"test", "-json"}, args...))
+	out.Tests = make(map[string]testResult)
+	decoder := json.NewDecoder(strings.NewReader(out.Stdout))
+	for {
+		var event struct {
+			Action string
+			Test   string
+			Output string
+		}
+		if err := decoder.Decode(&event); err != nil {
+			if err == io.EOF {
+				return out
+			}
+			p.t.Fatalf("decode go test output: %v", err)
+		}
+		if event.Test == "" {
+			continue
+		}
+		result := out.Tests[event.Test]
+		result.Output += event.Output
+		if event.Action == "pass" || event.Action == "fail" || event.Action == "skip" {
+			result.Status = event.Action
+		}
+		out.Tests[event.Test] = result
+	}
 }
 
 func (p *tempGoProject) run(args []string) runOutput {
