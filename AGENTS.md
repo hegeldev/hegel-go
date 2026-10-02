@@ -66,6 +66,32 @@ The user-facing surface lives in `hegel.go` (canonical package doc). Entry point
   paths.
 - **Use the real libhegel** for integration tests.
 
+## Mutation testing
+
+When adding or changing tests, run the normal Go tests and mutation test the
+production code they exercise with Gremlins. The tool is pinned to the `main`
+branch of `github.com/go-gremlins/gremlins` in `go.mod`; use `go tool gremlins`.
+
+For production code changed on your branch, run from the module root:
+
+```sh
+go tool gremlins unleash --diff origin/main ./...
+```
+
+The `--diff` flag limits mutations to changed lines. Use the appropriate base
+ref if the branch does not target `main`. If a test covers existing production
+code without changing it, select the relevant package and exclude unrelated
+source files with `--exclude-files` rather than mutating the entire module.
+
+Inspect each surviving mutant and explain whether it changes observable
+behavior before writing a test for it. Add tests for meaningful gaps; do not
+assert implementation details merely to kill equivalent mutants. Report the
+mutation command, survivors and explanations, and any run you could not finish.
+Gremlins' default configuration is sufficient; tune workers or timeouts only
+if a run has resource or timeout problems. Start mutation testing early when a
+run may take a while, and let it run in the background while doing independent
+review work.
+
 ## Locating libhegel
 
 The library is resolved in this order; first hit wins:
