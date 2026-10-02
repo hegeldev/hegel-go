@@ -653,44 +653,43 @@ func TestStateMachineReportsRejectedRule(t *testing.T) {
 
 func TestStateMachineRunsEngineSelectedWorkersConcurrently(t *testing.T) {
 	t.Parallel()
-	synctest.Test(t, func(t *testing.T) {
-		const selectedConcurrency = int64(2)
-		probe := &concurrentExecutionProbe{
-			expectedWorkers: selectedConcurrency,
-			allEntered:      make(chan struct{}),
-		}
-		sm, err := newStateMachine(probe, WithBoundedConcurrency(4), WithRuleGroup("overlap", "RuleOverlap"))
-		if err != nil {
-			t.Fatalf("newStateMachine: %v", err)
-		}
-		shared := &concurrentTestCaseShared{selectedConcurrency: selectedConcurrency, selectedGroup: 1}
-		sm.Run(&concurrentTestCase{shared: shared})
 
-		if shared.requestedMaxConcurrency != 4 {
-			t.Errorf("requested maximum concurrency = %d, want 4", shared.requestedMaxConcurrency)
-		}
-		if want := []int64{1}; !slices.Equal(shared.ruleGroups, want) {
-			t.Errorf("rule groups passed to engine = %v, want %v", shared.ruleGroups, want)
-		}
-		if shared.cloneCount != selectedConcurrency {
-			t.Errorf("worker clones = %d, want engine-selected count %d", shared.cloneCount, selectedConcurrency)
-		}
-		if got := probe.entered.Load(); got != selectedConcurrency {
-			t.Errorf("workers entering rule = %d, want %d", got, selectedConcurrency)
-		}
-		if probe.barrierTimedOut.Load() {
-			t.Error("a worker did not enter the rule while the other worker was active")
-		}
-		if probe.invariantWhileRuleRuns {
-			t.Error("invariant ran before all workers reached the join point")
-		}
-		if got := probe.invariantCalls; got != 3 {
-			t.Errorf("invariant calls = %d, want initial, post-round, and final checks", got)
-		}
-		if starts, stops := shared.spanStarts.Load(), shared.spanStops.Load(); starts != 0 || stops != 0 {
-			t.Errorf("stateful spans = %d starts, %d stops; want none", starts, stops)
-		}
-	})
+	const selectedConcurrency = int64(2)
+	probe := &concurrentExecutionProbe{
+		expectedWorkers: selectedConcurrency,
+		allEntered:      make(chan struct{}),
+	}
+	sm, err := newStateMachine(probe, WithBoundedConcurrency(4), WithRuleGroup("overlap", "RuleOverlap"))
+	if err != nil {
+		t.Fatalf("newStateMachine: %v", err)
+	}
+	shared := &concurrentTestCaseShared{selectedConcurrency: selectedConcurrency, selectedGroup: 1}
+	sm.Run(&concurrentTestCase{shared: shared})
+
+	if shared.requestedMaxConcurrency != 4 {
+		t.Errorf("requested maximum concurrency = %d, want 4", shared.requestedMaxConcurrency)
+	}
+	if want := []int64{1}; !slices.Equal(shared.ruleGroups, want) {
+		t.Errorf("rule groups passed to engine = %v, want %v", shared.ruleGroups, want)
+	}
+	if shared.cloneCount != selectedConcurrency {
+		t.Errorf("worker clones = %d, want engine-selected count %d", shared.cloneCount, selectedConcurrency)
+	}
+	if got := probe.entered.Load(); got != selectedConcurrency {
+		t.Errorf("workers entering rule = %d, want %d", got, selectedConcurrency)
+	}
+	if probe.barrierTimedOut.Load() {
+		t.Error("a worker did not enter the rule while the other worker was active")
+	}
+	if probe.invariantWhileRuleRuns {
+		t.Error("invariant ran before all workers reached the join point")
+	}
+	if got := probe.invariantCalls; got != 3 {
+		t.Errorf("invariant calls = %d, want initial, post-round, and final checks", got)
+	}
+	if starts, stops := shared.spanStarts.Load(), shared.spanStops.Load(); starts != 0 || stops != 0 {
+		t.Errorf("stateful spans = %d starts, %d stops; want none", starts, stops)
+	}
 }
 
 func TestRunStatefulInSynctest(t *testing.T) {
