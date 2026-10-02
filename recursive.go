@@ -49,47 +49,124 @@ func (g RecursiveGenerator[T]) MaxLeaves(n int) RecursiveGenerator[T] {
 	return g
 }
 
-// leafBudgetRetry requires Retry to reset the recursion scope after unwinding.
+func (g RecursiveGenerator[T]) draw(tc TestCase) (T, error) {
+	rootLabel := labelFor(&subtreeGenerator[T]{})
+	return runRecursion(tc, g.maxDepth, g.maxLeaves, &rootLabel, func(attempt TestCase, choose recursionChoice) (T, error) {
+		root := &subtreeGenerator[T]{leaf: g.leaf, branch: g.branch, choose: choose}
+		return root.draw(attempt)
+	})
+}
+
+// subtreeGenerator copies track depth independently and share a choice function.
+type subtreeGenerator[T any] struct {
+	leaf   Generator[T]
+	branch func(Generator[T]) Generator[T]
+	choose recursionChoice
+	depth  uint64
+}
+
+func (g *subtreeGenerator[T]) draw(tc TestCase) (T, error) {
+	drawValue := func() (T, error) {
+		var zero T
+		isBranch, err := g.choose(g.depth)
+		if err != nil {
+			return zero, err
+		}
+		if isBranch {
+			child := *g
+			child.depth++
+			return draw(tc, g.branch(&child))
+		}
+		return draw(tc, g.leaf)
+	}
+	if g.depth == 0 {
+		return drawValue()
+	}
+	return withSpan(tc, labelFromName("recursive"), drawValue)
+}
+
+// leafBudgetRetry requires Retry after the current attempt unwinds.
 type leafBudgetRetry struct{ error }
 
-// finishRetry indicates that Finish already reset the recursion scope.
+// finishRetry means Finish has already reset the recursion scope.
 type finishRetry struct{ error }
 
-func (g RecursiveGenerator[T]) draw(tc TestCase) (T, error) {
-	var zero T
-	if g.maxDepth < 0 {
-		return zero, fmt.Errorf("max_depth=%d must be non-negative", g.maxDepth)
-	}
-	if g.maxLeaves < 0 {
-		return zero, fmt.Errorf("max_leaves=%d must be non-negative", g.maxLeaves)
-	}
+type recursionChoice func(depth uint64) (bool, error)
 
+func runRecursion[T any](
+	tc TestCase,
+	maxDepth, maxLeaves int,
+	outerSpan *libhegel.Label,
+	attempt func(TestCase, recursionChoice) (T, error),
+) (T, error) {
+	var zero T
+	if maxDepth < 0 {
+		return zero, fmt.Errorf("max_depth=%d must be non-negative", maxDepth)
+	}
+	if maxLeaves < 0 {
+		return zero, fmt.Errorf("max_leaves=%d must be non-negative", maxLeaves)
+	}
 	ctx, nativeTC := tc.engine()
-	recursion, err := nativeTC.NewRecursion(ctx, uint64(g.maxDepth), uint64(g.maxLeaves))
+	recursion, err := nativeTC.NewRecursion(ctx, uint64(maxDepth), uint64(maxLeaves))
 	if err != nil {
 		return zero, err
 	}
-
-	root := &subtreeGenerator[T]{
-		leaf:      g.leaf,
-		branch:    g.branch,
-		recursion: recursion,
-	}
 	for {
 		var value T
-		err := tc.invoke(func(attempt TestCase) {
+		err := tc.invoke(func(scoped TestCase) {
+			if outerSpan != nil {
+				if err := scoped.startSpan(*outerSpan); err != nil {
+					scoped.abort(err)
+					return
+				}
+			}
+			if err := scoped.startSpan(labelFromName("recursive")); err != nil {
+				scoped.abort(err)
+				return
+			}
+			choose := func(depth uint64) (bool, error) {
+				ctx, nativeTC := scoped.engine()
+				branch, err := recursion.Branch(ctx, nativeTC, depth)
+				if err != nil || branch {
+					return branch, err
+				}
+				if err := recursion.Leaf(ctx, nativeTC); err != nil {
+					if errors.Is(err, libhegel.E_RETRY) {
+						return false, &leafBudgetRetry{err}
+					}
+					return false, err
+				}
+				return false, nil
+			}
 			var drawErr error
-			value, drawErr = draw(attempt, root)
+			value, drawErr = attempt(scoped, choose)
 			if drawErr != nil {
-				attempt.abort(drawErr)
+				scoped.abort(drawErr)
+				return
+			}
+			if err := recursion.Finish(ctx, nativeTC); err != nil {
+				if errors.Is(err, libhegel.E_RETRY) {
+					scoped.abort(&finishRetry{err})
+				} else {
+					scoped.abort(err)
+				}
+				return
+			}
+			if err := scoped.stopSpan(false); err != nil {
+				scoped.abort(err)
+				return
+			}
+			if outerSpan != nil {
+				if err := scoped.stopSpan(false); err != nil {
+					scoped.abort(err)
+				}
 			}
 		})
 		if err == nil {
 			return value, nil
 		}
 
-		// Both retry paths discard the attempt's native spans. The scoped
-		// TestCase passed to invoke keeps their Go-side depth from leaking too.
+		// invoke discards native spans and isolates the Go span depth on error.
 		if _, ok := errors.AsType[*leafBudgetRetry](err); ok {
 			if err := recursion.Retry(ctx, nativeTC); err != nil {
 				return zero, err
@@ -101,57 +178,4 @@ func (g RecursiveGenerator[T]) draw(tc TestCase) (T, error) {
 		}
 		return zero, err
 	}
-}
-
-// subtreeGenerator copies track depth independently and share a recursion scope.
-type subtreeGenerator[T any] struct {
-	leaf      Generator[T]
-	branch    func(Generator[T]) Generator[T]
-	recursion *libhegel.Recursion
-	depth     uint64
-}
-
-func (g *subtreeGenerator[T]) draw(tc TestCase) (T, error) {
-	var zero T
-	if err := tc.startSpan(labelFromName("recursive")); err != nil {
-		return zero, err
-	}
-
-	ctx, nativeTC := tc.engine()
-	isBranch, err := g.recursion.Branch(ctx, nativeTC, g.depth)
-	if err != nil {
-		return zero, err
-	}
-
-	var value T
-	if isBranch {
-		child := *g
-		child.depth++
-		value, err = draw(tc, g.branch(&child))
-	} else {
-		if err := g.recursion.Leaf(ctx, nativeTC); err != nil {
-			if errors.Is(err, libhegel.E_RETRY) {
-				return zero, &leafBudgetRetry{err}
-			}
-			return zero, err
-		}
-		value, err = draw(tc, g.leaf)
-	}
-	if err != nil {
-		return zero, err
-	}
-
-	if g.depth == 0 {
-		err := g.recursion.Finish(ctx, nativeTC)
-		if errors.Is(err, libhegel.E_RETRY) {
-			return zero, &finishRetry{err}
-		}
-		if err != nil {
-			return zero, err
-		}
-	}
-	if err := tc.stopSpan(false); err != nil {
-		return zero, err
-	}
-	return value, nil
 }
