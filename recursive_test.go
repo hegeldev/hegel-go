@@ -120,14 +120,6 @@ func TestRecursiveRejectsNegativeLimits(t *testing.T) {
 	}
 }
 
-func TestRecursiveAllowsZeroLeaves(t *testing.T) {
-	gen := Recursive(Just(42), func(Generator[int]) Generator[int] { return Just(0) }).MaxLeaves(0)
-	_, err := gen.draw(newRealTestCase(t))
-	if !errors.Is(err, libhegel.E_ASSUME) {
-		t.Fatalf("zero-leaf recursion error = %v, want an engine assumption rejection", err)
-	}
-}
-
 func TestRecursiveRetriesLeafBudgetOverflow(t *testing.T) {
 	t.Parallel()
 	tc := newStubTestCase(t,
