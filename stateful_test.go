@@ -30,10 +30,18 @@ type singleRuleMachine struct{ n int }
 
 func (m *singleRuleMachine) RuleStep(_ TestCase) { m.n++ }
 
-type synctestMachine struct{ steps atomic.Int64 }
+type synctestMachine struct {
+	steps      atomic.Int64
+	active     atomic.Int64
+	overlapped *atomic.Bool
+}
 
 func (m *synctestMachine) RuleStep(_ TestCase) {
 	m.steps.Add(1)
+	if m.active.Add(1) > 1 {
+		m.overlapped.Store(true)
+	}
+	defer m.active.Add(-1)
 	time.Sleep(time.Hour)
 }
 
@@ -687,13 +695,17 @@ func TestStateMachineRunsEngineSelectedWorkersConcurrently(t *testing.T) {
 
 func TestRunStatefulInSynctest(t *testing.T) {
 	synctest.Test(t, func(t *testing.T) {
+		var overlapped atomic.Bool
 		Test(t, func(ht *T) {
-			machine := &synctestMachine{}
-			RunStateful(ht, machine, WithBoundedConcurrency(2), WithStatefulStepCount(2))
+			machine := &synctestMachine{overlapped: &overlapped}
+			RunStateful(ht, machine, WithBoundedConcurrency(2), WithStatefulStepCount(10))
 			if machine.steps.Load() == 0 {
 				ht.Fatal("state machine did not run a rule")
 			}
-		}, WithTestCases(3), WithDatabase(""))
+		}, WithTestCases(50), WithDatabase(""))
+		if !overlapped.Load() {
+			t.Fatal("state machine never ran rules concurrently")
+		}
 	})
 }
 
