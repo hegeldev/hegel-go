@@ -129,57 +129,36 @@ func (g FloatGenerator[T]) ExcludeMax() FloatGenerator[T] {
 	return g
 }
 
-// params validates the configuration and returns the arguments for
-// hegel_generate_float. Returns an error on invalid combinations of settings.
-func (g FloatGenerator[T]) params() (width uint32, minVal, maxVal float64, nan, inf bool, smallestNonzero float64, err error) {
+func (g FloatGenerator[T]) draw(tc TestCase) (T, error) {
 	hasMin := g.minVal != nil
 	hasMax := g.maxVal != nil
 
-	nan = !hasMin && !hasMax
+	nan := !hasMin && !hasMax
 	if g.allowNaN != nil {
 		nan = *g.allowNaN
 	}
-	inf = !hasMin || !hasMax
+	inf := !hasMin || !hasMax
 	if g.allowInf != nil {
 		inf = *g.allowInf
 	}
 
-	if nan && (hasMin || hasMax) {
-		return 0, 0, 0, false, false, 0, fmt.Errorf("cannot have allow_nan=true with min_value or max_value")
-	}
-	// max_value < min_value is validated by the engine (hegel_generate_float),
-	// which also accounts for exclusive-bound adjustment; no Go-side check.
-	if inf && hasMin && hasMax {
-		return 0, 0, 0, false, false, 0, fmt.Errorf("cannot have allow_infinity=true with both min_value and max_value")
-	}
-
-	width = uint32(unsafe.Sizeof(T(1.0)) * 8)
-	minVal = math.Inf(-1)
+	width := uint32(unsafe.Sizeof(T(1.0)) * 8)
+	minVal := math.Inf(-1)
 	if hasMin {
 		minVal = *g.minVal
 	}
-	maxVal = math.Inf(1)
+	maxVal := math.Inf(1)
 	if hasMax {
 		maxVal = *g.maxVal
 	}
 	// The smallest positive magnitude the engine may draw; the width-specific
 	// smallest subnormal imposes no restriction.
-	smallestNonzero = math.SmallestNonzeroFloat64
+	smallestNonzero := math.SmallestNonzeroFloat64
 	if width == 32 {
 		smallestNonzero = math.SmallestNonzeroFloat32
 	}
-	return width, minVal, maxVal, nan, inf, smallestNonzero, nil
-}
-
-// draw produces a floating-point value from the engine.
-func (g FloatGenerator[T]) draw(tc TestCase) (T, error) {
-	width, minVal, maxVal, nan, inf, smallest, err := g.params()
-	if err != nil {
-		var zero T
-		return zero, err
-	}
 	ctx, ltc := tc.engine()
-	v, err := ltc.GenerateFloat(ctx, width, minVal, maxVal, nan, inf, g.excludeMin, g.excludeMax, smallest)
+	v, err := ltc.GenerateFloat(ctx, width, minVal, maxVal, nan, inf, g.excludeMin, g.excludeMax, smallestNonzero)
 	return T(v), err
 }
 
