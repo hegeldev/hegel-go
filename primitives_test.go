@@ -151,6 +151,19 @@ func TestBinaryE2E_Unbounded(t *testing.T) {
 	}, WithTestCases(50))
 }
 
+func TestBinaryZeroLength(t *testing.T) {
+	t.Parallel()
+	Test(t, func(ht *T) {
+		if got := Draw(ht, Binary(0, 0)); len(got) != 0 {
+			panic(fmt.Sprintf("Binary(0, 0) produced %d bytes", len(got)))
+		}
+	}, WithTestCases(30))
+}
+
+func TestBinaryRejectsPositiveMinimumWithZeroMaximum(t *testing.T) {
+	assertPanicsWithMessage(t, "max_size", func() { Binary(1, 0) })
+}
+
 // =============================================================================
 // characterFields.textArgs unit tests
 // =============================================================================

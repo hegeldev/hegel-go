@@ -20,6 +20,58 @@ type fileInfoWithSys struct {
 
 func (f fileInfoWithSys) Sys() any { return f.sys }
 
+func TestCachedLibraryMatchesRejectsUnsafeEntries(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "libhegel.so")
+	if err := os.WriteFile(path, []byte("library"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if !cachedLibraryMatches(path, 7) {
+		t.Fatal("owned regular file with matching size should be reusable")
+	}
+	if cachedLibraryMatches(path, 8) {
+		t.Fatal("file with a different size must be replaced")
+	}
+	if err := os.Remove(path); err != nil {
+		t.Fatal(err)
+	}
+	target := filepath.Join(dir, "target")
+	if err := os.Symlink(target, path); err != nil {
+		t.Fatal(err)
+	}
+	if cachedLibraryMatches(path, int64(len(target))) {
+		t.Fatal("symlink must never be reused as a cached library")
+	}
+	if err := os.Remove(path); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Mkdir(path, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	info, err := os.Lstat(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if cachedLibraryMatches(path, info.Size()) {
+		t.Fatal("directory must never be reused as a cached library")
+	}
+}
+
+func TestCachedLibraryMatchesRejectsOtherOwner(t *testing.T) {
+	const path = "/etc/passwd"
+	info, err := os.Lstat(path)
+	if err != nil {
+		t.Skipf("no system file to check ownership: %v", err)
+	}
+	stat, ok := info.Sys().(*syscall.Stat_t)
+	if !info.Mode().IsRegular() || !ok || stat.Uid == uint32(os.Getuid()) {
+		t.Skip("system file is not a regular file owned by another user")
+	}
+	if cachedLibraryMatches(path, info.Size()) {
+		t.Fatal("another user's file must never be reused as a cached library")
+	}
+}
+
 func TestTempCacheDirUsesUIDAndPrivateMode(t *testing.T) {
 	tempRoot := t.TempDir()
 	t.Setenv("TMPDIR", tempRoot)
