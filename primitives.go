@@ -444,18 +444,16 @@ func (g CharactersGenerator) draw(tc TestCase) (string, error) {
 // Binary returns a Generator that produces byte slices with length in [minSize, maxSize].
 //
 // Pass maxSize < 0 for unbounded.
+// Invalid bounds produce an error when the generator is drawn.
 func Binary(minSize int, maxSize int) Generator[[]byte] {
-	if minSize < 0 {
-		panic(fmt.Sprintf("min_size=%d must be non-negative", minSize))
-	}
-	if maxSize >= 0 && minSize > maxSize {
-		panic(fmt.Sprintf("Cannot have max_size=%d < min_size=%d", maxSize, minSize))
-	}
 	maxVal := uint64(math.MaxUint64)
 	if maxSize >= 0 {
 		maxVal = uint64(maxSize)
 	}
 	return genFunc[[]byte](func(tc TestCase) ([]byte, error) {
+		if minSize < 0 {
+			return nil, fmt.Errorf("min_size=%d must be non-negative", minSize)
+		}
 		ctx, ltc := tc.engine()
 		return ltc.GenerateBytes(ctx, uint64(minSize), maxVal)
 	})

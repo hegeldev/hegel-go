@@ -187,11 +187,15 @@ func TestCharactersInvertedCodepointRange(t *testing.T) {
 }
 
 func TestBinaryMinSizeNegative(t *testing.T) {
-	assertPanicsWithMessage(t, "min_size", func() { Binary(-1, 10) })
+	for _, maxSize := range []int{10, -1} {
+		_, err := Binary(-1, maxSize).draw(nil)
+		assertErrorContains(t, "min_size", err)
+	}
 }
 
 func TestBinaryMinGreaterThanMax(t *testing.T) {
-	assertPanicsWithMessage(t, "max_size", func() { Binary(10, 5) })
+	_, err := Binary(10, 5).draw(newRealTestCase(t))
+	assertErrorContains(t, "min_size <= max_size", err)
 }
 
 func TestListsMinGreaterThanMax(t *testing.T) {

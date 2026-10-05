@@ -160,10 +160,6 @@ func TestBinaryZeroLength(t *testing.T) {
 	}, WithTestCases(30))
 }
 
-func TestBinaryRejectsPositiveMinimumWithZeroMaximum(t *testing.T) {
-	assertPanicsWithMessage(t, "max_size", func() { Binary(1, 0) })
-}
-
 // =============================================================================
 // characterFields.textArgs unit tests
 // =============================================================================
