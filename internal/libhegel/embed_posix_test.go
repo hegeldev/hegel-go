@@ -58,14 +58,17 @@ func TestCachedLibraryMatchesRejectsUnsafeEntries(t *testing.T) {
 }
 
 func TestCachedLibraryMatchesRejectsOtherOwner(t *testing.T) {
-	const path = "/etc/passwd"
+	path, err := filepath.EvalSymlinks("/bin/sh")
+	if err != nil {
+		t.Skipf("no system executable to check ownership: %v", err)
+	}
 	info, err := os.Lstat(path)
 	if err != nil {
-		t.Skipf("no system file to check ownership: %v", err)
+		t.Skipf("cannot inspect system executable: %v", err)
 	}
 	stat, ok := info.Sys().(*syscall.Stat_t)
 	if !info.Mode().IsRegular() || !ok || stat.Uid == uint32(os.Getuid()) {
-		t.Skip("system file is not a regular file owned by another user")
+		t.Skip("system executable is not a regular file owned by another user")
 	}
 	if cachedLibraryMatches(path, info.Size()) {
 		t.Fatal("another user's file must never be reused as a cached library")
