@@ -1,5 +1,9 @@
 # Changelog
 
+## 0.9.14 - 2026-10-06
+
+This patch bumps our pinned libhegel ([hegel-rust](hegeldev/hegel-rust)) from [0.44.1](https://github.com/hegeldev/hegel-rust/releases/tag/libhegel-v0.44.1) to [0.44.2](https://github.com/hegeldev/hegel-rust/releases/tag/libhegel-v0.44.2).
+
 ## 0.9.13 - 2026-10-02
 
 Float generators now accept explicitly infinite bounds with `AllowNaN(true)` or `AllowInfinity(true)` when libhegel permits them.
