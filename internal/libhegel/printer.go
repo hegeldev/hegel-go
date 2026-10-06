@@ -47,6 +47,33 @@ func printerOptionsRaw(options *PrinterOptions) printerOptionsT {
 	return options.raw
 }
 
+// ReflowOptions configures [Printer.Reflow] and is released automatically by the
+// GC. There are no settable options yet; a nil pointer selects every default,
+// so the handle is only needed to pin non-default choices once they exist.
+type ReflowOptions struct {
+	pointer[reflowOptionsT]
+}
+
+// ReflowOptionsNew creates reflow options with every option at its default.
+func (ctx *Context) ReflowOptionsNew() (*ReflowOptions, error) {
+	opts := new(ReflowOptions)
+	ok, err := allocateInto(ctx, &opts.pointer, "hegel_reflow_options_new", func(rawCtx ctxT, raw *reflowOptionsT) Error {
+		return ctx.syms.ReflowOptionsNew(rawCtx, raw)
+	}, ctx.syms.ReflowOptionsFree)
+	if !ok {
+		return nil, err
+	}
+	return opts, err
+}
+
+// reflowOptionsRaw maps nil options to the engine defaults.
+func reflowOptionsRaw(options *ReflowOptions) reflowOptionsT {
+	if options == nil {
+		return 0
+	}
+	return options.raw
+}
+
 // PrinterNew creates a standalone document, using default options when nil.
 func (ctx *Context) PrinterNew(options *PrinterOptions) (*Printer, error) {
 	ptr, err := allocate(ctx, "hegel_printer_new", func(rawCtx ctxT, raw *printerT) Error {
@@ -119,6 +146,20 @@ func (p *Printer) Text(ctx *Context, text string) error {
 	return ctx.invoke("hegel_printer_text", func(ctx ctxT) Error {
 		e := p.syms.PrinterText(ctx, p.raw, data, n)
 		runtime.KeepAlive(p)
+		return e
+	})
+}
+
+// Reflow re-emits a one-line debug representation — a value the caller can only
+// format flat — through the printer's groups and break points, so it wraps like
+// one printed structurally. The text may contain newlines, each honored as a
+// hard break. options selects reflow behavior, using the engine defaults when nil.
+func (p *Printer) Reflow(ctx *Context, options *ReflowOptions, text string) error {
+	data, n := cString(&text)
+	return ctx.invoke("hegel_printer_reflow", func(ctx ctxT) Error {
+		e := p.syms.PrinterReflow(ctx, p.raw, reflowOptionsRaw(options), data, n)
+		runtime.KeepAlive(p)
+		runtime.KeepAlive(options)
 		return e
 	})
 }

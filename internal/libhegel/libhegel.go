@@ -199,6 +199,7 @@ func (p *pointer[T]) Free() {
 
 type printerT uintptr        // Equivalent of hegel_printer_t
 type printerOptionsT uintptr // Equivalent of hegel_printer_options_t
+type reflowOptionsT uintptr  // Equivalent of hegel_reflow_options_t
 
 type ctxT uintptr          // Equivalent of hegel_context_t
 type settingsT uintptr     // Equivalent of hegel_settings_t
@@ -406,6 +407,9 @@ type symbols struct {
 	PrinterIsLive                    func(ctxT, printerT, out[bool]) Error
 	PrinterValue                     func(ctxT, printerT, out[stringResult]) Error
 	PrinterValueFree                 func(ctxT, *stringResult) Error
+	PrinterReflow                    func(ctxT, printerT, reflowOptionsT, *byte, uint64) Error
+	ReflowOptionsNew                 func(ctxT, out[reflowOptionsT]) Error
+	ReflowOptionsFree                func(ctxT, reflowOptionsT) Error
 	TestCasePrinter                  func(ctxT, testCaseT, printerOptionsT, out[printerT]) Error
 
 	SettingsNewForProfile               func(ctxT, string, out[settingsT]) Error
@@ -680,6 +684,9 @@ func tryOpen(path string) (syms *symbols, err error) {
 		{"hegel_printer_is_live", &syms.PrinterIsLive},
 		{"hegel_printer_value", &syms.PrinterValue},
 		{"hegel_printer_value_result_free", &syms.PrinterValueFree},
+		{"hegel_printer_reflow", &syms.PrinterReflow},
+		{"hegel_reflow_options_new", &syms.ReflowOptionsNew},
+		{"hegel_reflow_options_free", &syms.ReflowOptionsFree},
 		{"hegel_test_case_printer", &syms.TestCasePrinter},
 
 		{"hegel_context_new", &syms.ContextNew},
