@@ -120,7 +120,7 @@ func TestPrinterTextAndNotes(t *testing.T) {
 }
 
 func TestPrinterConstructorErrors(t *testing.T) {
-	for _, constructor := range []string{"options", "printer", "case", "deferred"} {
+	for _, constructor := range []string{"options", "reflow-options", "printer", "case", "deferred"} {
 		t.Run(constructor, func(t *testing.T) {
 			ctx := Stub(t, uintptr(0), E_INVALID_ARG, "bad constructor")
 			var err error
@@ -130,6 +130,12 @@ func TestPrinterConstructorErrors(t *testing.T) {
 				err = e
 				if p != nil {
 					t.Fatal("non-nil options")
+				}
+			case "reflow-options":
+				o, e := ctx.ReflowOptionsNew()
+				err = e
+				if o != nil {
+					t.Fatal("non-nil reflow options")
 				}
 			case "printer":
 				p, e := ctx.PrinterNew(nil)
@@ -164,6 +170,45 @@ func TestPrinterValueError(t *testing.T) {
 	p := &Printer{pointer: &pointer[printerT]{syms: ctx.syms, raw: 2}}
 	if got, err := p.Value(ctx); got != "" || !errors.Is(err, E_INVALID_HANDLE) {
 		t.Fatalf("value = %q, %v", got, err)
+	}
+}
+
+func TestPrinterReflow(t *testing.T) {
+	ctx := NewContext()
+	opts, err := ctx.ReflowOptionsNew()
+	if err != nil || opts == nil {
+		t.Fatalf("reflow options = %v, %v", opts, err)
+	}
+	// A representation that fits on one line renders exactly as passed; explicit
+	// options exercise the non-nil reflowOptionsRaw branch.
+	p, err := ctx.PrinterNew(nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := p.Reflow(ctx, opts, "Point { x: 1, y: 2 }"); err != nil {
+		t.Fatal(err)
+	}
+	if got, err := p.Value(ctx); err != nil || got != "Point { x: 1, y: 2 }" {
+		t.Fatalf("reflow = %q, %v", got, err)
+	}
+	// nil options select the engine defaults.
+	p2, err := ctx.PrinterNew(nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := p2.Reflow(ctx, nil, "[1, 2, 3]"); err != nil {
+		t.Fatal(err)
+	}
+	if got, err := p2.Value(ctx); err != nil || got != "[1, 2, 3]" {
+		t.Fatalf("reflow nil = %q, %v", got, err)
+	}
+}
+
+func TestPrinterReflowError(t *testing.T) {
+	ctx := Stub(t, E_INVALID_HANDLE, "dead printer")
+	p := &Printer{pointer: &pointer[printerT]{syms: ctx.syms, raw: 2}}
+	if err := p.Reflow(ctx, nil, "x"); !errors.Is(err, E_INVALID_HANDLE) {
+		t.Fatalf("reflow = %v", err)
 	}
 }
 
