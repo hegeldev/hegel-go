@@ -2,6 +2,7 @@ package hegel
 
 import (
 	"fmt"
+	"reflect"
 )
 
 // --- Lists generator ---
@@ -59,6 +60,90 @@ func (g ListGenerator[T]) draw(tc TestCase) ([]T, error) {
 		if err != nil {
 			return nil, err
 		}
+		result = append(result, v)
+	}
+	if err := coll.Err(); err != nil {
+		return nil, err
+	}
+	return result, nil
+}
+
+// UniqueListGenerator configures and generates ordered slices with distinct keys.
+// Use [UniqueLists] or [UniqueListsBy] to create one.
+// Invalid configurations return an error on the first draw.
+type UniqueListGenerator[T any, K comparable] struct {
+	elements Generator[T]
+	key      func(T) K
+	minSize  int
+	maxSize  int
+	hasMax   bool
+}
+
+// UniqueLists returns a generator of slices with distinct elements.
+//
+// Elements are kept in draw order.
+//
+// The default minimum size is zero and the maximum is unbounded.
+func UniqueLists[T comparable](elements Generator[T]) UniqueListGenerator[T, T] {
+	return UniqueListsBy(elements, func(v T) T { return v })
+}
+
+// UniqueListsBy returns a generator of slices with distinct keys.
+//
+// The key function must be deterministic and return comparable values, including when K is an interface.
+//
+// Elements are kept in draw order; the default minimum size is zero and the maximum is unbounded.
+func UniqueListsBy[T any, K comparable](elements Generator[T], key func(T) K) UniqueListGenerator[T, K] {
+	return UniqueListGenerator[T, K]{elements: elements, key: key}
+}
+
+// MinSize sets the minimum number of accepted elements (inclusive). Default: 0.
+func (g UniqueListGenerator[T, K]) MinSize(n int) UniqueListGenerator[T, K] {
+	g.minSize = n
+	return g
+}
+
+// MaxSize sets the maximum number of accepted elements (inclusive).
+func (g UniqueListGenerator[T, K]) MaxSize(n int) UniqueListGenerator[T, K] {
+	g.maxSize = n
+	g.hasMax = true
+	return g
+}
+
+func (g UniqueListGenerator[T, K]) draw(tc TestCase) ([]T, error) {
+	if g.minSize < 0 {
+		return nil, fmt.Errorf("min_size=%d must be non-negative", g.minSize)
+	}
+	if g.hasMax && g.maxSize < 0 {
+		return nil, fmt.Errorf("max_size=%d must be non-negative", g.maxSize)
+	}
+	if g.hasMax && g.minSize > g.maxSize {
+		return nil, fmt.Errorf("cannot have max_size=%d < min_size=%d", g.maxSize, g.minSize)
+	}
+	var maxSize *int
+	if g.hasMax {
+		maxSize = &g.maxSize
+	}
+	coll, err := tc.newCollection(g.minSize, maxSize)
+	if err != nil {
+		return nil, err
+	}
+	var result []T
+	seen := make(map[K]struct{})
+	for coll.More() {
+		v, err := draw(tc, g.elements)
+		if err != nil {
+			return nil, err
+		}
+		k := g.key(v)
+		if typ := reflect.TypeOf(k); typ != nil && !typ.Comparable() {
+			return nil, fmt.Errorf("unique list key has non-comparable dynamic type %T", k)
+		}
+		if _, exists := seen[k]; exists {
+			coll.Reject("duplicate element")
+			continue
+		}
+		seen[k] = struct{}{}
 		result = append(result, v)
 	}
 	if err := coll.Err(); err != nil {
