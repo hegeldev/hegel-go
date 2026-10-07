@@ -68,8 +68,8 @@ func (g ListGenerator[T]) draw(tc TestCase) ([]T, error) {
 	return result, nil
 }
 
-// UniqueListGenerator configures and generates ordered slices with distinct keys.
-// Use [UniqueLists] or [UniqueListsBy] to create one.
+// UniqueListGenerator generates slices with distinct keys.
+//
 // Invalid configurations panic on the first [Draw] call.
 type UniqueListGenerator[T any, K comparable] struct {
 	elements Generator[T]
@@ -81,29 +81,29 @@ type UniqueListGenerator[T any, K comparable] struct {
 
 // UniqueLists returns a generator of slices with distinct elements.
 //
-// Elements are kept in draw order.
-//
-// The default minimum size is zero and the maximum is unbounded.
+// Elements retain draw order. The minimum size defaults to zero; the maximum is unbounded.
 func UniqueLists[T comparable](elements Generator[T]) UniqueListGenerator[T, T] {
 	return UniqueListsBy(elements, func(v T) T { return v })
 }
 
 // UniqueListsBy returns a generator of slices with distinct keys.
 //
-// The key function must be deterministic and return comparable values, including when K is an interface.
+// The key function must be deterministic. Interface values in its keys must hold comparable values.
 //
-// Elements are kept in draw order; the default minimum size is zero and the maximum is unbounded.
+// Elements retain draw order. The minimum size defaults to zero; the maximum is unbounded.
 func UniqueListsBy[T any, K comparable](elements Generator[T], key func(T) K) UniqueListGenerator[T, K] {
 	return UniqueListGenerator[T, K]{elements: elements, key: key}
 }
 
-// MinSize sets the minimum number of accepted elements (inclusive). Default: 0.
+// MinSize sets the minimum number of distinct elements, inclusive.
+//
+// The minimum defaults to zero.
 func (g UniqueListGenerator[T, K]) MinSize(n int) UniqueListGenerator[T, K] {
 	g.minSize = n
 	return g
 }
 
-// MaxSize sets the maximum number of accepted elements (inclusive).
+// MaxSize sets the maximum number of distinct elements, inclusive.
 func (g UniqueListGenerator[T, K]) MaxSize(n int) UniqueListGenerator[T, K] {
 	g.maxSize = n
 	g.hasMax = true

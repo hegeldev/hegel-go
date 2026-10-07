@@ -1,7 +1,5 @@
 package hegel
 
-// lists_test.go contains unit tests and e2e integration tests for the Lists generator.
-
 import (
 	"errors"
 	"fmt"
