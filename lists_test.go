@@ -121,13 +121,23 @@ func TestUniqueListsInvalidBounds(t *testing.T) {
 
 func TestUniqueListsByNonComparableDynamicKey(t *testing.T) {
 	t.Parallel()
-	tc := &collectionTestCase{TestCase: newStubTestCase(t,
-		uintptr(1), libhegel.OK, true, libhegel.OK,
-	)}
-	gen := UniqueListsBy(Just(1), func(int) any { return []int{1} })
-	_, err := gen.draw(tc)
-	if err == nil || !strings.Contains(err.Error(), "non-comparable dynamic type []int") {
-		t.Fatalf("error = %v, want non-comparable dynamic key error", err)
+	for _, tt := range []struct {
+		name string
+		key  func(int) any
+		want string
+	}{
+		{"interface", func(int) any { return []int{1} }, "[]int"},
+		{"nested interface", func(int) any { return struct{ Value any }{[]int{1}} }, "struct"},
+	} {
+		t.Run(tt.name, func(t *testing.T) {
+			tc := &collectionTestCase{TestCase: newStubTestCase(t,
+				uintptr(1), libhegel.OK, true, libhegel.OK,
+			)}
+			_, err := UniqueListsBy(Just(1), tt.key).draw(tc)
+			if err == nil || !strings.Contains(err.Error(), "non-comparable dynamic type "+tt.want) {
+				t.Fatalf("error = %v, want non-comparable dynamic key error", err)
+			}
+		})
 	}
 }
 

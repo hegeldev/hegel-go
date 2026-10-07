@@ -70,7 +70,7 @@ func (g ListGenerator[T]) draw(tc TestCase) ([]T, error) {
 
 // UniqueListGenerator configures and generates ordered slices with distinct keys.
 // Use [UniqueLists] or [UniqueListsBy] to create one.
-// Invalid configurations return an error on the first draw.
+// Invalid configurations panic on the first [Draw] call.
 type UniqueListGenerator[T any, K comparable] struct {
 	elements Generator[T]
 	key      func(T) K
@@ -136,7 +136,7 @@ func (g UniqueListGenerator[T, K]) draw(tc TestCase) ([]T, error) {
 			return nil, err
 		}
 		k := g.key(v)
-		if typ := reflect.TypeOf(k); typ != nil && !typ.Comparable() {
+		if value := reflect.ValueOf(k); value.IsValid() && !value.Comparable() {
 			return nil, fmt.Errorf("unique list key has non-comparable dynamic type %T", k)
 		}
 		if _, exists := seen[k]; exists {
