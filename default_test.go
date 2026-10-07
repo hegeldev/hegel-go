@@ -1,14 +1,19 @@
 package hegel
 
 import (
+	"errors"
+	"reflect"
 	"strings"
 	"testing"
 	"unsafe"
+
+	"hegel.dev/go/hegel/internal/libhegel"
 )
 
 type defaultNamedInt int16
 type defaultNamedString string
 type defaultNamedPointer *defaultTree
+type defaultLeafPointer *defaultLeaf
 
 type defaultRecord struct {
 	Flag   bool
@@ -17,6 +22,15 @@ type defaultRecord struct {
 	Values []uint8
 	Lookup map[string]int
 	Pair   [2]float32
+	Float  float64
+	Int8   int8
+	Int32  int32
+	Int64  int64
+	Uint   uint
+	Uint16 uint16
+	Uint32 uint32
+	Uint64 uint64
+	Ptr    uintptr
 }
 
 type defaultTree struct {
@@ -35,11 +49,11 @@ type defaultLeaf struct{ Value int }
 type defaultShared struct{ Left, Right *defaultLeaf }
 
 func TestDefaultCachesSharedAcyclicShape(t *testing.T) {
-	g := Default[defaultShared]().(*defaultGenerator[defaultShared])
-	if g.recursive {
-		t.Fatal("shared field type was mistaken for a cycle")
+	shape, err := buildDefault(reflect.TypeFor[defaultShared](), make(map[reflect.Type]*defaultShape), make(map[reflect.Type]bool))
+	if err != nil {
+		t.Fatal(err)
 	}
-	if g.root.shape.fields[0].shape.elem != g.root.shape.fields[1].shape.elem {
+	if shape.fields[0].elem != shape.fields[1].elem {
 		t.Fatal("shared field type has separate plans")
 	}
 }
@@ -61,141 +75,29 @@ func TestDefaultCompositeTypes(t *testing.T) {
 	}
 }
 
-func TestDefaultRecursiveTypes(t *testing.T) {
-	treeGen := Default[defaultTree]()
-	mutualGen := Default[defaultA]()
-	listGen := Default[defaultList]()
-	mapGen := Default[defaultMap]()
-	tests := []struct {
-		name  string
-		check func(*T) bool
+func TestDefaultRejectsRecursiveTypes(t *testing.T) {
+	for _, test := range []struct {
+		name string
+		make func()
 	}{
-		{"named pointer", func(tc *T) bool {
-			v := Draw(tc, treeGen)
-			depth := 0
-			for v.Next != nil {
-				depth++
-				v = *v.Next
-			}
-			if depth > defaultRecursiveMaxDepth {
-				tc.Fatalf("pointer depth %d exceeds limit", depth)
-			}
-			return depth > 0
-		}},
-		{"mutual", func(tc *T) bool {
-			v := Draw(tc, mutualGen)
-			depth := 0
-			for v.B != nil {
-				depth++
-				if v.B.A == nil {
-					break
-				}
-				v = *v.B.A
-			}
-			if depth > defaultRecursiveMaxDepth {
-				tc.Fatalf("mutual depth %d exceeds limit", depth)
-			}
-			return depth > 0
-		}},
-		{"slice", func(tc *T) bool {
-			v := Draw(tc, listGen)
-			depth := 0
-			for len(v.Children) > 0 {
-				depth++
-				v = v.Children[0]
-			}
-			if depth > defaultRecursiveMaxDepth {
-				tc.Fatalf("slice depth %d exceeds limit", depth)
-			}
-			return depth > 0
-		}},
-		{"map", func(tc *T) bool {
-			v := Draw(tc, mapGen)
-			depth := 0
-			for len(v) > 0 {
-				depth++
-				for _, child := range v {
-					v = child
-					break
-				}
-			}
-			if depth > defaultRecursiveMaxDepth {
-				tc.Fatalf("map depth %d exceeds limit", depth)
-			}
-			return depth > 0
-		}},
-	}
-	for _, test := range tests {
+		{"named pointer", func() { Default[defaultTree]() }},
+		{"pointer root", func() { Default[*defaultTree]() }},
+		{"mutual", func() { Default[defaultA]() }},
+		{"slice", func() { Default[defaultList]() }},
+		{"map", func() { Default[defaultMap]() }},
+		{"siblings", func() { Default[defaultBinary]() }},
+		{"map key", func() { Default[defaultKeyMap]() }},
+		{"array", func() { Default[[1]defaultTree]() }},
+	} {
 		t.Run(test.name, func(t *testing.T) {
-			sawBranch := false
-			Test(t, func(tc *T) {
-				branch := test.check(tc)
-				sawBranch = sawBranch || branch
-			}, WithTestCases(50))
-			if !sawBranch {
-				t.Fatal("no recursive branch was generated")
-			}
+			defer func() {
+				p := recover()
+				if p == nil || !strings.Contains(p.(string), "recursive types are unsupported") {
+					t.Fatalf("panic = %v, want recursive type rejection", p)
+				}
+			}()
+			test.make()
 		})
-	}
-}
-
-func TestDefaultShrinksRecursivePointer(t *testing.T) {
-	gen := Default[defaultTree]()
-	var minimal defaultTree
-	err := run(1, func(tc TestCase) {
-		v := Draw(tc, gen)
-		if v.Next != nil {
-			minimal = v
-			tc.FailNow()
-		}
-	}, WithTestCases(200))
-	if err == nil {
-		t.Fatal("no recursive branch was generated")
-	}
-	if minimal.Next == nil || minimal.Next.Next != nil {
-		t.Fatalf("minimal tree = %#v, want one recursive edge", minimal)
-	}
-}
-
-func TestDefaultSiblingRecursionSharesBudget(t *testing.T) {
-	gen := Default[defaultBinary]()
-	var dimensions func(*defaultBinary) (int, int)
-	dimensions = func(n *defaultBinary) (int, int) {
-		if n == nil {
-			return 0, 1
-		}
-		leftDepth, leftLeaves := dimensions(n.Left)
-		rightDepth, rightLeaves := dimensions(n.Right)
-		return max(leftDepth, rightDepth) + 1, leftLeaves + rightLeaves
-	}
-	Test(t, func(tc *T) {
-		value := Draw(tc, gen)
-		depth, leaves := dimensions(&value)
-		if depth > defaultRecursiveMaxDepth+1 || leaves > defaultRecursiveMaxLeaves {
-			tc.Fatalf("depth=%d leaves=%d exceed recursion limits", depth, leaves)
-		}
-	}, WithTestCases(100))
-}
-
-func TestDefaultRecursiveMapKey(t *testing.T) {
-	gen := Default[defaultKeyMap]()
-	sawEntry := false
-	Test(t, func(tc *T) {
-		value := Draw(tc, gen)
-		for key := range value {
-			sawEntry = true
-			depth := 0
-			for key.Next != nil {
-				depth++
-				key = *key.Next
-			}
-			if depth > defaultRecursiveMaxDepth {
-				tc.Fatalf("map key depth %d exceeds limit", depth)
-			}
-		}
-	}, WithTestCases(50))
-	if !sawEntry {
-		t.Fatal("no map entry was generated")
 	}
 }
 
@@ -221,5 +123,145 @@ func TestDefaultRejectsUnsupportedFields(t *testing.T) {
 			}()
 			test.make()
 		})
+	}
+}
+
+func TestDefaultPointers(t *testing.T) {
+	plain := Default[*int]()
+	named := Default[defaultLeafPointer]()
+	sawNil, sawPresent := false, false
+	Test(t, func(tc *T) {
+		value := Draw(tc, plain)
+		sawNil = sawNil || value == nil
+		sawPresent = sawPresent || value != nil
+		_ = Draw(tc, named)
+		_ = Draw(tc, Default[defaultShared]())
+	}, WithTestCases(50))
+	if !sawNil || !sawPresent {
+		t.Fatalf("pointer generation lacked variety: nil=%v present=%v", sawNil, sawPresent)
+	}
+}
+
+func TestDefaultZeroLengthArrays(t *testing.T) {
+	type zeroRecursive struct{ Next [0]*zeroRecursive }
+	Test(t, func(tc *T) {
+		_ = Draw(tc, Default[[0]chan int]())
+		_ = Draw(tc, Default[[0]defaultTree]())
+		_ = Draw(tc, Default[zeroRecursive]())
+	}, WithTestCases(1))
+}
+
+func defaultDrawError[T any](tc TestCase) error {
+	_, err := Default[T]().draw(tc)
+	return err
+}
+
+func TestDefaultPropagatesDrawErrors(t *testing.T) {
+	for _, test := range []struct {
+		name string
+		draw func(TestCase) error
+		ops  []any
+	}{
+		{"primitive", defaultDrawError[int], []any{libhegel.OK, int64(0), libhegel.E_BACKEND, "boom"}},
+		{"struct field", defaultDrawError[struct{ Value int }], []any{libhegel.OK, int64(0), libhegel.E_BACKEND, "boom"}},
+		{"array element", defaultDrawError[[1]int], []any{libhegel.OK, int64(0), libhegel.E_BACKEND, "boom"}},
+		{"pointer choice", defaultDrawError[*int], []any{false, libhegel.E_BACKEND, "boom"}},
+		{"pointer element", defaultDrawError[*int], []any{true, libhegel.OK, libhegel.OK, int64(0), libhegel.E_BACKEND, "boom"}},
+		{"slice construction", defaultDrawError[[]int], []any{uintptr(0), libhegel.E_BACKEND, "boom"}},
+		{"slice element", defaultDrawError[[]int], []any{uintptr(1), libhegel.OK, true, libhegel.OK, libhegel.OK, int64(0), libhegel.E_BACKEND, "boom"}},
+		{"slice iteration", defaultDrawError[[]int], []any{uintptr(1), libhegel.OK, false, libhegel.E_BACKEND, "boom"}},
+		{"map construction", defaultDrawError[map[int]int], []any{uintptr(0), libhegel.E_BACKEND, "boom"}},
+		{"map key", defaultDrawError[map[int]int], []any{uintptr(1), libhegel.OK, true, libhegel.OK, libhegel.OK, int64(0), libhegel.E_BACKEND, "boom"}},
+		{"map value", defaultDrawError[map[int]int], []any{uintptr(1), libhegel.OK, true, libhegel.OK, libhegel.OK, int64(0), libhegel.OK, libhegel.OK, libhegel.OK, int64(0), libhegel.E_BACKEND, "boom"}},
+		{"map iteration", defaultDrawError[map[int]int], []any{uintptr(1), libhegel.OK, false, libhegel.E_BACKEND, "boom"}},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			err := test.draw(newStubTestCase(t, test.ops...))
+			if !errors.Is(err, libhegel.E_BACKEND) || !strings.Contains(err.Error(), "boom") {
+				t.Fatalf("error = %v, want backend error with its message", err)
+			}
+		})
+	}
+}
+
+func TestDefaultRejectsDuplicateMapKeys(t *testing.T) {
+	tc := newStubTestCase(t,
+		uintptr(1), libhegel.OK,
+		true, libhegel.OK,
+		libhegel.OK, int64(2), libhegel.OK, libhegel.OK,
+		libhegel.OK, int64(3), libhegel.OK, libhegel.OK,
+		true, libhegel.OK,
+		libhegel.OK, int64(2), libhegel.OK, libhegel.OK,
+		libhegel.OK,
+		true, libhegel.OK,
+		libhegel.OK, int64(4), libhegel.OK, libhegel.OK,
+		libhegel.OK, int64(5), libhegel.OK, libhegel.OK,
+		false, libhegel.OK,
+	)
+	got, err := Default[map[int]int]().draw(tc)
+	if err != nil || !reflect.DeepEqual(got, map[int]int{2: 3, 4: 5}) {
+		t.Fatalf("got %v, %v; want map[2:3 4:5]", got, err)
+	}
+}
+
+func TestDefaultInvalidInternalShape(t *testing.T) {
+	for _, makeDraw := range []func() defaultDraw{
+		func() defaultDraw {
+			return compileDefault(&defaultShape{typ: reflect.TypeFor[chan int]()}, make(map[*defaultShape]defaultDraw))
+		},
+		func() defaultDraw { return defaultPrimitive(reflect.TypeFor[chan int]()) },
+	} {
+		func() {
+			defer func() {
+				if recover() == nil {
+					t.Fatal("invalid internal shape did not panic")
+				}
+			}()
+			makeDraw()
+		}()
+	}
+}
+
+func TestDefaultEmptyCollectionBounds(t *testing.T) {
+	for _, test := range []struct {
+		name string
+		draw func(TestCase) error
+	}{
+		{"slice", defaultDrawError[[]int]},
+		{"map", defaultDrawError[map[int]int]},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			tc := &collectionTestCase{TestCase: newStubTestCase(t,
+				uintptr(1), libhegel.OK, false, libhegel.OK,
+			)}
+			if err := test.draw(tc); err != nil {
+				t.Fatal(err)
+			}
+			if tc.minSize != 0 || tc.maxSize != nil {
+				t.Fatalf("collection bounds = %d, %v; want 0, nil", tc.minSize, tc.maxSize)
+			}
+		})
+	}
+}
+
+func TestDefaultUnsignedShrinksToZero(t *testing.T) {
+	checkDefaultUnsignedZero[uint](t)
+	checkDefaultUnsignedZero[uint8](t)
+	checkDefaultUnsignedZero[uint16](t)
+	checkDefaultUnsignedZero[uint32](t)
+	checkDefaultUnsignedZero[uint64](t)
+	checkDefaultUnsignedZero[uintptr](t)
+}
+
+func checkDefaultUnsignedZero[T integer](t *testing.T) {
+	t.Helper()
+	gen := Default[T]()
+	var minimal T
+	err := run(1, func(tc TestCase) {
+		minimal = Draw(tc, gen)
+		tc.FailNow()
+	}, WithTestCases(1))
+	if err == nil || minimal != 0 {
+		t.Fatalf("%s: minimal value = %v, error = %v; want zero and failure", reflect.TypeFor[T](), minimal, err)
 	}
 }
