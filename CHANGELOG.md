@@ -1,5 +1,9 @@
 # Changelog
 
+## 0.9.16 - 2026-10-07
+
+Add `Default[T]()` to construct generators for supported primitive and composite Go types, including named types. Recursive types and unsupported fields are rejected when the generator is constructed.
+
 ## 0.9.15 - 2026-10-07
 
 Add `UniqueLists` and `UniqueListsBy` generators for ordered slices with distinct elements or derived keys. Both support minimum and maximum size bounds.
