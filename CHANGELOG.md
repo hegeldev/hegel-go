@@ -1,5 +1,9 @@
 # Changelog
 
+## 0.9.17 - 2026-10-07
+
+This patch bumps our pinned libhegel ([hegel-rust](hegeldev/hegel-rust)) from [0.44.2](https://github.com/hegeldev/hegel-rust/releases/tag/libhegel-v0.44.2) to [0.45.1](https://github.com/hegeldev/hegel-rust/releases/tag/libhegel-v0.45.1).
+
 ## 0.9.16 - 2026-10-07
 
 Add `Default[T]()` to construct generators for supported primitive and composite Go types, including named types. Recursive types and unsupported fields are rejected when the generator is constructed.
