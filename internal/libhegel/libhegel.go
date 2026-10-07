@@ -362,7 +362,7 @@ type symbols struct {
 	// String-generator constructors (build the alphabet-and-shape spec passed
 	// to hegel_generate_string) and their shared free.
 	StringGeneratorText   func(ctxT, uint64, uint64, string, uint32, uint32, **byte, uint64, **byte, uint64, *byte, uint64, *byte, uint64, out[stringGenT]) Error
-	StringGeneratorRegex  func(ctxT, string, bool, stringGenT, out[stringGenT]) Error
+	StringGeneratorRegex  func(ctxT, *byte, uint64, bool, stringGenT, out[stringGenT]) Error
 	StringGeneratorEmail  func(ctxT, out[stringGenT]) Error
 	StringGeneratorURL    func(ctxT, out[stringGenT]) Error
 	StringGeneratorDomain func(ctxT, uint64, out[stringGenT]) Error
@@ -1895,8 +1895,9 @@ func (c *Context) StringGeneratorRegex(pattern string, fullmatch bool, alphabet 
 	if alphabet != nil {
 		alphabetRaw = alphabet.raw
 	}
+	patternPtr, patternLen := cString(&pattern)
 	ptr, err := allocate(c, "hegel_string_generator_regex", func(ctx ctxT, raw *stringGenT) Error {
-		e := c.syms.StringGeneratorRegex(ctx, pattern, fullmatch, alphabetRaw, raw)
+		e := c.syms.StringGeneratorRegex(ctx, patternPtr, patternLen, fullmatch, alphabetRaw, raw)
 		runtime.KeepAlive(alphabet)
 		return e
 	}, c.syms.StringGeneratorFree)
