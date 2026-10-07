@@ -235,3 +235,22 @@ func ExampleWorkload() {
 		_ = hegel.Draw(tc, hegel.Integers(0, 100))
 	})
 }
+
+func ExampleRecursiveFunc() {
+	type Stmt struct{ Condition any }
+	type Expr struct{ Nested any }
+	stmtLeaf := hegel.Just(&Stmt{})
+	exprLeaf := hegel.Just(&Expr{})
+	var stmtBranch func(hegel.TestCase, hegel.Recursor) *Stmt
+	var exprBranch func(hegel.TestCase, hegel.Recursor) *Expr
+	stmtBranch = func(tc hegel.TestCase, r hegel.Recursor) *Stmt {
+		return &Stmt{Condition: hegel.Recurse(tc, r, exprLeaf, exprBranch)}
+	}
+	exprBranch = func(tc hegel.TestCase, r hegel.Recursor) *Expr {
+		return &Expr{Nested: hegel.Recurse(tc, r, stmtLeaf, stmtBranch)}
+	}
+	gen := hegel.RecursiveFunc(stmtLeaf, stmtBranch).MaxDepth(4).MaxLeaves(8)
+	hegel.Test(&testing.T{}, func(ht *hegel.T) {
+		_ = hegel.Draw(ht, gen)
+	})
+}

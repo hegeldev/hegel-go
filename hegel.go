@@ -66,6 +66,13 @@
 //
 // Run the test again. It should now pass.
 //
+// # Recursive values with different types
+//
+// [RecursiveFunc] lets a branch draw child nodes of different Go types with
+// [Recurse]. Each call supplies a valid leaf generator for its result type.
+// The Recursor passed to a branch is valid only during that draw; all node
+// types share one depth limit and leaf budget. See [ExampleRecursiveFunc].
+//
 // # Use generators
 //
 // Hegel provides a rich library of generators that you can use out of the
