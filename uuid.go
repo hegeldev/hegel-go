@@ -4,8 +4,14 @@ package hegel
 
 import (
 	"fmt"
+	"reflect"
 	"uuid"
 )
+
+func init() {
+	t := reflect.TypeFor[uuid.UUID]()
+	defaultKnownTypes[t] = defaultFromGenerator(t, UUIDs())
+}
 
 // UUIDGenerator configures and generates UUID values.
 // Use [UUIDs] to create one, then chain builder methods to configure it.

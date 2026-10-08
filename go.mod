@@ -5,6 +5,7 @@ go 1.26.1
 require (
 	github.com/ebitengine/purego v0.11.0-alpha.6.0.20260707033313-5f49e7c49322
 	golang.org/x/sys v0.44.0
+	golang.org/x/tools v0.45.0
 )
 
 require (
@@ -28,7 +29,6 @@ require (
 	golang.org/x/mod v0.36.0 // indirect
 	golang.org/x/sync v0.20.0 // indirect
 	golang.org/x/text v0.31.0 // indirect
-	golang.org/x/tools v0.45.0 // indirect
 	gopkg.in/yaml.v3 v3.0.1 // indirect
 	honnef.co/go/tools v0.8.0 // indirect
 )

@@ -3,6 +3,7 @@
 package hegel
 
 import (
+	"hegel.dev/go/hegel/internal/libhegel"
 	"testing"
 	"uuid"
 )
@@ -42,4 +43,24 @@ func TestUUIDsVersion(t *testing.T) {
 func TestUUIDsInvalidVersion(t *testing.T) {
 	_, err := UUIDs().Version(6).draw(nil)
 	assertErrorContains(t, "Version must be between 1 and 5", err)
+}
+
+func TestDefaultUUIDUsesUUIDs(t *testing.T) {
+	Test(t, func(tc *T) {
+		got := Draw(tc, Default[struct{ UUID uuid.UUID }]()).UUID
+		if got == (uuid.UUID{}) {
+			tc.Fatal("Default generated the nil UUID")
+		}
+		if _, err := uuid.Parse(got.String()); err != nil {
+			tc.Fatalf("invalid UUID: %v", err)
+		}
+	}, WithTestCases(10))
+}
+
+func TestDefaultUUIDDelegates(t *testing.T) {
+	want := uuid.UUID{1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16}
+	got, err := Default[uuid.UUID]().draw(newStubTestCase(t, libhegel.OK, want[:], libhegel.OK, libhegel.OK))
+	if err != nil || got != want {
+		t.Fatalf("got %v, %v; want %v", got, err, want)
+	}
 }
