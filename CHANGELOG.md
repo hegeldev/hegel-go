@@ -1,5 +1,9 @@
 # Changelog
 
+## 0.9.19 - 2026-10-08
+
+`hegel.Test` now runs fewer test cases when `go test -short` is used, overriding explicit test-case counts and profile settings to keep short test runs quick.
+
 ## 0.9.18 - 2026-10-08
 
 `Default()` now caches one generator per type, eliminating allocations on repeated calls.
