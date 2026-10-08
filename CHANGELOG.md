@@ -1,5 +1,9 @@
 # Changelog
 
+## 0.9.20 - 2026-10-08
+
+`Default()` now uses specialized generators for `time.Time`, `netip.Addr`, and (on Go 1.27 and later) `uuid.UUID`, including inside composite types.
+
 ## 0.9.19 - 2026-10-08
 
 `hegel.Test` now runs fewer test cases when `go test -short` is used, overriding explicit test-case counts and profile settings to keep short test runs quick.
