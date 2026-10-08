@@ -4,7 +4,10 @@ import (
 	"fmt"
 	"math"
 	"reflect"
+	"sync"
 )
+
+var defaultGenerators sync.Map
 
 // Default constructs a generator for T.
 //
@@ -13,15 +16,22 @@ import (
 // type of a zero-length array is not inspected. Integers use the full range of
 // their type. Slices and maps may be empty, and pointers may be nil.
 //
-// Default panics at construction if T contains a recursive or unsupported type.
+// Default returns the same cached generator for each type. It panics at
+// construction if T contains a recursive or unsupported type.
 func Default[T any]() Generator[T] {
 	t := reflect.TypeFor[T]()
-	shape, err := buildDefault(t, make(map[reflect.Type]*defaultShape), make(map[reflect.Type]bool))
-	if err != nil {
-		panic(fmt.Sprintf("Default[%s]: %v", t, err))
+	if cached, ok := defaultGenerators.Load(t); ok {
+		return cached.(func() Generator[T])()
 	}
-	drawValue := compileDefault(shape, make(map[*defaultShape]defaultDraw))
-	return &defaultGenerator[T]{drawValue: drawValue}
+	cached, _ := defaultGenerators.LoadOrStore(t, sync.OnceValue(func() Generator[T] {
+		shape, err := buildDefault(t, make(map[reflect.Type]*defaultShape), make(map[reflect.Type]bool))
+		if err != nil {
+			panic(fmt.Sprintf("Default[%s]: %v", t, err))
+		}
+		drawValue := compileDefault(shape, make(map[*defaultShape]defaultDraw))
+		return &defaultGenerator[T]{drawValue: drawValue}
+	}))
+	return cached.(func() Generator[T])()
 }
 
 type defaultDraw func(TestCase) (reflect.Value, error)
