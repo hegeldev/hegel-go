@@ -3,9 +3,17 @@ package hegel
 import (
 	"fmt"
 	"math"
+	"net/netip"
 	"reflect"
 	"sync"
+	"time"
 )
+
+// Exact types use their domain generator before structural reflection.
+var defaultKnownTypes = map[reflect.Type]defaultDraw{
+	reflect.TypeFor[time.Time]():  defaultFromGenerator[time.Time](reflect.TypeFor[time.Time](), Datetimes()),
+	reflect.TypeFor[netip.Addr](): defaultFromGenerator[netip.Addr](reflect.TypeFor[netip.Addr](), IPAddresses()),
+}
 
 var defaultGenerators = struct {
 	sync.RWMutex
@@ -18,6 +26,8 @@ var defaultGenerators = struct {
 // pointers, and structs with exported fields, including named types. The element
 // type of a zero-length array is not inspected. Integers use the full range of
 // their type. Slices and maps may be empty, and pointers may be nil.
+// Well-known types use their specialized generators: time.Time uses Datetimes,
+// netip.Addr uses IPAddresses, and uuid.UUID uses UUIDs (Go 1.27 and later).
 //
 // Default returns the same cached generator for each type. It panics at
 // construction if T contains a recursive or unsupported type.
@@ -62,6 +72,10 @@ func buildDefault(t reflect.Type, nodes map[reflect.Type]*defaultShape, active m
 	}
 
 	n := &defaultShape{typ: t}
+	if defaultKnownTypes[t] != nil {
+		nodes[t] = n
+		return n, nil
+	}
 	active[t] = true
 	defer delete(active, t)
 
@@ -125,6 +139,9 @@ func compileDefault(shape *defaultShape, compiled map[*defaultShape]defaultDraw)
 }
 
 func makeDefaultDraw(t reflect.Type, fields []defaultDraw, elem, key defaultDraw) defaultDraw {
+	if drawValue := defaultKnownTypes[t]; drawValue != nil {
+		return drawValue
+	}
 	switch t.Kind() {
 	case reflect.Bool, reflect.Int, reflect.Int8, reflect.Int16, reflect.Int32, reflect.Int64,
 		reflect.Uint, reflect.Uint8, reflect.Uint16, reflect.Uint32, reflect.Uint64, reflect.Uintptr,
