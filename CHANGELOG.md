@@ -1,5 +1,9 @@
 # Changelog
 
+## 0.9.18 - 2026-10-08
+
+`Default()` now caches one generator per type, eliminating allocations on repeated calls.
+
 ## 0.9.17 - 2026-10-07
 
 This patch bumps our pinned libhegel ([hegel-rust](hegeldev/hegel-rust)) from [0.44.2](https://github.com/hegeldev/hegel-rust/releases/tag/libhegel-v0.44.2) to [0.45.1](https://github.com/hegeldev/hegel-rust/releases/tag/libhegel-v0.45.1).
