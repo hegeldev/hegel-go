@@ -20,6 +20,26 @@ var defaultGenerators = struct {
 	byType map[reflect.Type]any // Values are Generator[T] for the key type T.
 }{byType: make(map[reflect.Type]any)}
 
+// DefaultOption configures a generator constructed by [Default].
+//
+// Use [WithGenerator] to construct an option; the zero value is invalid.
+type DefaultOption struct {
+	typ  reflect.Type
+	draw defaultDraw
+}
+
+// WithGenerator overrides the default generator for T.
+//
+// The generator applies to every occurrence of the exact type T, including
+// nested fields and collection elements. It takes precedence over built-in
+// generators and allows types that Default otherwise cannot construct.
+//
+// WithGenerator returns an option for [Default].
+func WithGenerator[T any](g Generator[T]) DefaultOption {
+	t := reflect.TypeFor[T]()
+	return DefaultOption{typ: t, draw: defaultFromGenerator(t, g)}
+}
+
 // Default constructs a generator for T.
 //
 // Supported types are booleans, integers, floats, strings, arrays, slices, maps,
@@ -29,10 +49,28 @@ var defaultGenerators = struct {
 // Well-known types use their specialized generators: time.Time uses Datetimes,
 // netip.Addr uses IPAddresses, and uuid.UUID uses UUIDs (Go 1.27 and later).
 //
-// Default returns the same cached generator for each type. It panics at
-// construction if T contains a recursive or unsupported type.
-func Default[T any]() Generator[T] {
+// Options override generators for exact types; the last option for a type wins.
+//
+// Default returns the same cached generator for each type when no options are
+// supplied. Calls with options construct a fresh generator. It panics at
+// construction for invalid options or recursive or unsupported types that are
+// not handled by an override.
+func Default[T any](options ...DefaultOption) Generator[T] {
 	t := reflect.TypeFor[T]()
+	if len(options) > 0 {
+		overrides := make(map[reflect.Type]defaultDraw, len(options))
+		for _, option := range options {
+			if option.typ == nil {
+				panic(fmt.Sprintf("Default[%s]: invalid zero-value option", t))
+			}
+			overrides[option.typ] = option.draw
+		}
+		gen, err := newDefaultGenerator[T](overrides)
+		if err != nil {
+			panic(fmt.Sprintf("Default[%s]: %v", t, err))
+		}
+		return gen
+	}
 	defaultGenerators.RLock()
 	cached := defaultGenerators.byType[t]
 	defaultGenerators.RUnlock()
@@ -43,27 +81,36 @@ func Default[T any]() Generator[T] {
 	defer defaultGenerators.Unlock()
 	cached = defaultGenerators.byType[t]
 	if cached == nil {
-		shape, err := buildDefault(t, make(map[reflect.Type]*defaultShape), make(map[reflect.Type]bool))
+		gen, err := newDefaultGenerator[T](nil)
 		if err != nil {
 			panic(fmt.Sprintf("Default[%s]: %v", t, err))
 		}
-		drawValue := compileDefault(shape, make(map[*defaultShape]defaultDraw))
-		cached = &defaultGenerator[T]{drawValue: drawValue}
+		cached = gen
 		defaultGenerators.byType[t] = cached
 	}
 	return cached.(Generator[T])
 }
 
+func newDefaultGenerator[T any](overrides map[reflect.Type]defaultDraw) (Generator[T], error) {
+	shape, err := buildDefault(reflect.TypeFor[T](), make(map[reflect.Type]*defaultShape), make(map[reflect.Type]bool), overrides)
+	if err != nil {
+		return nil, err
+	}
+	drawValue := compileDefault(shape, make(map[*defaultShape]defaultDraw))
+	return &defaultGenerator[T]{drawValue: drawValue}, nil
+}
+
 type defaultDraw func(TestCase) (reflect.Value, error)
 
 type defaultShape struct {
+	draw   defaultDraw
 	typ    reflect.Type
 	fields []*defaultShape // Struct fields in declaration order.
 	elem   *defaultShape   // Element type, or map value type.
 	key    *defaultShape
 }
 
-func buildDefault(t reflect.Type, nodes map[reflect.Type]*defaultShape, active map[reflect.Type]bool) (*defaultShape, error) {
+func buildDefault(t reflect.Type, nodes map[reflect.Type]*defaultShape, active map[reflect.Type]bool, overrides map[reflect.Type]defaultDraw) (*defaultShape, error) {
 	if active[t] {
 		return nil, fmt.Errorf("recursive types are unsupported: %s", t)
 	}
@@ -71,7 +118,11 @@ func buildDefault(t reflect.Type, nodes map[reflect.Type]*defaultShape, active m
 		return n, nil
 	}
 
-	n := &defaultShape{typ: t}
+	n := &defaultShape{typ: t, draw: overrides[t]}
+	if n.draw != nil {
+		nodes[t] = n
+		return n, nil
+	}
 	if defaultKnownTypes[t] != nil {
 		nodes[t] = n
 		return n, nil
@@ -86,22 +137,22 @@ func buildDefault(t reflect.Type, nodes map[reflect.Type]*defaultShape, active m
 		reflect.Uint, reflect.Uint8, reflect.Uint16, reflect.Uint32, reflect.Uint64, reflect.Uintptr,
 		reflect.Float32, reflect.Float64, reflect.String:
 	case reflect.Pointer, reflect.Slice:
-		n.elem, err = buildDefault(t.Elem(), nodes, active)
+		n.elem, err = buildDefault(t.Elem(), nodes, active, overrides)
 	case reflect.Array:
 		if t.Len() > 0 {
-			n.elem, err = buildDefault(t.Elem(), nodes, active)
+			n.elem, err = buildDefault(t.Elem(), nodes, active, overrides)
 		}
 	case reflect.Map:
-		n.key, err = buildDefault(t.Key(), nodes, active)
+		n.key, err = buildDefault(t.Key(), nodes, active, overrides)
 		if err == nil {
-			n.elem, err = buildDefault(t.Elem(), nodes, active)
+			n.elem, err = buildDefault(t.Elem(), nodes, active, overrides)
 		}
 	case reflect.Struct:
 		for field := range t.Fields() {
 			if !field.IsExported() {
 				return nil, fmt.Errorf("field %s is unexported in %s", field.Name, t)
 			}
-			child, err := buildDefault(field.Type, nodes, active)
+			child, err := buildDefault(field.Type, nodes, active, overrides)
 			if err != nil {
 				return nil, err
 			}
@@ -118,6 +169,9 @@ func buildDefault(t reflect.Type, nodes map[reflect.Type]*defaultShape, active m
 }
 
 func compileDefault(shape *defaultShape, compiled map[*defaultShape]defaultDraw) defaultDraw {
+	if shape.draw != nil {
+		return shape.draw
+	}
 	if drawValue := compiled[shape]; drawValue != nil {
 		return drawValue
 	}
@@ -246,7 +300,8 @@ func (g *defaultGenerator[T]) draw(tc TestCase) (T, error) {
 	if err != nil {
 		return zero, err
 	}
-	return value.Interface().(T), nil
+	reflect.ValueOf(&zero).Elem().Set(value)
+	return zero, nil
 }
 
 func defaultPrimitive(t reflect.Type) defaultDraw {
@@ -288,6 +343,6 @@ func defaultPrimitive(t reflect.Type) defaultDraw {
 func defaultFromGenerator[T any](t reflect.Type, g Generator[T]) defaultDraw {
 	return func(tc TestCase) (reflect.Value, error) {
 		v, err := draw(tc, g)
-		return reflect.ValueOf(v).Convert(t), err
+		return reflect.ValueOf(&v).Elem().Convert(t), err
 	}
 }

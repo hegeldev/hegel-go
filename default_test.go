@@ -5,6 +5,7 @@ import (
 	"reflect"
 	"strings"
 	"testing"
+	"time"
 	"unsafe"
 
 	"hegel.dev/go/hegel/internal/libhegel"
@@ -62,7 +63,7 @@ func TestDefaultCachesGenerator(t *testing.T) {
 }
 
 func TestDefaultCachesSharedAcyclicShape(t *testing.T) {
-	shape, err := buildDefault(reflect.TypeFor[defaultShared](), make(map[reflect.Type]*defaultShape), make(map[reflect.Type]bool))
+	shape, err := buildDefault(reflect.TypeFor[defaultShared](), make(map[reflect.Type]*defaultShape), make(map[reflect.Type]bool), nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -276,5 +277,142 @@ func checkDefaultUnsignedZero[T integer](t *testing.T) {
 	}, WithTestCases(1))
 	if err == nil || minimal != 0 {
 		t.Fatalf("%s: minimal value = %v, error = %v; want zero and failure", reflect.TypeFor[T](), minimal, err)
+	}
+}
+
+func TestDefaultOverridesByExactType(t *testing.T) {
+	type record struct {
+		Value  int
+		Named  defaultNamedInt
+		Pair   [2]int
+		Values []int
+		Lookup map[int]defaultNamedInt
+		Ptr    *int
+		Left   defaultLeaf
+		Right  defaultLeaf
+	}
+	gen := Default[record](
+		WithGenerator(Just(7)),
+		WithGenerator(Just(defaultNamedInt(9))),
+	)
+	sawSlice, sawMap, sawPointer := false, false, false
+	Test(t, func(tc *T) {
+		v := Draw(tc, gen)
+		if v.Value != 7 || v.Named != 9 || v.Pair != [2]int{7, 7} || v.Left.Value != 7 || v.Right.Value != 7 {
+			tc.Fatalf("overrides did not apply to fields: %+v", v)
+		}
+		for _, value := range v.Values {
+			if value != 7 {
+				tc.Fatalf("slice element = %d, want 7", value)
+			}
+		}
+		for key, value := range v.Lookup {
+			if key != 7 || value != 9 {
+				tc.Fatalf("map entry = %d: %d, want 7: 9", key, value)
+			}
+		}
+		if v.Ptr != nil && *v.Ptr != 7 {
+			tc.Fatalf("pointer element = %d, want 7", *v.Ptr)
+		}
+		sawSlice = sawSlice || len(v.Values) > 0
+		sawMap = sawMap || len(v.Lookup) > 0
+		sawPointer = sawPointer || v.Ptr != nil
+	}, WithTestCases(50))
+	if !sawSlice || !sawMap || !sawPointer {
+		t.Fatalf("missing collection or pointer coverage: slice=%v map=%v pointer=%v", sawSlice, sawMap, sawPointer)
+	}
+}
+
+func TestDefaultOverridesBypassCache(t *testing.T) {
+	cached := Default[int]()
+	option := WithGenerator(Composite(func(TestCase) int { return 42 }))
+	first := Default[int](option)
+	second := Default[int](WithGenerator(Just(99)))
+	repeated := Default[int](option)
+	if first == repeated {
+		t.Fatal("calls with options reused a generator")
+	}
+	if Default[int]() != cached {
+		t.Fatal("overrides replaced the cached generator")
+	}
+	Test(t, func(tc *T) {
+		if got := Draw(tc, first); got != 42 {
+			tc.Fatalf("first override = %d, want 42", got)
+		}
+		if got := Draw(tc, second); got != 99 {
+			tc.Fatalf("second override = %d, want 99", got)
+		}
+		if got := Draw(tc, repeated); got != 42 {
+			tc.Fatalf("repeated override = %d, want 42", got)
+		}
+	}, WithTestCases(1))
+}
+
+func TestDefaultOverridePrecedence(t *testing.T) {
+	want := time.Date(2000, 1, 2, 3, 4, 5, 0, time.UTC)
+	gen := Default[time.Time](WithGenerator(Just(time.Time{})), WithGenerator(Just(want)))
+	Test(t, func(tc *T) {
+		if got := Draw(tc, gen); got != want {
+			tc.Fatalf("time = %v, want %v", got, want)
+		}
+	}, WithTestCases(1))
+}
+
+func TestDefaultOverridesUnsupportedTypes(t *testing.T) {
+	type private struct{ value int }
+	type record struct {
+		Tree    defaultTree
+		Private private
+		Channel chan int
+		Value   any
+	}
+	channel := make(chan int)
+	want := record{Tree: defaultTree{Value: 12}, Private: private{value: 34}, Channel: channel, Value: "custom"}
+	gen := Default[record](
+		WithGenerator(Just(want.Tree)),
+		WithGenerator(Just(want.Private)),
+		WithGenerator(Just(channel)),
+		WithGenerator(Just[any](want.Value)),
+	)
+	Test(t, func(tc *T) {
+		if got := Draw(tc, gen); got != want {
+			tc.Fatalf("record = %+v, want %+v", got, want)
+		}
+		if got := Draw(tc, Default[any](WithGenerator(Just[any](nil)))); got != nil {
+			tc.Fatalf("interface = %v, want nil", got)
+		}
+		if got := Draw(tc, Default[struct{ Value any }](WithGenerator(Just[any](nil)))); got.Value != nil {
+			tc.Fatalf("interface field = %v, want nil", got.Value)
+		}
+	}, WithTestCases(1))
+}
+
+func TestDefaultRejectsInvalidOptions(t *testing.T) {
+	for _, test := range []struct {
+		name string
+		make func()
+		want string
+	}{
+		{"zero option", func() { Default[int](DefaultOption{}) }, "invalid zero-value option"},
+		{"unhandled type", func() { Default[chan int](WithGenerator(Just(1))) }, "unsupported kind chan"},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			defer func() {
+				p := recover()
+				if p == nil || !strings.Contains(p.(string), test.want) {
+					t.Fatalf("panic = %v, want %q", p, test.want)
+				}
+			}()
+			test.make()
+		})
+	}
+}
+
+func TestDefaultOverridePropagatesDrawError(t *testing.T) {
+	gen := Default[int](WithGenerator(Integers(0, 10)))
+	tc := newStubTestCase(t, libhegel.OK, int64(0), libhegel.E_BACKEND, "override failed")
+	_, err := gen.draw(tc)
+	if !errors.Is(err, libhegel.E_BACKEND) || !strings.Contains(err.Error(), "override failed") {
+		t.Fatalf("error = %v, want backend error with its message", err)
 	}
 }
