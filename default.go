@@ -7,7 +7,10 @@ import (
 	"sync"
 )
 
-var defaultGenerators sync.Map // map[reflect.Type]func() Generator[T]
+var defaultGenerators = struct {
+	sync.RWMutex
+	byType map[reflect.Type]any // Values are Generator[T] for the key type T.
+}{byType: make(map[reflect.Type]any)}
 
 // Default constructs a generator for T.
 //
@@ -20,18 +23,25 @@ var defaultGenerators sync.Map // map[reflect.Type]func() Generator[T]
 // construction if T contains a recursive or unsupported type.
 func Default[T any]() Generator[T] {
 	t := reflect.TypeFor[T]()
-	if cached, ok := defaultGenerators.Load(t); ok {
-		return cached.(func() Generator[T])()
+	defaultGenerators.RLock()
+	cached := defaultGenerators.byType[t]
+	defaultGenerators.RUnlock()
+	if cached != nil {
+		return cached.(Generator[T])
 	}
-	cached, _ := defaultGenerators.LoadOrStore(t, sync.OnceValue(func() Generator[T] {
+	defaultGenerators.Lock()
+	defer defaultGenerators.Unlock()
+	cached = defaultGenerators.byType[t]
+	if cached == nil {
 		shape, err := buildDefault(t, make(map[reflect.Type]*defaultShape), make(map[reflect.Type]bool))
 		if err != nil {
 			panic(fmt.Sprintf("Default[%s]: %v", t, err))
 		}
 		drawValue := compileDefault(shape, make(map[*defaultShape]defaultDraw))
-		return &defaultGenerator[T]{drawValue: drawValue}
-	}))
-	return cached.(func() Generator[T])()
+		cached = &defaultGenerator[T]{drawValue: drawValue}
+		defaultGenerators.byType[t] = cached
+	}
+	return cached.(Generator[T])
 }
 
 type defaultDraw func(TestCase) (reflect.Value, error)

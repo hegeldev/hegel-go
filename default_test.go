@@ -61,14 +61,6 @@ func TestDefaultCachesGenerator(t *testing.T) {
 	}
 }
 
-func BenchmarkDefault(b *testing.B) {
-	Default[defaultRecord]()
-	b.ReportAllocs()
-	for b.Loop() {
-		Default[defaultRecord]()
-	}
-}
-
 func TestDefaultCachesSharedAcyclicShape(t *testing.T) {
 	shape, err := buildDefault(reflect.TypeFor[defaultShared](), make(map[reflect.Type]*defaultShape), make(map[reflect.Type]bool))
 	if err != nil {
