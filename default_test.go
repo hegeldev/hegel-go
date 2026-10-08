@@ -416,3 +416,115 @@ func TestDefaultOverridePropagatesDrawError(t *testing.T) {
 		t.Fatalf("error = %v, want backend error with its message", err)
 	}
 }
+
+func TestDefaultFieldOverrides(t *testing.T) {
+	type other struct{ Value int }
+	type record struct {
+		Left, Right defaultLeaf
+		Other       other
+	}
+	for _, options := range [][]DefaultOption{
+		{WithGenerator(Just(3)), WithFieldGenerator[defaultLeaf]("Value", Just(7)), WithFieldGenerator[defaultLeaf]("Value", Just(9))},
+		{WithFieldGenerator[defaultLeaf]("Value", Just(7)), WithFieldGenerator[defaultLeaf]("Value", Just(9)), WithGenerator(Just(3))},
+	} {
+		gen := Default[record](options...)
+		Test(t, func(tc *T) {
+			want := record{Left: defaultLeaf{3}, Right: defaultLeaf{3}, Other: other{3}}
+			if got := Draw(tc, gen); got != want {
+				tc.Fatalf("record = %+v, want %+v", got, want)
+			}
+		}, WithTestCases(1))
+	}
+	fieldGen := Default[record](WithFieldGenerator[defaultLeaf]("Value", Just(7)), WithFieldGenerator[defaultLeaf]("Value", Just(9)), WithFieldGenerator[other]("Value", Just(5)))
+	Test(t, func(tc *T) {
+		want := record{Left: defaultLeaf{9}, Right: defaultLeaf{9}, Other: other{5}}
+		if got := Draw(tc, fieldGen); got != want {
+			tc.Fatalf("field overrides = %+v, want %+v", got, want)
+		}
+	}, WithTestCases(1))
+	gen := Default[defaultLeaf](WithFieldGenerator[defaultLeaf]("Value", Just(9)), WithGenerator(Just(defaultLeaf{42})))
+	Test(t, func(tc *T) {
+		if got := Draw(tc, gen); got.Value != 42 {
+			tc.Fatalf("whole-struct override = %+v, want Value 42", got)
+		}
+	}, WithTestCases(1))
+}
+
+func TestDefaultFieldOverridesAreIndependent(t *testing.T) {
+	type record struct{ Left, Right int }
+	cached := Default[record]()
+	first := Default[record](WithFieldGenerator[record]("Left", Just(1)), WithFieldGenerator[record]("Right", Just(2)))
+	second := Default[record](WithFieldGenerator[record]("Left", Just(3)), WithFieldGenerator[record]("Right", Just(4)))
+	if Default[record]() != cached {
+		t.Fatal("field overrides replaced the cached generator")
+	}
+	Test(t, func(tc *T) {
+		if got := Draw(tc, first); got != (record{1, 2}) {
+			tc.Fatalf("first = %+v, want {1 2}", got)
+		}
+		if got := Draw(tc, second); got != (record{3, 4}) {
+			tc.Fatalf("second = %+v, want {3 4}", got)
+		}
+	}, WithTestCases(1))
+}
+
+func TestDefaultFieldOverridesUnsupportedTypes(t *testing.T) {
+	type record struct {
+		Value any
+		Next  *record
+		Named defaultNamedInt
+	}
+	gen := Default[record](
+		WithFieldGenerator[record]("Value", Just[any](nil)),
+		WithFieldGenerator[record]("Next", Just[*record](nil)),
+		WithFieldGenerator[record]("Named", Just(defaultNamedInt(7))),
+	)
+	Test(t, func(tc *T) {
+		if got := Draw(tc, gen); got != (record{Named: 7}) {
+			tc.Fatalf("record = %+v, want nil interface, nil recursive pointer, and Named 7", got)
+		}
+	}, WithTestCases(1))
+}
+
+func TestWithFieldGeneratorRejectsInvalidFields(t *testing.T) {
+	type record struct {
+		Value   int
+		Named   defaultNamedInt
+		private int
+	}
+	_ = record{private: 1}
+	type embedded struct{ defaultLeaf }
+	for _, test := range []struct {
+		name string
+		make func()
+		want string
+	}{
+		{"non-struct", func() { WithFieldGenerator[int]("Value", Just(1)) }, "expected a struct"},
+		{"pointer", func() { WithFieldGenerator[*record]("Value", Just(1)) }, "expected a struct"},
+		{"missing", func() { WithFieldGenerator[record]("Missing", Just(1)) }, "not a direct field"},
+		{"empty", func() { WithFieldGenerator[record]("", Just(1)) }, "not a direct field"},
+		{"promoted", func() { WithFieldGenerator[embedded]("Value", Just(1)) }, "not a direct field"},
+		{"private", func() { WithFieldGenerator[record]("private", Just(1)) }, "is unexported"},
+		{"wrong type", func() { WithFieldGenerator[record]("Value", Just("value")) }, "has type int, want string"},
+		{"convertible type", func() { WithFieldGenerator[record]("Named", Just(int16(1))) }, "has type hegel.defaultNamedInt, want int16"},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			defer func() {
+				p := recover()
+				if p == nil || !strings.Contains(p.(string), test.want) {
+					t.Fatalf("panic = %v, want %q", p, test.want)
+				}
+			}()
+			test.make()
+		})
+	}
+}
+
+func TestDefaultFieldOverridePropagatesDrawError(t *testing.T) {
+	gen := Default[defaultLeaf](WithFieldGenerator[defaultLeaf]("Value", Integers(0, 10)))
+	tc := newStubTestCase(t, libhegel.OK, int64(0), libhegel.E_BACKEND, "field override failed")
+	_, err := gen.draw(tc)
+	if !errors.Is(err, libhegel.E_BACKEND) || !strings.Contains(err.Error(), "field override failed") {
+		t.Fatalf("error = %v, want backend error with its message", err)
+	}
+}

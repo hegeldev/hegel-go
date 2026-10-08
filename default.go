@@ -22,10 +22,12 @@ var defaultGenerators = struct {
 
 // DefaultOption configures a generator constructed by [Default].
 //
-// Use [WithGenerator] to construct an option; the zero value is invalid.
+// Use [WithGenerator] or [WithFieldGenerator] to construct an option; the zero
+// value is invalid.
 type DefaultOption struct {
-	typ  reflect.Type
-	draw defaultDraw
+	typ   reflect.Type
+	field string
+	draw  defaultDraw
 }
 
 // WithGenerator overrides the default generator for T.
@@ -40,6 +42,33 @@ func WithGenerator[T any](g Generator[T]) DefaultOption {
 	return DefaultOption{typ: t, draw: defaultFromGenerator(t, g)}
 }
 
+// WithFieldGenerator overrides the default generator for a field of S.
+//
+// S must be a struct, and field must name a direct exported field whose type
+// is exactly T. The override applies wherever S occurs. Type overrides for T
+// take precedence over field overrides. An override for S replaces the whole struct.
+//
+// WithFieldGenerator returns an option for [Default]. It panics if these
+// requirements are not met.
+func WithFieldGenerator[S, T any](field string, g Generator[T]) DefaultOption {
+	s := reflect.TypeFor[S]()
+	if s.Kind() != reflect.Struct {
+		panic(fmt.Sprintf("WithFieldGenerator[%s]: expected a struct", s))
+	}
+	f, ok := s.FieldByName(field)
+	if !ok || len(f.Index) != 1 {
+		panic(fmt.Sprintf("WithFieldGenerator[%s]: field %q is not a direct field", s, field))
+	}
+	if !f.IsExported() {
+		panic(fmt.Sprintf("WithFieldGenerator[%s]: field %s is unexported", s, field))
+	}
+	t := reflect.TypeFor[T]()
+	if f.Type != t {
+		panic(fmt.Sprintf("WithFieldGenerator[%s]: field %s has type %s, want %s", s, field, f.Type, t))
+	}
+	return DefaultOption{typ: s, field: field, draw: defaultFromGenerator(t, g)}
+}
+
 // Default constructs a generator for T.
 //
 // Supported types are booleans, integers, floats, strings, arrays, slices, maps,
@@ -49,7 +78,8 @@ func WithGenerator[T any](g Generator[T]) DefaultOption {
 // Well-known types use their specialized generators: time.Time uses Datetimes,
 // netip.Addr uses IPAddresses, and uuid.UUID uses UUIDs (Go 1.27 and later).
 //
-// Options override generators for exact types; the last option for a type wins.
+// Options override generators for exact types or struct fields; the last option
+// for a type or field wins.
 //
 // Default returns the same cached generator for each type when no options are
 // supplied. Calls with options construct a fresh generator. It panics at
@@ -58,12 +88,12 @@ func WithGenerator[T any](g Generator[T]) DefaultOption {
 func Default[T any](options ...DefaultOption) Generator[T] {
 	t := reflect.TypeFor[T]()
 	if len(options) > 0 {
-		overrides := make(map[reflect.Type]defaultDraw, len(options))
+		overrides := make(map[defaultOverride]defaultDraw, len(options))
 		for _, option := range options {
 			if option.typ == nil {
 				panic(fmt.Sprintf("Default[%s]: invalid zero-value option", t))
 			}
-			overrides[option.typ] = option.draw
+			overrides[defaultOverride{typ: option.typ, field: option.field}] = option.draw
 		}
 		gen, err := newDefaultGenerator[T](overrides)
 		if err != nil {
@@ -91,13 +121,18 @@ func Default[T any](options ...DefaultOption) Generator[T] {
 	return cached.(Generator[T])
 }
 
-func newDefaultGenerator[T any](overrides map[reflect.Type]defaultDraw) (Generator[T], error) {
+func newDefaultGenerator[T any](overrides map[defaultOverride]defaultDraw) (Generator[T], error) {
 	shape, err := buildDefault(reflect.TypeFor[T](), make(map[reflect.Type]*defaultShape), make(map[reflect.Type]bool), overrides)
 	if err != nil {
 		return nil, err
 	}
 	drawValue := compileDefault(shape, make(map[*defaultShape]defaultDraw))
 	return &defaultGenerator[T]{drawValue: drawValue}, nil
+}
+
+type defaultOverride struct {
+	typ   reflect.Type
+	field string
 }
 
 type defaultDraw func(TestCase) (reflect.Value, error)
@@ -110,7 +145,7 @@ type defaultShape struct {
 	key    *defaultShape
 }
 
-func buildDefault(t reflect.Type, nodes map[reflect.Type]*defaultShape, active map[reflect.Type]bool, overrides map[reflect.Type]defaultDraw) (*defaultShape, error) {
+func buildDefault(t reflect.Type, nodes map[reflect.Type]*defaultShape, active map[reflect.Type]bool, overrides map[defaultOverride]defaultDraw) (*defaultShape, error) {
 	if active[t] {
 		return nil, fmt.Errorf("recursive types are unsupported: %s", t)
 	}
@@ -118,7 +153,7 @@ func buildDefault(t reflect.Type, nodes map[reflect.Type]*defaultShape, active m
 		return n, nil
 	}
 
-	n := &defaultShape{typ: t, draw: overrides[t]}
+	n := &defaultShape{typ: t, draw: overrides[defaultOverride{typ: t}]}
 	if n.draw != nil {
 		nodes[t] = n
 		return n, nil
@@ -151,6 +186,10 @@ func buildDefault(t reflect.Type, nodes map[reflect.Type]*defaultShape, active m
 		for field := range t.Fields() {
 			if !field.IsExported() {
 				return nil, fmt.Errorf("field %s is unexported in %s", field.Name, t)
+			}
+			if drawValue := overrides[defaultOverride{typ: t, field: field.Name}]; drawValue != nil && overrides[defaultOverride{typ: field.Type}] == nil {
+				n.fields = append(n.fields, &defaultShape{typ: field.Type, draw: drawValue})
+				continue
 			}
 			child, err := buildDefault(field.Type, nodes, active, overrides)
 			if err != nil {
