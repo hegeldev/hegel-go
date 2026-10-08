@@ -1,5 +1,9 @@
 # Changelog
 
+## 0.9.21 - 2026-10-08
+
+`Default` now accepts `WithGenerator` options to override generation for exact types, including nested fields and collection elements. Calls with options bypass the shared generator cache.
+
 ## 0.9.20 - 2026-10-08
 
 `Default()` now uses specialized generators for `time.Time`, `netip.Addr`, and (on Go 1.27 and later) `uuid.UUID`, including inside composite types.
