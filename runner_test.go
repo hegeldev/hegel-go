@@ -2,6 +2,7 @@ package hegel
 
 import (
 	"errors"
+	"flag"
 	"math"
 	"os"
 	"path/filepath"
@@ -98,6 +99,42 @@ func TestConcurrentRunHegelTest(t *testing.T) {
 }
 
 // --- Test-case count ---
+
+func TestTestCaseCount(t *testing.T) {
+	for _, tc := range []struct {
+		name  string
+		short string
+		opts  []Option
+		want  int
+	}{
+		{"default", "false", nil, 100},
+		{"explicit", "false", []Option{WithTestCases(20)}, 20},
+		{"short", "true", nil, 10},
+		{"short_overrides_larger_count", "true", []Option{WithTestCases(200)}, 10},
+		{"short_overrides_smaller_count", "true", []Option{WithTestCases(1)}, 10},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			previous := flag.Lookup("test.short").Value.String()
+			t.Cleanup(func() {
+				if err := flag.Set("test.short", previous); err != nil {
+					t.Fatal(err)
+				}
+			})
+			if err := flag.Set("test.short", tc.short); err != nil {
+				t.Fatal(err)
+			}
+			calls := 0
+			opts := append([]Option{WithDatabase("")}, tc.opts...)
+			Test(t, func(ht *T) {
+				calls++
+				_ = Draw(ht, Integers[uint64](0, math.MaxUint64))
+			}, opts...)
+			if calls != tc.want {
+				t.Errorf("test cases = %d, want %d", calls, tc.want)
+			}
+		})
+	}
+}
 
 func TestRunHegelTestOneCase(t *testing.T) {
 	var calls int
