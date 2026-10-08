@@ -78,6 +78,9 @@ take a while, and let it run in the background while doing independent review wo
 
 ## Project Conventions
 
+- **Release notes**: By default, every PR that changes non-test source code must
+  include a `RELEASE.md` based on `RELEASE-sample.md`, following its release-type
+  and changelog guidance. Test-only and documentation-only PRs do not require it.
 - **Module path**: `hegel.dev/go/hegel`
 - **Package name**: `hegel` — single package for the library, users import `hegel.dev/go/hegel`
 - **File naming**: lowercase, multi-word files use underscores (e.g., `project_root.go`)
