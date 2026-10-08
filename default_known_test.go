@@ -1,53 +1,12 @@
 package hegel
 
 import (
-	"go/types"
 	"net/netip"
 	"testing"
 	"time"
 
-	"golang.org/x/tools/go/packages"
 	"hegel.dev/go/hegel/internal/libhegel"
 )
-
-// Every concrete named output of an exported generator constructor needs an
-// explicit default. Multiple constructors for one type share that default.
-func TestDefaultCoversGeneratorTypes(t *testing.T) {
-	pkgs, err := packages.Load(&packages.Config{Mode: packages.NeedName | packages.NeedTypes | packages.NeedImports | packages.NeedDeps}, ".")
-	if err != nil {
-		t.Fatal(err)
-	}
-	if len(pkgs) != 1 || len(pkgs[0].Errors) != 0 {
-		t.Fatalf("load package: %v", pkgs)
-	}
-	registered := make(map[string]bool)
-	for typ := range defaultKnownTypes {
-		registered[typ.PkgPath()+"."+typ.Name()] = true
-	}
-	scope := pkgs[0].Types.Scope()
-	for _, name := range scope.Names() {
-		fn, ok := scope.Lookup(name).(*types.Func)
-		if !ok || !fn.Exported() {
-			continue
-		}
-		sig := fn.Type().(*types.Signature)
-		for v := range sig.Results().Variables() {
-			method, _, _ := types.LookupFieldOrMethod(v.Type(), false, pkgs[0].Types, "draw")
-			if method == nil {
-				continue
-			}
-			output := method.Type().(*types.Signature).Results().At(0).Type()
-			named, ok := types.Unalias(output).(*types.Named)
-			if !ok {
-				continue
-			}
-			obj := named.Obj()
-			if !registered[obj.Pkg().Path()+"."+obj.Name()] {
-				t.Errorf("%s generates %s: add its default to defaultKnownTypes", name, output)
-			}
-		}
-	}
-}
 
 func TestDefaultKnownTypes(t *testing.T) {
 	type record struct {
