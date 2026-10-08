@@ -1,5 +1,9 @@
 # Changelog
 
+## 0.9.22 - 2026-10-08
+
+This release adds `WithFieldGenerator[S]` to override individual exported struct fields in `Default`, with exact field-type validation.
+
 ## 0.9.21 - 2026-10-08
 
 `Default` now accepts `WithGenerator` options to override generation for exact types, including nested fields and collection elements. Calls with options bypass the shared generator cache.
