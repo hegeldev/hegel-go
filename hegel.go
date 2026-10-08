@@ -149,6 +149,9 @@
 //
 // # Change the number of test cases
 //
+// When go test is run with -short, Hegel reduces the number of test cases,
+// overriding [WithTestCases] and profile settings.
+//
 // By default Hegel runs 100 test cases. To override this, pass
 // [WithTestCases]:
 //

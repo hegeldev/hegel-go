@@ -572,6 +572,9 @@ func MustRun(fn func(TestCase), opts ...Option) {
 }
 
 // Test runs a property test against t.
+//
+// When [testing.Short] is true, Test reduces the number of test cases,
+// overriding [WithTestCases] and profile settings.
 func Test(t *testing.T, fn func(*T), opts ...Option) {
 	t.Helper()
 
@@ -580,6 +583,9 @@ func Test(t *testing.T, fn func(*T), opts ...Option) {
 		fn(ht)
 	}
 	allOpts := append(opts, withDatabaseKey(t.Name()), withOutput(t.Output()))
+	if testing.Short() {
+		allOpts = append(allOpts, WithTestCases(10))
+	}
 
 	if err := run(1, body, allOpts...); err != nil { // coverage-ignore (run's error is covered via Run; this only delegates to stdlib testing.T)
 		if errors.Is(err, errPropTestFailed) {
