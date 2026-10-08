@@ -7,7 +7,7 @@ import (
 	"sync"
 )
 
-var defaultGenerators sync.Map
+var defaultGenerators sync.Map // map[reflect.Type]func() Generator[T]
 
 // Default constructs a generator for T.
 //

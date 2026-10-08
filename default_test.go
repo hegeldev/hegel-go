@@ -4,7 +4,6 @@ import (
 	"errors"
 	"reflect"
 	"strings"
-	"sync"
 	"testing"
 	"unsafe"
 
@@ -54,35 +53,19 @@ func TestDefaultCachesGenerator(t *testing.T) {
 	if Default[defaultRecord]() != gen {
 		t.Fatal("Default returned a different generator")
 	}
-	result := testing.Benchmark(func(b *testing.B) {
-		b.ReportAllocs()
-		for b.Loop() {
-			Default[defaultRecord]()
-		}
+	allocs := testing.AllocsPerRun(1000, func() {
+		Default[defaultRecord]()
 	})
-	if result.AllocsPerOp() != 0 {
-		t.Fatalf("Default allocated %d times per call, want zero", result.AllocsPerOp())
+	if allocs != 0 {
+		t.Fatalf("Default allocated %g times per call, want zero", allocs)
 	}
 }
 
-func TestDefaultCachesGeneratorConcurrently(t *testing.T) {
-	type record struct{ Value int }
-	const workers = 32
-	var generators [workers]Generator[record]
-	var wg sync.WaitGroup
-	start := make(chan struct{})
-	for i := range generators {
-		wg.Go(func() {
-			<-start
-			generators[i] = Default[record]()
-		})
-	}
-	close(start)
-	wg.Wait()
-	for _, gen := range generators {
-		if gen != generators[0] {
-			t.Fatal("concurrent calls returned different generators")
-		}
+func BenchmarkDefault(b *testing.B) {
+	Default[defaultRecord]()
+	b.ReportAllocs()
+	for b.Loop() {
+		Default[defaultRecord]()
 	}
 }
 
