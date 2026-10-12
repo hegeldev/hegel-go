@@ -69,3 +69,9 @@ example_test.go:50: slices not equal: [0 0] != [0]
 ```
 
 Hegel reports the minimal example showing that our sort is incorrectly dropping duplicates. If we remove `result = slices.Compact(result)` from `mySort()`, this test will then pass (because it's just comparing the standard sort against itself).
+
+## Concurrent bank workload
+
+The [single-file bank example](examples/bank/README.md) uses `hegel.Workload`
+to test a PostgreSQL-compatible store with concurrent transaction rules and
+separate query/cursor invariants.
