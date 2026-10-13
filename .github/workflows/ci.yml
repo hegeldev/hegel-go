@@ -23,9 +23,10 @@ jobs:
         with:
           persist-credentials: false
 
+      # Staticcheck cannot read the stable toolchain's newer export data yet.
       - uses: actions/setup-go@40f1582b2485089dde7abd97c1529aa768e1baff # v5
         with:
-          go-version: stable
+          go-version: oldstable
 
       - uses: ./.github/actions/install-tools
         with:
