@@ -92,8 +92,10 @@ const (
 	// shrinking / replay work as usual.
 	BACKEND_DEFAULT Backend = iota + 1
 
-	// Read fresh entropy from /dev/urandom on every draw. Intended for running
-	// under Antithesis; you almost certainly don't want it otherwise.
+	// Take fresh entropy from outside the process on every draw: inside
+	// Antithesis, from its fuzzer via libvoidstar; elsewhere, or when that
+	// library is unavailable, from /dev/urandom. Intended for running under
+	// Antithesis; you almost certainly don't want it otherwise.
 	BACKEND_URANDOM
 )
 

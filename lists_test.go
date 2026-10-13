@@ -261,16 +261,19 @@ func TestListsNestedE2E(t *testing.T) {
 }
 
 // TestListsPropagatesElementErrorE2E verifies that when the element generator
-// returns an error, Lists.draw propagates it through its err-check path.
+// returns an error, Lists.draw propagates it through its err-check path. The
+// element always rejects, so every case is filtered out and the run ends in an
+// unsatisfiable-assumptions failure (see [assertUnsatisfiable]).
 func TestListsPropagatesElementErrorE2E(t *testing.T) {
 	t.Parallel()
 
 	rejecting := Filter(Booleans(), func(bool) bool { return false })
 	gen := Lists(rejecting).MinSize(1).MaxSize(2)
 
-	Test(t, func(ht *T) {
-		_ = Draw(ht, gen)
-	}, WithTestCases(1), SuppressHealthCheck(AllHealthChecks()...))
+	err := run(1, func(tc TestCase) {
+		_ = Draw(tc, gen)
+	}, WithTestCases(1), WithDatabase(""), SuppressHealthCheck(AllHealthChecks()...))
+	assertUnsatisfiable(t, err)
 }
 
 // TestListsMappedElementE2E verifies that Lists over a mapped element generator
