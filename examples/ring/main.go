@@ -53,7 +53,7 @@ func main() {
 			}
 		}()
 		if err := transaction(db, false, func(tx *sql.Tx) error {
-			// Uniqueness and foreign-key constraints would hide property violations.
+			// The invariant must detect duplicate IDs and dangling edges.
 			if _, err := tx.Exec(fmt.Sprintf(`CREATE TABLE %s (id BIGINT NOT NULL, counter BIGINT NOT NULL)`, m.nodes)); err != nil {
 				return fmt.Errorf("create nodes: %w", err)
 			}
@@ -77,6 +77,10 @@ func main() {
 }
 
 // RuleSwap exchanges two distinct nodes' positions in one serializable transaction.
+//
+// It selects the nodes through tc.
+//
+// It notes SQL errors and counts only successfully acknowledged commits.
 func (m *ring) RuleSwap(tc hegel.TestCase) {
 	first := hegel.Draw(tc, hegel.Integers(0, len(m.acknowledged)-1))
 	second := hegel.Draw(tc, hegel.Integers(0, len(m.acknowledged)-2))
@@ -114,6 +118,10 @@ func (m *ring) RuleSwap(tc hegel.TestCase) {
 }
 
 // InvariantRing requires the original nodes to form one ring and retain acknowledged counters.
+//
+// It reads a consistent snapshot after all rule workers have finished.
+//
+// It reports property violations through tc and notes SQL errors.
 func (m *ring) InvariantRing(tc hegel.TestCase) {
 	err := transaction(m.db, true, func(tx *sql.Tx) error {
 		rows, err := tx.Query(fmt.Sprintf(`SELECT id, counter FROM %s`, m.nodes))

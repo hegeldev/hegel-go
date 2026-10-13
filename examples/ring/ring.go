@@ -54,7 +54,7 @@ func checkRing(nodes []node, edges []edge, acknowledged []int64) error {
 	return nil
 }
 
-// swapEdges relabels both endpoints to exchange positions, including adjacent nodes.
+// swapEdges exchanges the selected nodes' positions, including adjacent nodes.
 func swapEdges(edges []edge, first, second int) (removed, added []edge) {
 	swap := func(id int) int {
 		switch id {

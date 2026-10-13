@@ -41,6 +41,7 @@ func TestCheckRing(t *testing.T) {
 		{"duplicate outgoing", func(_ *[]node, e *[]edge, _ []int64) { (*e)[1].from = 0 }, "multiple"},
 		{"duplicate incoming", func(_ *[]node, e *[]edge, _ []int64) { (*e)[1].to = 1 }, "multiple"},
 		{"split cycles", func(_ *[]node, e *[]edge, _ []int64) { *e = []edge{{0, 1}, {1, 0}, {2, 3}, {3, 2}} }, "closes before"},
+		{"isolated node", func(_ *[]node, e *[]edge, _ []int64) { *e = []edge{{0, 1}, {1, 2}, {2, 0}, {3, 3}} }, "closes before"},
 		{"self loops", func(_ *[]node, e *[]edge, _ []int64) { *e = []edge{{0, 0}, {1, 1}, {2, 2}, {3, 3}} }, "closes before"},
 	}
 	for _, tt := range tests {
@@ -85,7 +86,6 @@ func TestSwapEdges(t *testing.T) {
 					if err := checkRing(nodes, edges, make([]int64, count)); err != nil {
 						t.Fatal(err)
 					}
-					// A valid ring alone is insufficient: the selected positions must exchange.
 					order := make([]int, count)
 					for id := range count {
 						order[id] = id
