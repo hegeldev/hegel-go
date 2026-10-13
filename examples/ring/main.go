@@ -4,8 +4,25 @@
 //
 //	go run hegel.dev/go/hegel/examples/ring@latest 'postgres://user:password@localhost/ring?sslmode=disable' --test-cases=100
 //
-// Each test case creates and drops its own tables. Invariants run at join points,
-// after all rule transactions and local counter updates have finished.
+// Each test case creates a directed ring of 3–10 nodes and swaps pairs of nodes
+// in serializable transactions for up to 500 rounds. It drops its tables afterward.
+// Invariants run at join points, after all rule transactions and local counter
+// updates have finished.
+//
+// Partial edge rewrites or interference between concurrent swaps can leave missing
+// or duplicate edges, dangling connections, or multiple disconnected cycles.
+// The workload detects these failures by requiring the original nodes and edges
+// to remain one ring. It also rejects added, missing, or duplicate node IDs.
+//
+// Per-node counters detect lost counter increments from acknowledged swaps, such
+// as after a database restart. Database counters must be at least the local count
+// of successful commits; a failed commit response can leave its outcome unknown.
+// Local counters last for one test case and do not survive workload process restarts.
+//
+// SQL errors in rules and invariants are noted and skipped; initialization errors
+// fail the workload. The checks can expose atomicity, isolation, and durability
+// violations but do not establish full ACID compliance. TooSlow is suppressed
+// because each generated case includes the full database workload.
 package main
 
 import (
@@ -78,7 +95,7 @@ func main() {
 			tc.Errorf("commit initialization: %v", err)
 		}
 		hegel.RunStateful(tc, m, hegel.WithConcurrency(), hegel.WithStatefulStepCount(500))
-	})
+	}, hegel.SuppressHealthCheck(hegel.TooSlow))
 }
 
 // RuleSwap exchanges two distinct nodes' positions in one serializable transaction.

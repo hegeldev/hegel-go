@@ -29,7 +29,8 @@ and separated nodes. Node counters increase in the same transaction. There are
 up to 500 rounds per case, with a Hegel-selected worker count up to `GOMAXPROCS`.
 Reading the edges and writing the replacements use the same transaction snapshot.
 Transactions can conflict and abort; there is no global client lock or retry loop.
-Health checks remain enabled, so a slow run can stop with `TooSlow`.
+`TooSlow` is suppressed because each generated case can include up to 500 rounds
+of database work; the other health checks retain their defaults.
 
 The invariant reads nodes, counters, and edges in one serializable snapshot.
 It checks that the original node IDs each occur exactly once, the edge count is
