@@ -13,3 +13,4 @@ exclude:
     - internal/cgo/handle\.go$
     # Standalone SQL workload, checked against a live database.
     - examples/bank/main\.go$
+    - examples/ring/main\.go$
