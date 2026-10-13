@@ -1,6 +1,6 @@
 # Concurrent ring workload
 
-This example implements the [Antithesis ring test](https://antithesis.com/docs/resources/ring_test/)
+[main.go](main.go) is a single-file, standalone example implementing the [Antithesis ring test](https://antithesis.com/docs/resources/ring_test/)
 using the same `hegel.Workload`, `database/sql`, and PostgreSQL driver setup as
 [bank](../bank/README.md). It needs no Antithesis services. The example shares
 Hegel's module and release version; importing Hegel does not import the SQL driver.
@@ -11,10 +11,10 @@ Once published, run against a dedicated test database:
 go run hegel.dev/go/hegel/examples/ring@latest 'postgres://user:password@localhost/ring?sslmode=disable' --test-cases=100
 ```
 
-From this checkout, omit the version suffix:
+From this checkout, run the single file from the repository root:
 
 ```sh
-go run hegel.dev/go/hegel/examples/ring 'postgres://user:password@localhost/ring?sslmode=disable' --test-cases=100
+go run examples/ring/main.go 'postgres://user:password@localhost/ring?sslmode=disable' --test-cases=100
 ```
 
 Omit `--test-cases` to run indefinitely. Hegel's `--database` flag selects the
@@ -53,9 +53,9 @@ uniqueness or foreign-key constraints, allowing the invariant to detect
 corruption. The checks expose violations of these properties but do not prove
 full ACID compliance.
 
-`ring_test.go` tests the topology and counter checks and every ordered node pair
-for rings of size 3–10. The SQL entry point, like bank, is excluded from unit-test
-coverage and is checked against a live database. To adapt another DBMS, change
+`main_test.go` tests the topology and counter checks and every ordered node pair
+for rings of size 3–10. The standalone example, like bank, is excluded from the
+unit-test coverage threshold and is also checked against a live database. To adapt another DBMS, change
 its SQL syntax and isolation options in `main.go`. PostgreSQL wire compatibility
 alone does not guarantee serializable transaction support. Operations have
 30-second context deadlines; configure database lock timeouts externally if needed.
