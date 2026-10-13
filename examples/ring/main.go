@@ -1,28 +1,20 @@
-// Ring tests PostgreSQL-compatible stores using concurrent graph transactions.
+// Ring looks for atomicity, isolation, and durability violations in PostgreSQL-compatible stores.
+//
+// Atomicity violations leave only part of a transaction's changes visible.
+// A partially applied node swap can leave missing or duplicate links.
+//
+// Isolation violations let concurrent transactions interfere and produce a result
+// that no serial execution could produce. Individually valid swaps can together
+// break the ring into disconnected cycles or leave invalid links or node identities.
+//
+// Durability violations lose changes that the database already acknowledged as
+// committed, for example after a crash or restart.
+//
+// The workload can expose these violations; it does not prove full ACID compliance.
 //
 // Run against a dedicated test database:
 //
 //	go run hegel.dev/go/hegel/examples/ring@latest 'postgres://user:password@localhost/ring?sslmode=disable' --test-cases=100
-//
-// Each test case creates a directed ring of 3–10 nodes and swaps pairs of nodes
-// in serializable transactions for up to 500 rounds. It drops its tables afterward.
-// Invariants run at join points, after all rule transactions and local counter
-// updates have finished.
-//
-// Partial edge rewrites or interference between concurrent swaps can leave missing
-// or duplicate edges, dangling connections, or multiple disconnected cycles.
-// The workload detects these failures by requiring the original nodes and edges
-// to remain one ring. It also rejects added, missing, or duplicate node IDs.
-//
-// Per-node counters detect lost counter increments from acknowledged swaps, such
-// as after a database restart. Database counters must be at least the local count
-// of successful commits; a failed commit response can leave its outcome unknown.
-// Local counters last for one test case and do not survive workload process restarts.
-//
-// SQL errors in rules and invariants are noted and skipped; initialization errors
-// fail the workload. The checks can expose atomicity, isolation, and durability
-// violations but do not establish full ACID compliance. TooSlow is suppressed
-// because each generated case includes the full database workload.
 package main
 
 import (
