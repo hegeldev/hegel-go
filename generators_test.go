@@ -488,16 +488,19 @@ func TestFlatMappedGeneratorDependency(t *testing.T) {
 // TestFlatMappedGeneratorSourceError covers the source.draw err path in
 // flatMappedGenerator.draw. The source Filter always rejects, so after
 // maxFilterAttempts it returns a rejection, which flatMappedGenerator.draw
-// propagates from inside its withSpan body.
+// propagates from inside its withSpan body. Every case is thereby filtered out,
+// so the run ends in an unsatisfiable-assumptions failure (see
+// [assertUnsatisfiable]).
 func TestFlatMappedGeneratorSourceError(t *testing.T) {
 	t.Parallel()
 	source := Filter(Booleans(), func(bool) bool { return false })
 	gen := FlatMap[bool, bool](source, func(bool) Generator[bool] {
 		return Booleans()
 	})
-	Test(t, func(ht *T) {
-		_ = Draw(ht, gen)
-	}, WithTestCases(20), SuppressHealthCheck(FilterTooMuch))
+	err := run(1, func(tc TestCase) {
+		_ = Draw(tc, gen)
+	}, WithTestCases(20), WithDatabase(""), SuppressHealthCheck(FilterTooMuch))
+	assertUnsatisfiable(t, err)
 }
 
 // =============================================================================

@@ -38,12 +38,26 @@ func TestRunHegelTestPasses(t *testing.T) {
 	}
 }
 
+// assertUnsatisfiable asserts that err is the unsatisfiable-assumptions failure
+// libhegel reports when every generated case is filtered out via Assume.
+// libhegel 0.45.3 reports a fully-filtered run as an error verdict
+// (RUN_STATUS_ERROR, surfaced as [errPropTestFailed]) rather than the vacuous
+// pass earlier versions produced.
+func assertUnsatisfiable(t *testing.T, err error) {
+	t.Helper()
+	if !errors.Is(err, errPropTestFailed) || !strings.Contains(err.Error(), "Unsatisfiable") {
+		t.Fatalf("expected unsatisfiable-assumptions failure, got %v", err)
+	}
+}
+
 func TestRunHegelTestAllInvalid(t *testing.T) {
-	// A test that always calls Assume(false) should pass (all cases rejected).
-	Test(t, func(ht *T) {
-		_ = Draw[bool](ht, Booleans())
-		ht.Assume(false)
-	}, WithTestCases(5), SuppressHealthCheck(FilterTooMuch))
+	// A test that always calls Assume(false) rejects every case, which libhegel
+	// reports as an unsatisfiable-assumptions failure.
+	err := run(1, func(tc TestCase) {
+		_ = Draw[bool](tc, Booleans())
+		tc.Assume(false)
+	}, WithTestCases(5), WithDatabase(""), SuppressHealthCheck(FilterTooMuch))
+	assertUnsatisfiable(t, err)
 }
 
 func TestAssumeTrue(t *testing.T) {
@@ -1429,9 +1443,7 @@ func TestDrawMapKeyError(t *testing.T) {
 			errGen[int]{err: libhegel.E_ASSUME}, errGen[int]{},
 		).MinSize(1))
 	}, WithTestCases(5), WithDatabase(""), SuppressHealthCheck(FilterTooMuch))
-	if err != nil {
-		t.Fatalf("expected all-invalid pass, got %v", err)
-	}
+	assertUnsatisfiable(t, err)
 }
 
 // TestDrawMapValueError covers the map value-draw error branch. It mirrors
@@ -1446,9 +1458,7 @@ func TestDrawMapValueError(t *testing.T) {
 			Integers[int](0, 5), errGen[int]{err: libhegel.E_ASSUME},
 		).MinSize(1))
 	}, WithTestCases(5), WithDatabase(""), SuppressHealthCheck(FilterTooMuch))
-	if err != nil {
-		t.Fatalf("expected all-invalid pass, got %v", err)
-	}
+	assertUnsatisfiable(t, err)
 }
 
 // TestDrawMapBasic covers the map collection path with primitive keys + values.
