@@ -1,5 +1,9 @@
 # Changelog
 
+## 0.9.23 - 2026-10-13
+
+This patch bumps our pinned libhegel ([hegel-rust](hegeldev/hegel-rust)) from [0.45.1](https://github.com/hegeldev/hegel-rust/releases/tag/libhegel-v0.45.1) to [0.45.3](https://github.com/hegeldev/hegel-rust/releases/tag/libhegel-v0.45.3).
+
 ## 0.9.22 - 2026-10-08
 
 This release adds `WithFieldGenerator[S]` to override individual exported struct fields in `Default`, with exact field-type validation.
