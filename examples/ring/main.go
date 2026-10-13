@@ -5,7 +5,7 @@
 //
 // Isolation violations let concurrent transactions interfere and produce a result
 // that no serial execution could produce. Individually valid swaps can together
-// break the ring into disconnected cycles or leave invalid links or node identities.
+// break the ring into disconnected cycles or leave invalid links.
 //
 // Durability violations lose changes that the database already acknowledged as
 // committed, for example after a crash or restart.
