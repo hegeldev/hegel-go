@@ -29,6 +29,7 @@ and separated nodes. Node counters increase in the same transaction. There are
 up to 500 rounds per case, with a Hegel-selected worker count up to `GOMAXPROCS`.
 Reading the edges and writing the replacements use the same transaction snapshot.
 Transactions can conflict and abort; there is no global client lock or retry loop.
+Health checks remain enabled, so a slow run can stop with `TooSlow`.
 
 The invariant reads nodes, counters, and edges in one serializable snapshot.
 It checks that the original node IDs each occur exactly once, the edge count is
@@ -54,7 +55,10 @@ corruption. The checks expose violations of these properties but do not prove
 full ACID compliance.
 
 `main_test.go` tests the topology and counter checks and every ordered node pair
-for rings of size 3–10. The standalone example, like bank, is excluded from the
+for rings of size 3–10. Set `HEGEL_RING_DATABASE_URL` to run the PostgreSQL
+integration tests for commit outcomes, isolation options, and SQL error reporting.
+These tests check that local acknowledgements match committed writes.
+The standalone example, like bank, is excluded from the
 unit-test coverage threshold and is also checked against a live database. To adapt another DBMS, change
 its SQL syntax and isolation options in `main.go`. PostgreSQL wire compatibility
 alone does not guarantee serializable transaction support. Operations have

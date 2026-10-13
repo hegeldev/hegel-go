@@ -52,28 +52,33 @@ func main() {
 				tc.Note(fmt.Sprintf("drop test tables: %v", err))
 			}
 		}()
-		if err := transaction(db, false, func(tx *sql.Tx) error {
-			// The invariant must detect duplicate IDs and dangling edges.
-			if _, err := tx.Exec(fmt.Sprintf(`CREATE TABLE %s (id BIGINT NOT NULL, counter BIGINT NOT NULL)`, m.nodes)); err != nil {
-				return fmt.Errorf("create nodes: %w", err)
+		ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+		defer cancel()
+		tx, err := db.BeginTx(ctx, &sql.TxOptions{Isolation: sql.LevelSerializable})
+		if err != nil {
+			tc.Errorf("begin initialization: %v", err)
+		}
+		defer tx.Rollback()
+		// The invariant must detect duplicate IDs and dangling edges.
+		if _, err := tx.Exec(fmt.Sprintf(`CREATE TABLE %s (id BIGINT NOT NULL, counter BIGINT NOT NULL)`, m.nodes)); err != nil {
+			tc.Errorf("create nodes: %v", err)
+		}
+		if _, err := tx.Exec(fmt.Sprintf(`CREATE TABLE %s (src BIGINT NOT NULL, dst BIGINT NOT NULL)`, m.edges)); err != nil {
+			tc.Errorf("create edges: %v", err)
+		}
+		for id := range count {
+			if _, err := tx.Exec(fmt.Sprintf(`INSERT INTO %s (id, counter) VALUES ($1, 0)`, m.nodes), id); err != nil {
+				tc.Errorf("insert node: %v", err)
 			}
-			if _, err := tx.Exec(fmt.Sprintf(`CREATE TABLE %s (src BIGINT NOT NULL, dst BIGINT NOT NULL)`, m.edges)); err != nil {
-				return fmt.Errorf("create edges: %w", err)
+			if _, err := tx.Exec(fmt.Sprintf(`INSERT INTO %s (src, dst) VALUES ($1, $2)`, m.edges), id, (id+1)%count); err != nil {
+				tc.Errorf("insert edge: %v", err)
 			}
-			for id := range count {
-				if _, err := tx.Exec(fmt.Sprintf(`INSERT INTO %s (id, counter) VALUES ($1, 0)`, m.nodes), id); err != nil {
-					return fmt.Errorf("insert node: %w", err)
-				}
-				if _, err := tx.Exec(fmt.Sprintf(`INSERT INTO %s (src, dst) VALUES ($1, $2)`, m.edges), id, (id+1)%count); err != nil {
-					return fmt.Errorf("insert edge: %w", err)
-				}
-			}
-			return nil
-		}); err != nil {
-			tc.Errorf("initialize ring: %v", err)
+		}
+		if err := tx.Commit(); err != nil {
+			tc.Errorf("commit initialization: %v", err)
 		}
 		hegel.RunStateful(tc, m, hegel.WithConcurrency(), hegel.WithStatefulStepCount(500))
-	}, hegel.SuppressHealthCheck(hegel.TooSlow))
+	})
 }
 
 // RuleSwap exchanges two distinct nodes' positions in one serializable transaction.
@@ -87,7 +92,7 @@ func (m *ring) RuleSwap(tc hegel.TestCase) {
 	if second >= first {
 		second++
 	}
-	err := transaction(m.db, false, func(tx *sql.Tx) error {
+	transaction(tc, m.db, nil, func(tx *sql.Tx) error {
 		edges, err := m.readEdges(tx)
 		if err != nil {
 			return err
@@ -107,14 +112,11 @@ func (m *ring) RuleSwap(tc hegel.TestCase) {
 			return fmt.Errorf("increment counters: %w", err)
 		}
 		return nil
+	}, func() {
+		// Count only acknowledged commits; a connection error leaves the outcome unknown.
+		m.acknowledged[first].Add(1)
+		m.acknowledged[second].Add(1)
 	})
-	if err != nil {
-		tc.Note(fmt.Sprintf("swap transaction: %v", err))
-		return
-	}
-	// Count only acknowledged commits; a connection error leaves the outcome unknown.
-	m.acknowledged[first].Add(1)
-	m.acknowledged[second].Add(1)
 }
 
 // InvariantRing requires the original nodes to form one ring and retain acknowledged counters.
@@ -123,7 +125,7 @@ func (m *ring) RuleSwap(tc hegel.TestCase) {
 //
 // It reports property violations through tc and notes SQL errors.
 func (m *ring) InvariantRing(tc hegel.TestCase) {
-	err := transaction(m.db, true, func(tx *sql.Tx) error {
+	transaction(tc, m.db, &sql.TxOptions{Isolation: sql.LevelSerializable, ReadOnly: true}, func(tx *sql.Tx) error {
 		rows, err := tx.Query(fmt.Sprintf(`SELECT id, counter FROM %s`, m.nodes))
 		if err != nil {
 			return fmt.Errorf("query nodes: %w", err)
@@ -155,9 +157,6 @@ func (m *ring) InvariantRing(tc hegel.TestCase) {
 		}
 		return nil
 	})
-	if err != nil {
-		tc.Note(fmt.Sprintf("ring validation: %v", err))
-	}
 }
 
 func (m *ring) readEdges(tx *sql.Tx) ([]edge, error) {
@@ -177,19 +176,31 @@ func (m *ring) readEdges(tx *sql.Tx) ([]edge, error) {
 	return edges, rows.Err()
 }
 
-func transaction(db *sql.DB, readOnly bool, fn func(*sql.Tx) error) error {
-	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
-	defer cancel()
-	tx, err := db.BeginTx(ctx, &sql.TxOptions{Isolation: sql.LevelSerializable, ReadOnly: readOnly})
+func transaction(tc hegel.TestCase, db *sql.DB, opts *sql.TxOptions, fn func(*sql.Tx) error, onCommit ...func()) {
+	err := func() error {
+		if opts == nil {
+			opts = &sql.TxOptions{Isolation: sql.LevelSerializable}
+		}
+		ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+		defer cancel()
+		tx, err := db.BeginTx(ctx, opts)
+		if err != nil {
+			return fmt.Errorf("begin transaction: %w", err)
+		}
+		// Rollback also runs if Hegel aborts the transaction callback.
+		defer tx.Rollback()
+		if err := fn(tx); err != nil {
+			return err
+		}
+		return tx.Commit()
+	}()
 	if err != nil {
-		return fmt.Errorf("begin transaction: %w", err)
+		tc.Note(fmt.Sprintf("SQL operation failed: %v", err))
+		return
 	}
-	// Rollback also runs if Hegel aborts the callback after a property violation.
-	defer tx.Rollback()
-	if err := fn(tx); err != nil {
-		return err
+	for _, committed := range onCommit {
+		committed()
 	}
-	return tx.Commit()
 }
 
 type node struct {

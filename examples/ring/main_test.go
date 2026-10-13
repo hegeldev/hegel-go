@@ -1,10 +1,15 @@
 package main
 
 import (
+	"crypto/rand"
+	"database/sql"
 	"fmt"
+	"os"
 	"slices"
 	"strings"
 	"testing"
+
+	"hegel.dev/go/hegel"
 )
 
 func initialRing(count int) ([]node, []edge) {
@@ -100,5 +105,102 @@ func TestSwapEdges(t *testing.T) {
 				})
 			}
 		}
+	}
+}
+
+type noteTestCase struct {
+	hegel.TestCase
+	notes []string
+}
+
+func (tc *noteTestCase) Note(message string) {
+	tc.notes = append(tc.notes, message)
+}
+
+func TestTransactionCommitCallbacks(t *testing.T) {
+	databaseURL := os.Getenv("HEGEL_RING_DATABASE_URL")
+	if databaseURL == "" {
+		t.Skip("set HEGEL_RING_DATABASE_URL to run PostgreSQL integration tests")
+	}
+	tests := []struct {
+		name                                   string
+		callbackError, commitError, beginError bool
+		opts                                   *sql.TxOptions
+		want                                   int
+	}{
+		{name: "committed", want: 1},
+		{name: "callback failed", callbackError: true},
+		{name: "commit failed", commitError: true},
+		{name: "begin failed", beginError: true},
+		{name: "read only", opts: &sql.TxOptions{Isolation: sql.LevelSerializable, ReadOnly: true}},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			db, err := sql.Open("postgres", databaseURL)
+			if err != nil {
+				t.Fatal(err)
+			}
+			defer db.Close()
+			table := "ring_transaction_" + rand.Text()
+			if _, err := db.Exec(fmt.Sprintf(`CREATE TABLE %s (id INT UNIQUE DEFERRABLE INITIALLY DEFERRED)`, table)); err != nil {
+				t.Fatal(err)
+			}
+			defer func() {
+				if _, err := db.Exec(fmt.Sprintf(`DROP TABLE %s`, table)); err != nil {
+					t.Error(err)
+				}
+			}()
+			txDB := db
+			if tt.beginError {
+				txDB, err = sql.Open("postgres", databaseURL)
+				if err != nil {
+					t.Fatal(err)
+				}
+				if err := txDB.Close(); err != nil {
+					t.Fatal(err)
+				}
+			}
+			tc := &noteTestCase{}
+			acknowledged := 0
+			callbackInvoked := false
+			transaction(tc, txDB, tt.opts, func(tx *sql.Tx) error {
+				callbackInvoked = true
+				var isolation string
+				if err := tx.QueryRow(`SHOW transaction_isolation`).Scan(&isolation); err != nil {
+					return err
+				}
+				if isolation != "serializable" {
+					t.Errorf("transaction isolation = %q, want serializable", isolation)
+				}
+				if _, err := tx.Exec(fmt.Sprintf(`INSERT INTO %s VALUES (1)`, table)); err != nil {
+					return err
+				}
+				if tt.callbackError {
+					return fmt.Errorf("operation failed after writing")
+				}
+				if tt.commitError {
+					_, err := tx.Exec(fmt.Sprintf(`INSERT INTO %s VALUES (1)`, table))
+					return err
+				}
+				return nil
+			}, func() { acknowledged++ })
+			if callbackInvoked == tt.beginError {
+				t.Errorf("transaction callback invoked = %v, begin error = %v", callbackInvoked, tt.beginError)
+			}
+			if tt.want == 1 {
+				if len(tc.notes) != 0 {
+					t.Errorf("successful transaction notes: %v", tc.notes)
+				}
+			} else if len(tc.notes) != 1 || !strings.Contains(tc.notes[0], "SQL operation failed:") {
+				t.Errorf("failed transaction notes: %v", tc.notes)
+			}
+			var count int
+			if err := db.QueryRow(fmt.Sprintf(`SELECT COUNT(*) FROM %s`, table)).Scan(&count); err != nil {
+				t.Fatal(err)
+			}
+			if acknowledged != tt.want || count != tt.want {
+				t.Fatalf("acknowledged = %d, stored rows = %d, want %d", acknowledged, count, tt.want)
+			}
+		})
 	}
 }
