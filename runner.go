@@ -28,13 +28,14 @@ const (
 //
 // It is compatible with most popular TestingT interfaces from assert libraries.
 type testCase struct {
-	ctx         *libhegel.Context
-	tc          *libhegel.TestCase
-	out         io.Writer // Final destination, owned only by the root; nil on clones.
-	printer     *libhegel.Printer
-	depth       int
-	panicPolicy panicPolicy
-	abortFn     func(error)
+	ctx               *libhegel.Context
+	tc                *libhegel.TestCase
+	out               io.Writer // Final destination, owned only by the root; nil on clones.
+	printer           *libhegel.Printer
+	depth             int
+	panicPolicy       panicPolicy
+	failureOutputOnly bool
+	abortFn           func(error)
 }
 
 func newTestCase(ctx *libhegel.Context, tc *libhegel.TestCase, out io.Writer, policy panicPolicy) (*testCase, error) {
@@ -672,27 +673,22 @@ func runWithContext(ctx *libhegel.Context, fn testBody, opts runOptions) (err er
 			break
 		}
 
-		if opts.replay != "" {
-			if err := replayAttempt(ctx, tc, fn, opts.output); err != nil {
+		replaying := opts.replay != ""
+		var nondeterministic bool
+		if !replaying {
+			nondeterministic, err = tc.ShouldCapture(ctx)
+			if err != nil {
 				return err
 			}
-			continue
-		}
-
-		nondeterministic, err := tc.ShouldCapture(ctx)
-		if err != nil {
-			return err
 		}
 
 		var out io.Writer
 		policy := captureUserPanics
-		if nondeterministic {
-			// Buffer non-deterministic test cases, because we only know whether
-			// we should output them after they have run. At which point we
-			// can't recreate them because replay isn't available.
-			//
-			// NB: It doesn't make sense to propagate user panics when buffering
-			// output because we can't flush the buffer on a panic.
+		if replaying {
+			out = opts.output
+			policy = propagateUserPanics
+		} else if nondeterministic {
+			// Buffer nondeterministic failures until the run identifies the one to report.
 			out = new(bytes.Buffer)
 		}
 
@@ -701,6 +697,7 @@ func runWithContext(ctx *libhegel.Context, fn testBody, opts runOptions) (err er
 			return err
 		}
 
+		state.failureOutputOnly = replaying
 		failed, err := state.run(fn)
 		if err != nil {
 			return err
@@ -812,7 +809,12 @@ func (s *testCase) invoke(fn testBody) (result error) {
 
 func (s *testCase) run(fn testBody) (failed bool, err error) {
 	var result error
+	finished := false
 	defer func() {
+		// Preserve output when a user panic interrupts the invocation.
+		if s.failureOutputOnly && finished && result == nil {
+			return
+		}
 		// Rejected and overrun cases are probes, not results. Their native
 		// documents must remain private even when this case owns an output
 		// destination.
@@ -824,6 +826,7 @@ func (s *testCase) run(fn testBody) (failed bool, err error) {
 	}()
 
 	result = s.invoke(fn)
+	finished = true
 	if result == nil {
 		return false, s.tc.MarkComplete(s.ctx, libhegel.STATUS_VALID, "")
 	}
@@ -860,29 +863,6 @@ func (s *testCase) flushNativeOutput() error {
 		return err
 	}
 	_, err = io.WriteString(s.out, value)
-	return err
-}
-
-// Passing replay attempts must not emit notes or drawn values.
-func replayAttempt(ctx *libhegel.Context, tc *libhegel.TestCase, fn testBody, out io.Writer) (err error) {
-	var buffer bytes.Buffer
-	var capture io.Writer
-	if out != nil {
-		capture = &buffer
-	}
-	state, err := newTestCase(ctx, tc, capture, propagateUserPanics)
-	if err != nil {
-		return err
-	}
-	var failed, finished bool
-	defer func() {
-		if out != nil && (failed || !finished) {
-			_, writeErr := io.Copy(out, &buffer)
-			err = errors.Join(err, writeErr)
-		}
-	}()
-	failed, err = state.run(fn)
-	finished = true
 	return err
 }
 

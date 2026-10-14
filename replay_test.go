@@ -75,8 +75,15 @@ func TestReplayUserPanic(t *testing.T) {
 		if !strings.Contains(out.String(), "hegel.WithReplay(\""+blob+"\")") {
 			t.Errorf("missing blob after panic: %s", &out)
 		}
+		if !strings.Contains(out.String(), "note before panic") {
+			t.Errorf("missing notes after panic: %s", &out)
+		}
 	}()
-	_ = run(1, func(tc TestCase) { _ = Draw(tc, Integers[int](1, 10)); panic("user panic") }, WithReplay(blob), WithReproductionBlob(true), withOutput(&out))
+	_ = run(1, func(tc TestCase) {
+		_ = Draw(tc, Integers[int](1, 10))
+		tc.Note("note before panic")
+		panic("user panic")
+	}, WithReplay(blob), WithReproductionBlob(true), withOutput(&out))
 }
 
 func TestReplayErrors(t *testing.T) {
