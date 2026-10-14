@@ -42,6 +42,7 @@ func workload(callerSkip int, args []string, stdout io.Writer, stderr io.Writer,
 	fs := flag.NewFlagSet(args[0], flag.ContinueOnError)
 	fs.SetOutput(stderr)
 
+	fs.Var(&replayFlag{}, "replay", "reproduction `blob` to replay (repeatable; first wins)")
 	fs.Var(&testCasesFlag{}, "test-cases", "maximum `number` of test cases to run")
 	fs.Var(&derandomizeFlag{}, "derandomize", "use a fixed seed for reproducible runs")
 	fs.Var(&databaseFlag{}, "database", "example database `path`; empty string disables persistence")
@@ -178,4 +179,24 @@ func parseHealthCheck(name string) (HealthCheck, error) {
 		}
 	}
 	return 0, fmt.Errorf("unknown health check %q", name)
+}
+
+// replayFlag keeps the first --replay value and overrides options supplied to Workload.
+type replayFlag struct {
+	blob string
+	set  bool
+}
+
+func (f *replayFlag) String() string { return f.blob }
+
+func (f *replayFlag) Set(blob string) error {
+	if !f.set {
+		f.blob = blob
+		f.set = true
+	}
+	return nil
+}
+
+func (f *replayFlag) Option() Option {
+	return func(o *runOptions) { o.replay = &f.blob }
 }

@@ -391,6 +391,7 @@ type settingApplier func(*libhegel.Context, *libhegel.Settings) error
 type runOptions struct {
 	settingsAppliers []settingApplier
 	profile          string
+	replay           *string
 
 	// output receives note/draw-report output during the final replay of
 	// interesting cases. nil means no output.
@@ -513,6 +514,21 @@ func WithStatistics(show bool) Option {
 	}
 }
 
+// WithReplay replays a reproduction blob instead of generating test cases.
+//
+// blob is the base64 reproduction blob printed for a previous failure. When
+// multiple WithReplay options are supplied, only the first is used.
+//
+// The run fails if the blob is invalid or no longer reproduces a failure.
+// Reproduced failures include notes and drawn values as in a normal final replay.
+func WithReplay(blob string) Option {
+	return func(o *runOptions) {
+		if o.replay == nil {
+			o.replay = &blob
+		}
+	}
+}
+
 // WithReproductionBlob controls whether failure output includes the base64
 // reproduction blob for the counterexample. The blob remains available to the
 // runner for replay regardless of this setting.
@@ -621,6 +637,10 @@ func runWithContext(ctx *libhegel.Context, fn testBody, opts runOptions) error {
 	s, err := opts.buildSettings(ctx)
 	if err != nil {
 		return err
+	}
+
+	if opts.replay != nil {
+		return replayBlob(ctx, s, fn, opts)
 	}
 
 	run, err := s.RunStart(ctx, opts.output)
@@ -813,6 +833,51 @@ func (s *testCase) flushNativeOutput() error {
 	return err
 }
 
+// replayBlob lets the engine replay both deterministic and nondeterministic blobs.
+func replayBlob(ctx *libhegel.Context, s *libhegel.Settings, fn testBody, opts runOptions) (err error) {
+	run, err := s.RunStartBlob(ctx, *opts.replay, opts.output)
+	if err != nil {
+		return err
+	}
+	printBlob, err := s.GetPrintBlob(ctx)
+	if err != nil {
+		return err
+	}
+	defer func() {
+		if printBlob && opts.output != nil {
+			err = errors.Join(err, writeReplayBlob(opts.output, *opts.replay))
+		}
+	}()
+	for {
+		tc, err := run.NextTestCase(ctx)
+		if err != nil {
+			return err
+		}
+		if tc == nil {
+			break
+		}
+		state, err := newTestCase(ctx, tc, opts.output, propagateUserPanics)
+		if err != nil {
+			return err
+		}
+		if _, err := state.run(fn); err != nil {
+			return err
+		}
+	}
+	result, err := run.RunResult(ctx)
+	if err != nil {
+		return err
+	}
+	switch result.Status(ctx) {
+	case libhegel.RUN_STATUS_PASSED:
+		return fmt.Errorf("%w: reproduction blob no longer reproduces a failure", errPropTestFailed)
+	case libhegel.RUN_STATUS_ERROR:
+		return fmt.Errorf("%w: %s", errPropTestFailed, result.ErrorMessage(ctx))
+	default:
+		return errPropTestFailed
+	}
+}
+
 // replayFailures walks the failures of a result and replays fn against them.
 //
 // Returns an error describing the failures.
@@ -853,10 +918,15 @@ func replayFailure(state *testCase, fn testBody, out io.Writer, printBlob bool, 
 		if !printBlob || out == nil {
 			return
 		}
-		_, writeErr := fmt.Fprintf(out, "reproduction blob: %s\n", blob)
+		writeErr := writeReplayBlob(out, blob)
 		err = errors.Join(err, writeErr)
 	}()
 	_, err = state.run(fn)
+	return err
+}
+
+func writeReplayBlob(out io.Writer, blob string) error {
+	_, err := fmt.Fprintf(out, "reproduction blob: %s\nhegel.WithReplay(%q)\n", blob, blob)
 	return err
 }
 
