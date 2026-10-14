@@ -2,6 +2,7 @@ package hegel
 
 import (
 	"errors"
+	"fmt"
 	"io"
 	"strings"
 	"testing"
@@ -23,7 +24,7 @@ func reproductionBlob(t *testing.T) string {
 	if !ok {
 		t.Fatalf("no blob in %q", out.String())
 	}
-	blob, _, _ := strings.Cut(rest, "\n")
+	blob, _, _ := strings.Cut(rest, " ")
 	if !strings.Contains(out.String(), "hegel.WithReplay(\""+blob+"\")") {
 		t.Fatalf("missing replay option: %s", &out)
 	}
@@ -55,10 +56,8 @@ func TestReplayBlob(t *testing.T) {
 
 func TestReplayStaleAndInvalid(t *testing.T) {
 	blob := reproductionBlob(t)
-	for _, invalid := range []string{"", "not-base64"} {
-		if err := Run(func(TestCase) { t.Error("invalid blob ran body") }, WithReplay(invalid)); err == nil {
-			t.Fatal("invalid blob succeeded")
-		}
+	if err := Run(func(TestCase) { t.Error("invalid blob ran body") }, WithReplay("not-base64")); err == nil {
+		t.Fatal("invalid blob succeeded")
 	}
 	err := Run(func(tc TestCase) { _ = Draw(tc, Integers[int](1, 10)) }, WithReplay(blob), WithReproductionBlob(false))
 	if !errors.Is(err, errPropTestFailed) || !strings.Contains(err.Error(), "no longer reproduces") {
@@ -179,5 +178,32 @@ func TestReplayFailureOutputWriteError(t *testing.T) {
 	}, WithReplay(blob), WithReproductionBlob(false), withOutput(nonemptyWriteError{want}))
 	if !errors.Is(err, want) {
 		t.Fatalf("error=%v, want %v", err, want)
+	}
+}
+
+func TestReplayEmptyBlob(t *testing.T) {
+	calls := 0
+	err := Run(func(TestCase) { calls++ }, WithReplay(""), WithTestCases(1), WithDatabase(""))
+	if err != nil || calls != 1 {
+		t.Fatalf("empty blob should generate: err=%v calls=%d", err, calls)
+	}
+}
+
+func TestReplayFailureVerdicts(t *testing.T) {
+	for _, status := range []libhegel.RunStatus{libhegel.RUN_STATUS_FAILED, libhegel.RUN_STATUS_FAILED_NONDETERMINISTIC} {
+		t.Run(fmt.Sprint(status), func(t *testing.T) {
+			ctx := libhegel.Stub(t,
+				uintptr(1), libhegel.OK,
+				uintptr(1), libhegel.OK,
+				false, libhegel.OK,
+				uintptr(0), libhegel.OK,
+				uintptr(1), libhegel.OK,
+				status, libhegel.OK,
+			)
+			err := runWithContext(ctx, func(TestCase) { t.Error("unexpected extra replay") }, applyOpts([]Option{WithReplay("blob")}))
+			if !errors.Is(err, errPropTestFailed) {
+				t.Fatalf("replay verdict: %v", err)
+			}
+		})
 	}
 }

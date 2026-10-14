@@ -197,5 +197,5 @@ func (f *replayFlag) Set(blob string) error {
 }
 
 func (f *replayFlag) Option() Option {
-	return func(o *runOptions) { o.replay = &f.blob }
+	return func(o *runOptions) { o.replay = f.blob }
 }
