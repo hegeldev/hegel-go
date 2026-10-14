@@ -514,7 +514,7 @@ func WithStatistics(show bool) Option {
 	}
 }
 
-// WithReplay replays a reproduction blob instead of generating test cases.
+// WithReplay runs a property test from a reproduction blob.
 //
 // blob is the base64 reproduction blob printed for a previous failure. When
 // multiple WithReplay options are supplied, only the first is used.
@@ -833,7 +833,6 @@ func (s *testCase) flushNativeOutput() error {
 	return err
 }
 
-// replayBlob lets the engine replay both deterministic and nondeterministic blobs.
 func replayBlob(ctx *libhegel.Context, s *libhegel.Settings, fn testBody, opts runOptions) (err error) {
 	run, err := s.RunStartBlob(ctx, *opts.replay, opts.output)
 	if err != nil {
@@ -874,7 +873,7 @@ func replayBlob(ctx *libhegel.Context, s *libhegel.Settings, fn testBody, opts r
 	}
 }
 
-// replayAttempt keeps passing retry output private and preserves user panic stacks.
+// Passing replay attempts must not emit notes or drawn values.
 func replayAttempt(ctx *libhegel.Context, tc *libhegel.TestCase, fn testBody, out io.Writer) (err error) {
 	var buffer bytes.Buffer
 	var capture io.Writer

@@ -181,7 +181,6 @@ func parseHealthCheck(name string) (HealthCheck, error) {
 	return 0, fmt.Errorf("unknown health check %q", name)
 }
 
-// replayFlag keeps the first --replay value and overrides options supplied to Workload.
 type replayFlag struct {
 	blob string
 	set  bool
