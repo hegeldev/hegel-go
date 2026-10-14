@@ -101,6 +101,9 @@ func TestReplayErrors(t *testing.T) {
 			returns := append([]any{uintptr(1), libhegel.OK}, c.returns...)
 			opts := applyOpts([]Option{WithReplay("blob"), withOutput(c.output)})
 			err := runWithContext(libhegel.Stub(t, returns...), func(TestCase) {}, opts)
+			if c.name == "engine" && !errors.Is(err, errPropTestFailed) {
+				t.Fatalf("engine error lost property-failure sentinel: %v", err)
+			}
 			if err == nil || !strings.Contains(err.Error(), c.want) {
 				t.Fatalf("error = %v, want %s", err, c.want)
 			}
@@ -120,6 +123,9 @@ func TestWorkloadReplay(t *testing.T) {
 	if !errors.Is(err, errPropTestFailed) || calls != 1 || !strings.Contains(out.String(), "CLI failure") {
 		t.Fatalf("err=%v calls=%d output=%q", err, calls, out.String())
 	}
+	if strings.Contains(out.String(), "hegel.WithReplay(") {
+		t.Fatalf("blob printed while disabled: %s", &out)
+	}
 	f := &replayFlag{}
 	if f.String() != "" {
 		t.Fatal("nonempty default")
@@ -128,5 +134,50 @@ func TestWorkloadReplay(t *testing.T) {
 	_ = f.Set("ignored")
 	if f.String() != blob {
 		t.Fatal("first flag did not win")
+	}
+}
+
+func TestReplayPrintingWithoutWriter(t *testing.T) {
+	blob := reproductionBlob(t)
+	err := run(1, func(tc TestCase) {
+		_ = Draw(tc, Integers[int](1, 10))
+		tc.Errorf("silent failure")
+	}, WithReplay(blob), WithReproductionBlob(true))
+	if !errors.Is(err, errPropTestFailed) {
+		t.Fatalf("replay without writer: %v", err)
+	}
+}
+
+func TestReplayHidesPassingAttempts(t *testing.T) {
+	blob := reproductionBlob(t)
+	var out strings.Builder
+	calls := 0
+	err := run(1, func(tc TestCase) {
+		calls++
+		_ = Draw(tc, Integers[int](1, 10))
+		if calls == 1 {
+			tc.Note("passing attempt must stay private")
+			return
+		}
+		tc.Note("failing attempt is visible")
+		tc.Errorf("retry failure")
+	}, WithReplay(blob), WithReproductionBlob(false), withOutput(&out))
+	if !errors.Is(err, errPropTestFailed) || calls != 2 {
+		t.Fatalf("err=%v calls=%d", err, calls)
+	}
+	if strings.Contains(out.String(), "passing attempt") || !strings.Contains(out.String(), "failing attempt is visible") {
+		t.Fatalf("retry output: %s", &out)
+	}
+}
+
+func TestReplayFailureOutputWriteError(t *testing.T) {
+	blob := reproductionBlob(t)
+	want := errors.New("failure output write error")
+	err := run(1, func(tc TestCase) {
+		_ = Draw(tc, Integers[int](1, 10))
+		tc.Errorf("replayed failure")
+	}, WithReplay(blob), WithReproductionBlob(false), withOutput(nonemptyWriteError{want}))
+	if !errors.Is(err, want) {
+		t.Fatalf("error=%v, want %v", err, want)
 	}
 }

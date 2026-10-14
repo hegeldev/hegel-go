@@ -856,11 +856,7 @@ func replayBlob(ctx *libhegel.Context, s *libhegel.Settings, fn testBody, opts r
 		if tc == nil {
 			break
 		}
-		state, err := newTestCase(ctx, tc, opts.output, propagateUserPanics)
-		if err != nil {
-			return err
-		}
-		if _, err := state.run(fn); err != nil {
+		if err := replayAttempt(ctx, tc, fn, opts.output); err != nil {
 			return err
 		}
 	}
@@ -876,6 +872,29 @@ func replayBlob(ctx *libhegel.Context, s *libhegel.Settings, fn testBody, opts r
 	default:
 		return errPropTestFailed
 	}
+}
+
+// replayAttempt keeps passing retry output private and preserves user panic stacks.
+func replayAttempt(ctx *libhegel.Context, tc *libhegel.TestCase, fn testBody, out io.Writer) (err error) {
+	var buffer bytes.Buffer
+	var capture io.Writer
+	if out != nil {
+		capture = &buffer
+	}
+	state, err := newTestCase(ctx, tc, capture, propagateUserPanics)
+	if err != nil {
+		return err
+	}
+	var failed, finished bool
+	defer func() {
+		if out != nil && (failed || !finished) {
+			_, writeErr := io.Copy(out, &buffer)
+			err = errors.Join(err, writeErr)
+		}
+	}()
+	failed, err = state.run(fn)
+	finished = true
+	return err
 }
 
 // replayFailures walks the failures of a result and replays fn against them.
@@ -918,8 +937,7 @@ func replayFailure(state *testCase, fn testBody, out io.Writer, printBlob bool, 
 		if !printBlob || out == nil {
 			return
 		}
-		writeErr := writeReplayBlob(out, blob)
-		err = errors.Join(err, writeErr)
+		err = errors.Join(err, writeReplayBlob(out, blob))
 	}()
 	_, err = state.run(fn)
 	return err
