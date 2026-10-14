@@ -1072,7 +1072,7 @@ func (s *Settings) NondeterminismStrictness(ctx *Context, strictness Nondetermin
 
 // RunStart starts a run against these settings. callback and userData set the
 // engine-output destination (see [outputCallbackT]); pass a nil writer to leave
-// output on stderr, which every hegel-package caller currently does.
+// output on stderr.
 func (s *Settings) RunStart(ctx *Context, out io.Writer) (*Run, error) {
 	callback, handle := newOutputFn(out)
 	r := new(Run)
@@ -1094,7 +1094,7 @@ func (s *Settings) RunStart(ctx *Context, out io.Writer) (*Run, error) {
 // exactly like [Settings.RunStart]. A reproducing replay is the run's failure; a
 // run with no failures means the blob is stale. callback and userData set the
 // engine-output destination (see [outputCallbackT]); pass a nil writer to leave
-// output on stderr, which every hegel-package caller currently does.
+// output on stderr.
 func (s *Settings) RunStartBlob(ctx *Context, blob string, out io.Writer) (*Run, error) {
 	callback, handle := newOutputFn(out)
 	r := new(Run)
