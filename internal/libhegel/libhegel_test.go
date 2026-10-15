@@ -269,3 +269,99 @@ func TestDerivedLabels(t *testing.T) {
 		t.Fatal(err)
 	}
 }
+
+// TestGrammarRoundTrip exercises the Lark-grammar bindings against the real
+// library: a grammar deriving a fixed string draws exactly that string, and a
+// grammar with a %declare'd explicit terminal draws that terminal's placeholder
+// marker. This validates the hegel_grammar_new argument marshalling, which the
+// reflection-based stub cannot check.
+func TestGrammarRoundTrip(t *testing.T) {
+	ctx := NewContext()
+
+	settings, err := ctx.SettingsNew()
+	if err != nil {
+		t.Fatal(err)
+	}
+	settings.TestCases(ctx, 1)
+	settings.Derandomize(ctx, true)
+	settings.Seed(ctx, 1, true)
+	settings.Database(ctx, "")
+
+	fixed, err := ctx.GrammarNew(`start: "hello"`, "", 0, 0, nil, nil)
+	if err != nil {
+		t.Fatalf("GrammarNew fixed: %v", err)
+	}
+	declared, err := ctx.GrammarNew("start: GREETING\n%declare GREETING\n", "", 0, 0, nil, []string{"GREETING"})
+	if err != nil {
+		t.Fatalf("GrammarNew declared: %v", err)
+	}
+	marker, err := declared.Placeholder(ctx, "GREETING")
+	if err != nil || marker == "" {
+		t.Fatalf("Placeholder: marker=%q err=%v", marker, err)
+	}
+
+	run, err := settings.RunStart(ctx, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	draws := 0
+	for {
+		tc, err := run.NextTestCase(ctx)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if tc == nil {
+			break
+		}
+		got, err := tc.GenerateGrammar(ctx, fixed, 0)
+		if err != nil {
+			t.Fatalf("GenerateGrammar fixed: %v", err)
+		}
+		if got != "hello" {
+			t.Errorf("GenerateGrammar fixed: got %q, want %q", got, "hello")
+		}
+		gotDeclared, err := tc.GenerateGrammar(ctx, declared, 0)
+		if err != nil {
+			t.Fatalf("GenerateGrammar declared: %v", err)
+		}
+		if !strings.Contains(gotDeclared, marker) {
+			t.Errorf("GenerateGrammar declared: %q does not contain marker %q", gotDeclared, marker)
+		}
+		if err := tc.MarkComplete(ctx, STATUS_VALID, ""); err != nil {
+			t.Fatalf("mark_complete: %v", err)
+		}
+		draws++
+	}
+	if draws == 0 {
+		t.Fatal("expected at least one test case")
+	}
+}
+
+// TestGrammarStartAndAlphabet confirms GrammarNew forwards the non-default start
+// rule and the alphabet to libhegel — plumbing the reflection-based stub cannot
+// observe. Both assertions rest on documented hegel_grammar_new contracts: start
+// selects which rule to generate, and the alphabet constrains every character a
+// terminal may draw.
+func TestGrammarStartAndAlphabet(t *testing.T) {
+	ctx := NewContext()
+
+	// This grammar has no `start` rule, so it compiles only because start names
+	// the existing `greeting` rule. Were start not forwarded, libhegel would
+	// look for the absent default `start` rule and reject the grammar.
+	g, err := ctx.GrammarNew("greeting: \"hi\"\n", "greeting", 0, 0, nil, nil)
+	if err != nil || g == nil {
+		t.Fatalf("GrammarNew(start=greeting): g=%v err=%v", g, err)
+	}
+
+	// A text generator restricted to a..z. The grammar's only string is the
+	// literal "A", which cannot be produced over that alphabet, so a forwarded
+	// alphabet makes GrammarNew reject the grammar; a dropped alphabet would let
+	// it compile.
+	alphabet, err := ctx.StringGeneratorText(1, 5, "utf-8", 'a', 'z', nil, nil, nil, nil)
+	if err != nil {
+		t.Fatalf("StringGeneratorText: %v", err)
+	}
+	if _, err := ctx.GrammarNew("start: \"A\"\n", "", 0, 0, alphabet, nil); err == nil {
+		t.Error("GrammarNew: expected rejection of a literal outside the forwarded alphabet")
+	}
+}

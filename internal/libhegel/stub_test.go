@@ -502,6 +502,94 @@ func TestStubLifecycleClosures(t *testing.T) {
 	}
 }
 
+// TestStubResultErrorKind covers Result.ErrorKind, the run-error classifier no
+// runner path drives: it reads the error kind and, for a health-check failure,
+// which check failed, both through trailing out-parameters.
+func TestStubResultErrorKind(t *testing.T) {
+	lib := Stub(t, RUN_ERROR_HEALTH_CHECK, uint32(HC_TOO_SLOW), OK) // kind, health check, result
+	r := &Result{pointer: &pointer[resultT]{syms: lib.syms, raw: 1}}
+
+	kind, hc, err := r.ErrorKind(lib)
+	if err != nil {
+		t.Fatalf("ErrorKind: %v", err)
+	}
+	if kind != RUN_ERROR_HEALTH_CHECK {
+		t.Errorf("ErrorKind: got kind %v", kind)
+	}
+	if hc != HC_TOO_SLOW {
+		t.Errorf("ErrorKind: got health check %v", hc)
+	}
+}
+
+// TestStubGrammar covers the Lark-grammar bindings no runner path drives:
+// compiling a grammar, reading an explicit terminal's placeholder marker, and
+// drawing a string from it, each through a Stub. The second GrammarNew exercises
+// the non-"" start and non-nil alphabet plumbing branches.
+func TestStubGrammar(t *testing.T) {
+	lib := Stub(t,
+		uintptr(1), OK, // grammar_new handle + result
+		"<<EXPLICIT_NUM_ab>>", OK, // grammar_placeholder marker
+		"drawn", OK, // generate_grammar
+		uintptr(2), OK, // grammar_new with start + alphabet
+	)
+
+	g, err := lib.GrammarNew("start: NUM", "", 0, 0, nil, []string{"NUM"})
+	if err != nil || g == nil {
+		t.Fatalf("GrammarNew: g=%v err=%v", g, err)
+	}
+
+	marker, err := g.Placeholder(lib, "NUM")
+	if err != nil || marker != "<<EXPLICIT_NUM_ab>>" {
+		t.Fatalf("Placeholder: marker=%q err=%v", marker, err)
+	}
+
+	tc := &TestCase{pointer: &pointer[testCaseT]{syms: lib.syms, raw: 1}}
+	if v, err := tc.GenerateGrammar(lib, g, 16); err != nil || v != "drawn" {
+		t.Fatalf("GenerateGrammar: v=%q err=%v", v, err)
+	}
+
+	alpha := (*StringGenerator)(&pointer[stringGenT]{syms: lib.syms, raw: 3})
+	if g2, err := lib.GrammarNew("start: NUM", "start", 8, 4, alpha, nil); err != nil || g2 == nil {
+		t.Fatalf("GrammarNew with start+alphabet: g=%v err=%v", g2, err)
+	}
+}
+
+// TestStubGrammarNewRejectsNUL covers GrammarNew's interior-NUL guards on both
+// the start rule name and the explicit-terminal names: a C string cannot carry
+// an embedded NUL, so such input is rejected before reaching libhegel.
+func TestStubGrammarNewRejectsNUL(t *testing.T) {
+	lib := Stub(t) // no returns: must error before the C call
+	if _, err := lib.GrammarNew("g", "ba\x00d", 0, 0, nil, nil); err == nil {
+		t.Error("expected error for NUL in start")
+	}
+	if _, err := lib.GrammarNew("g", "", 0, 0, nil, []string{"a\x00b"}); err == nil {
+		t.Error("expected error for NUL in an explicit name")
+	}
+}
+
+// TestStubGrammarErrors covers the failure branches of the grammar bindings: a
+// non-OK grammar_new surfaces the wrapped diagnostic with a nil grammar, and
+// placeholder / generate_grammar propagate their errors with an empty string.
+func TestStubGrammarErrors(t *testing.T) {
+	lib := Stub(t, uintptr(0), E_INVALID_ARG, "bad grammar") // handle, result, diagnostic
+	if g, err := lib.GrammarNew("??", "", 0, 0, nil, nil); g != nil || err == nil {
+		t.Fatalf("expected error, got g=%v err=%v", g, err)
+	}
+
+	lib = Stub(t, "", E_INVALID_HANDLE, "null grammar") // marker, result, diagnostic
+	g := &Grammar{pointer: pointer[grammarT]{syms: lib.syms, raw: 1}}
+	if m, err := g.Placeholder(lib, "NUM"); m != "" || err == nil {
+		t.Fatalf("Placeholder: expected error, got m=%q err=%v", m, err)
+	}
+
+	lib = Stub(t, "", E_ASSUME, "no string") // result string, result, diagnostic
+	g = &Grammar{pointer: pointer[grammarT]{syms: lib.syms, raw: 1}}
+	tc := &TestCase{pointer: &pointer[testCaseT]{syms: lib.syms, raw: 1}}
+	if v, err := tc.GenerateGrammar(lib, g, 0); v != "" || err == nil {
+		t.Fatalf("GenerateGrammar: expected error, got v=%q err=%v", v, err)
+	}
+}
+
 func TestContextCloneUsesSameSymbolsAndFreshHandle(t *testing.T) {
 	t.Parallel()
 	ctx := Stub(t, uintptr(2)) // context_new for Clone

@@ -39,7 +39,7 @@ import (
 	"unsafe"
 )
 
-//go:generate go tool stringer -type=Error,Status,Backend,Verbosity,RunStatus,HealthCheck,Phase,NondeterminismStrictness -linecomment -output=libhegel_string.go
+//go:generate go tool stringer -type=Error,Status,Backend,Verbosity,RunStatus,RunErrorKind,HealthCheck,Phase,NondeterminismStrictness -linecomment -output=libhegel_string.go
 
 // LibraryPathEnv names the env var that pins libhegel to an explicit path.
 // When set, that path is loaded directly with no embedded fallback; when unset,
@@ -143,6 +143,40 @@ const (
 	RUN_STATUS_FAILED_NONDETERMINISTIC
 )
 
+// RunErrorKind is why a run ended in [RUN_STATUS_ERROR], read via
+// [Result.ErrorKind]. It lets the binding pick which error to raise without
+// parsing the human-readable message. Mirrors hegel_run_error_kind_t, written
+// through an out-param typed as the enum pointer (so int32, not widened).
+type RunErrorKind int32
+
+const (
+	// The run did not error: its status is not [RUN_STATUS_ERROR].
+	RUN_ERROR_NONE RunErrorKind = iota
+
+	// A health check failed; [Result.ErrorKind] also names which one as a
+	// [HealthCheck] value.
+	RUN_ERROR_HEALTH_CHECK
+
+	// Under NONDETERMINISM_ERROR, the test produced different outcomes when
+	// replayed on identical data.
+	RUN_ERROR_FLAKY
+
+	// Under NONDETERMINISM_ERROR, data generation diverged when the same choice
+	// sequence was replayed.
+	RUN_ERROR_NONDETERMINISTIC
+
+	// The test's assumptions could not be satisfied: no valid test case was ever
+	// generated.
+	RUN_ERROR_UNSATISFIABLE
+
+	// The caller misused libhegel at run scope — violated the driving contract
+	// or launched the process with an invalid configuration.
+	RUN_ERROR_USAGE
+
+	// A violated internal invariant of libhegel: a bug in Hegel.
+	RUN_ERROR_INTERNAL
+)
+
 type HealthCheck uint32
 
 // Health-check suppression bitmask values.
@@ -214,6 +248,7 @@ type collectionT uintptr   // Equivalent of hegel_collection_t
 type recursionT uintptr    // Equivalent of HegelRecursion
 type poolT uintptr         // Equivalent of hegel_pool_t
 type stateMachineT uintptr // Equivalent of hegel_state_machine_t
+type grammarT uintptr      // Equivalent of hegel_grammar_t
 
 // outputCallbackT is hegel_output_callback_t, a C function pointer
 // (void (*)(void *user_data, const char *line, size_t len)) delivering one
@@ -221,6 +256,14 @@ type stateMachineT uintptr // Equivalent of hegel_state_machine_t
 // uintptr; a real one comes from purego.NewCallback (see newOutputFn), and 0
 // (NULL) leaves engine output on stderr.
 type outputCallbackT uintptr
+
+// grammarImportT is hegel_grammar_import_t, a C function pointer resolving each
+// `%import` a grammar makes while hegel_grammar_new compiles it. purego
+// represents a callback argument as a uintptr; 0 (NULL) resolves imports only
+// against the grammars bundled with libhegel. No hegel-package caller supplies
+// one, so [Context.GrammarNew] passes NULL, but the symbols signature stays
+// faithful so a future caller can wire a real callback.
+type grammarImportT uintptr
 
 // Date mirrors hegel_date_t: a Gregorian calendar date passed to / returned
 // from hegel_generate_date by value.
@@ -370,9 +413,20 @@ type symbols struct {
 	StringGeneratorDomain func(ctxT, uint64, out[stringGenT]) Error
 	StringGeneratorFree   func(ctxT, stringGenT) Error
 
+	// Lark-grammar string generation. GrammarNew takes a hegel_grammar_import_t
+	// plus its void* user_data ahead of the trailing out-param; the wrapper
+	// forwards both, passing NULL (see grammarImportT). start and explicit_names
+	// are nullable C strings — a NULL start selects the `start` rule, a NULL
+	// explicit_names array declares no explicit terminals.
+	GrammarNew         func(ctxT, string, *byte, uint64, uint32, stringGenT, **byte, uint64, grammarImportT, uintptr, out[grammarT]) Error
+	GrammarFree        func(ctxT, grammarT) Error
+	GrammarPlaceholder func(ctxT, grammarT, string, out[*byte]) Error
+	GenerateGrammar    func(ctxT, testCaseT, grammarT, uint64, out[stringResult]) Error
+
 	ResultFree         func(ctxT, resultT) Error
 	ResultStatus       func(ctxT, resultT, out[RunStatus]) Error
 	ResultError        func(ctxT, resultT, out[*byte]) Error
+	ResultErrorKind    func(ctxT, resultT, out[RunErrorKind], out[uint32]) Error
 	ResultFailureCount func(ctxT, resultT, out[uint64]) Error
 	ResultFailure      func(ctxT, resultT, uint64, out[failureT]) Error
 
@@ -766,9 +820,15 @@ func tryOpen(path string) (syms *symbols, err error) {
 		{"hegel_string_generator_domain", &syms.StringGeneratorDomain},
 		{"hegel_string_generator_free", &syms.StringGeneratorFree},
 
+		{"hegel_grammar_new", &syms.GrammarNew},
+		{"hegel_grammar_free", &syms.GrammarFree},
+		{"hegel_grammar_placeholder", &syms.GrammarPlaceholder},
+		{"hegel_generate_grammar", &syms.GenerateGrammar},
+
 		{"hegel_run_result_free", &syms.ResultFree},
 		{"hegel_run_result_status", &syms.ResultStatus},
 		{"hegel_run_result_error", &syms.ResultError},
+		{"hegel_run_result_error_kind", &syms.ResultErrorKind},
 		{"hegel_run_result_failure_count", &syms.ResultFailureCount},
 		{"hegel_run_result_failure", &syms.ResultFailure},
 		{"hegel_failure_free", &syms.FailureFree},
@@ -1400,6 +1460,26 @@ func (tc *TestCase) GenerateString(ctx *Context, gen *StringGenerator) (string, 
 	return s, nil
 }
 
+// GenerateGrammar draws a string the grammar's start rule accepts, aiming at a
+// length up to maxSize characters (0 for the grammar's own cap), with each
+// explicit terminal standing as its placeholder marker (see
+// [Grammar.Placeholder]).
+func (tc *TestCase) GenerateGrammar(ctx *Context, grammar *Grammar, maxSize uint64) (string, error) {
+	err := ctx.invoke("hegel_generate_grammar", func(ctx ctxT) Error {
+		e := tc.syms.GenerateGrammar(ctx, tc.raw, grammar.raw, maxSize, &tc.outStringRes)
+		runtime.KeepAlive(tc)
+		runtime.KeepAlive(grammar)
+		return e
+	})
+	if err != nil {
+		return "", err
+	}
+	// The result is an engine-allocated string result, freed like any other.
+	s := string(unsafe.Slice(tc.outStringRes.data, tc.outStringRes.len))
+	_ = tc.syms.GenerateStringFree(0, &tc.outStringRes)
+	return s, nil
+}
+
 // GenerateDate draws a Gregorian calendar date in [minValue, maxValue].
 func (tc *TestCase) GenerateDate(ctx *Context, minValue, maxValue Date) (Date, error) {
 	err := ctx.invoke("hegel_generate_date", func(ctx ctxT) Error {
@@ -1791,6 +1871,22 @@ func (r *Result) ErrorMessage(ctx *Context) string {
 	return goString(r.outBytes)
 }
 
+// ErrorKind classifies a [RUN_STATUS_ERROR] run so the caller can pick which
+// error to raise without parsing [Result.ErrorMessage]. It returns the error
+// kind and, when the kind is [RUN_ERROR_HEALTH_CHECK], the [HealthCheck] that
+// failed (0 for every other kind). A run that did not error reports
+// [RUN_ERROR_NONE].
+func (r *Result) ErrorKind(ctx *Context) (RunErrorKind, HealthCheck, error) {
+	var kind RunErrorKind
+	var healthCheck uint32
+	err := ctx.invoke("hegel_run_result_error_kind", func(ctx ctxT) Error {
+		e := r.syms.ResultErrorKind(ctx, r.raw, &kind, &healthCheck)
+		runtime.KeepAlive(r)
+		return e
+	})
+	return kind, HealthCheck(healthCheck), err
+}
+
 func (r *Result) FailureCount(ctx *Context) uint64 {
 	_ = ctx.invoke("hegel_run_result_failure_count", func(ctx ctxT) Error {
 		e := r.syms.ResultFailureCount(ctx, r.raw, &r.outCount)
@@ -1941,6 +2037,72 @@ func (c *Context) StringGeneratorDomain(maxLength uint64) (*StringGenerator, err
 		return nil, err
 	}
 	return (*StringGenerator)(ptr), err
+}
+
+// Grammar wraps a hegel_grammar_t: an immutable, compiled Lark grammar that
+// draws strings via [TestCase.GenerateGrammar]. Build one with
+// [Context.GrammarNew]; it may be shared across test cases and is released
+// automatically via the GC (hegel_grammar_free).
+type Grammar struct {
+	pointer[grammarT]
+}
+
+// GrammarNew compiles text (a grammar in Lark's syntax) into a generator of the
+// strings it accepts, drawn with [TestCase.GenerateGrammar]. start names the
+// rule whose strings to generate ("" for the default `start` rule). maxSize
+// caps a drawn string's characters (0 for the default) and maxDepth caps rule
+// nesting (0 for the default). alphabet, when non-nil, constrains every drawn
+// character to a text generator's character set. explicitNames lists the
+// terminals whose values the caller supplies as placeholder markers (see
+// [Grammar.Placeholder]).
+//
+// `%import`s resolve only against the grammars bundled with libhegel: the
+// faithful hegel_grammar_import_t callback is passed NULL, as no hegel-package
+// caller supplies one.
+func (c *Context) GrammarNew(text, start string, maxSize uint64, maxDepth uint32, alphabet *StringGenerator, explicitNames []string) (*Grammar, error) {
+	var startPtr *byte
+	if start != "" {
+		// start must be a NUL-terminated C string, distinct from NULL (default).
+		names, _, err := cStringArrayArg([]string{start})
+		if err != nil {
+			return nil, fmt.Errorf("hegel_grammar_new: start: %w", err)
+		}
+		startPtr = *names
+	}
+	namesPtr, namesLen, err := cStringArrayArg(explicitNames)
+	if err != nil {
+		return nil, fmt.Errorf("hegel_grammar_new: explicit_names: %w", err)
+	}
+	var alphabetRaw stringGenT
+	if alphabet != nil {
+		alphabetRaw = alphabet.raw
+	}
+	g := new(Grammar)
+	ok, err := allocateInto(c, &g.pointer, "hegel_grammar_new", func(ctx ctxT, raw *grammarT) Error {
+		e := c.syms.GrammarNew(ctx, text, startPtr, maxSize, maxDepth, alphabetRaw, namesPtr, namesLen, 0, 0, raw)
+		runtime.KeepAlive(alphabet)
+		return e
+	}, c.syms.GrammarFree)
+	if !ok {
+		return nil, err
+	}
+	return g, nil
+}
+
+// Placeholder returns the marker string that stands for each value of the
+// explicit terminal name in strings [TestCase.GenerateGrammar] draws of this
+// grammar, for the caller to replace with values of its own.
+func (g *Grammar) Placeholder(ctx *Context, name string) (string, error) {
+	var marker *byte
+	err := ctx.invoke("hegel_grammar_placeholder", func(ctx ctxT) Error {
+		e := g.syms.GrammarPlaceholder(ctx, g.raw, name, &marker)
+		runtime.KeepAlive(g)
+		return e
+	})
+	if err != nil {
+		return "", err
+	}
+	return goString(marker), nil
 }
 
 // cString returns the (pointer, byte length) pair for an optional
