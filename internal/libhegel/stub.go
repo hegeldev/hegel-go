@@ -70,16 +70,8 @@ func Stub(tb testingTB, returns ...any) *Context {
 				handles.free(lastHandle)
 			}
 
-			// Fill every output parameter from the scripted return values. An
-			// output is any out[T] argument — recognized by reflect.Type
-			// identity, or, for a handle out-param, by the structural shape of
-			// a pointer to a ~uintptr handle. Every other pointer (const input
-			// buffers, `const char *const *` string arrays, and the
-			// *bytesResult/*stringResult a Free takes to release its buffer) is
-			// an input the stub leaves untouched. Nothing is matched by name.
-			//
-			// Destructors have no out[T] parameters, so this loop is a no-op for
-			// them and consumes no scripted return value.
+			// Bare pointers are inputs, including descriptors passed to free functions.
+			// Destructors have no output parameters and consume no scripted outputs.
 			for i := range ft.NumIn() {
 				arg, in := args[i], ft.In(i)
 				if in.Kind() != reflect.Pointer {
@@ -92,10 +84,9 @@ func Stub(tb testingTB, returns ...any) *Context {
 					h := reflect.ValueOf(retval()).Convert(in.Elem())
 					handles.track(h.Interface())
 					arg.Elem().Set(h)
-				case in == reflect.TypeFor[out[*byte]]():
-					// **byte: the engine writes a NUL-terminated C string.
-					buf := append([]byte(retval().(string)), 0)
-					arg.Elem().Set(reflect.ValueOf(&buf[0]))
+				case in == reflect.TypeFor[out[*stringT]]():
+					view := cString(retval().(string))
+					arg.Elem().Set(reflect.ValueOf(&view))
 				case in == reflect.TypeFor[out[byte]]():
 					// *byte: a fixed-width buffer the engine fills in place.
 					b := retval().([]byte)
@@ -103,10 +94,10 @@ func Stub(tb testingTB, returns ...any) *Context {
 				case in == reflect.TypeFor[out[bytesResult]]():
 					b := retval().([]byte)
 					arg.Elem().Set(reflect.ValueOf(bytesResult{data: slicePtr(b), len: uint64(len(b))}))
-				case in == reflect.TypeFor[out[stringResult]]():
-					b := []byte(retval().(string))
-					arg.Elem().Set(reflect.ValueOf(stringResult{data: slicePtr(b), len: uint64(len(b))}))
-				case in == reflect.TypeFor[out[uint64]](), in == reflect.TypeFor[out[uint32]](), in == reflect.TypeFor[out[int32]](), in == reflect.TypeFor[out[RunStatus]](),
+				case in == reflect.TypeFor[out[stringT]](), in == reflect.TypeFor[out[ownedStringT]](), in == reflect.TypeFor[out[printerValueResult]]():
+					value := cString(retval().(string))
+					arg.Elem().Set(reflect.ValueOf(value).Convert(in.Elem()))
+				case in == reflect.TypeFor[out[uint64]](), in == reflect.TypeFor[out[uint32]](), in == reflect.TypeFor[out[int32]](), in == reflect.TypeFor[out[RunStatus]](), in == reflect.TypeFor[out[RunErrorKind]](),
 					in == reflect.TypeFor[out[bool]](), in == reflect.TypeFor[out[int64]](),
 					in == reflect.TypeFor[out[StateMachineGroup]](),
 					in == reflect.TypeFor[out[float64]](), in == reflect.TypeFor[out[Date]](),
@@ -125,8 +116,8 @@ func Stub(tb testingTB, returns ...any) *Context {
 					return []reflect.Value{reflect.ValueOf(OK)}
 				}
 				return []reflect.Value{reflect.ValueOf(retval().(Error))}
-			case ret == reflect.TypeFor[string]():
-				return []reflect.Value{reflect.ValueOf(retval().(string))}
+			case ret == reflect.TypeFor[stringT]():
+				return []reflect.Value{reflect.ValueOf(cString(retval().(string)))}
 			case ret == reflect.TypeFor[ctxT]():
 				// hegel_context_new returns an owned handle directly rather than
 				// through an out-parameter, so consume and track its scripted value
@@ -134,7 +125,7 @@ func Stub(tb testingTB, returns ...any) *Context {
 				ctx := ctxT(retval().(uintptr))
 				handles.track(ctx)
 				return []reflect.Value{reflect.ValueOf(ctx)}
-			default: // coverage-ignore (every libhegel symbol returns Error, string or ctxT)
+			default: // coverage-ignore (every libhegel symbol returns Error, stringT or ctxT)
 				tb.Errorf("libhegel stub: unsupported return value %s", ft)
 				return nil
 			}

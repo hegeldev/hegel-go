@@ -28,13 +28,14 @@ const (
 //
 // It is compatible with most popular TestingT interfaces from assert libraries.
 type testCase struct {
-	ctx         *libhegel.Context
-	tc          *libhegel.TestCase
-	out         io.Writer // Final destination, owned only by the root; nil on clones.
-	printer     *libhegel.Printer
-	depth       int
-	panicPolicy panicPolicy
-	abortFn     func(error)
+	ctx           *libhegel.Context
+	tc            *libhegel.TestCase
+	out           io.Writer // Final destination, owned only by the root; nil on clones.
+	printer       *libhegel.Printer
+	depth         int
+	panicPolicy   panicPolicy
+	abortFn       func(error)
+	failureOrigin string
 }
 
 func newTestCase(ctx *libhegel.Context, tc *libhegel.TestCase, out io.Writer, policy panicPolicy) (*testCase, error) {
@@ -628,7 +629,7 @@ func runWithContext(ctx *libhegel.Context, fn testBody, opts runOptions) error {
 		return err
 	}
 
-	var nondeterministicOutput *bytes.Buffer
+	capturedOutput := make(map[string]*bytes.Buffer)
 	for {
 		tc, err := run.NextTestCase(ctx)
 		if err != nil {
@@ -638,17 +639,15 @@ func runWithContext(ctx *libhegel.Context, fn testBody, opts runOptions) error {
 			break
 		}
 
-		nondeterministic, err := tc.ShouldCapture(ctx)
+		capture, err := tc.ShouldCapture(ctx)
 		if err != nil {
 			return err
 		}
 
 		var out io.Writer
 		policy := captureUserPanics
-		if nondeterministic {
-			// Buffer non-deterministic test cases, because we only know whether
-			// we should output them after they have run. At which point we
-			// can't recreate them because replay isn't available.
+		if capture {
+			// Keep stamped failures by origin in case the result has no replay blob.
 			//
 			// NB: It doesn't make sense to propagate user panics when buffering
 			// output because we can't flush the buffer on a panic.
@@ -665,8 +664,8 @@ func runWithContext(ctx *libhegel.Context, fn testBody, opts runOptions) error {
 			return err
 		}
 
-		if failed && nondeterministic {
-			nondeterministicOutput = out.(*bytes.Buffer)
+		if failed && capture {
+			capturedOutput[state.failureOrigin] = out.(*bytes.Buffer)
 		}
 	}
 
@@ -684,13 +683,8 @@ func runWithContext(ctx *libhegel.Context, fn testBody, opts runOptions) error {
 		// counterexamples to collect; the diagnostic lives in the run-level
 		// error message.
 		return fmt.Errorf("%w: %s", errPropTestFailed, result.ErrorMessage(ctx))
-	case libhegel.RUN_STATUS_FAILED_NONDETERMINISTIC:
-		// We hit a non-deterministic failure, so replay is not available.
-		// Output the last cached run.
-		_, err := io.Copy(opts.output, nondeterministicOutput)
-		return err
 	default:
-		return replayFailures(ctx, s, result, fn, opts)
+		return replayFailures(ctx, s, result, fn, opts, capturedOutput)
 	}
 }
 
@@ -792,6 +786,7 @@ func (s *testCase) run(fn testBody) (failed bool, err error) {
 		}
 		status = outcome.status
 		origin = findCallerInPCs(outcome.pcs, isNotHegelFrame)
+		s.failureOrigin = origin
 	}
 
 	return true, s.tc.MarkComplete(s.ctx, status, origin)
@@ -816,7 +811,7 @@ func (s *testCase) flushNativeOutput() error {
 // replayFailures walks the failures of a result and replays fn against them.
 //
 // Returns an error describing the failures.
-func replayFailures(ctx *libhegel.Context, s *libhegel.Settings, result *libhegel.Result, fn testBody, opts runOptions) error {
+func replayFailures(ctx *libhegel.Context, s *libhegel.Settings, result *libhegel.Result, fn testBody, opts runOptions, capturedOutput map[string]*bytes.Buffer) error {
 	var origins []string
 	for i := range result.FailureCount(ctx) {
 		fail, err := result.Failure(ctx, i)
@@ -825,7 +820,14 @@ func replayFailures(ctx *libhegel.Context, s *libhegel.Settings, result *libhege
 		}
 		blob := fail.ReproductionBlob(ctx)
 		if blob == "" {
-			return errPropTestFailed
+			origin := fail.Origin(ctx)
+			if output := capturedOutput[origin]; output != nil && opts.output != nil {
+				if _, err := io.Copy(opts.output, output); err != nil {
+					return err
+				}
+			}
+			origins = append(origins, origin)
+			continue
 		}
 		printBlob, err := s.GetPrintBlob(ctx)
 		if err != nil {

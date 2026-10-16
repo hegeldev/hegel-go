@@ -981,6 +981,7 @@ func TestRunWithContextOneCaseFailure(t *testing.T) {
 		uint64(1), libhegel.OK, // one failure
 		uintptr(1), libhegel.OK, // failure handle
 		"", libhegel.OK, // no reproduction blob
+		"origin", libhegel.OK, // failure origin
 	)
 	err := runWithContext(lib, func(tc TestCase) { tc.(*testCase).Fail() }, applyOpts([]Option{WithDerandomize(false), WithTestCases(1)}))
 	if !errors.Is(err, errPropTestFailed) {
@@ -1002,6 +1003,7 @@ func TestRunWithContextNondeterministicFailure(t *testing.T) {
 		uint64(1), libhegel.OK, // one failure
 		uintptr(1), libhegel.OK, // failure handle
 		"", libhegel.OK, // no reproduction blob
+		"origin", libhegel.OK, // failure origin
 	)
 	err := runWithContext(lib, func(TestCase) {}, applyOpts([]Option{WithDerandomize(false)}))
 	if !errors.Is(err, errPropTestFailed) {
@@ -1011,33 +1013,52 @@ func TestRunWithContextNondeterministicFailure(t *testing.T) {
 
 func TestRunWithContextEmitsNondeterministicFailureOutput(t *testing.T) {
 	t.Parallel()
-	lib := libhegel.Stub(t,
-		uintptr(1), libhegel.OK, // settings_new
-		libhegel.OK,             // derandomize
-		uintptr(1), libhegel.OK, // run_start
-		uintptr(1), libhegel.OK, // next_test_case: one case
-		true, libhegel.OK, // should_capture
-		uintptr(1), libhegel.OK, // printer
-		libhegel.OK,                     // note
-		libhegel.OK,                     // mark_complete
-		libhegel.OK,                     // resolve
-		"failure output\n", libhegel.OK, // value
-		uintptr(0), libhegel.OK, // next_test_case: run finished
-		uintptr(1), libhegel.OK, // run_result
-		libhegel.RUN_STATUS_FAILED_NONDETERMINISTIC, libhegel.OK, // result status
-	)
-	var output strings.Builder
-	opts := applyOpts([]Option{WithDerandomize(false)})
-	opts.output = &output
-	err := runWithContext(lib, func(tc TestCase) {
-		tc.Log("failure output")
-		tc.abort(&invocationError{status: libhegel.STATUS_INTERESTING, cause: "failed", kind: "failure"})
-	}, opts)
-	if err != nil {
-		t.Fatalf("runWithContext: %v", err)
-	}
-	if got := output.String(); !strings.Contains(got, "failure output") {
-		t.Fatalf("output = %q, want nondeterministic failure output", got)
+	for _, mode := range []string{"output", "discard", "write error"} {
+		t.Run(mode, func(t *testing.T) {
+			lib := libhegel.Stub(t,
+				uintptr(1), libhegel.OK, // settings_new
+				libhegel.OK,             // derandomize
+				uintptr(1), libhegel.OK, // run_start
+				uintptr(1), libhegel.OK, // next_test_case: one case
+				true, libhegel.OK, // should_capture
+				uintptr(1), libhegel.OK, // printer
+				libhegel.OK,                     // note
+				libhegel.OK,                     // mark_complete
+				libhegel.OK,                     // resolve
+				"failure output\n", libhegel.OK, // value
+				uintptr(0), libhegel.OK, // next_test_case: run finished
+				uintptr(1), libhegel.OK, // run_result
+				libhegel.RUN_STATUS_FAILED, libhegel.OK, // result status
+				uint64(1), libhegel.OK, // one failure
+				uintptr(1), libhegel.OK, // failure
+				"", libhegel.OK, // no replay blob
+				":0 (0x0)", libhegel.OK, // failure origin
+			)
+			var output strings.Builder
+			opts := applyOpts([]Option{WithDerandomize(false)})
+			opts.output = &output
+			writeErr := errors.New("captured output write failed")
+			if mode == "discard" {
+				opts.output = nil
+			}
+			if mode == "write error" {
+				opts.output = nonemptyWriteError{writeErr}
+			}
+			err := runWithContext(lib, func(tc TestCase) {
+				tc.Log("failure output")
+				tc.abort(&invocationError{status: libhegel.STATUS_INTERESTING, cause: "failed", kind: "failure"})
+			}, opts)
+			want := errPropTestFailed
+			if mode == "write error" {
+				want = writeErr
+			}
+			if !errors.Is(err, want) {
+				t.Fatalf("runWithContext: %v", err)
+			}
+			if got := output.String(); mode == "output" && !strings.Contains(got, "failure output") {
+				t.Fatalf("output = %q, want nondeterministic failure output", got)
+			}
+		})
 	}
 }
 
