@@ -1,10 +1,6 @@
 package libhegel
 
-import (
-	"errors"
-	"fmt"
-	"runtime"
-)
+import "runtime"
 
 // GrammarBuilder gathers a Lark grammar and the files it imports.
 //
@@ -62,38 +58,6 @@ func (b *GrammarBuilder) Provide(ctx *Context, index uint64, text string, presen
 		runtime.KeepAlive(b)
 		return e
 	})
-}
-
-// GrammarImport resolves an imported grammar path to UTF-8 source.
-//
-// Paths are relative, slash-separated names ending in .lark. Return ok=false
-// for a missing file to allow libhegel's bundled-grammar fallback.
-type GrammarImport func(path string) (text string, ok bool)
-
-// ResolveImports supplies all imported files through a Go resolver.
-//
-// A nil resolver uses only libhegel's bundled grammars. Call this before
-// compiling a builder whose files have not yet been provided.
-//
-// Invalid or missing required imports return an error.
-func (b *GrammarBuilder) ResolveImports(ctx *Context, resolve GrammarImport) error {
-	for index := uint64(0); ; index++ {
-		path, err := b.File(ctx, index)
-		if errors.Is(err, E_NOT_FOUND) {
-			return nil
-		}
-		if err != nil {
-			return err
-		}
-		var text string
-		var present bool
-		if resolve != nil {
-			text, present = resolve(path)
-		}
-		if err := b.Provide(ctx, index, text, present); err != nil {
-			return fmt.Errorf("import %q: %w", path, err)
-		}
-	}
 }
 
 // Grammar is an immutable compiled Lark grammar.

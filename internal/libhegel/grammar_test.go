@@ -3,7 +3,6 @@ package libhegel
 import (
 	"errors"
 	"runtime"
-	"strings"
 	"testing"
 )
 
@@ -13,25 +12,20 @@ func TestGrammarImports(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	var calls []string
-	err = builder.ResolveImports(ctx, func(path string) (string, bool) {
+	for index, file := range []struct{ path, text string }{
+		{"dir/custom.lark", "%import .leaf.WORD\nword: WORD\n"},
+		{"dir/leaf.lark", "WORD: \"hello\"\n"},
+	} {
 		runtime.GC()
-		calls = append(calls, path)
-		switch path {
-		case "dir/custom.lark":
-			return "%import .leaf.WORD\nword: WORD\n", true
-		case "dir/leaf.lark":
-			return "WORD: \"hello\"\n", true
-		default:
-			t.Fatalf("unexpected import %q", path)
-			return "", false
+		if path, err := builder.File(ctx, uint64(index)); err != nil || path != file.path {
+			t.Fatalf("File(%d) = %q, %v; want %q", index, path, err, file.path)
 		}
-	})
-	if err != nil {
-		t.Fatal(err)
+		if err := builder.Provide(ctx, uint64(index), file.text, true); err != nil {
+			t.Fatal(err)
+		}
 	}
-	if got := strings.Join(calls, ","); got != "dir/custom.lark,dir/leaf.lark" {
-		t.Fatalf("imports = %s", got)
+	if path, err := builder.File(ctx, 2); path != "" || !errors.Is(err, E_NOT_FOUND) {
+		t.Fatalf("File past end = %q, %v", path, err)
 	}
 	grammar, err := ctx.GrammarNew(builder, "", 0, 0, nil, nil)
 	if err != nil {
@@ -62,23 +56,19 @@ func TestGrammarImports(t *testing.T) {
 }
 
 func TestGrammarImportFallback(t *testing.T) {
-	for _, resolve := range []GrammarImport{nil, func(path string) (string, bool) {
-		if path != "common.lark" {
-			t.Fatalf("import = %q", path)
-		}
-		return "", false
-	}} {
-		ctx := NewContext()
-		builder, err := ctx.GrammarBuilderNew("%import common.INT\nstart: INT\n")
-		if err != nil {
-			t.Fatal(err)
-		}
-		if err := builder.ResolveImports(ctx, resolve); err != nil {
-			t.Fatal(err)
-		}
-		if grammar, err := ctx.GrammarNew(builder, "", 0, 0, nil, nil); err != nil || grammar == nil {
-			t.Fatalf("GrammarNew = %v, %v", grammar, err)
-		}
+	ctx := NewContext()
+	builder, err := ctx.GrammarBuilderNew("%import common.INT\nstart: INT\n")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if path, err := builder.File(ctx, 0); err != nil || path != "common.lark" {
+		t.Fatalf("File = %q, %v", path, err)
+	}
+	if err := builder.Provide(ctx, 0, "", false); err != nil {
+		t.Fatal(err)
+	}
+	if grammar, err := ctx.GrammarNew(builder, "", 0, 0, nil, nil); err != nil || grammar == nil {
+		t.Fatalf("GrammarNew = %v, %v", grammar, err)
 	}
 }
 
@@ -88,7 +78,7 @@ func TestGrammarImportMissingAndEmpty(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if err := builder.ResolveImports(ctx, nil); !errors.Is(err, E_INVALID_ARG) || !strings.Contains(err.Error(), "missing.lark") {
+	if err := builder.Provide(ctx, 0, "", false); !errors.Is(err, E_INVALID_ARG) {
 		t.Fatalf("missing import: %v", err)
 	}
 	// Existing empty files must not fall back to bundled grammars.
@@ -151,8 +141,8 @@ func TestStubGrammarErrors(t *testing.T) {
 	}
 	ctx = Stub(t, "", E_INVALID_HANDLE, "invalid builder")
 	builder := &GrammarBuilder{syms: ctx.syms, raw: 0}
-	if err := builder.ResolveImports(ctx, nil); !errors.Is(err, E_INVALID_HANDLE) {
-		t.Fatalf("ResolveImports = %v", err)
+	if _, err := builder.File(ctx, 0); !errors.Is(err, E_INVALID_HANDLE) {
+		t.Fatalf("File = %v", err)
 	}
 }
 

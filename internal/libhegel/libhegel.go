@@ -1659,6 +1659,21 @@ func (pool *Pool) Generate(ctx *Context, tc *TestCase, consume bool) (int64, err
 	return tc.outInt, err
 }
 
+// Restore returns a consumed variable to a pool.
+//
+// tc must belong to the pool's test-case family, and variableID must identify
+// a variable consumed through Generate.
+//
+// An invalid variable ID returns E_INVALID_ARG.
+func (pool *Pool) Restore(ctx *Context, tc *TestCase, variableID int64) error {
+	return ctx.invoke("hegel_pool_restore", func(ctx ctxT) Error {
+		e := pool.syms.PoolRestore(ctx, tc.raw, pool.raw, variableID)
+		runtime.KeepAlive(tc)
+		runtime.KeepAlive(pool)
+		return e
+	})
+}
+
 // StateMachine wraps a hegel_state_machine_t: an engine-owned state machine
 // registered via [TestCase.NewStateMachine] for the lifetime of a single test
 // case. It is owned by the caller and released automatically via the GC
@@ -1813,6 +1828,22 @@ func (r *Result) ErrorMessage(ctx *Context) string {
 	value := optionalGoString(r.outBytes)
 	runtime.KeepAlive(r)
 	return value
+}
+
+// ErrorKind classifies a run-level error and identifies any failed health check.
+//
+// Call this on a completed run result.
+//
+// A normal completion returns RUN_ERROR_NONE and a zero health-check value.
+func (r *Result) ErrorKind(ctx *Context) (RunErrorKind, HealthCheck, error) {
+	var kind RunErrorKind
+	var check uint32
+	err := ctx.invoke("hegel_run_result_error_kind", func(ctx ctxT) Error {
+		e := r.syms.ResultErrorKind(ctx, r.raw, &kind, &check)
+		runtime.KeepAlive(r)
+		return e
+	})
+	return kind, HealthCheck(check), err
 }
 
 func (r *Result) FailureCount(ctx *Context) uint64 {
@@ -2086,35 +2117,4 @@ func (tc *TestCase) Note(ctx *Context, text string) error {
 		runtime.KeepAlive(tc)
 		return e
 	})
-}
-
-// Restore returns a consumed variable to a pool.
-//
-// tc must belong to the pool's test-case family, and variableID must identify
-// a variable consumed through Generate.
-//
-// An invalid variable ID returns E_INVALID_ARG.
-func (pool *Pool) Restore(ctx *Context, tc *TestCase, variableID int64) error {
-	return ctx.invoke("hegel_pool_restore", func(ctx ctxT) Error {
-		e := pool.syms.PoolRestore(ctx, tc.raw, pool.raw, variableID)
-		runtime.KeepAlive(tc)
-		runtime.KeepAlive(pool)
-		return e
-	})
-}
-
-// ErrorKind classifies a run-level error and identifies any failed health check.
-//
-// Call this on a completed run result.
-//
-// A normal completion returns RUN_ERROR_NONE and a zero health-check value.
-func (r *Result) ErrorKind(ctx *Context) (RunErrorKind, HealthCheck, error) {
-	var kind RunErrorKind
-	var check uint32
-	err := ctx.invoke("hegel_run_result_error_kind", func(ctx ctxT) Error {
-		e := r.syms.ResultErrorKind(ctx, r.raw, &kind, &check)
-		runtime.KeepAlive(r)
-		return e
-	})
-	return kind, HealthCheck(check), err
 }

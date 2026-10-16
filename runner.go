@@ -647,7 +647,7 @@ func runWithContext(ctx *libhegel.Context, fn testBody, opts runOptions) error {
 		var out io.Writer
 		policy := captureUserPanics
 		if capture {
-			// Keep stamped failures by origin in case the result has no replay blob.
+			// Keep stamped failures by origin for nondeterministic reports.
 			//
 			// NB: It doesn't make sense to propagate user panics when buffering
 			// output because we can't flush the buffer on a panic.
