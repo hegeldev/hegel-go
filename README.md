@@ -10,21 +10,16 @@
 * [Documentation](https://pkg.go.dev/hegel.dev/go/hegel)
 * [Hegel website](https://hegel.dev)
 
-Hegel is a property-based testing library for Go. Hegel is based on [Hypothesis](https://github.com/hypothesisworks/hypothesis), using the [Hegel protocol](https://hegel.dev/).
+Hegel is a property-based testing library for Go.
 
 ## Installation
 
 To install: `go get hegel.dev/go/hegel@latest`.
 
-Hegel for Go drives [libhegel](https://github.com/hegeldev/hegel-rust) — the native Rust engine. At runtime hegel-go loads `libhegel.so` (Linux), `libhegel.dylib` (macOS), or `libhegel.dll` (Windows) from `$HEGEL_LIBHEGEL_PATH` if set; otherwise it falls back to a pre-compiled `libhegel` vendored inside the module: it is stored via git-lfs, `go:embed`'d into your binary at build time, and materialized under `~/.cache/hegel-go/libhegel/<version>/` to be loaded. The vendored build matches the pinned hegel-rust release, so nothing is downloaded at runtime.
-
-Supported platforms (those with a published libhegel artifact): Linux amd64/arm64, macOS arm64 (Apple Silicon), and Windows amd64/arm64.
-
-During development, build the library locally:
-
-```
-just build-libhegel    # cargo build --release -p hegeltest-c in ../hegel-rust/
-```
+Supported platforms:
+- Linux amd64/arm64
+- macOS arm64 (Apple Silicon)
+- Windows amd64/arm64.
 
 ## Quickstart
 
@@ -69,3 +64,10 @@ example_test.go:50: slices not equal: [0 0] != [0]
 ```
 
 Hegel reports the minimal example showing that our sort is incorrectly dropping duplicates. If we remove `result = slices.Compact(result)` from `mySort()`, this test will then pass (because it's just comparing the standard sort against itself).
+
+## Example workloads
+
+- The [bank workload](examples/bank/main.go) tests a PostgreSQL-compatible store
+  by pretending to move balances around.
+- The [ring workload](examples/ring/main.go) looks for atomicity, isolation, and
+  durability violations.

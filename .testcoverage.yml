@@ -11,3 +11,5 @@ exclude:
     - _string\.go$
     # Vendored Go runtime handle implementation, maintained upstream.
     - internal/cgo/handle\.go$
+    # Standalone examples are built in CI.
+    - examples/

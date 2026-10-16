@@ -33,6 +33,8 @@ jobs:
 
       - name: Lint
         run: just lint
+      - name: Build examples
+        run: go build ./examples/...
       - name: Install zizmor
         run: pip install zizmor==1.23.1
       - name: Run zizmor
