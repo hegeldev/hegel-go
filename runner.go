@@ -820,28 +820,13 @@ func replayFailures(ctx *libhegel.Context, s *libhegel.Settings, result *libhege
 		}
 		blob := fail.ReproductionBlob(ctx)
 		caveat := fail.Caveat(ctx)
-		if blob == "" || caveat != "" {
+		// A caveat identifies nondeterministic failures, whose blobs may need
+		// several attempts to reproduce. Use their captured failing execution.
+		hasDeterministicReplay := blob != "" && caveat == ""
+		if !hasDeterministicReplay {
 			origin := fail.Origin(ctx)
-			if opts.output != nil {
-				var report bytes.Buffer
-				if output := capturedOutput[origin]; output != nil {
-					report.Write(output.Bytes())
-				}
-				if caveat != "" {
-					fmt.Fprintln(&report, caveat)
-				}
-				if blob != "" {
-					printBlob, err := s.GetPrintBlob(ctx)
-					if err != nil {
-						return err
-					}
-					if printBlob {
-						fmt.Fprintf(&report, "reproduction blob: %s\n", blob)
-					}
-				}
-				if _, err := io.Copy(opts.output, &report); err != nil {
-					return err
-				}
+			if err := reportCapturedFailure(ctx, s, opts.output, capturedOutput[origin], caveat, blob); err != nil {
+				return err
 			}
 			origins = append(origins, origin)
 			continue
@@ -864,6 +849,30 @@ func replayFailures(ctx *libhegel.Context, s *libhegel.Settings, result *libhege
 		origins = append(origins, fail.Origin(ctx))
 	}
 	return fmt.Errorf("%w: %d failures %v", errPropTestFailed, len(origins), origins)
+}
+
+func reportCapturedFailure(ctx *libhegel.Context, settings *libhegel.Settings, out io.Writer, captured *bytes.Buffer, caveat, blob string) error {
+	if out == nil {
+		return nil
+	}
+	var report bytes.Buffer
+	if captured != nil {
+		report.Write(captured.Bytes())
+	}
+	if caveat != "" {
+		fmt.Fprintln(&report, caveat)
+	}
+	if blob != "" {
+		printBlob, err := settings.GetPrintBlob(ctx)
+		if err != nil {
+			return err
+		}
+		if printBlob {
+			fmt.Fprintf(&report, "reproduction blob: %s\n", blob)
+		}
+	}
+	_, err := io.Copy(out, &report)
+	return err
 }
 
 // replayFailure appends the reproduction blob when enabled, even if replay panics.
