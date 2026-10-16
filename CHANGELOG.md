@@ -1,5 +1,9 @@
 # Changelog
 
+## 0.9.25 - 2026-10-16
+
+Adds single-file bank and ring workload examples demonstrating concurrent SQL transactions and state-machine invariants with `hegel.Workload`. The ring workload checks graph topology and counters for acknowledged node swaps.
+
 ## 0.9.24 - 2026-10-16
 
 Bump the pinned libhegel from 0.45.3 to [0.47.0](https://github.com/hegeldev/hegel-rust/releases/tag/libhegel-v0.47.0).
