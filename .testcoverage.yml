@@ -11,6 +11,5 @@ exclude:
     - _string\.go$
     # Vendored Go runtime handle implementation, maintained upstream.
     - internal/cgo/handle\.go$
-    # Standalone SQL workload, checked against a live database.
-    - examples/bank/main\.go$
-    - examples/ring/main\.go$
+    # Standalone examples are built in CI.
+    - examples/
