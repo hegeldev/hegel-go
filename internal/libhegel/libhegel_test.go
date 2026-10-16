@@ -96,6 +96,7 @@ func TestProfileSettingsRoundTrip(t *testing.T) {
 	must(s.Phases(ctx, PHASE_GENERATE|PHASE_SHRINK))
 	must(s.SuppressHealthCheck(ctx, HC_TOO_SLOW))
 	must(s.ReportMultipleFailures(ctx, false))
+	must(s.StopOnFirstFailure(ctx, false))
 	must(s.ShowStatistics(ctx, true))
 	must(s.UnboundedChoices(ctx, true))
 	must(s.PrintBlob(ctx, false))
@@ -125,6 +126,9 @@ func TestProfileSettingsRoundTrip(t *testing.T) {
 	}
 	if got, err := s.GetReportMultipleFailures(ctx); got || err != nil {
 		t.Fatalf("multiple failures = %v, %v", got, err)
+	}
+	if got, err := s.GetStopOnFirstFailure(ctx); got || err != nil {
+		t.Fatalf("stop on first failure = %v, %v", got, err)
 	}
 	if got, err := s.GetShowStatistics(ctx); !got || err != nil {
 		t.Fatalf("statistics = %v, %v", got, err)
