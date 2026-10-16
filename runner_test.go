@@ -802,6 +802,7 @@ func TestRunWithHandleCollectFailures(t *testing.T) {
 		uint64(1), libhegel.OK, // one failure
 		uintptr(1), libhegel.OK, // failure handle
 		"blob-data", libhegel.OK, // reproduction blob (replay)
+		"", libhegel.OK, // deterministic failure: no caveat
 		false, libhegel.OK, // print blob
 		uintptr(1), libhegel.OK, // test_case_from_blob handle (replay)
 		libhegel.OK,                   // mark_complete replay
@@ -828,6 +829,7 @@ func TestRunWithContextPrintsReproductionBlob(t *testing.T) {
 		uint64(1), libhegel.OK, // failure count
 		uintptr(1), libhegel.OK, // failure
 		"blob-data", libhegel.OK,
+		"", libhegel.OK, // deterministic failure: no caveat
 		true, libhegel.OK, // print blob
 		uintptr(1), libhegel.OK, // test_case_from_blob
 		uintptr(1), libhegel.OK, // printer
@@ -860,6 +862,7 @@ func TestRunWithContextGetPrintBlobError(t *testing.T) {
 		uint64(1), libhegel.OK, // failure count
 		uintptr(1), libhegel.OK, // failure
 		"blob-data", libhegel.OK,
+		"", libhegel.OK, // deterministic failure: no caveat
 		false, libhegel.E_BACKEND, "print blob boom",
 	)
 	err := runWithContext(lib, func(TestCase) {}, applyOpts([]Option{WithDerandomize(false)}))
@@ -881,6 +884,7 @@ func TestRunWithContextReproductionBlobWriteError(t *testing.T) {
 		uint64(1), libhegel.OK, // failure count
 		uintptr(1), libhegel.OK, // failure
 		"blob-data", libhegel.OK,
+		"", libhegel.OK, // deterministic failure: no caveat
 		true, libhegel.OK, // print blob
 		uintptr(1), libhegel.OK, // test_case_from_blob
 		uintptr(1), libhegel.OK, // printer
@@ -917,6 +921,7 @@ func TestRunWithContextReplayPropagatesUserPanic(t *testing.T) {
 		uint64(1), libhegel.OK, // one failure
 		uintptr(1), libhegel.OK, // failure handle
 		"blob-data", libhegel.OK, // reproduction blob
+		"", libhegel.OK, // deterministic failure: no caveat
 		true, libhegel.OK, // print blob
 		uintptr(1), libhegel.OK, // test_case_from_blob handle
 		uintptr(1), libhegel.OK, // printer
@@ -952,6 +957,7 @@ func TestRunWithContextReplayMarkCompleteError(t *testing.T) {
 		uint64(1), libhegel.OK, // one failure
 		uintptr(1), libhegel.OK, // failure handle
 		"blob-data", libhegel.OK, // reproduction blob
+		"", libhegel.OK, // deterministic failure: no caveat
 		false, libhegel.OK, // print blob
 		uintptr(1), libhegel.OK, // test_case_from_blob handle
 		libhegel.E_BACKEND, "replay mark boom", // mark_complete replay
@@ -981,6 +987,8 @@ func TestRunWithContextOneCaseFailure(t *testing.T) {
 		uint64(1), libhegel.OK, // one failure
 		uintptr(1), libhegel.OK, // failure handle
 		"", libhegel.OK, // no reproduction blob
+		"", libhegel.OK, // deterministic failure: no caveat
+		"origin", libhegel.OK, // failure origin
 	)
 	err := runWithContext(lib, func(tc TestCase) { tc.(*testCase).Fail() }, applyOpts([]Option{WithDerandomize(false), WithTestCases(1)}))
 	if !errors.Is(err, errPropTestFailed) {
@@ -988,8 +996,7 @@ func TestRunWithContextOneCaseFailure(t *testing.T) {
 	}
 }
 
-// TestRunWithContextNondeterministicFailure verifies that an empty reproduction
-// blob identifies a nondeterministic failure and skips final replay.
+// TestRunWithContextNondeterministicFailure reports every failure without a blob.
 func TestRunWithContextNondeterministicFailure(t *testing.T) {
 	t.Parallel()
 	lib := libhegel.Stub(t,
@@ -999,45 +1006,106 @@ func TestRunWithContextNondeterministicFailure(t *testing.T) {
 		uintptr(0), libhegel.OK, // next_test_case: run finished
 		uintptr(1), libhegel.OK, // run_result
 		libhegel.RUN_STATUS_FAILED, libhegel.OK, // result status
-		uint64(1), libhegel.OK, // one failure
+		uint64(2), libhegel.OK, // two failures
 		uintptr(1), libhegel.OK, // failure handle
 		"", libhegel.OK, // no reproduction blob
+		"", libhegel.OK, // deterministic failure: no caveat
+		"first", libhegel.OK, // first failure origin
+		uintptr(2), libhegel.OK,
+		"", libhegel.OK,
+		"", libhegel.OK,
+		"second", libhegel.OK,
 	)
 	err := runWithContext(lib, func(TestCase) {}, applyOpts([]Option{WithDerandomize(false)}))
-	if !errors.Is(err, errPropTestFailed) {
+	if !errors.Is(err, errPropTestFailed) || !strings.Contains(err.Error(), "2 failures [first second]") {
 		t.Fatalf("expected nondeterministic prop-test failure, got %v", err)
 	}
 }
 
 func TestRunWithContextEmitsNondeterministicFailureOutput(t *testing.T) {
 	t.Parallel()
-	lib := libhegel.Stub(t,
-		uintptr(1), libhegel.OK, // settings_new
-		libhegel.OK,             // derandomize
-		uintptr(1), libhegel.OK, // run_start
-		uintptr(1), libhegel.OK, // next_test_case: one case
-		true, libhegel.OK, // should_capture
-		uintptr(1), libhegel.OK, // printer
-		libhegel.OK,                     // note
-		libhegel.OK,                     // mark_complete
-		libhegel.OK,                     // resolve
-		"failure output\n", libhegel.OK, // value
-		uintptr(0), libhegel.OK, // next_test_case: run finished
-		uintptr(1), libhegel.OK, // run_result
-		libhegel.RUN_STATUS_FAILED_NONDETERMINISTIC, libhegel.OK, // result status
-	)
-	var output strings.Builder
-	opts := applyOpts([]Option{WithDerandomize(false)})
-	opts.output = &output
-	err := runWithContext(lib, func(tc TestCase) {
-		tc.Log("failure output")
-		tc.abort(&invocationError{status: libhegel.STATUS_INTERESTING, cause: "failed", kind: "failure"})
-	}, opts)
-	if err != nil {
-		t.Fatalf("runWithContext: %v", err)
-	}
-	if got := output.String(); !strings.Contains(got, "failure output") {
-		t.Fatalf("output = %q, want nondeterministic failure output", got)
+	for _, mode := range []string{"output", "discard", "write error", "with blob", "hide blob", "setting error"} {
+		t.Run(mode, func(t *testing.T) {
+			blob, caveat := "", ""
+			if mode == "with blob" || mode == "hide blob" || mode == "setting error" {
+				blob, caveat = "nondeterministic-state", "confirmed by 2 of 4 replays"
+			}
+			settingErr := errors.New("print blob setting failed")
+			returns := []any{
+				uintptr(1), libhegel.OK, // settings_new
+				libhegel.OK,             // derandomize
+				uintptr(1), libhegel.OK, // run_start
+				uintptr(1), libhegel.OK, // next_test_case: one case
+				true, libhegel.OK, // should_capture
+				uintptr(1), libhegel.OK, // printer
+				libhegel.OK,                     // note
+				libhegel.OK,                     // mark_complete
+				libhegel.OK,                     // resolve
+				"failure output\n", libhegel.OK, // value
+				uintptr(0), libhegel.OK, // next_test_case: run finished
+				uintptr(1), libhegel.OK, // run_result
+				libhegel.RUN_STATUS_FAILED, libhegel.OK, // result status
+				uint64(1), libhegel.OK, // one failure
+				uintptr(1), libhegel.OK, // failure
+				blob, libhegel.OK, // reproduction blob
+				caveat, libhegel.OK, // confirmation caveat
+				":0 (0x0)", libhegel.OK, // failure origin
+			}
+			if blob != "" {
+				code := libhegel.OK
+				if mode == "setting error" {
+					code = libhegel.E_INTERNAL
+				}
+				returns = append(returns, mode != "hide blob", code)
+				if code != libhegel.OK {
+					returns = append(returns, settingErr.Error())
+				}
+			}
+			lib := libhegel.Stub(t, returns...)
+			var output strings.Builder
+			opts := applyOpts([]Option{WithDerandomize(false)})
+			opts.output = &output
+			writeErr := errors.New("captured output write failed")
+			if mode == "discard" {
+				opts.output = nil
+			}
+			if mode == "write error" {
+				opts.output = nonemptyWriteError{writeErr}
+			}
+			calls := 0
+			err := runWithContext(lib, func(tc TestCase) {
+				calls++
+				if calls > 1 {
+					t.Fatal("captured failure must not be replayed")
+				}
+				tc.Log("failure output")
+				tc.abort(&invocationError{status: libhegel.STATUS_INTERESTING, cause: "failed", kind: "failure"})
+			}, opts)
+			want := errPropTestFailed
+			if mode == "write error" {
+				want = writeErr
+			}
+			if mode == "setting error" {
+				if err == nil || !strings.Contains(err.Error(), settingErr.Error()) {
+					t.Fatalf("setting error = %v", err)
+				}
+				return
+			}
+			if !errors.Is(err, want) {
+				t.Fatalf("runWithContext: %v", err)
+			}
+			if got := output.String(); mode != "discard" && mode != "write error" && !strings.Contains(got, "failure output") {
+				t.Fatalf("output = %q, want nondeterministic failure output", got)
+			}
+			if blob != "" {
+				if !strings.Contains(output.String(), caveat) {
+					t.Fatalf("missing confirmation caveat: %q", output.String())
+				}
+				if got := strings.Contains(output.String(), "reproduction blob: "+blob); got != (mode == "with blob") {
+					t.Fatalf("blob output = %q", output.String())
+				}
+			}
+		})
 	}
 }
 
@@ -1056,6 +1124,7 @@ func TestRunWithContextReplayBlobError(t *testing.T) {
 		uint64(1), libhegel.OK, // one failure
 		uintptr(1), libhegel.OK, // failure handle
 		"bad-blob", libhegel.OK, // reproduction blob
+		"", libhegel.OK, // deterministic failure: no caveat
 		false, libhegel.OK, // print blob
 		uintptr(0), libhegel.E_BACKEND, "replay boom", // test_case_from_blob fails
 	)

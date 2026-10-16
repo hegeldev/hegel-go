@@ -7,10 +7,7 @@ import (
 	"testing"
 )
 
-// TestLoadLibVersion smoke-tests the loader against the real libhegel built
-// by `just build-libhegel` (or in the sibling ../hegel-rust/ checkout, or the
-// vendored binary embedded at build time). Asserts that hegel_version returns
-// the version pinned in version.go.
+// TestLoadLibVersion checks the real library against the pinned version.
 func TestLoadLibVersion(t *testing.T) {
 	lib, err := load()
 	if err != nil {
@@ -148,7 +145,7 @@ func TestProfileSettingsRoundTrip(t *testing.T) {
 
 func TestProfileRegistrationBindings(t *testing.T) {
 	// Process-global mutations stay stubbed so unrelated tests retain their configuration.
-	ctx := Stub(t, OK, OK, OK)
+	ctx := Stub(t, OK, OK, OK, OK)
 	s := &Settings{pointer: pointer[settingsT]{syms: ctx.syms, raw: 2}}
 	if err := s.RegisterProfile(ctx, "unit-profile"); err != nil {
 		t.Fatal(err)
@@ -159,8 +156,8 @@ func TestProfileRegistrationBindings(t *testing.T) {
 	if err := ctx.SetDefaultProfile(""); err != nil {
 		t.Fatal(err)
 	}
-	if err := ctx.SetDefaultProfile("invalid\x00name"); err == nil {
-		t.Fatal("accepted interior NUL")
+	if err := ctx.SetDefaultProfile("profile\x00name"); err != nil {
+		t.Fatal(err)
 	}
 }
 

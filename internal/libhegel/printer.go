@@ -2,7 +2,6 @@ package libhegel
 
 import (
 	"runtime"
-	"unsafe"
 )
 
 // PrinterOptions configures a printer's layout and is released automatically by the GC.
@@ -15,7 +14,7 @@ type PrinterOptions struct {
 type Printer struct {
 	*pointer[printerT]
 	outBool  bool
-	outValue stringResult
+	outValue printerValueResult
 }
 
 // PrinterOptionsNew creates options with the engine's default line width (79).
@@ -135,16 +134,16 @@ func (p *Printer) Value(ctx *Context) (string, error) {
 	if err != nil {
 		return "", err
 	}
-	value := string(unsafe.Slice(p.outValue.data, p.outValue.len))
-	_ = p.syms.PrinterValueFree(0, &p.outValue)
+	value := goString(stringT(p.outValue))
+	_ = p.syms.PrinterValueResultFree(0, &p.outValue)
 	return value, nil
 }
 
 // Text emits literal UTF-8 text without newlines.
 func (p *Printer) Text(ctx *Context, text string) error {
-	data, n := cString(&text)
+	data := cString(text)
 	return ctx.invoke("hegel_printer_text", func(ctx ctxT) Error {
-		e := p.syms.PrinterText(ctx, p.raw, data, n)
+		e := p.syms.PrinterText(ctx, p.raw, data)
 		runtime.KeepAlive(p)
 		return e
 	})
@@ -155,9 +154,9 @@ func (p *Printer) Text(ctx *Context, text string) error {
 // one printed structurally. The text may contain newlines, each honored as a
 // hard break. options selects reflow behavior, using the engine defaults when nil.
 func (p *Printer) Reflow(ctx *Context, options *ReflowOptions, text string) error {
-	data, n := cString(&text)
+	data := cString(text)
 	return ctx.invoke("hegel_printer_reflow", func(ctx ctxT) Error {
-		e := p.syms.PrinterReflow(ctx, p.raw, reflowOptionsRaw(options), data, n)
+		e := p.syms.PrinterReflow(ctx, p.raw, reflowOptionsRaw(options), data)
 		runtime.KeepAlive(p)
 		runtime.KeepAlive(options)
 		return e
@@ -166,9 +165,9 @@ func (p *Printer) Reflow(ctx *Context, options *ReflowOptions, text string) erro
 
 // IfBreak emits text only when the enclosing group breaks.
 func (p *Printer) IfBreak(ctx *Context, text string) error {
-	data, n := cString(&text)
+	data := cString(text)
 	return ctx.invoke("hegel_printer_if_break", func(ctx ctxT) Error {
-		e := p.syms.PrinterIfBreak(ctx, p.raw, data, n)
+		e := p.syms.PrinterIfBreak(ctx, p.raw, data)
 		runtime.KeepAlive(p)
 		return e
 	})
@@ -176,9 +175,9 @@ func (p *Printer) IfBreak(ctx *Context, text string) error {
 
 // Breakable emits a separator or an indented newline when the group breaks.
 func (p *Printer) Breakable(ctx *Context, text string) error {
-	data, n := cString(&text)
+	data := cString(text)
 	return ctx.invoke("hegel_printer_breakable", func(ctx ctxT) Error {
-		e := p.syms.PrinterBreakable(ctx, p.raw, data, n)
+		e := p.syms.PrinterBreakable(ctx, p.raw, data)
 		runtime.KeepAlive(p)
 		return e
 	})
@@ -186,9 +185,9 @@ func (p *Printer) Breakable(ctx *Context, text string) error {
 
 // Comment appends a line comment and forces the enclosing groups to break.
 func (p *Printer) Comment(ctx *Context, text string) error {
-	data, n := cString(&text)
+	data := cString(text)
 	return ctx.invoke("hegel_printer_comment", func(ctx ctxT) Error {
-		e := p.syms.PrinterComment(ctx, p.raw, data, n)
+		e := p.syms.PrinterComment(ctx, p.raw, data)
 		runtime.KeepAlive(p)
 		return e
 	})
@@ -196,9 +195,9 @@ func (p *Printer) Comment(ctx *Context, text string) error {
 
 // EndGroup closes the innermost group and emits its closing text.
 func (p *Printer) EndGroup(ctx *Context, text string) error {
-	data, n := cString(&text)
+	data := cString(text)
 	return ctx.invoke("hegel_printer_end_group", func(ctx ctxT) Error {
-		e := p.syms.PrinterEndGroup(ctx, p.raw, data, n)
+		e := p.syms.PrinterEndGroup(ctx, p.raw, data)
 		runtime.KeepAlive(p)
 		return e
 	})
@@ -206,9 +205,9 @@ func (p *Printer) EndGroup(ctx *Context, text string) error {
 
 // BeginGroup opens a group and increases indentation by indent.
 func (p *Printer) BeginGroup(ctx *Context, indent uint64, text string) error {
-	data, n := cString(&text)
+	data := cString(text)
 	return ctx.invoke("hegel_printer_begin_group", func(ctx ctxT) Error {
-		e := p.syms.PrinterBeginGroup(ctx, p.raw, indent, data, n)
+		e := p.syms.PrinterBeginGroup(ctx, p.raw, indent, data)
 		runtime.KeepAlive(p)
 		return e
 	})

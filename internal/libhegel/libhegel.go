@@ -33,13 +33,12 @@ import (
 	"os"
 	"runtime"
 	"slices"
-	"strings"
 	"sync"
 	"time"
 	"unsafe"
 )
 
-//go:generate go tool stringer -type=Error,Status,Backend,Verbosity,RunStatus,HealthCheck,Phase,NondeterminismStrictness -linecomment -output=libhegel_string.go
+//go:generate go tool stringer -type=Error,Status,Backend,Verbosity,RunStatus,RunErrorKind,HealthCheck,Phase,NondeterminismStrictness -linecomment -output=libhegel_string.go
 
 // LibraryPathEnv names the env var that pins libhegel to an explicit path.
 // When set, that path is loaded directly with no embedded fallback; when unset,
@@ -74,6 +73,7 @@ const (
 	// where the recursion scope was created, then call [Recursion.Retry] to
 	// discard the attempt and try again.
 	E_RETRY
+	E_NOT_FOUND
 )
 
 type Status uint32 // Equivalent of hegel_status_t (passed as a uint32_t param)
@@ -137,10 +137,19 @@ const (
 	// or an engine panic — and produced no verdict on the property. There are
 	// no failures to inspect; read the message via [Result.ErrorMessage].
 	RUN_STATUS_ERROR
+)
 
-	// The property failed during a run declared nondeterministic. Its failures
-	// have no reproduction blobs and must be reported from their original runs.
-	RUN_STATUS_FAILED_NONDETERMINISTIC
+// RunErrorKind classifies a run-level error.
+type RunErrorKind int32
+
+const (
+	RUN_ERROR_NONE RunErrorKind = iota
+	RUN_ERROR_HEALTH_CHECK
+	RUN_ERROR_FLAKY
+	RUN_ERROR_NONDETERMINISTIC
+	RUN_ERROR_UNSATISFIABLE
+	RUN_ERROR_USAGE
+	RUN_ERROR_INTERNAL
 )
 
 type HealthCheck uint32
@@ -203,17 +212,19 @@ type printerT uintptr        // Equivalent of hegel_printer_t
 type printerOptionsT uintptr // Equivalent of hegel_printer_options_t
 type reflowOptionsT uintptr  // Equivalent of hegel_reflow_options_t
 
-type ctxT uintptr          // Equivalent of hegel_context_t
-type settingsT uintptr     // Equivalent of hegel_settings_t
-type runT uintptr          // Equivalent of hegel_run_t
-type testCaseT uintptr     // Equivalent of hegel_test_case_t
-type resultT uintptr       // Equivalent of hegel_run_result_t
-type failureT uintptr      // Equivalent of hegel_failure_t
-type stringGenT uintptr    // Equivalent of hegel_string_generator_t
-type collectionT uintptr   // Equivalent of hegel_collection_t
-type recursionT uintptr    // Equivalent of HegelRecursion
-type poolT uintptr         // Equivalent of hegel_pool_t
-type stateMachineT uintptr // Equivalent of hegel_state_machine_t
+type ctxT uintptr            // Equivalent of hegel_context_t
+type settingsT uintptr       // Equivalent of hegel_settings_t
+type runT uintptr            // Equivalent of hegel_run_t
+type testCaseT uintptr       // Equivalent of hegel_test_case_t
+type resultT uintptr         // Equivalent of hegel_run_result_t
+type failureT uintptr        // Equivalent of hegel_failure_t
+type stringGenT uintptr      // Equivalent of hegel_string_generator_t
+type collectionT uintptr     // Equivalent of hegel_collection_t
+type recursionT uintptr      // Equivalent of HegelRecursion
+type poolT uintptr           // Equivalent of hegel_pool_t
+type stateMachineT uintptr   // Equivalent of hegel_state_machine_t
+type grammarT uintptr        // Equivalent of hegel_grammar_t
+type grammarBuilderT uintptr // Equivalent of hegel_grammar_builder_t
 
 // outputCallbackT is hegel_output_callback_t, a C function pointer
 // (void (*)(void *user_data, const char *line, size_t len)) delivering one
@@ -267,14 +278,19 @@ type bytesResult struct {
 	len  uint64
 }
 
-// stringResult mirrors hegel_generate_string_result_t and
-// hegel_printer_value_result_t: an engine-allocated, length-delimited UTF-8
-// buffer (not NUL-terminated). Release it with the producing API's matching
-// result_free function.
-type stringResult struct {
+// stringT mirrors hegel_string_t. Input bytes live through the call;
+// borrowed outputs must be copied before their owner is released.
+type stringT struct {
 	data *byte
 	len  uint64
 }
+
+// ownedStringT mirrors hegel_owned_string_t and must be released with
+// hegel_owned_string_free after its bytes have been copied.
+type ownedStringT stringT
+
+// printerValueResult is released only by hegel_printer_value_result_free.
+type printerValueResult stringT
 
 // symbols is the loaded libhegel shared library: the dlopen handle plus one Go
 // func per C entry point. It is immutable after load and freely shared across
@@ -288,7 +304,7 @@ type symbols struct {
 
 	ContextNew       func() ctxT
 	ContextFree      func(ctxT) Error
-	ContextLastError func(ctxT) string
+	ContextLastError func(ctxT) stringT
 
 	SettingsNew          func(ctxT, out[settingsT]) Error
 	SettingsFree         func(ctxT, settingsT) Error
@@ -299,8 +315,8 @@ type symbols struct {
 	SettingsSetSeed                     func(ctxT, settingsT, uint64, bool) Error
 	SettingsSetDerandomize              func(ctxT, settingsT, bool) Error
 	SettingsSetReportMultipleFailures   func(ctxT, settingsT, bool) Error
-	SettingsSetDatabase                 func(ctxT, settingsT, string) Error
-	SettingsSetDatabaseKey              func(ctxT, settingsT, string) Error
+	SettingsSetDatabase                 func(ctxT, settingsT, *stringT) Error
+	SettingsSetDatabaseKey              func(ctxT, settingsT, *stringT) Error
 	SettingsSetPhases                   func(ctxT, settingsT, Phase) Error
 	SettingsSetSuppressHealthCheck      func(ctxT, settingsT, HealthCheck) Error
 	SettingsSetNondeterminismStrictness func(ctxT, settingsT, NondeterminismStrictness) Error
@@ -311,12 +327,12 @@ type symbols struct {
 	// output on stderr. user_data is a plain void* (uintptr); the callback
 	// carries its own type (see outputCallbackT).
 	RunStart     func(ctxT, settingsT, outputCallbackT, uintptr, out[runT]) Error
-	RunStartBlob func(ctxT, settingsT, string, outputCallbackT, uintptr, out[runT]) Error
+	RunStartBlob func(ctxT, settingsT, stringT, outputCallbackT, uintptr, out[runT]) Error
 	RunFree      func(ctxT, runT) Error
 	NextTestCase func(ctxT, runT, out[testCaseT]) Error
 	RunResult    func(ctxT, runT, out[resultT]) Error
 
-	TestCaseFromBlob      func(ctxT, settingsT, string, outputCallbackT, uintptr, out[testCaseT]) Error
+	TestCaseFromBlob      func(ctxT, settingsT, stringT, outputCallbackT, uintptr, out[testCaseT]) Error
 	TestCaseClone         func(ctxT, testCaseT, out[testCaseT]) Error
 	TestCaseFree          func(ctxT, testCaseT) Error
 	TestCaseShouldCapture func(ctxT, testCaseT, out[bool]) Error
@@ -325,7 +341,7 @@ type symbols struct {
 	StopSpan                 func(ctxT, testCaseT, bool) Error
 	NewCollection            func(ctxT, testCaseT, uint64, uint64, out[collectionT]) Error
 	CollectionMore           func(ctxT, testCaseT, collectionT, out[bool]) Error
-	CollectionReject         func(ctxT, testCaseT, collectionT, string) Error
+	CollectionReject         func(ctxT, testCaseT, collectionT, *stringT) Error
 	CollectionFree           func(ctxT, collectionT) Error
 	NewRecursion             func(ctxT, testCaseT, uint64, uint64, out[recursionT]) Error
 	RecursionBranch          func(ctxT, testCaseT, recursionT, uint64, out[bool]) Error
@@ -335,14 +351,15 @@ type symbols struct {
 	NewPool                  func(ctxT, testCaseT, out[poolT]) Error
 	PoolAdd                  func(ctxT, testCaseT, poolT, out[int64]) Error
 	PoolGenerate             func(ctxT, testCaseT, poolT, bool, out[int64]) Error
+	PoolRestore              func(ctxT, testCaseT, poolT, int64) Error
 	PoolFree                 func(ctxT, poolT) Error
-	NewStateMachine          func(ctxT, testCaseT, **byte, *int64, *float64, uint64, **byte, *bool, uint64, int64, int64, int64, out[stateMachineT], out[int64]) Error
+	NewStateMachine          func(ctxT, testCaseT, *stringT, *int64, *float64, uint64, *stringT, *bool, uint64, int64, int64, int64, out[stateMachineT], out[int64]) Error
 	StateMachineNextGroup    func(ctxT, testCaseT, stateMachineT, out[StateMachineGroup]) Error
 	StateMachineNextRule     func(ctxT, testCaseT, stateMachineT, int64, out[int64]) Error
 	StateMachineRuleRejected func(ctxT, testCaseT, stateMachineT, int64) Error
 	StateMachineFree         func(ctxT, stateMachineT) Error
-	Target                   func(ctxT, testCaseT, float64, string) Error
-	MarkComplete             func(ctxT, testCaseT, Status, string) Error
+	Target                   func(ctxT, testCaseT, float64, stringT) Error
+	MarkComplete             func(ctxT, testCaseT, Status, *stringT) Error
 
 	// Typed primitive draws (0.27.0 replaced the generic schema-driven
 	// hegel_generate with these).
@@ -352,8 +369,7 @@ type symbols struct {
 	GenerateFloat      func(ctxT, testCaseT, uint32, float64, float64, bool, bool, bool, bool, float64, out[float64]) Error
 	GenerateBytes      func(ctxT, testCaseT, uint64, uint64, out[bytesResult]) Error
 	GenerateBytesFree  func(ctxT, *bytesResult) Error
-	GenerateString     func(ctxT, testCaseT, stringGenT, out[stringResult]) Error
-	GenerateStringFree func(ctxT, *stringResult) Error
+	GenerateString     func(ctxT, testCaseT, stringGenT, out[ownedStringT]) Error
 	GenerateDate       func(ctxT, testCaseT, Date, Date, out[Date]) Error
 	GenerateTime       func(ctxT, testCaseT, Time, Time, out[Time]) Error
 	GenerateDatetime   func(ctxT, testCaseT, Datetime, Datetime, out[Datetime]) Error
@@ -363,42 +379,52 @@ type symbols struct {
 
 	// String-generator constructors (build the alphabet-and-shape spec passed
 	// to hegel_generate_string) and their shared free.
-	StringGeneratorText   func(ctxT, uint64, uint64, string, uint32, uint32, **byte, uint64, **byte, uint64, *byte, uint64, *byte, uint64, out[stringGenT]) Error
-	StringGeneratorRegex  func(ctxT, *byte, uint64, bool, stringGenT, out[stringGenT]) Error
+	StringGeneratorText   func(ctxT, uint64, uint64, *stringT, uint32, uint32, *stringT, uint64, *stringT, uint64, stringT, stringT, out[stringGenT]) Error
+	StringGeneratorRegex  func(ctxT, stringT, bool, stringGenT, out[stringGenT]) Error
 	StringGeneratorEmail  func(ctxT, out[stringGenT]) Error
 	StringGeneratorURL    func(ctxT, out[stringGenT]) Error
 	StringGeneratorDomain func(ctxT, uint64, out[stringGenT]) Error
 	StringGeneratorFree   func(ctxT, stringGenT) Error
 
+	GrammarBuilderNew     func(ctxT, stringT, out[grammarBuilderT]) Error
+	GrammarBuilderFile    func(ctxT, grammarBuilderT, uint64, out[stringT]) Error
+	GrammarBuilderProvide func(ctxT, grammarBuilderT, uint64, *stringT) Error
+	GrammarBuilderFree    func(ctxT, grammarBuilderT) Error
+	GrammarNew            func(ctxT, grammarBuilderT, *stringT, uint64, uint32, stringGenT, *stringT, uint64, out[grammarT]) Error
+	GrammarFree           func(ctxT, grammarT) Error
+	GrammarPlaceholder    func(ctxT, grammarT, stringT, out[stringT]) Error
+	GenerateGrammar       func(ctxT, testCaseT, grammarT, uint64, out[ownedStringT]) Error
+
 	ResultFree         func(ctxT, resultT) Error
 	ResultStatus       func(ctxT, resultT, out[RunStatus]) Error
-	ResultError        func(ctxT, resultT, out[*byte]) Error
+	ResultErrorKind    func(ctxT, resultT, out[RunErrorKind], out[uint32]) Error
+	ResultError        func(ctxT, resultT, out[*stringT]) Error
 	ResultFailureCount func(ctxT, resultT, out[uint64]) Error
 	ResultFailure      func(ctxT, resultT, uint64, out[failureT]) Error
 
 	FailureFree             func(ctxT, failureT) Error
-	FailureOrigin           func(ctxT, failureT, out[*byte]) Error
-	FailureReproductionBlob func(ctxT, failureT, out[*byte]) Error
-	FailureCaveat           func(ctxT, failureT, out[*byte]) Error
+	FailureOrigin           func(ctxT, failureT, out[stringT]) Error
+	FailureReproductionBlob func(ctxT, failureT, out[*stringT]) Error
+	FailureCaveat           func(ctxT, failureT, out[*stringT]) Error
 
 	SettingsSetShowStatistics        func(ctxT, settingsT, bool) Error
 	SettingsSetUnboundedChoices      func(ctxT, settingsT, bool) Error
 	RecursionFinish                  func(ctxT, testCaseT, recursionT) Error
 	StateMachineShouldCheckInvariant func(ctxT, testCaseT, stateMachineT, int64, out[bool]) Error
-	Event                            func(ctxT, testCaseT, string) Error
-	EventValue                       func(ctxT, testCaseT, float64, string) Error
-	Note                             func(ctxT, testCaseT, *byte, uint64) Error
+	Event                            func(ctxT, testCaseT, stringT) Error
+	EventValue                       func(ctxT, testCaseT, float64, stringT) Error
+	Note                             func(ctxT, testCaseT, stringT) Error
 	PrinterOptionsNew                func(ctxT, out[printerOptionsT]) Error
 	PrinterOptionsFree               func(ctxT, printerOptionsT) Error
 	PrinterOptionsSetMaxWidth        func(ctxT, printerOptionsT, uint64) Error
 	PrinterNew                       func(ctxT, printerOptionsT, out[printerT]) Error
 	PrinterFree                      func(ctxT, printerT) Error
-	PrinterIfBreak                   func(ctxT, printerT, *byte, uint64) Error
-	PrinterText                      func(ctxT, printerT, *byte, uint64) Error
-	PrinterBreakable                 func(ctxT, printerT, *byte, uint64) Error
-	PrinterComment                   func(ctxT, printerT, *byte, uint64) Error
-	PrinterEndGroup                  func(ctxT, printerT, *byte, uint64) Error
-	PrinterBeginGroup                func(ctxT, printerT, uint64, *byte, uint64) Error
+	PrinterIfBreak                   func(ctxT, printerT, stringT) Error
+	PrinterText                      func(ctxT, printerT, stringT) Error
+	PrinterBreakable                 func(ctxT, printerT, stringT) Error
+	PrinterComment                   func(ctxT, printerT, stringT) Error
+	PrinterEndGroup                  func(ctxT, printerT, stringT) Error
+	PrinterBeginGroup                func(ctxT, printerT, uint64, stringT) Error
 	PrinterShiftIndent               func(ctxT, printerT, int64) Error
 	PrinterHardBreak                 func(ctxT, printerT) Error
 	PrinterBeginSpeculative          func(ctxT, printerT) Error
@@ -407,27 +433,28 @@ type symbols struct {
 	PrinterResolve                   func(ctxT, printerT) Error
 	PrinterDeferred                  func(ctxT, printerT, out[printerT]) Error
 	PrinterIsLive                    func(ctxT, printerT, out[bool]) Error
-	PrinterValue                     func(ctxT, printerT, out[stringResult]) Error
-	PrinterValueFree                 func(ctxT, *stringResult) Error
-	PrinterReflow                    func(ctxT, printerT, reflowOptionsT, *byte, uint64) Error
+	PrinterValue                     func(ctxT, printerT, out[printerValueResult]) Error
+	PrinterValueResultFree           func(ctxT, *printerValueResult) Error
+	OwnedStringFree                  func(ctxT, *ownedStringT) Error
+	PrinterReflow                    func(ctxT, printerT, reflowOptionsT, stringT) Error
 	ReflowOptionsNew                 func(ctxT, out[reflowOptionsT]) Error
 	ReflowOptionsFree                func(ctxT, reflowOptionsT) Error
 	TestCasePrinter                  func(ctxT, testCaseT, printerOptionsT, out[printerT]) Error
 
-	SettingsNewForProfile               func(ctxT, string, out[settingsT]) Error
-	SettingsSetTestLocation             func(ctxT, settingsT, string, uint32, string, string) Error
+	SettingsNewForProfile               func(ctxT, stringT, out[settingsT]) Error
+	SettingsSetTestLocation             testLocationFn
 	SettingsSetPrintBlob                func(ctxT, settingsT, bool) Error
-	SettingsRegisterProfile             func(ctxT, string, settingsT) Error
-	SetDefaultProfile                   func(ctxT, *byte) Error
+	SettingsRegisterProfile             func(ctxT, stringT, settingsT) Error
+	SetDefaultProfile                   func(ctxT, stringT) Error
 	TestCaseBlock                       func(ctxT, testCaseT, uint64, out[testCaseT]) Error
 	TestCaseSetWorker                   func(ctxT, testCaseT, int64) Error
-	LabelFromName                       func(ctxT, string, out[uint64]) Error
+	LabelFromName                       func(ctxT, stringT, out[uint64]) Error
 	LabelCombine                        func(ctxT, *Label, uint64, out[uint64]) Error
 	SettingsGetTestCases                func(ctxT, settingsT, out[uint64]) Error
 	SettingsGetVerbosity                func(ctxT, settingsT, out[int32]) Error
 	SettingsGetSeed                     func(ctxT, settingsT, out[uint64], out[bool]) Error
 	SettingsGetDerandomize              func(ctxT, settingsT, out[bool]) Error
-	SettingsGetDatabase                 func(ctxT, settingsT, out[*byte]) Error
+	SettingsGetDatabase                 func(ctxT, settingsT, out[*stringT]) Error
 	SettingsGetPhases                   func(ctxT, settingsT, out[uint32]) Error
 	SettingsGetSuppressHealthCheck      func(ctxT, settingsT, out[uint32]) Error
 	SettingsGetReportMultipleFailures   func(ctxT, settingsT, out[bool]) Error
@@ -437,7 +464,7 @@ type symbols struct {
 	SettingsGetUnboundedChoices         func(ctxT, settingsT, out[bool]) Error
 	SettingsGetNondeterminismStrictness func(ctxT, settingsT, out[int32]) Error
 
-	Version func(ctxT, out[*byte]) Error
+	Version func(ctxT, out[stringT]) Error
 }
 
 type Context pointer[ctxT]
@@ -462,7 +489,7 @@ func (c *Context) Clone() *Context {
 func (c *Context) SettingsNewForProfile(name string) (*Settings, error) {
 	s := new(Settings)
 	ok, err := allocateInto(c, &s.pointer, "hegel_settings_new_for_profile", func(ctx ctxT, raw *settingsT) Error {
-		return c.syms.SettingsNewForProfile(ctx, name, raw)
+		return c.syms.SettingsNewForProfile(ctx, cString(name), raw)
 	}, c.syms.SettingsFree)
 	if !ok {
 		return nil, err
@@ -473,17 +500,8 @@ func (c *Context) SettingsNewForProfile(name string) (*Settings, error) {
 // SetDefaultProfile changes the process-wide default profile. An empty name removes it.
 // Coordinate profile mutations with other users of this process-global configuration.
 func (c *Context) SetDefaultProfile(name string) error {
-	var data *byte
-	if name != "" {
-		// Unlike length-delimited text, the profile name must be NUL-terminated.
-		strings, _, err := cStringArrayArg([]string{name})
-		if err != nil {
-			return err
-		}
-		data = *strings
-	}
 	return c.invoke("hegel_set_default_profile", func(ctx ctxT) Error {
-		return c.syms.SetDefaultProfile(ctx, data)
+		return c.syms.SetDefaultProfile(ctx, cString(name))
 	})
 }
 
@@ -491,7 +509,7 @@ func (c *Context) SetDefaultProfile(name string) error {
 func (c *Context) LabelFromName(name string) (Label, error) {
 	var value uint64
 	err := c.invoke("hegel_label_from_name", func(ctx ctxT) Error {
-		return c.syms.LabelFromName(ctx, name, &value)
+		return c.syms.LabelFromName(ctx, cString(name), &value)
 	})
 	return Label(value), err
 }
@@ -564,7 +582,7 @@ func (c *Context) invoke(op string, fn func(ctx ctxT) Error) error {
 
 	var err error
 	if c != nil {
-		if msg := c.syms.ContextLastError(c.raw); msg != "" {
+		if msg := goString(c.syms.ContextLastError(c.raw)); msg != "" {
 			err = fmt.Errorf("%s: %w: %s", op, e, msg)
 		}
 	}
@@ -595,7 +613,7 @@ func (s *symbols) Close() error {
 
 // versionString reports the loaded library's version (hegel_version).
 func (s *symbols) versionString() string {
-	var p *byte
+	var p stringT
 	_ = s.Version(0, &p)
 	return goString(p)
 }
@@ -685,7 +703,7 @@ func tryOpen(path string) (syms *symbols, err error) {
 		{"hegel_printer_deferred", &syms.PrinterDeferred},
 		{"hegel_printer_is_live", &syms.PrinterIsLive},
 		{"hegel_printer_value", &syms.PrinterValue},
-		{"hegel_printer_value_result_free", &syms.PrinterValueFree},
+		{"hegel_printer_value_result_free", &syms.PrinterValueResultFree},
 		{"hegel_printer_reflow", &syms.PrinterReflow},
 		{"hegel_reflow_options_new", &syms.ReflowOptionsNew},
 		{"hegel_reflow_options_free", &syms.ReflowOptionsFree},
@@ -736,6 +754,7 @@ func tryOpen(path string) (syms *symbols, err error) {
 		{"hegel_pool_add", &syms.PoolAdd},
 		{"hegel_pool_generate", &syms.PoolGenerate},
 		{"hegel_pool_free", &syms.PoolFree},
+		{"hegel_pool_restore", &syms.PoolRestore},
 		{"hegel_new_state_machine", &syms.NewStateMachine},
 		{"hegel_state_machine_next_group", &syms.StateMachineNextGroup},
 		{"hegel_state_machine_next_rule", &syms.StateMachineNextRule},
@@ -751,7 +770,7 @@ func tryOpen(path string) (syms *symbols, err error) {
 		{"hegel_generate_bytes", &syms.GenerateBytes},
 		{"hegel_generate_bytes_result_free", &syms.GenerateBytesFree},
 		{"hegel_generate_string", &syms.GenerateString},
-		{"hegel_generate_string_result_free", &syms.GenerateStringFree},
+		{"hegel_owned_string_free", &syms.OwnedStringFree},
 		{"hegel_generate_date", &syms.GenerateDate},
 		{"hegel_generate_time", &syms.GenerateTime},
 		{"hegel_generate_datetime", &syms.GenerateDatetime},
@@ -765,10 +784,19 @@ func tryOpen(path string) (syms *symbols, err error) {
 		{"hegel_string_generator_url", &syms.StringGeneratorURL},
 		{"hegel_string_generator_domain", &syms.StringGeneratorDomain},
 		{"hegel_string_generator_free", &syms.StringGeneratorFree},
+		{"hegel_grammar_builder_new", &syms.GrammarBuilderNew},
+		{"hegel_grammar_builder_file", &syms.GrammarBuilderFile},
+		{"hegel_grammar_builder_provide", &syms.GrammarBuilderProvide},
+		{"hegel_grammar_builder_free", &syms.GrammarBuilderFree},
+		{"hegel_grammar_new", &syms.GrammarNew},
+		{"hegel_grammar_free", &syms.GrammarFree},
+		{"hegel_grammar_placeholder", &syms.GrammarPlaceholder},
+		{"hegel_generate_grammar", &syms.GenerateGrammar},
 
 		{"hegel_run_result_free", &syms.ResultFree},
 		{"hegel_run_result_status", &syms.ResultStatus},
 		{"hegel_run_result_error", &syms.ResultError},
+		{"hegel_run_result_error_kind", &syms.ResultErrorKind},
 		{"hegel_run_result_failure_count", &syms.ResultFailureCount},
 		{"hegel_run_result_failure", &syms.ResultFailure},
 		{"hegel_failure_free", &syms.FailureFree},
@@ -804,7 +832,7 @@ func (c *Context) SettingsNew() (*Settings, error) {
 // RegisterProfile registers this snapshot under name in the process-wide profile registry.
 func (s *Settings) RegisterProfile(ctx *Context, name string) error {
 	return ctx.invoke("hegel_settings_register_profile", func(ctx ctxT) Error {
-		e := s.syms.SettingsRegisterProfile(ctx, name, s.raw)
+		e := s.syms.SettingsRegisterProfile(ctx, cString(name), s.raw)
 		runtime.KeepAlive(s)
 		return e
 	})
@@ -813,7 +841,7 @@ func (s *Settings) RegisterProfile(ctx *Context, name string) error {
 // TestLocation sets the location used for Antithesis assertion reporting.
 func (s *Settings) TestLocation(ctx *Context, file string, beginLine uint32, className, function string) error {
 	return ctx.invoke("hegel_settings_set_test_location", func(ctx ctxT) Error {
-		e := s.syms.SettingsSetTestLocation(ctx, s.raw, file, beginLine, className, function)
+		e := s.syms.SettingsSetTestLocation.call(ctx, s.raw, cString(file), beginLine, cString(className), cString(function))
 		runtime.KeepAlive(s)
 		return e
 	})
@@ -844,7 +872,7 @@ func (s *Settings) GetSeed(ctx *Context) (uint64, bool, error) {
 // configured. An explicitly configured empty value disables the database. The
 // borrowed native string is copied.
 func (s *Settings) GetDatabase(ctx *Context) (string, bool, error) {
-	var data *byte
+	var data *stringT
 	err := ctx.invoke("hegel_settings_get_database", func(ctx ctxT) Error {
 		e := s.syms.SettingsGetDatabase(ctx, s.raw, &data)
 		runtime.KeepAlive(s)
@@ -853,7 +881,7 @@ func (s *Settings) GetDatabase(ctx *Context) (string, bool, error) {
 	if err != nil || data == nil {
 		return "", false, err
 	}
-	value := goString(data)
+	value := goString(*data)
 	runtime.KeepAlive(s)
 	return value, true, nil
 }
@@ -1030,7 +1058,7 @@ func (s *Settings) ReportMultipleFailures(ctx *Context, yes bool) error {
 
 func (s *Settings) Database(ctx *Context, path string) error {
 	return ctx.invoke("hegel_settings_set_database", func(ctx ctxT) Error {
-		e := s.syms.SettingsSetDatabase(ctx, s.raw, path)
+		e := s.syms.SettingsSetDatabase(ctx, s.raw, stringPointer(path))
 		runtime.KeepAlive(s)
 		return e
 	})
@@ -1038,7 +1066,7 @@ func (s *Settings) Database(ctx *Context, path string) error {
 
 func (s *Settings) DatabaseKey(ctx *Context, key string) error {
 	return ctx.invoke("hegel_settings_set_database_key", func(ctx ctxT) Error {
-		e := s.syms.SettingsSetDatabaseKey(ctx, s.raw, key)
+		e := s.syms.SettingsSetDatabaseKey(ctx, s.raw, stringPointer(key))
 		runtime.KeepAlive(s)
 		return e
 	})
@@ -1099,7 +1127,7 @@ func (s *Settings) RunStartBlob(ctx *Context, blob string, out io.Writer) (*Run,
 	callback, handle := newOutputFn(out)
 	r := new(Run)
 	ok, err := allocateInto(ctx, &r.pointer, "hegel_run_start_blob", func(ctx ctxT, raw *runT) Error {
-		e := s.syms.RunStartBlob(ctx, s.raw, blob, callback, uintptr(handle), raw)
+		e := s.syms.RunStartBlob(ctx, s.raw, cString(blob), callback, uintptr(handle), raw)
 		runtime.KeepAlive(s)
 		return e
 	}, s.syms.RunFree)
@@ -1121,7 +1149,7 @@ func (s *Settings) RunStartBlob(ctx *Context, blob string, out io.Writer) (*Run,
 func (s *Settings) TestCaseFromBlob(ctx *Context, blob string, out io.Writer) (tc *TestCase, err error) {
 	callback, handle := newOutputFn(out)
 	ptr, err := allocate(ctx, "hegel_test_case_from_blob", func(ctx ctxT, raw *testCaseT) Error {
-		e := s.syms.TestCaseFromBlob(ctx, s.raw, blob, callback, uintptr(handle), raw)
+		e := s.syms.TestCaseFromBlob(ctx, s.raw, cString(blob), callback, uintptr(handle), raw)
 		runtime.KeepAlive(s)
 		return e
 	}, s.syms.TestCaseFree)
@@ -1181,7 +1209,7 @@ type TestCase struct {
 	outTime      Time
 	outDatetime  Datetime
 	outBytesRes  bytesResult
-	outStringRes stringResult
+	outStringRes ownedStringT
 	outLen       uint64
 	// outFixed backs the fixed-width byte outputs (UUID: 16 bytes, IPv6: 16,
 	// IPv4: 4) and the integer_big result buffer, so a draw passes a pointer
@@ -1394,9 +1422,9 @@ func (tc *TestCase) GenerateString(ctx *Context, gen *StringGenerator) (string, 
 	if err != nil {
 		return "", err
 	}
-	// string(...) copies the length-delimited (not NUL-terminated) UTF-8 buffer.
-	s := string(unsafe.Slice(tc.outStringRes.data, tc.outStringRes.len))
-	_ = tc.syms.GenerateStringFree(0, &tc.outStringRes)
+	// Copy the bytes before releasing the native buffer.
+	s := goString(stringT(tc.outStringRes))
+	_ = tc.syms.OwnedStringFree(0, &tc.outStringRes)
 	return s, nil
 }
 
@@ -1509,7 +1537,7 @@ func (tc *TestCase) CollectionMore(ctx *Context, coll *Collection) (bool, error)
 
 func (tc *TestCase) CollectionReject(ctx *Context, coll *Collection, why string) error {
 	return ctx.invoke("hegel_collection_reject", func(ctx ctxT) Error {
-		e := tc.syms.CollectionReject(ctx, tc.raw, coll.raw, why)
+		e := tc.syms.CollectionReject(ctx, tc.raw, coll.raw, stringPointer(why))
 		runtime.KeepAlive(tc)
 		runtime.KeepAlive(coll)
 		return e
@@ -1631,6 +1659,21 @@ func (pool *Pool) Generate(ctx *Context, tc *TestCase, consume bool) (int64, err
 	return tc.outInt, err
 }
 
+// Restore returns a consumed variable to a pool.
+//
+// tc must belong to the pool's test-case family, and variableID must identify
+// a variable consumed through Generate.
+//
+// An invalid variable ID returns E_INVALID_ARG.
+func (pool *Pool) Restore(ctx *Context, tc *TestCase, variableID int64) error {
+	return ctx.invoke("hegel_pool_restore", func(ctx ctxT) Error {
+		e := pool.syms.PoolRestore(ctx, tc.raw, pool.raw, variableID)
+		runtime.KeepAlive(tc)
+		runtime.KeepAlive(pool)
+		return e
+	})
+}
+
 // StateMachine wraps a hegel_state_machine_t: an engine-owned state machine
 // registered via [TestCase.NewStateMachine] for the lifetime of a single test
 // case. It is owned by the caller and released automatically via the GC
@@ -1666,14 +1709,8 @@ func (tc *TestCase) NewStateMachine(ctx *Context, ruleNames []string, ruleGroups
 	if invariantAlwaysCheck != nil && len(invariantAlwaysCheck) != len(invariantNames) {
 		return nil, 0, fmt.Errorf("hegel_new_state_machine: %d always-check flags for %d invariant names", len(invariantAlwaysCheck), len(invariantNames))
 	}
-	rules, err := cStringArray(ruleNames)
-	if err != nil {
-		return nil, 0, fmt.Errorf("hegel_new_state_machine: rule names: %w", err)
-	}
-	invariants, err := cStringArray(invariantNames)
-	if err != nil {
-		return nil, 0, fmt.Errorf("hegel_new_state_machine: invariant names: %w", err)
-	}
+	rules := cStringArray(ruleNames)
+	invariants := cStringArray(invariantNames)
 	ptr, err := allocate(ctx, "hegel_new_state_machine", func(ctx ctxT, raw *stateMachineT) Error {
 		e := tc.syms.NewStateMachine(
 			ctx, tc.raw,
@@ -1737,7 +1774,7 @@ func (tc *TestCase) StateMachineRuleRejected(ctx *Context, machine *StateMachine
 
 func (tc *TestCase) Target(ctx *Context, value float64, label string) error {
 	return ctx.invoke("hegel_target", func(ctx ctxT) Error {
-		e := tc.syms.Target(ctx, tc.raw, value, label)
+		e := tc.syms.Target(ctx, tc.raw, value, cString(label))
 		runtime.KeepAlive(tc)
 		return e
 	})
@@ -1745,7 +1782,7 @@ func (tc *TestCase) Target(ctx *Context, value float64, label string) error {
 
 func (tc *TestCase) MarkComplete(ctx *Context, status Status, origin string) error {
 	return ctx.invoke("hegel_mark_complete", func(ctx ctxT) Error {
-		e := tc.syms.MarkComplete(ctx, tc.raw, status, origin)
+		e := tc.syms.MarkComplete(ctx, tc.raw, status, stringPointer(origin))
 		runtime.KeepAlive(tc)
 		return e
 	})
@@ -1762,7 +1799,7 @@ type Result struct {
 
 	outStatus RunStatus
 	outCount  uint64
-	outBytes  *byte
+	outBytes  *stringT
 }
 
 // Status reports whether the run passed, failed with replayable or
@@ -1788,7 +1825,25 @@ func (r *Result) ErrorMessage(ctx *Context) string {
 		runtime.KeepAlive(r)
 		return e
 	})
-	return goString(r.outBytes)
+	value := optionalGoString(r.outBytes)
+	runtime.KeepAlive(r)
+	return value
+}
+
+// ErrorKind classifies a run-level error and identifies any failed health check.
+//
+// Call this on a completed run result.
+//
+// A normal completion returns RUN_ERROR_NONE and a zero health-check value.
+func (r *Result) ErrorKind(ctx *Context) (RunErrorKind, HealthCheck, error) {
+	var kind RunErrorKind
+	var check uint32
+	err := ctx.invoke("hegel_run_result_error_kind", func(ctx ctxT) Error {
+		e := r.syms.ResultErrorKind(ctx, r.raw, &kind, &check)
+		runtime.KeepAlive(r)
+		return e
+	})
+	return kind, HealthCheck(check), err
 }
 
 func (r *Result) FailureCount(ctx *Context) uint64 {
@@ -1818,18 +1873,21 @@ func (r *Result) Failure(ctx *Context, index uint64) (*Failure, error) {
 type Failure struct {
 	*pointer[failureT]
 
-	outBytes *byte
+	outBytes  *stringT
+	outOrigin stringT
 }
 
 // Origin returns the failure's origin string — the stable identifier the
 // shrinker used to group probes for this bug.
 func (f *Failure) Origin(ctx *Context) string {
 	_ = ctx.invoke("hegel_failure_origin", func(ctx ctxT) Error {
-		e := f.syms.FailureOrigin(ctx, f.raw, &f.outBytes)
+		e := f.syms.FailureOrigin(ctx, f.raw, &f.outOrigin)
 		runtime.KeepAlive(f)
 		return e
 	})
-	return goString(f.outBytes)
+	value := goString(f.outOrigin)
+	runtime.KeepAlive(f)
+	return value
 }
 
 // ReproductionBlob returns the failure's base64 reproduction blob, suitable
@@ -1841,7 +1899,9 @@ func (f *Failure) ReproductionBlob(ctx *Context) string {
 		runtime.KeepAlive(f)
 		return e
 	})
-	return goString(f.outBytes)
+	value := optionalGoString(f.outBytes)
+	runtime.KeepAlive(f)
+	return value
 }
 
 // Caveat returns the failure's caveat — a note qualifying it, such as that it
@@ -1853,7 +1913,9 @@ func (f *Failure) Caveat(ctx *Context) string {
 		runtime.KeepAlive(f)
 		return e
 	})
-	return goString(f.outBytes)
+	value := optionalGoString(f.outBytes)
+	runtime.KeepAlive(f)
+	return value
 }
 
 // StringGenerator wraps a hegel_string_generator_t: the immutable
@@ -1865,22 +1927,14 @@ type StringGenerator pointer[stringGenT]
 // excludeCategories slice means "no restriction" (a NULL array); a non-nil
 // (possibly empty) slice is passed through, so an empty non-nil slice requests
 // an empty category set. includeChars / excludeChars are optional UTF-8
-// character buffers (nil for none). codec must be non-empty ("utf-8" selects
+// character buffers (empty for none). codec must be non-empty ("utf-8" selects
 // all of Unicode, matching the C NULL default).
-func (c *Context) StringGeneratorText(minSize, maxSize uint64, codec string, minCodepoint, maxCodepoint uint32, categories, excludeCategories []string, includeChars, excludeChars *string) (*StringGenerator, error) {
-	catsPtr, catsLen, err := cStringArrayArg(categories)
-	if err != nil {
-		return nil, fmt.Errorf("hegel_string_generator_text: categories: %w", err)
-	}
-	exclPtr, exclLen, err := cStringArrayArg(excludeCategories)
-	if err != nil {
-		return nil, fmt.Errorf("hegel_string_generator_text: exclude_categories: %w", err)
-	}
-	incPtr, incLen := cString(includeChars)
-	excPtr, excLen := cString(excludeChars)
+func (c *Context) StringGeneratorText(minSize, maxSize uint64, codec string, minCodepoint, maxCodepoint uint32, categories, excludeCategories []string, includeChars, excludeChars string) (*StringGenerator, error) {
+	catsPtr, catsLen := cStringArrayArg(categories)
+	exclPtr, exclLen := cStringArrayArg(excludeCategories)
 	ptr, err := allocate(c, "hegel_string_generator_text", func(ctx ctxT, raw *stringGenT) Error {
-		return c.syms.StringGeneratorText(ctx, minSize, maxSize, codec, minCodepoint, maxCodepoint,
-			catsPtr, catsLen, exclPtr, exclLen, incPtr, incLen, excPtr, excLen, raw)
+		return c.syms.StringGeneratorText(ctx, minSize, maxSize, stringPointer(codec), minCodepoint, maxCodepoint,
+			catsPtr, catsLen, exclPtr, exclLen, cString(includeChars), cString(excludeChars), raw)
 	}, c.syms.StringGeneratorFree)
 	if ptr == nil {
 		return nil, err
@@ -1897,9 +1951,8 @@ func (c *Context) StringGeneratorRegex(pattern string, fullmatch bool, alphabet 
 	if alphabet != nil {
 		alphabetRaw = alphabet.raw
 	}
-	patternPtr, patternLen := cString(&pattern)
 	ptr, err := allocate(c, "hegel_string_generator_regex", func(ctx ctxT, raw *stringGenT) Error {
-		e := c.syms.StringGeneratorRegex(ctx, patternPtr, patternLen, fullmatch, alphabetRaw, raw)
+		e := c.syms.StringGeneratorRegex(ctx, cString(pattern), fullmatch, alphabetRaw, raw)
 		runtime.KeepAlive(alphabet)
 		return e
 	}, c.syms.StringGeneratorFree)
@@ -1943,45 +1996,26 @@ func (c *Context) StringGeneratorDomain(maxLength uint64) (*StringGenerator, err
 	return (*StringGenerator)(ptr), err
 }
 
-// cString returns the (pointer, byte length) pair for an optional
-// length-delimited byte buffer argument (a `const uint8_t *` plus its size_t
-// length). It is the inverse of goString: goString copies a C buffer into a Go
-// string, cString hands a Go string's bytes to C. A nil (or empty) string means
-// "absent" and yields a NULL pointer.
-func cString(s *string) (ptr *byte, n uint64) {
-	if s == nil || len(*s) == 0 {
-		return nil, 0
-	}
-	return unsafe.StringData(*s), uint64(len(*s))
+// cString passes all bytes, including interior NULs, without a copy.
+func cString(s string) stringT {
+	return stringT{data: unsafe.StringData(s), len: uint64(len(s))}
 }
 
-// cStringArrayArg builds the (pointer, length) pair for a `const char *const *`
-// argument. The returned **byte points at the first element of the pointer
-// array, so the GC keeps both that array and the NUL-terminated buffers it
-// references reachable across the FFI call without any separate keepalive
-// value. It is a bare input pointer (not an out[...] sentinel), so [Stub]
-// leaves it untouched.
-//
-// Returns an error if any of the strings contain a NUL byte.
-func cStringArrayArg(ss []string) (ptr **byte, n uint64, err error) {
+// stringPointer passes a present optional value, including an empty string.
+func stringPointer(s string) *stringT {
+	view := cString(s)
+	return &view
+}
+
+// cStringArrayArg distinguishes an absent array from a present empty array.
+func cStringArrayArg(ss []string) (*stringT, uint64) {
 	if ss == nil {
-		return nil, 0, nil
+		return nil, 0
 	}
 	if len(ss) == 0 {
-		// A non-nil but empty slice: a scratch element gives a non-NULL base
-		// address with length 0, distinguishing "the empty set" from "absent".
-		ptrs := []*byte{nil}
-		return &ptrs[0], 0, nil
+		return new(stringT), 0
 	}
-	ptrs := make([]*byte, len(ss))
-	for i, s := range ss {
-		if strings.IndexByte(s, 0) >= 0 {
-			return nil, 0, fmt.Errorf("string %q contains an interior NUL byte", s)
-		}
-		buf := append([]byte(s), 0) // NUL-terminate for C
-		ptrs[i] = &buf[0]
-	}
-	return &ptrs[0], uint64(len(ss)), nil
+	return slicePtr(cStringArray(ss)), uint64(len(ss))
 }
 
 func slicePtr[E any](s []E) *E {
@@ -1991,60 +2025,29 @@ func slicePtr[E any](s []E) *E {
 	return nil
 }
 
-// goString copies a NUL-terminated C string (as written into a `const char**`
-// out-parameter) into a Go string. A NULL pointer — which libhegel uses to mean
-// "no string" (e.g. the error message of a run that did not error) — yields "".
-// The bytes are copied immediately, so a borrowed/transient C buffer is safe.
-func goString(p *byte) string {
-	if p == nil {
-		return ""
-	}
-	// TODO: This is atrocious, can we fix?
-	n := 0
-	for q := unsafe.Pointer(p); *(*byte)(q) != 0; q = unsafe.Add(q, 1) {
-		n++
-	}
-	return strings.Clone(string(unsafe.Slice(p, n)))
+// goString copies a length-delimited view into Go-owned storage.
+func goString(s stringT) string {
+	return string(unsafe.Slice(s.data, s.len))
 }
 
-// out[T] marks a C output parameter: a pointer through which a libhegel call
-// writes its result. It is the single sentinel for outputs — every other
-// pointer in a symbol signature is an input the stub must leave untouched.
-//
-// It exists so the signature-driven test stub ([Stub]) can tell outputs from
-// inputs without ambiguity: a bare `*byte` / `**byte` (integer_big bounds,
-// string-generator character sets, `const char *const *` string arrays) is an
-// input, while `out[byte]` / `out[*byte]` are the corresponding outputs (the
-// fixed-width UUID / IP / integer_big buffers, and the `const char*` string
-// out-params). [Stub] recognizes outputs by reflect.Type identity and by the
-// structural shape of handle out-params — never by type name.
-//
-// Since its underlying type is a pointer, purego marshals out[T] identically to
-// *T: it dispatches on reflect.Kind (Ptr), not on type identity.
+func optionalGoString(s *stringT) string {
+	if s == nil {
+		return ""
+	}
+	return goString(*s)
+}
+
+// out[T] distinguishes output parameters from inputs for [Stub].
+// Its pointer representation preserves the C ABI.
 type out[T any] *T
 
-// cStringArray builds a C `const char *const *` array from a slice of Go
-// strings, returning the pointer array whose first element is what the C
-// function receives via [slicePtr]. Each pointer addresses a NUL-terminated
-// buffer; those buffers stay reachable (and thus alive for the duration of the
-// FFI call) through the returned []*byte, which the caller passes by pointer.
-//
-// A Go string may contain an interior NUL byte, but a C string cannot — it
-// would be silently truncated at the first NUL. Such an input is rejected with
-// an error rather than passed on as a corrupted name.
-func cStringArray(ss []string) ([]*byte, error) {
-	if len(ss) == 0 {
-		return nil, nil
-	}
-	ptrs := make([]*byte, len(ss))
+// cStringArray builds descriptors whose pointers keep the input bytes alive.
+func cStringArray(ss []string) []stringT {
+	views := make([]stringT, len(ss))
 	for i, s := range ss {
-		if strings.IndexByte(s, 0) >= 0 {
-			return nil, fmt.Errorf("string %q contains an interior NUL byte", s)
-		}
-		buf := append([]byte(s), 0) // NUL-terminate for C
-		ptrs[i] = &buf[0]
+		views[i] = cString(s)
 	}
-	return ptrs, nil
+	return views
 }
 
 // ShowStatistics controls the end-of-run statistics report.
@@ -2080,7 +2083,7 @@ func (r *Recursion) Finish(ctx *Context, tc *TestCase) error {
 // Event records a label for the statistics report.
 func (tc *TestCase) Event(ctx *Context, label string) error {
 	return ctx.invoke("hegel_event", func(ctx ctxT) Error {
-		e := tc.syms.Event(ctx, tc.raw, label)
+		e := tc.syms.Event(ctx, tc.raw, cString(label))
 		runtime.KeepAlive(tc)
 		return e
 	})
@@ -2089,7 +2092,7 @@ func (tc *TestCase) Event(ctx *Context, label string) error {
 // EventValue records a numeric observation for the statistics report.
 func (tc *TestCase) EventValue(ctx *Context, value float64, label string) error {
 	return ctx.invoke("hegel_event_value", func(ctx ctxT) Error {
-		e := tc.syms.EventValue(ctx, tc.raw, value, label)
+		e := tc.syms.EventValue(ctx, tc.raw, value, cString(label))
 		runtime.KeepAlive(tc)
 		return e
 	})
@@ -2108,9 +2111,9 @@ func (tc *TestCase) StateMachineShouldCheckInvariant(ctx *Context, machine *Stat
 
 // Note appends UTF-8 text, which may include newlines, to the test case's print region.
 func (tc *TestCase) Note(ctx *Context, text string) error {
-	data, n := cString(&text)
+	data := cString(text)
 	return ctx.invoke("hegel_note", func(ctx ctxT) Error {
-		e := tc.syms.Note(ctx, tc.raw, data, n)
+		e := tc.syms.Note(ctx, tc.raw, data)
 		runtime.KeepAlive(tc)
 		return e
 	})

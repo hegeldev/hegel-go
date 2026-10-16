@@ -232,7 +232,7 @@ func TestStubStringGenerators(t *testing.T) {
 	)
 	tc := &TestCase{pointer: &pointer[testCaseT]{syms: lib.syms, raw: 1}}
 
-	gen, err := lib.StringGeneratorText(0, 8, "utf-8", 0, 0x10FFFF, nil, []string{"Cs"}, nil, nil)
+	gen, err := lib.StringGeneratorText(0, 8, "utf-8", 0, 0x10FFFF, nil, []string{"Cs"}, "", "")
 	if err != nil || gen == nil {
 		t.Fatalf("StringGeneratorText: gen=%v err=%v", gen, err)
 	}
@@ -257,34 +257,21 @@ func TestStubStringGenerators(t *testing.T) {
 	}
 }
 
-// TestStubStringGeneratorNULNames covers cStringArrayArg's interior-NUL guard.
-func TestStubStringGeneratorNULNames(t *testing.T) {
-	lib := Stub(t) // must error before the C call
-	if _, err := lib.StringGeneratorText(0, 8, "utf-8", 0, 0, []string{"a\x00b"}, nil, nil, nil); err == nil {
-		t.Error("expected error for NUL in a category name")
-	}
-	if _, err := lib.StringGeneratorText(0, 8, "utf-8", 0, 0, nil, []string{"x\x00"}, nil, nil); err == nil {
-		t.Error("expected error for NUL in an exclude-category name")
-	}
-}
-
 // TestStubStringGeneratorEmptyNames covers cStringArrayArg's empty-but-non-nil
 // branch: an empty category set must reach libhegel as a non-NULL, length-0
 // array (distinct from a nil slice, which is absent).
 func TestStubStringGeneratorEmptyNames(t *testing.T) {
 	lib := Stub(t, uintptr(1), OK) // string_generator_text handle
-	gen, err := lib.StringGeneratorText(0, 8, "utf-8", 0, 0, []string{}, nil, nil, nil)
+	gen, err := lib.StringGeneratorText(0, 8, "utf-8", 0, 0, []string{}, nil, "", "")
 	if err != nil || gen == nil {
 		t.Fatalf("StringGeneratorText with empty categories: gen=%v err=%v", gen, err)
 	}
 }
 
-// TestStubStringGeneratorIncludeChars covers cString's non-nil branch: an
-// optional include/exclude character buffer is aliased straight into the call.
 func TestStubStringGeneratorIncludeChars(t *testing.T) {
 	lib := Stub(t, uintptr(1), OK) // string_generator_text handle
 	inc, exc := "abc", "xyz"
-	gen, err := lib.StringGeneratorText(0, 8, "utf-8", 0, 0, nil, nil, &inc, &exc)
+	gen, err := lib.StringGeneratorText(0, 8, "utf-8", 0, 0, nil, nil, inc, exc)
 	if err != nil || gen == nil {
 		t.Fatalf("StringGeneratorText with include/exclude chars: gen=%v err=%v", gen, err)
 	}
@@ -302,21 +289,6 @@ func TestStubIntegerBig(t *testing.T) {
 	}
 	if len(got) != 1 || got[0] != 0x2a {
 		t.Errorf("GenerateIntegerBig: got %v", got)
-	}
-}
-
-// TestStubStateMachineRejectsNULNames covers cStringArray's interior-NUL guard
-// from both NewStateMachine call sites: a C string cannot carry an embedded
-// NUL, so such a name is rejected before reaching libhegel.
-func TestStubStateMachineRejectsNULNames(t *testing.T) {
-	lib := Stub(t) // no returns: must error before the C call
-	tc := &TestCase{pointer: &pointer[testCaseT]{syms: lib.syms, raw: 1}}
-
-	if _, _, err := tc.NewStateMachine(lib, []string{"a\x00b"}, []int64{0}, nil, nil, nil, 1, 1, 50); err == nil {
-		t.Error("expected error for NUL in a rule name")
-	}
-	if _, _, err := tc.NewStateMachine(lib, []string{"ok"}, []int64{0}, nil, []string{"bad\x00"}, nil, 1, 1, 50); err == nil {
-		t.Error("expected error for NUL in an invariant name")
 	}
 }
 
@@ -518,11 +490,9 @@ func TestContextCloneUsesSameSymbolsAndFreshHandle(t *testing.T) {
 	}
 }
 
-// TestGoStringNil covers goString's NULL-pointer branch (libhegel writes NULL
-// for an absent string, e.g. the error message of a run that did not error).
 func TestGoStringNil(t *testing.T) {
-	if got := goString(nil); got != "" {
-		t.Errorf("goString(nil) = %q, want empty", got)
+	if got := optionalGoString(nil); got != "" {
+		t.Errorf("optionalGoString(nil) = %q, want empty", got)
 	}
 }
 

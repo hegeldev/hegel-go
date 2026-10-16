@@ -361,7 +361,7 @@ func (g TextGenerator) draw(tc TestCase) (string, error) {
 	}
 	ctx, ltc := tc.engine()
 	sg, err := ctx.StringGeneratorText(uint64(g.minSize), maxSize, codec, minCP, maxCP,
-		cats, exclCats, g.charFields.includeCharacters, g.charFields.excludeCharacters)
+		cats, exclCats, optionalStringValue(g.charFields.includeCharacters), optionalStringValue(g.charFields.excludeCharacters))
 	if err != nil {
 		return "", err
 	}
@@ -432,7 +432,7 @@ func (g CharactersGenerator) draw(tc TestCase) (string, error) {
 	}
 	ctx, ltc := tc.engine()
 	sg, err := ctx.StringGeneratorText(1, 1, codec, minCP, maxCP,
-		cats, exclCats, g.charFields.includeCharacters, g.charFields.excludeCharacters)
+		cats, exclCats, optionalStringValue(g.charFields.includeCharacters), optionalStringValue(g.charFields.excludeCharacters))
 	if err != nil {
 		return "", err
 	}
@@ -709,4 +709,11 @@ func SampledFrom[T any](values []T) Generator[T] {
 		}
 		return elements[idx], nil
 	})
+}
+
+func optionalStringValue(value *string) string {
+	if value == nil {
+		return ""
+	}
+	return *value
 }
