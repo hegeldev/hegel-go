@@ -315,6 +315,7 @@ type symbols struct {
 	SettingsSetSeed                     func(ctxT, settingsT, uint64, bool) Error
 	SettingsSetDerandomize              func(ctxT, settingsT, bool) Error
 	SettingsSetReportMultipleFailures   func(ctxT, settingsT, bool) Error
+	SettingsSetStopOnFirstFailure       func(ctxT, settingsT, bool) Error
 	SettingsSetDatabase                 func(ctxT, settingsT, *stringT) Error
 	SettingsSetDatabaseKey              func(ctxT, settingsT, *stringT) Error
 	SettingsSetPhases                   func(ctxT, settingsT, Phase) Error
@@ -458,6 +459,7 @@ type symbols struct {
 	SettingsGetPhases                   func(ctxT, settingsT, out[uint32]) Error
 	SettingsGetSuppressHealthCheck      func(ctxT, settingsT, out[uint32]) Error
 	SettingsGetReportMultipleFailures   func(ctxT, settingsT, out[bool]) Error
+	SettingsGetStopOnFirstFailure       func(ctxT, settingsT, out[bool]) Error
 	SettingsGetShowStatistics           func(ctxT, settingsT, out[bool]) Error
 	SettingsGetPrintBlob                func(ctxT, settingsT, out[bool]) Error
 	SettingsGetBackend                  func(ctxT, settingsT, out[int32]) Error
@@ -670,6 +672,7 @@ func tryOpen(path string) (syms *symbols, err error) {
 		{"hegel_settings_get_phases", &syms.SettingsGetPhases},
 		{"hegel_settings_get_suppress_health_check", &syms.SettingsGetSuppressHealthCheck},
 		{"hegel_settings_get_report_multiple_failures", &syms.SettingsGetReportMultipleFailures},
+		{"hegel_settings_get_stop_on_first_failure", &syms.SettingsGetStopOnFirstFailure},
 		{"hegel_settings_get_show_statistics", &syms.SettingsGetShowStatistics},
 		{"hegel_settings_get_print_blob", &syms.SettingsGetPrintBlob},
 		{"hegel_settings_get_backend", &syms.SettingsGetBackend},
@@ -722,6 +725,7 @@ func tryOpen(path string) (syms *symbols, err error) {
 		{"hegel_settings_set_seed", &syms.SettingsSetSeed},
 		{"hegel_settings_set_derandomize", &syms.SettingsSetDerandomize},
 		{"hegel_settings_set_report_multiple_failures", &syms.SettingsSetReportMultipleFailures},
+		{"hegel_settings_set_stop_on_first_failure", &syms.SettingsSetStopOnFirstFailure},
 		{"hegel_settings_set_database", &syms.SettingsSetDatabase},
 		{"hegel_settings_set_database_key", &syms.SettingsSetDatabaseKey},
 		{"hegel_settings_set_phases", &syms.SettingsSetPhases},
@@ -952,6 +956,17 @@ func (s *Settings) GetReportMultipleFailures(ctx *Context) (bool, error) {
 	return bool(value), err
 }
 
+// GetStopOnFirstFailure reads the effective stop-on-first-failure setting.
+func (s *Settings) GetStopOnFirstFailure(ctx *Context) (bool, error) {
+	var value bool
+	err := ctx.invoke("hegel_settings_get_stop_on_first_failure", func(ctx ctxT) Error {
+		e := s.syms.SettingsGetStopOnFirstFailure(ctx, s.raw, &value)
+		runtime.KeepAlive(s)
+		return e
+	})
+	return bool(value), err
+}
+
 // GetShowStatistics reads the effective show statistics setting.
 func (s *Settings) GetShowStatistics(ctx *Context) (bool, error) {
 	var value bool
@@ -1051,6 +1066,17 @@ func (s *Settings) Derandomize(ctx *Context, on bool) error {
 func (s *Settings) ReportMultipleFailures(ctx *Context, yes bool) error {
 	return ctx.invoke("hegel_settings_set_report_multiple_failures", func(ctx ctxT) Error {
 		e := s.syms.SettingsSetReportMultipleFailures(ctx, s.raw, yes)
+		runtime.KeepAlive(s)
+		return e
+	})
+}
+
+// StopOnFirstFailure controls whether the run stops generating once it finds a
+// failure. When false, the run uses its whole test-cases budget before
+// reporting whatever it found.
+func (s *Settings) StopOnFirstFailure(ctx *Context, yes bool) error {
+	return ctx.invoke("hegel_settings_set_stop_on_first_failure", func(ctx ctxT) Error {
+		e := s.syms.SettingsSetStopOnFirstFailure(ctx, s.raw, yes)
 		runtime.KeepAlive(s)
 		return e
 	})
