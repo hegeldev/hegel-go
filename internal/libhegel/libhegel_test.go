@@ -7,11 +7,7 @@ import (
 	"testing"
 )
 
-// TestLoadLibVersion smoke-tests the loader against the real libhegel built
-// by `just build-libhegel` (or in the sibling ../hegel-rust/ checkout, or the
-// vendored binary embedded at build time). Asserts that hegel_version returns
-// the version pinned in version.go when using the vendored library. An
-// explicit development override may report a different version.
+// TestLoadLibVersion checks the real library against the pinned version.
 func TestLoadLibVersion(t *testing.T) {
 	lib, err := load()
 	if err != nil {
@@ -20,12 +16,6 @@ func TestLoadLibVersion(t *testing.T) {
 	defer lib.Close()
 
 	got := lib.versionString()
-	if os.Getenv(LibraryPathEnv) != "" {
-		if got == "" {
-			t.Fatal("hegel_version returned an empty version")
-		}
-		return
-	}
 	if got != hegelVersion {
 		t.Fatalf("hegel_version: got %q, want %q (rebuild libhegel.so if it's stale)", got, hegelVersion)
 	}

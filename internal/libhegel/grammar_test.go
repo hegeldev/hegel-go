@@ -204,3 +204,43 @@ func TestResultErrorKind(t *testing.T) {
 		t.Fatalf("ErrorKind = %v, %v, %v", kind, check, err)
 	}
 }
+
+func TestGrammarOptions(t *testing.T) {
+	ctx := NewContext()
+	builder, err := ctx.GrammarBuilderNew("start: \"a\"\nother: \"b\"\n")
+	if err != nil {
+		t.Fatal(err)
+	}
+	grammar, err := ctx.GrammarNew(builder, "other", 1, 1, nil, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	settings, err := ctx.SettingsNewForProfile("base")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := settings.Database(ctx, ""); err != nil {
+		t.Fatal(err)
+	}
+	run, err := settings.RunStart(ctx, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	tc, err := run.NextTestCase(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got, err := tc.GenerateGrammar(ctx, grammar, 1); err != nil || got != "b" {
+		t.Fatalf("alternate start = %q, %v", got, err)
+	}
+	alphabet, err := ctx.StringGeneratorText(1, 1, "utf-8", 0, 0x10ffff, []string{}, nil, "b", "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := ctx.GrammarNew(builder, "", 0, 0, alphabet, nil); !errors.Is(err, E_INVALID_ARG) {
+		t.Fatalf("grammar outside alphabet = %v", err)
+	}
+	if err := tc.MarkComplete(ctx, STATUS_VALID, ""); err != nil {
+		t.Fatal(err)
+	}
+}

@@ -808,7 +808,7 @@ func (s *testCase) flushNativeOutput() error {
 	return err
 }
 
-// replayFailures walks the failures of a result and replays fn against them.
+// replayFailures reports failures using replay or captured output.
 //
 // Returns an error describing the failures.
 func replayFailures(ctx *libhegel.Context, s *libhegel.Settings, result *libhegel.Result, fn testBody, opts runOptions, capturedOutput map[string]*bytes.Buffer) error {
@@ -819,10 +819,27 @@ func replayFailures(ctx *libhegel.Context, s *libhegel.Settings, result *libhege
 			return err
 		}
 		blob := fail.ReproductionBlob(ctx)
-		if blob == "" {
+		caveat := fail.Caveat(ctx)
+		if blob == "" || caveat != "" {
 			origin := fail.Origin(ctx)
-			if output := capturedOutput[origin]; output != nil && opts.output != nil {
-				if _, err := io.Copy(opts.output, output); err != nil {
+			if opts.output != nil {
+				var report bytes.Buffer
+				if output := capturedOutput[origin]; output != nil {
+					report.Write(output.Bytes())
+				}
+				if caveat != "" {
+					fmt.Fprintln(&report, caveat)
+				}
+				if blob != "" {
+					printBlob, err := s.GetPrintBlob(ctx)
+					if err != nil {
+						return err
+					}
+					if printBlob {
+						fmt.Fprintf(&report, "reproduction blob: %s\n", blob)
+					}
+				}
+				if _, err := io.Copy(opts.output, &report); err != nil {
 					return err
 				}
 			}

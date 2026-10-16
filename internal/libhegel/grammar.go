@@ -7,6 +7,7 @@ import (
 )
 
 // GrammarBuilder gathers a Lark grammar and the files it imports.
+//
 // Builders are released automatically via the GC.
 type GrammarBuilder pointer[grammarBuilderT]
 
@@ -64,6 +65,7 @@ func (b *GrammarBuilder) Provide(ctx *Context, index uint64, text string, presen
 }
 
 // GrammarImport resolves an imported grammar path to UTF-8 source.
+//
 // Paths are relative, slash-separated names ending in .lark. Return ok=false
 // for a missing file to allow libhegel's bundled-grammar fallback.
 type GrammarImport func(path string) (text string, ok bool)
@@ -95,6 +97,7 @@ func (b *GrammarBuilder) ResolveImports(ctx *Context, resolve GrammarImport) err
 }
 
 // Grammar is an immutable compiled Lark grammar.
+//
 // It may be shared across test cases and goroutines and is released by the GC.
 type Grammar pointer[grammarT]
 
