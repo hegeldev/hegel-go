@@ -56,11 +56,11 @@ test mode="" *args="":
 format:
     gofmt -w .
 
-# Vendor a libhegel release (hegel-rust's `libhegel-v<version>` tags): download
+# Vendor a libhegel release (hegeldev/hegel's `libhegel/<version>` tags): download
 # the pre-compiled libhegel artifacts into internal/libhegel/libs (git-lfs) and
 # pin hegelVersion in version.go, then commit the result. With no argument this
-# targets the latest release; pass a version (e.g. `just vendor-libhegel 0.42.4`)
-# or a tag (`libhegel-v0.42.4`) to vendor that exact release. Requires
+# targets the latest release; pass a version (e.g. `just vendor-libhegel 0.47.2`)
+# or a tag (`libhegel/0.47.2`) to vendor that exact release. Requires
 # `git lfs`; GitHub authentication is optional.
 vendor-libhegel version="":
     go run scripts/vendor-libhegel.go -version={{version}}

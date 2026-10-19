@@ -11,7 +11,7 @@
 //
 //	go get hegel.dev/go/hegel@latest
 //
-// Hegel calls into libhegel — the Rust engine shipped by the hegel-rust
+// Hegel calls into libhegel — the Rust engine shipped by the hegeldev/hegel
 // project — via FFI.
 //
 // # Write your first test
