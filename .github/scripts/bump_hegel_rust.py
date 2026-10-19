@@ -5,7 +5,7 @@ import sys
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parent.parent.parent
-RUST_REPO = "hegeldev/hegel-rust"
+HEGEL_REPO = "hegeldev/hegel"
 BRANCH = "ci/bump-hegel-rust"
 VERSION_FILE = ROOT / "internal" / "libhegel" / "version.go"
 LIBS_DIR = ROOT / "internal" / "libhegel" / "libs"
@@ -42,7 +42,7 @@ def bump(requested: str) -> None:
 
     # `just vendor-libhegel` downloads the target release's libhegel artifacts
     # into libs/ (empty requested -> latest) and rewrites version.go. The
-    # request may be a bare version or a release tag such as libhegel-v0.42.4;
+    # request may be a bare version or a release tag such as libhegel/0.47.2;
     # vendor-libhegel.go discovers the resolved version itself, so we read it
     # back rather than trusting the request (which may be empty for a manual
     # latest-bump).
@@ -54,14 +54,14 @@ def bump(requested: str) -> None:
         set_output("bumped", "false")
         return
 
-    # libhegel releases hang off hegel-rust's `libhegel-v<version>` tags (the
-    # bare `v<version>` tags mark hegeltest releases and carry no binaries).
-    current_url = f"https://github.com/{RUST_REPO}/releases/tag/libhegel-v{current}"
-    new_url = f"https://github.com/{RUST_REPO}/releases/tag/libhegel-v{new}"
+    # libhegel releases are GitHub releases on the hegeldev/hegel monorepo,
+    # tagged `libhegel/<version>` (other components' tags carry no binaries).
+    current_url = f"https://github.com/{HEGEL_REPO}/releases/tag/libhegel/{current}"
+    new_url = f"https://github.com/{HEGEL_REPO}/releases/tag/libhegel/{new}"
 
     RELEASE_MD.write_text(
         "RELEASE_TYPE: patch\n\n"
-        f"This patch bumps our pinned libhegel ([hegel-rust]({RUST_REPO})) from "
+        f"This patch bumps our pinned libhegel ([hegeldev/hegel](https://github.com/{HEGEL_REPO})) from "
         f"[{current}]({current_url}) to [{new}]({new_url}).\n"
     )
 
@@ -88,6 +88,6 @@ def bump(requested: str) -> None:
 
 if __name__ == "__main__":
     # An optional argument pins that exact release (a bare version or a
-    # `libhegel-v<version>` tag); with none we take the latest. The
+    # `libhegel/<version>` tag); with none we take the latest. The
     # repository_dispatch trigger passes client_payload.tag.
     bump(sys.argv[1] if len(sys.argv) > 1 else "")

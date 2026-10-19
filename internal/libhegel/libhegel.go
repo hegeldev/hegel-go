@@ -1,7 +1,7 @@
 // Package libhegel provides low-level bindings to the Rust property-testing engine
-// shipped as a C cdylib by hegel-rust.
+// shipped as a C cdylib by the hegeldev/hegel monorepo's libhegel component.
 //
-// The exported surface of libhegel is described in hegel-rust/hegel-c/include/hegel.h.
+// The exported surface of libhegel is described in libhegel/include/hegel.h there.
 // One Go func-typed field per C symbol lives on [*libhegel]; tests can
 // substitute fakes without dlopen'ing anything.
 //

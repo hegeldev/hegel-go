@@ -5,9 +5,11 @@ description: "How to align the Go FFI wrapper to a new libhegel (hegel-c) releas
 
 # Aligning the Go wrapper to a new libhegel release
 
-`libhegel` is a Rust cdylib built from hegel-rust's `hegel-c` crate. hegel-go
+`libhegel` is a Rust cdylib built from the `hegeltest-c` crate in the
+`libhegel/` directory of the [hegeldev/hegel](https://github.com/hegeldev/hegel)
+monorepo. hegel-go
 calls it via purego FFI. When the pinned version changes, the C API in
-`hegel-c/include/hegel.h` may have added, removed, renamed, or re-typed symbols,
+`libhegel/include/hegel.h` may have added, removed, renamed, or re-typed symbols,
 and the low-level wrapper in `internal/libhegel/` must be re-aligned. The main
 `hegel` package's exported API must **not** change as a result — only the
 internal binding layer — **except when libhegel removes an API**. In that case,
@@ -56,26 +58,28 @@ while the per-call error state lives on a `*Context`. The wrapper threads a
 release unless the user explicitly specifies a version.** The existing pin in
 `internal/libhegel/version.go` is the starting state, not the requested target.
 For an explicit version, run `just vendor-libhegel <version-or-tag>` instead.
-The command accepts bare versions, new tags such as `libhegel-v0.42.1`, and
-legacy tags such as `v0.37.1`. It downloads and checksum-verifies the binaries
+The command accepts bare versions and `libhegel/<version>` tags such as
+`libhegel/0.47.2`. It downloads and checksum-verifies the binaries
 and updates `hegelVersion`. It uses public GitHub HTTP endpoints; `gh` login is
 not required (an optional `GH_TOKEN` or `GITHUB_TOKEN` supports CI rate limits).
 
-Record the **actual tag printed by the vendoring command**. Native packages in
-hegel-rust have independent release versions, so the repository's overall
-latest release is not necessarily the latest libhegel. Do not assume a tag is
-`v<VERSION>` or derive the target from a native package release.
+Record the **actual tag printed by the vendoring command**. The monorepo's
+components (libhegel, the Rust frontend, ...) version independently and are
+tagged `<path>/<version>`, so the repository's overall latest release is not
+necessarily the latest libhegel. Do not derive the target from another
+component's tag.
 
-Fetch the header from that exact tag, and confirm it exists before editing:
+Fetch the header from that exact release, and confirm it exists before editing
+(every libhegel release ships its `hegel.h` as an asset):
 
 ```bash
-curl -fsSL https://raw.githubusercontent.com/hegeldev/hegel-rust/<ACTUAL_TAG>/hegel-c/include/hegel.h
+curl -fsSL https://github.com/hegeldev/hegel/releases/download/<ACTUAL_TAG>/hegel.h
 ```
 
-If resuming with only a pinned version, query the GitHub release API for
-`libhegel-v<VERSION>` and, if absent, `v<VERSION>`; use the returned `tag_name`
-and verify its assets include libhegel binaries. Keep that resolved tag with
-the header for the independent audit in §8.
+If resuming with only a pinned version, query the GitHub release API at
+`repos/hegeldev/hegel/releases/tags/libhegel/<VERSION>`; use the returned
+`tag_name` and verify its assets include libhegel binaries. Keep that resolved
+tag with the header for the independent audit in §8.
 
 ## 2. Get the matching library — always `just check vendored`
 
@@ -92,7 +96,7 @@ just check vendored
 `vendored` mode leaves `HEGEL_LIBHEGEL_PATH` unset, so the loader materializes
 the `go:embed`'d vendored binary for `hegelVersion` (under
 `internal/libhegel/libs/`, refreshed by `just vendor-libhegel`) into the cache.
-A plain `just check` would instead build whatever the sibling `../hegel-rust`
+A plain `just check` would instead build whatever the sibling checkout
 checkout happens to be on (likely an *older* tag, since you've just bumped the
 version), point `HEGEL_LIBHEGEL_PATH` at that stale `.so`, and fail the version
 test. Don't touch the checkout; the vendored binary is always the right version.
@@ -351,9 +355,9 @@ edit anything — this is a read-only verification.
 1. Read the pinned version from internal/libhegel/version.go (hegelVersion).
 2. Independently verify that release tag <ACTUAL_TAG> corresponds to the pin
    using the GitHub release API and its libhegel assets. Fetch its header:
-   curl -fsSL https://raw.githubusercontent.com/hegeldev/hegel-rust/<ACTUAL_TAG>/hegel-c/include/hegel.h
-   Tags may use libhegel-v<VERSION> or legacy v<VERSION>; do not assume a prefix
-   or substitute the repository-wide latest native package release.
+   curl -fsSL https://github.com/hegeldev/hegel/releases/download/<ACTUAL_TAG>/hegel.h
+   libhegel tags are libhegel/<VERSION>; do not assume another prefix or
+   substitute another monorepo component's release.
 3. Extract every `hegel_*` function declared in the header.
 4. Cross-check each against internal/libhegel/libhegel.go: it must have (a) a
    field in the `symbols` struct, (b) an entry in the `registerSymbols` table

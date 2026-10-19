@@ -30,12 +30,13 @@ func mockHTTP(t *testing.T, fn func(*http.Request) (int, string)) {
 func TestLatestLibhegel(t *testing.T) {
 	mockHTTP(t, func(r *http.Request) (int, string) {
 		return 200, `[
-   {"tag_name":"native-v9.0.0"},
+   {"tag_name":"frontends/rust/9.0.0"},
    {"tag_name":"v9.0.0","assets":[{"name":"native.tar.gz"}]},
-   {"tag_name":"libhegel-v0.43.0","prerelease":true,"assets":[{"name":"libhegel-linux-amd64.so"}]},
-   {"tag_name":"v0.42.0","published_at":"2026-09-14T15:02:20Z","assets":[{"name":"libhegel-linux-amd64.so"}]},
-   {"tag_name":"libhegel-v0.42.1","published_at":"2026-09-14T16:13:20Z","assets":[{"name":"libhegel-linux-amd64.so"}]},
-   {"tag_name":"v0.37.1","assets":[{"name":"libhegel-linux-amd64.so"}]}
+   {"tag_name":"libhegel-v9.0.0","assets":[{"name":"libhegel-linux-amd64.so"}]},
+   {"tag_name":"libhegel/0.43.0","prerelease":true,"assets":[{"name":"libhegel-linux-amd64.so"}]},
+   {"tag_name":"libhegel/0.42.0","published_at":"2026-09-14T15:02:20Z","assets":[{"name":"libhegel-linux-amd64.so"}]},
+   {"tag_name":"libhegel/0.42.1","published_at":"2026-09-14T16:13:20Z","assets":[{"name":"libhegel-linux-amd64.so"}]},
+   {"tag_name":"libhegel/0.37.1","assets":[{"name":"libhegel-linux-amd64.so"}]}
   ]`
 	})
 	rel, err := release("")
@@ -45,11 +46,11 @@ func TestLatestLibhegel(t *testing.T) {
 }
 
 func TestExactAndBareTags(t *testing.T) {
-	for _, want := range []string{"libhegel-v0.42.1", "v0.37.1", "0.42.1", "0.37.1"} {
+	for _, want := range []string{"libhegel/0.42.1", "0.42.1"} {
 		t.Run(want, func(t *testing.T) {
 			mockHTTP(t, func(r *http.Request) (int, string) {
-				tag := filepath.Base(r.URL.Path)
-				if tag != "libhegel-v0.42.1" && tag != "v0.37.1" {
+				tag, ok := strings.CutPrefix(r.URL.Path, "/repos/hegeldev/hegel/releases/tags/")
+				if !ok || tag != "libhegel/0.42.1" {
 					return 404, ""
 				}
 				return 200, fmt.Sprintf(`{"tag_name":%q}`, tag)
@@ -58,11 +59,29 @@ func TestExactAndBareTags(t *testing.T) {
 			if err != nil {
 				t.Fatal(err)
 			}
-			expected := strings.TrimPrefix(strings.TrimPrefix(want, "libhegel-"), "v")
-			if rel.version() != expected {
-				t.Fatalf("got %s, want %s", rel.version(), expected)
+			if rel.version() != "0.42.1" {
+				t.Fatalf("got %s, want 0.42.1", rel.version())
 			}
 		})
+	}
+}
+
+func TestRejectsOtherTagShapes(t *testing.T) {
+	mockHTTP(t, func(r *http.Request) (int, string) {
+		t.Fatalf("unexpected request %s", r.URL)
+		return 0, ""
+	})
+	for _, want := range []string{"libhegel-v0.42.1", "v0.42.1", "frontends/rust/0.42.1", "libhegel/x"} {
+		if _, err := release(want); err == nil || !strings.Contains(err.Error(), "invalid libhegel release tag") {
+			t.Fatalf("release(%q) = %v, want invalid-tag error", want, err)
+		}
+	}
+}
+
+func TestMissingRelease(t *testing.T) {
+	mockHTTP(t, func(r *http.Request) (int, string) { return 404, "" })
+	if _, err := release("0.42.1"); err == nil || !strings.Contains(err.Error(), `"libhegel/0.42.1" not found`) {
+		t.Fatalf("err = %v", err)
 	}
 }
 
