@@ -1,5 +1,12 @@
 # Changelog
 
+## 0.9.26 - 2026-10-19
+
+This release points the libhegel vendoring and bump automation at the
+[hegeldev/hegel](https://github.com/hegeldev/hegel) monorepo, where libhegel
+now lives and is released under `libhegel/<version>` tags. There are no
+changes to the library itself.
+
 ## 0.9.25 - 2026-10-16
 
 Adds single-file bank and ring workload examples demonstrating concurrent SQL transactions and state-machine invariants with `hegel.Workload`. The ring workload checks graph topology and counters for acknowledged node swaps.
