@@ -408,6 +408,7 @@ type symbols struct {
 	FailureCaveat           func(ctxT, failureT, out[*stringT]) Error
 
 	SettingsSetShowStatistics        func(ctxT, settingsT, bool) Error
+	SettingsSetStopOnFirstFailure    func(ctxT, settingsT, bool) Error
 	SettingsSetUnboundedChoices      func(ctxT, settingsT, bool) Error
 	RecursionFinish                  func(ctxT, testCaseT, recursionT) Error
 	StateMachineShouldCheckInvariant func(ctxT, testCaseT, stateMachineT, int64, out[bool]) Error
@@ -459,10 +460,15 @@ type symbols struct {
 	SettingsGetSuppressHealthCheck      func(ctxT, settingsT, out[uint32]) Error
 	SettingsGetReportMultipleFailures   func(ctxT, settingsT, out[bool]) Error
 	SettingsGetShowStatistics           func(ctxT, settingsT, out[bool]) Error
+	SettingsGetStopOnFirstFailure       func(ctxT, settingsT, out[bool]) Error
 	SettingsGetPrintBlob                func(ctxT, settingsT, out[bool]) Error
 	SettingsGetBackend                  func(ctxT, settingsT, out[int32]) Error
 	SettingsGetUnboundedChoices         func(ctxT, settingsT, out[bool]) Error
 	SettingsGetNondeterminismStrictness func(ctxT, settingsT, out[int32]) Error
+
+	// SetUnicodeVersion sets the process-wide Unicode version that string,
+	// regex, and grammar generators follow; read when a generator is built.
+	SetUnicodeVersion func(ctxT, stringT) Error
 
 	Version func(ctxT, out[stringT]) Error
 }
@@ -502,6 +508,17 @@ func (c *Context) SettingsNewForProfile(name string) (*Settings, error) {
 func (c *Context) SetDefaultProfile(name string) error {
 	return c.invoke("hegel_set_default_profile", func(ctx ctxT) Error {
 		return c.syms.SetDefaultProfile(ctx, cString(name))
+	})
+}
+
+// SetUnicodeVersion sets the process-wide Unicode version that string, regex,
+// and grammar generators follow, as a version number like "15.1.0". An empty
+// string selects the engine's own (newest) tables. It is read when a generator
+// is built, so a binding sets it once at startup. Coordinate with other users
+// of this process-global configuration.
+func (c *Context) SetUnicodeVersion(version string) error {
+	return c.invoke("hegel_set_unicode_version", func(ctx ctxT) Error {
+		return c.syms.SetUnicodeVersion(ctx, cString(version))
 	})
 }
 
@@ -671,12 +688,14 @@ func tryOpen(path string) (syms *symbols, err error) {
 		{"hegel_settings_get_suppress_health_check", &syms.SettingsGetSuppressHealthCheck},
 		{"hegel_settings_get_report_multiple_failures", &syms.SettingsGetReportMultipleFailures},
 		{"hegel_settings_get_show_statistics", &syms.SettingsGetShowStatistics},
+		{"hegel_settings_get_stop_on_first_failure", &syms.SettingsGetStopOnFirstFailure},
 		{"hegel_settings_get_print_blob", &syms.SettingsGetPrintBlob},
 		{"hegel_settings_get_backend", &syms.SettingsGetBackend},
 		{"hegel_settings_get_unbounded_choices", &syms.SettingsGetUnboundedChoices},
 		{"hegel_settings_get_nondeterminism_strictness", &syms.SettingsGetNondeterminismStrictness},
 
 		{"hegel_settings_set_show_statistics", &syms.SettingsSetShowStatistics},
+		{"hegel_settings_set_stop_on_first_failure", &syms.SettingsSetStopOnFirstFailure},
 		{"hegel_settings_set_unbounded_choices", &syms.SettingsSetUnboundedChoices},
 		{"hegel_recursion_finish", &syms.RecursionFinish},
 		{"hegel_state_machine_should_check_invariant", &syms.StateMachineShouldCheckInvariant},
@@ -804,6 +823,7 @@ func tryOpen(path string) (syms *symbols, err error) {
 		{"hegel_failure_reproduction_blob", &syms.FailureReproductionBlob},
 		{"hegel_failure_caveat", &syms.FailureCaveat},
 
+		{"hegel_set_unicode_version", &syms.SetUnicodeVersion},
 		{"hegel_version", &syms.Version},
 	})
 	if err != nil { // coverage-ignore (requires a libhegel with missing symbols)
@@ -957,6 +977,17 @@ func (s *Settings) GetShowStatistics(ctx *Context) (bool, error) {
 	var value bool
 	err := ctx.invoke("hegel_settings_get_show_statistics", func(ctx ctxT) Error {
 		e := s.syms.SettingsGetShowStatistics(ctx, s.raw, &value)
+		runtime.KeepAlive(s)
+		return e
+	})
+	return bool(value), err
+}
+
+// GetStopOnFirstFailure reads the effective stop on first failure setting.
+func (s *Settings) GetStopOnFirstFailure(ctx *Context) (bool, error) {
+	var value bool
+	err := ctx.invoke("hegel_settings_get_stop_on_first_failure", func(ctx ctxT) Error {
+		e := s.syms.SettingsGetStopOnFirstFailure(ctx, s.raw, &value)
 		runtime.KeepAlive(s)
 		return e
 	})
@@ -2054,6 +2085,17 @@ func cStringArray(ss []string) []stringT {
 func (s *Settings) ShowStatistics(ctx *Context, on bool) error {
 	return ctx.invoke("hegel_settings_set_show_statistics", func(ctx ctxT) Error {
 		e := s.syms.SettingsSetShowStatistics(ctx, s.raw, on)
+		runtime.KeepAlive(s)
+		return e
+	})
+}
+
+// StopOnFirstFailure controls whether the run stops generating once it finds a
+// failure. When false, the run spends its whole test_cases budget regardless of
+// failures found. Defaults to true. See hegel_settings_set_stop_on_first_failure.
+func (s *Settings) StopOnFirstFailure(ctx *Context, yes bool) error {
+	return ctx.invoke("hegel_settings_set_stop_on_first_failure", func(ctx ctxT) Error {
+		e := s.syms.SettingsSetStopOnFirstFailure(ctx, s.raw, yes)
 		runtime.KeepAlive(s)
 		return e
 	})

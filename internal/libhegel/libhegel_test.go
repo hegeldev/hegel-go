@@ -97,6 +97,7 @@ func TestProfileSettingsRoundTrip(t *testing.T) {
 	must(s.SuppressHealthCheck(ctx, HC_TOO_SLOW))
 	must(s.ReportMultipleFailures(ctx, false))
 	must(s.ShowStatistics(ctx, true))
+	must(s.StopOnFirstFailure(ctx, false))
 	must(s.UnboundedChoices(ctx, true))
 	must(s.PrintBlob(ctx, false))
 	must(s.Backend(ctx, BACKEND_DEFAULT))
@@ -129,6 +130,9 @@ func TestProfileSettingsRoundTrip(t *testing.T) {
 	if got, err := s.GetShowStatistics(ctx); !got || err != nil {
 		t.Fatalf("statistics = %v, %v", got, err)
 	}
+	if got, err := s.GetStopOnFirstFailure(ctx); got || err != nil {
+		t.Fatalf("stop on first failure = %v, %v", got, err)
+	}
 	if got, err := s.GetUnboundedChoices(ctx); !got || err != nil {
 		t.Fatalf("unbounded choices = %v, %v", got, err)
 	}
@@ -145,7 +149,7 @@ func TestProfileSettingsRoundTrip(t *testing.T) {
 
 func TestProfileRegistrationBindings(t *testing.T) {
 	// Process-global mutations stay stubbed so unrelated tests retain their configuration.
-	ctx := Stub(t, OK, OK, OK, OK)
+	ctx := Stub(t, OK, OK, OK, OK, OK)
 	s := &Settings{pointer: pointer[settingsT]{syms: ctx.syms, raw: 2}}
 	if err := s.RegisterProfile(ctx, "unit-profile"); err != nil {
 		t.Fatal(err)
@@ -157,6 +161,9 @@ func TestProfileRegistrationBindings(t *testing.T) {
 		t.Fatal(err)
 	}
 	if err := ctx.SetDefaultProfile("profile\x00name"); err != nil {
+		t.Fatal(err)
+	}
+	if err := ctx.SetUnicodeVersion("15.1.0"); err != nil {
 		t.Fatal(err)
 	}
 }

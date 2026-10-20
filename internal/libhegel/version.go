@@ -8,4 +8,4 @@ package libhegel
 // hegelVersion is the libhegel version vendored into this client. The binaries
 // embedded from libs/ are built from this hegeldev/hegel libhegel release, and
 // [TestLoadLibVersion] asserts that the loaded library reports this version.
-const hegelVersion = "0.47.0"
+const hegelVersion = "0.48.0"
