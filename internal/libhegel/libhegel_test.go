@@ -147,6 +147,27 @@ func TestProfileSettingsRoundTrip(t *testing.T) {
 	}
 }
 
+func TestSettingsSetFromString(t *testing.T) {
+	ctx := NewContext()
+	s, err := ctx.SettingsNew()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := s.SetFromString(ctx, "test_cases", "50"); err != nil {
+		t.Fatalf("SetFromString: %v", err)
+	}
+	if got, err := s.GetTestCases(ctx); got != 50 || err != nil {
+		t.Fatalf("test cases = %v, %v", got, err)
+	}
+	// An unknown key is rejected with E_INVALID_ARG and leaves settings unchanged.
+	if err := s.SetFromString(ctx, "bogus_key", "x"); !errors.Is(err, E_INVALID_ARG) {
+		t.Fatalf("unknown key = %v", err)
+	}
+	if got, err := s.GetTestCases(ctx); got != 50 || err != nil {
+		t.Fatalf("test cases after failed set = %v, %v", got, err)
+	}
+}
+
 func TestProfileRegistrationBindings(t *testing.T) {
 	// Process-global mutations stay stubbed so unrelated tests retain their configuration.
 	ctx := Stub(t, OK, OK, OK, OK, OK)

@@ -186,6 +186,129 @@ func TestPoolRestore(t *testing.T) {
 	}
 }
 
+// TestRepeat drives the repeat-loop protocol against the real library: the
+// engine draws how many times the body should run, and the loop ends when More
+// returns false.
+func TestRepeat(t *testing.T) {
+	ctx := NewContext()
+	settings, err := ctx.SettingsNewForProfile("base")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := settings.Database(ctx, ""); err != nil {
+		t.Fatal(err)
+	}
+	run, err := settings.RunStart(ctx, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	tc, err := run.NextTestCase(ctx)
+	if err != nil || tc == nil {
+		t.Fatalf("NextTestCase = %v, %v", tc, err)
+	}
+	rep, err := tc.NewRepeat(ctx)
+	if err != nil {
+		t.Fatalf("NewRepeat: %v", err)
+	}
+	for i := 0; ; i++ {
+		more, err := rep.More(ctx, tc)
+		if err != nil {
+			t.Fatalf("Repeat.More: %v", err)
+		}
+		if !more {
+			break
+		}
+		if i > 1000 {
+			t.Fatal("repeat loop did not terminate")
+		}
+	}
+	if err := tc.MarkComplete(ctx, STATUS_VALID, ""); err != nil {
+		t.Fatal(err)
+	}
+}
+
+// TestGrammarDraw drives the grammar-draw protocol against the real library: a
+// grammar with two explicit terminals yields a draw whose placeholders the
+// caller fills, and the result is the string with the supplied values spliced
+// in. Two distinct terminals (not one) let the test assert that Next reports
+// each terminal's own index from explicitNames, not merely a constant.
+func TestGrammarDraw(t *testing.T) {
+	ctx := NewContext()
+	builder, err := ctx.GrammarBuilderNew("start: FIRST \"-\" SECOND\nFIRST: /[a-z]+/\nSECOND: /[0-9]+/\n")
+	if err != nil {
+		t.Fatalf("GrammarBuilderNew: %v", err)
+	}
+	grammar, err := ctx.GrammarNew(builder, "", 0, 0, nil, []string{"FIRST", "SECOND"})
+	if err != nil {
+		t.Fatalf("GrammarNew: %v", err)
+	}
+	settings, err := ctx.SettingsNewForProfile("base")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := settings.Database(ctx, ""); err != nil {
+		t.Fatal(err)
+	}
+	run, err := settings.RunStart(ctx, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	tc, err := run.NextTestCase(ctx)
+	if err != nil || tc == nil {
+		t.Fatalf("NextTestCase = %v, %v", tc, err)
+	}
+	draw, err := grammar.DrawNew(ctx, 0)
+	if err != nil {
+		t.Fatalf("DrawNew: %v", err)
+	}
+	// One value per explicit terminal, indexed by the terminal index Next reports.
+	values := []string{"aa", "99"}
+	var seq []uint64
+	for {
+		term, err := draw.Next(ctx, tc)
+		if errors.Is(err, E_NOT_FOUND) {
+			break // the string is complete
+		}
+		if err != nil {
+			t.Fatalf("Next: %v", err)
+		}
+		if term >= uint64(len(values)) {
+			t.Fatalf("Next terminal = %d, out of range", term)
+		}
+		seq = append(seq, term)
+		if err := draw.Provide(ctx, values[term]); err != nil {
+			t.Fatalf("Provide: %v", err)
+		}
+	}
+	// FIRST precedes SECOND in the string, so Next reports their explicitNames
+	// indices in that order.
+	if len(seq) != 2 || seq[0] != 0 || seq[1] != 1 {
+		t.Fatalf("terminal index sequence = %v, want [0 1]", seq)
+	}
+	if got, err := draw.Result(ctx); err != nil || got != "aa-99" {
+		t.Fatalf("Result = %q, %v; want \"aa-99\"", got, err)
+	}
+	if err := tc.MarkComplete(ctx, STATUS_VALID, ""); err != nil {
+		t.Fatal(err)
+	}
+}
+
+// TestStubGrammarDrawErrors covers the grammar-draw branches the real-library
+// test does not reach: DrawNew's nil-handle path and Result's error path.
+func TestStubGrammarDrawErrors(t *testing.T) {
+	lib := Stub(t, uintptr(0), E_INVALID_HANDLE, "null grammar") // draw_new handle, result, diagnostic
+	grammar := &Grammar{syms: lib.syms, raw: 0}
+	if draw, err := grammar.DrawNew(lib, 0); draw != nil || !errors.Is(err, E_INVALID_HANDLE) {
+		t.Fatalf("DrawNew = %v, %v", draw, err)
+	}
+
+	lib = Stub(t, "", E_NOT_COMPLETE, "not complete") // owned string, result, diagnostic
+	draw := &GrammarDraw{syms: lib.syms, raw: 1}
+	if got, err := draw.Result(lib); got != "" || !errors.Is(err, E_NOT_COMPLETE) {
+		t.Fatalf("Result = %q, %v", got, err)
+	}
+}
+
 func TestResultErrorKind(t *testing.T) {
 	ctx := Stub(t, RUN_ERROR_HEALTH_CHECK, uint32(HC_TOO_SLOW), OK)
 	result := &Result{pointer: &pointer[resultT]{syms: ctx.syms, raw: 1}}

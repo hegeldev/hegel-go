@@ -179,6 +179,42 @@ func TestStubNewRecursionError(t *testing.T) {
 	}
 }
 
+// TestStubRepeat exercises the engine-driven repeat-loop wrappers, which have
+// no runner path: NewRepeat yields a handle, More draws the next-iteration
+// decision through the test case, and Failed ends the loop on a failing body.
+func TestStubRepeat(t *testing.T) {
+	lib := Stub(t,
+		uintptr(4), OK, // new_repeat: loop handle
+		true, OK, // repeat_more: iterate
+		OK, // repeat_failed
+	)
+	tc := &TestCase{pointer: &pointer[testCaseT]{syms: lib.syms, raw: 1}}
+
+	rep, err := tc.NewRepeat(lib)
+	if err != nil {
+		t.Fatalf("NewRepeat: %v", err)
+	}
+	if more, err := rep.More(lib, tc); err != nil || !more {
+		t.Fatalf("Repeat.More: more=%v err=%v", more, err)
+	}
+	if err := rep.Failed(lib, tc); err != nil {
+		t.Fatalf("Repeat.Failed: %v", err)
+	}
+}
+
+// TestStubNewRepeatError covers NewRepeat's nil-handle branch: when new_repeat
+// fails, allocate yields a nil handle and NewRepeat returns (nil, err).
+func TestStubNewRepeatError(t *testing.T) {
+	lib := Stub(t,
+		uintptr(0), E_STOP_TEST, // new_repeat: placeholder handle + failing Error
+		"boom", // diagnostic read by invoke
+	)
+	tc := &TestCase{pointer: &pointer[testCaseT]{syms: lib.syms, raw: 1}}
+	if _, err := tc.NewRepeat(lib); err == nil {
+		t.Fatal("expected NewRepeat error")
+	}
+}
+
 // TestStubTypedPrimitives exercises the typed primitive draws that write scalar,
 // struct, and byte-buffer outputs, covering every new output-parameter kind the
 // stub scripts.

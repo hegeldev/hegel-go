@@ -220,11 +220,13 @@ type resultT uintptr         // Equivalent of hegel_run_result_t
 type failureT uintptr        // Equivalent of hegel_failure_t
 type stringGenT uintptr      // Equivalent of hegel_string_generator_t
 type collectionT uintptr     // Equivalent of hegel_collection_t
-type recursionT uintptr      // Equivalent of HegelRecursion
+type recursionT uintptr      // Equivalent of hegel_recursion_t
+type repeatT uintptr         // Equivalent of hegel_repeat_t
 type poolT uintptr           // Equivalent of hegel_pool_t
 type stateMachineT uintptr   // Equivalent of hegel_state_machine_t
 type grammarT uintptr        // Equivalent of hegel_grammar_t
 type grammarBuilderT uintptr // Equivalent of hegel_grammar_builder_t
+type grammarDrawT uintptr    // Equivalent of hegel_grammar_draw_t
 
 // outputCallbackT is hegel_output_callback_t, a C function pointer
 // (void (*)(void *user_data, const char *line, size_t len)) delivering one
@@ -320,6 +322,7 @@ type symbols struct {
 	SettingsSetPhases                   func(ctxT, settingsT, Phase) Error
 	SettingsSetSuppressHealthCheck      func(ctxT, settingsT, HealthCheck) Error
 	SettingsSetNondeterminismStrictness func(ctxT, settingsT, NondeterminismStrictness) Error
+	SettingsSetFromString               func(ctxT, settingsT, stringT, stringT) Error
 
 	// RunStart and TestCaseFromBlob take a hegel_output_callback_t plus its
 	// void* user_data ahead of the trailing out-param. The wrapper methods
@@ -348,6 +351,10 @@ type symbols struct {
 	RecursionLeaf            func(ctxT, testCaseT, recursionT) Error
 	RecursionRetry           func(ctxT, testCaseT, recursionT) Error
 	RecursionFree            func(ctxT, recursionT) Error
+	NewRepeat                func(ctxT, testCaseT, out[repeatT]) Error
+	RepeatMore               func(ctxT, testCaseT, repeatT, out[bool]) Error
+	RepeatFailed             func(ctxT, testCaseT, repeatT) Error
+	RepeatFree               func(ctxT, repeatT) Error
 	NewPool                  func(ctxT, testCaseT, out[poolT]) Error
 	PoolAdd                  func(ctxT, testCaseT, poolT, out[int64]) Error
 	PoolGenerate             func(ctxT, testCaseT, poolT, bool, out[int64]) Error
@@ -394,6 +401,11 @@ type symbols struct {
 	GrammarFree           func(ctxT, grammarT) Error
 	GrammarPlaceholder    func(ctxT, grammarT, stringT, out[stringT]) Error
 	GenerateGrammar       func(ctxT, testCaseT, grammarT, uint64, out[ownedStringT]) Error
+	GrammarDrawNew        func(ctxT, grammarT, uint64, out[grammarDrawT]) Error
+	GrammarDrawNext       func(ctxT, testCaseT, grammarDrawT, out[uint64]) Error
+	GrammarDrawProvide    func(ctxT, grammarDrawT, stringT) Error
+	GrammarDrawResult     func(ctxT, grammarDrawT, out[ownedStringT]) Error
+	GrammarDrawFree       func(ctxT, grammarDrawT) Error
 
 	ResultFree         func(ctxT, resultT) Error
 	ResultStatus       func(ctxT, resultT, out[RunStatus]) Error
@@ -746,6 +758,7 @@ func tryOpen(path string) (syms *symbols, err error) {
 		{"hegel_settings_set_phases", &syms.SettingsSetPhases},
 		{"hegel_settings_set_suppress_health_check", &syms.SettingsSetSuppressHealthCheck},
 		{"hegel_settings_set_nondeterminism_strictness", &syms.SettingsSetNondeterminismStrictness},
+		{"hegel_settings_set_from_string", &syms.SettingsSetFromString},
 
 		{"hegel_run_start", &syms.RunStart},
 		{"hegel_run_start_blob", &syms.RunStartBlob},
@@ -769,6 +782,10 @@ func tryOpen(path string) (syms *symbols, err error) {
 		{"hegel_recursion_leaf", &syms.RecursionLeaf},
 		{"hegel_recursion_retry", &syms.RecursionRetry},
 		{"hegel_recursion_free", &syms.RecursionFree},
+		{"hegel_new_repeat", &syms.NewRepeat},
+		{"hegel_repeat_more", &syms.RepeatMore},
+		{"hegel_repeat_failed", &syms.RepeatFailed},
+		{"hegel_repeat_free", &syms.RepeatFree},
 		{"hegel_new_pool", &syms.NewPool},
 		{"hegel_pool_add", &syms.PoolAdd},
 		{"hegel_pool_generate", &syms.PoolGenerate},
@@ -811,6 +828,11 @@ func tryOpen(path string) (syms *symbols, err error) {
 		{"hegel_grammar_free", &syms.GrammarFree},
 		{"hegel_grammar_placeholder", &syms.GrammarPlaceholder},
 		{"hegel_generate_grammar", &syms.GenerateGrammar},
+		{"hegel_grammar_draw_new", &syms.GrammarDrawNew},
+		{"hegel_grammar_draw_next", &syms.GrammarDrawNext},
+		{"hegel_grammar_draw_provide", &syms.GrammarDrawProvide},
+		{"hegel_grammar_draw_result", &syms.GrammarDrawResult},
+		{"hegel_grammar_draw_free", &syms.GrammarDrawFree},
 
 		{"hegel_run_result_free", &syms.ResultFree},
 		{"hegel_run_result_status", &syms.ResultStatus},
@@ -1124,6 +1146,21 @@ func (s *Settings) SuppressHealthCheck(ctx *Context, checks HealthCheck) error {
 func (s *Settings) NondeterminismStrictness(ctx *Context, strictness NondeterminismStrictness) error {
 	return ctx.invoke("hegel_settings_set_nondeterminism_strictness", func(ctx ctxT) Error {
 		e := s.syms.SettingsSetNondeterminismStrictness(ctx, s.raw, strictness)
+		runtime.KeepAlive(s)
+		return e
+	})
+}
+
+// SetFromString applies one setting from its textual hegel.toml spelling,
+// naming the key (for example "test_cases", "seed", "phases" or "database")
+// and the value in that key's vocabulary. The test location is the one setting
+// it cannot reach; use [Settings.TestLocation] for that.
+//
+// An unknown key or a value outside its vocabulary returns an error wrapping
+// [E_INVALID_ARG], leaving the settings unchanged.
+func (s *Settings) SetFromString(ctx *Context, key, value string) error {
+	return ctx.invoke("hegel_settings_set_from_string", func(ctx ctxT) Error {
+		e := s.syms.SettingsSetFromString(ctx, s.raw, cString(key), cString(value))
 		runtime.KeepAlive(s)
 		return e
 	})
@@ -1575,7 +1612,7 @@ func (tc *TestCase) CollectionReject(ctx *Context, coll *Collection, why string)
 	})
 }
 
-// Recursion wraps a HegelRecursion: an engine-managed recursive generation
+// Recursion wraps a hegel_recursion_t: an engine-managed recursive generation
 // scope created via [TestCase.NewRecursion] for one draw of a recursively
 // defined value (a tree, a document, ...). It tracks the leaf budget and retry
 // bookkeeping and is driven through any handle of the same test-case family. It
@@ -1701,6 +1738,52 @@ func (pool *Pool) Restore(ctx *Context, tc *TestCase, variableID int64) error {
 		e := pool.syms.PoolRestore(ctx, tc.raw, pool.raw, variableID)
 		runtime.KeepAlive(tc)
 		runtime.KeepAlive(pool)
+		return e
+	})
+}
+
+// Repeat wraps a hegel_repeat_t: an engine-driven repeat loop that draws how
+// many times to run a body from a test case's stream, for a bounded sequence of
+// actions whose failing iteration the shrinker can isolate. It is owned by the
+// caller and released automatically via the GC (hegel_repeat_free).
+type Repeat pointer[repeatT]
+
+// NewRepeat opens a repeat loop driven by tc's stream. The returned handle is
+// owned by the caller and freed automatically via the GC.
+func (tc *TestCase) NewRepeat(ctx *Context) (*Repeat, error) {
+	ptr, err := allocate(ctx, "hegel_new_repeat", func(ctx ctxT, raw *repeatT) Error {
+		e := tc.syms.NewRepeat(ctx, tc.raw, raw)
+		runtime.KeepAlive(tc)
+		return e
+	}, tc.syms.RepeatFree)
+	if ptr == nil {
+		return nil, err
+	}
+	return (*Repeat)(ptr), nil
+}
+
+// More reports whether the loop wants another iteration, drawing the decision
+// from tc's stream. Call it before each iteration and run the body only on
+// true; false ends the loop.
+func (r *Repeat) More(ctx *Context, tc *TestCase) (bool, error) {
+	err := ctx.invoke("hegel_repeat_more", func(ctx ctxT) Error {
+		e := r.syms.RepeatMore(ctx, tc.raw, r.raw, &tc.outBool)
+		runtime.KeepAlive(tc)
+		runtime.KeepAlive(r)
+		return e
+	})
+	return tc.outBool, err
+}
+
+// Failed marks the iteration just run as failed (the body raised anything other
+// than a failed assumption), ending the loop. Call it before completing the
+// test case as interesting so the shrinker can tell the failing iteration from
+// the ones before it.
+func (r *Repeat) Failed(ctx *Context, tc *TestCase) error {
+	return ctx.invoke("hegel_repeat_failed", func(ctx ctxT) Error {
+		e := r.syms.RepeatFailed(ctx, tc.raw, r.raw)
+		runtime.KeepAlive(tc)
+		runtime.KeepAlive(r)
 		return e
 	})
 }
