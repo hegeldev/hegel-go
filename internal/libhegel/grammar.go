@@ -134,3 +134,83 @@ func (tc *TestCase) GenerateGrammar(ctx *Context, grammar *Grammar, maxSize uint
 	_ = tc.syms.OwnedStringFree(0, &tc.outStringRes)
 	return value, nil
 }
+
+// GrammarDraw is one draw of a grammar string whose explicit terminals take
+// caller-supplied values.
+//
+// Driven by Next / Provide and read with Result; released automatically via the
+// GC.
+type GrammarDraw pointer[grammarDrawT]
+
+// DrawNew starts a draw of this grammar whose explicit terminals take
+// caller-supplied values.
+//
+// maxSize caps the characters (the supplied values included), or selects the
+// grammar's cap when zero. Nothing is drawn until GrammarDraw.Next. The
+// returned handle is owned by the caller and freed automatically via the GC.
+//
+// A nil grammar returns a nil draw and an error.
+func (g *Grammar) DrawNew(ctx *Context, maxSize uint64) (*GrammarDraw, error) {
+	ptr, err := allocate(ctx, "hegel_grammar_draw_new", func(ctx ctxT, raw *grammarDrawT) Error {
+		e := g.syms.GrammarDrawNew(ctx, g.raw, maxSize, raw)
+		runtime.KeepAlive(g)
+		return e
+	}, g.syms.GrammarDrawFree)
+	if ptr == nil {
+		return nil, err
+	}
+	return (*GrammarDraw)(ptr), nil
+}
+
+// Next advances the draw to the next explicit terminal that needs a value,
+// drawing the string from tc when an attempt starts. tc must be the test case
+// every earlier call on this draw was given.
+//
+// It returns the index, in the explicitNames given to Context.GrammarNew, of
+// the terminal whose value is due; supply it with Provide before calling Next
+// again. E_NOT_FOUND signals that no terminal is left and the string is
+// complete (read it with Result); E_ASSUME means the test case was concluded
+// invalid.
+func (d *GrammarDraw) Next(ctx *Context, tc *TestCase) (uint64, error) {
+	var terminal uint64
+	err := ctx.invoke("hegel_grammar_draw_next", func(ctx ctxT) Error {
+		e := d.syms.GrammarDrawNext(ctx, tc.raw, d.raw, &terminal)
+		runtime.KeepAlive(tc)
+		runtime.KeepAlive(d)
+		return e
+	})
+	return terminal, err
+}
+
+// Provide supplies the value of the explicit terminal Next asked for. The value
+// is copied and must be UTF-8.
+//
+// A value that is not valid UTF-8, or a call when no value is due, returns an error.
+func (d *GrammarDraw) Provide(ctx *Context, value string) error {
+	return ctx.invoke("hegel_grammar_draw_provide", func(ctx ctxT) Error {
+		e := d.syms.GrammarDrawProvide(ctx, d.raw, cString(value))
+		runtime.KeepAlive(d)
+		return e
+	})
+}
+
+// Result returns the string the draw produced, with each explicit terminal's
+// placeholder marker replaced by the value supplied for it.
+//
+// Call it once Next has returned E_NOT_FOUND. A draw that is not complete yet
+// returns an error wrapping E_NOT_COMPLETE.
+func (d *GrammarDraw) Result(ctx *Context) (string, error) {
+	var res ownedStringT
+	err := ctx.invoke("hegel_grammar_draw_result", func(ctx ctxT) Error {
+		e := d.syms.GrammarDrawResult(ctx, d.raw, &res)
+		runtime.KeepAlive(d)
+		return e
+	})
+	if err != nil {
+		return "", err
+	}
+	value := goString(stringT(res))
+	_ = d.syms.OwnedStringFree(0, &res)
+	runtime.KeepAlive(d)
+	return value, nil
+}
