@@ -1,5 +1,9 @@
 # Changelog
 
+## 0.9.28 - 2026-10-29
+
+This patch bumps our pinned libhegel ([hegeldev/hegel](https://github.com/hegeldev/hegel)) from [0.48.0](https://github.com/hegeldev/hegel/releases/tag/libhegel/0.48.0) to [0.49.0](https://github.com/hegeldev/hegel/releases/tag/libhegel/0.49.0).
+
 ## 0.9.27 - 2026-10-20
 
 This patch bumps our pinned libhegel ([hegeldev/hegel](https://github.com/hegeldev/hegel)) from [0.47.0](https://github.com/hegeldev/hegel/releases/tag/libhegel/0.47.0) to [0.48.0](https://github.com/hegeldev/hegel/releases/tag/libhegel/0.48.0).
